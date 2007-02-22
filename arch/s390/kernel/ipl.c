@@ -14,6 +14,7 @@
 #include <linux/delay.h>
 #include <linux/reboot.h>
 #include <linux/ctype.h>
+#include <asm/ipl.h>
 #include <asm/smp.h>
 #include <asm/setup.h>
 #include <asm/cpcmd.h>
@@ -41,6 +42,13 @@ enum ipl_type {
 #define IPL_CCW_STR	 "ccw"
 #define IPL_FCP_STR	 "fcp"
 #define IPL_NSS_STR	 "nss"
+
+/*
+ * Must be in data section since the bss section
+ * is not cleared when these are accessed.
+ */
+u16 ipl_devno __attribute__((__section__(".data"))) = 0;
+u32 ipl_flags __attribute__((__section__(".data"))) = 0;
 
 static char *ipl_type_str(enum ipl_type type)
 {
@@ -90,30 +98,9 @@ static char *shutdown_action_str(enum shutdown_action action)
 	case SHUTDOWN_STOP:
 		return SHUTDOWN_STOP_STR;
 	default:
-		BUG();
+		return NULL;
 	}
 }
-
-enum diag308_subcode  {
-	DIAG308_IPL   = 3,
-	DIAG308_DUMP  = 4,
-	DIAG308_SET   = 5,
-	DIAG308_STORE = 6,
-};
-
-enum diag308_ipl_type {
-	DIAG308_IPL_TYPE_FCP = 0,
-	DIAG308_IPL_TYPE_CCW = 2,
-};
-
-enum diag308_opt {
-	DIAG308_IPL_OPT_IPL  = 0x10,
-	DIAG308_IPL_OPT_DUMP = 0x20,
-};
-
-enum diag308_rc {
-	DIAG308_RC_OK = 1,
-};
 
 static int diag308_set_works = 0;
 
@@ -134,7 +121,7 @@ static struct ipl_parameter_block *dump_block_ccw;
 
 static enum shutdown_action on_panic_action = SHUTDOWN_STOP;
 
-static int diag308(unsigned long subcode, void *addr)
+int diag308(unsigned long subcode, void *addr)
 {
 	register unsigned long _addr asm("0") = (unsigned long) addr;
 	register unsigned long _rc asm("1") = 0;
