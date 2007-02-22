@@ -1465,6 +1465,7 @@ static int handle_io(struct kvm_vcpu *vcpu, struct kvm_run *kvm_run)
 		kvm_run->io.address = vmcs_readl(GUEST_LINEAR_ADDRESS);
 	} else
 		kvm_run->io.value = vcpu->regs[VCPU_REGS_RAX]; /* rax */
+	vcpu->pio_pending = 1;
 	return 0;
 }
 

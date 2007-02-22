@@ -1056,6 +1056,7 @@ static int io_interception(struct kvm_vcpu *vcpu, struct kvm_run *kvm_run)
 		}
 	} else
 		kvm_run->io.value = vcpu->svm->vmcb->save.rax;
+	vcpu->pio_pending = 1;
 	return 0;
 }
 

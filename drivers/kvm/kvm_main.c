@@ -1560,6 +1560,44 @@ void save_msrs(struct vmx_msr_entry *e, int n)
 }
 EXPORT_SYMBOL_GPL(save_msrs);
 
+static void complete_pio(struct kvm_vcpu *vcpu)
+{
+	struct kvm_io *io = &vcpu->run->io;
+	long delta;
+
+	kvm_arch_ops->cache_regs(vcpu);
+
+	if (!io->string) {
+		if (io->direction == KVM_EXIT_IO_IN)
+			memcpy(&vcpu->regs[VCPU_REGS_RAX], &io->value,
+			       io->size);
+	} else {
+		delta = 1;
+		if (io->rep) {
+			delta *= io->count;
+			/*
+			 * The size of the register should really depend on
+			 * current address size.
+			 */
+			vcpu->regs[VCPU_REGS_RCX] -= delta;
+		}
+		if (io->string_down)
+			delta = -delta;
+		delta *= io->size;
+		if (io->direction == KVM_EXIT_IO_IN)
+			vcpu->regs[VCPU_REGS_RDI] += delta;
+		else
+			vcpu->regs[VCPU_REGS_RSI] += delta;
+	}
+	
+	vcpu->pio_pending = 0;
+	vcpu->run->io_completed = 0;
+
+	kvm_arch_ops->decache_regs(vcpu);
+
+	kvm_arch_ops->skip_emulated_instruction(vcpu);
+}
+
 static int kvm_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *kvm_run)
 {
 	int r;
@@ -1574,10 +1612,15 @@ static int kvm_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *kvm_run)
 		kvm_run->emulated = 0;
 	}
 
-	if (kvm_run->mmio_completed) {
-		memcpy(vcpu->mmio_data, kvm_run->mmio.data, 8);
-		vcpu->mmio_read_completed = 1;
-		emulate_instruction(vcpu, kvm_run, vcpu->mmio_fault_cr2, 0);
+	if (kvm_run->io_completed) {
+		if (vcpu->pio_pending)
+			complete_pio(vcpu);
+		else {
+			memcpy(vcpu->mmio_data, kvm_run->mmio.data, 8);
+			vcpu->mmio_read_completed = 1;
+			emulate_instruction(vcpu, kvm_run,
+					    vcpu->mmio_fault_cr2, 0);
+		}
 	}
 
 	vcpu->mmio_needed = 0;
