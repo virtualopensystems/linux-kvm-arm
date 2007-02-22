@@ -14,6 +14,7 @@
 #include <linux/module.h>
 #include <linux/pfn.h>
 #include <linux/uaccess.h>
+#include <asm/ipl.h>
 #include <asm/lowcore.h>
 #include <asm/processor.h>
 #include <asm/sections.h>
@@ -109,7 +110,7 @@ static inline void create_kernel_nss(void) { }
  */
 static noinline __init void clear_bss_section(void)
 {
-	memset(__bss_start, 0, _end - __bss_start);
+	memset(__bss_start, 0, __bss_stop - __bss_start);
 }
 
 /*
@@ -129,7 +130,7 @@ static noinline __init void detect_machine_type(void)
 {
 	struct cpuinfo_S390 *cpuinfo = &S390_lowcore.cpu_data;
 
-	asm volatile("stidp %0" : "=m" (S390_lowcore.cpu_data.cpu_id));
+	get_cpu_id(&S390_lowcore.cpu_data.cpu_id);
 
 	/* Running under z/VM ? */
 	if (cpuinfo->cpu_id.version == 0xff)
