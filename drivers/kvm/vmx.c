@@ -1459,6 +1459,7 @@ static int handle_io(struct kvm_vcpu *vcpu, struct kvm_run *kvm_run)
 		= (vmcs_readl(GUEST_RFLAGS) & X86_EFLAGS_DF) != 0;
 	kvm_run->io.rep = (exit_qualification & 32) != 0;
 	kvm_run->io.port = exit_qualification >> 16;
+	kvm_run->io.count = 1;
 	if (kvm_run->io.string) {
 		if (!get_io_count(vcpu, &kvm_run->io.count))
 			return 1;
