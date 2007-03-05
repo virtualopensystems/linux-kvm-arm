@@ -278,6 +278,9 @@ struct kvm_vcpu {
 	gva_t mmio_fault_cr2;
 	int pio_pending;
 
+	int sigset_active;
+	sigset_t sigset;
+
 	struct {
 		int active;
 		u8 save_iopl;
