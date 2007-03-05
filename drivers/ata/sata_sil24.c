@@ -380,8 +380,10 @@ static struct scsi_host_template sil24_sht = {
 	.slave_configure	= ata_scsi_slave_config,
 	.slave_destroy		= ata_scsi_slave_destroy,
 	.bios_param		= ata_std_bios_param,
+#ifdef CONFIG_PM
 	.suspend		= ata_scsi_device_suspend,
 	.resume			= ata_scsi_device_resume,
+#endif
 };
 
 static const struct ata_port_operations sil24_ops = {
@@ -647,7 +649,6 @@ static inline void sil24_fill_sg(struct ata_queued_cmd *qc,
 				 struct sil24_sge *sge)
 {
 	struct scatterlist *sg;
-	unsigned int idx = 0;
 
 	ata_for_each_sg(sg, qc) {
 		sge->addr = cpu_to_le64(sg_dma_address(sg));
@@ -656,9 +657,7 @@ static inline void sil24_fill_sg(struct ata_queued_cmd *qc,
 			sge->flags = cpu_to_le32(SGE_TRM);
 		else
 			sge->flags = 0;
-
 		sge++;
-		idx++;
 	}
 }
 
