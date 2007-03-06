@@ -426,7 +426,7 @@ static inline void sk_acceptq_added(struct sock *sk)
 
 static inline int sk_acceptq_is_full(struct sock *sk)
 {
-	return sk->sk_ack_backlog > sk->sk_max_ack_backlog;
+	return sk->sk_ack_backlog >= sk->sk_max_ack_backlog;
 }
 
 /*
@@ -1278,7 +1278,7 @@ static inline int sock_writeable(const struct sock *sk)
 
 static inline gfp_t gfp_any(void)
 {
-	return in_softirq() ? GFP_ATOMIC : GFP_KERNEL;
+	return in_atomic() ? GFP_ATOMIC : GFP_KERNEL;
 }
 
 static inline long sock_rcvtimeo(const struct sock *sk, int noblock)
