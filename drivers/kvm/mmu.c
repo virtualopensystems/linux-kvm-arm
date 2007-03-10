@@ -1099,7 +1099,7 @@ static void mmu_pre_write_zap_pte(struct kvm_vcpu *vcpu,
 {
 	u64 pte;
 	struct kvm_mmu_page *child;
-				  
+
 	pte = *spte;
 	if (is_present_pte(pte)) {
 		if (page->role.level == PT_PAGE_TABLE_LEVEL)
@@ -1164,7 +1164,7 @@ void kvm_mmu_pre_write(struct kvm_vcpu *vcpu, gpa_t gpa, int bytes)
 		level = page->role.level;
 		npte = 1;
 		if (page->role.glevels == PT32_ROOT_LEVEL) {
-			page_offset <<= 1;          /* 32->64 */
+			page_offset <<= 1;	/* 32->64 */
 			/*
 			 * A 32-bit pde maps 4MB while the shadow pdes map
 			 * only 2MB.  So we need to double the offset again
