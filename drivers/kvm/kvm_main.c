@@ -1186,6 +1186,7 @@ int emulate_instruction(struct kvm_vcpu *vcpu,
 	int r;
 	int cs_db, cs_l;
 
+	vcpu->mmio_fault_cr2 = cr2;
 	kvm_arch_ops->cache_regs(vcpu);
 
 	kvm_arch_ops->get_cs_db_l_bits(vcpu, &cs_db, &cs_l);
@@ -1804,9 +1805,11 @@ static int kvm_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *kvm_run)
 			r = complete_pio(vcpu);
 			if (r)
 				goto out;
-		} else {
+		} else if (!vcpu->mmio_is_write) {
 			memcpy(vcpu->mmio_data, kvm_run->mmio.data, 8);
 			vcpu->mmio_read_completed = 1;
+			emulate_instruction(vcpu, kvm_run,
+					    vcpu->mmio_fault_cr2, 0);
 		}
 	}
 
