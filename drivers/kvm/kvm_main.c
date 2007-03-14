@@ -830,6 +830,61 @@ out:
 	return r;
 }
 
+/*
+ * Get the memory map for a memory slot.
+ * A bit is on iff the page exists.
+ * To be used when there may be "holes" in the memory.
+ */
+static int kvm_vm_ioctl_get_memory_map(struct kvm *kvm,
+				       struct kvm_dirty_log *log)
+{
+	struct kvm_memory_slot *memslot;
+	unsigned char *mem_bitmap = NULL;
+	int r, n;
+	unsigned long i;
+
+	/* mark busy */
+	spin_lock(&kvm->lock);
+	++kvm->busy;
+	spin_unlock(&kvm->lock);
+
+	r = -EINVAL;
+	if (log->slot >= KVM_MEMORY_SLOTS)
+		goto out;
+
+	memslot = &kvm->memslots[log->slot];
+	r = -ENOENT;
+	if (!memslot->phys_mem)
+		goto out;
+	
+	/* allocate a temporary bitmap */
+	n = memslot->npages / 8; /* one bit per page */
+	r = -ENOMEM;
+	mem_bitmap = vmalloc(n);
+	if (!mem_bitmap)
+		goto out;
+	memset(mem_bitmap, 0, n);
+
+	/* fill the bitmap */
+	for (i = 0; i < memslot->npages; ++i)
+		if (memslot->phys_mem[i])
+			__set_bit(i, mem_bitmap);
+	
+	/* copy bitmap to user */
+	r = -EFAULT;
+	if (copy_to_user(log->dirty_bitmap, mem_bitmap, n))
+		goto out;
+	
+	r = 0;
+out:
+	if (mem_bitmap)
+		vfree(mem_bitmap);
+	spin_lock(&kvm->lock);
+	--kvm->busy;
+	spin_unlock(&kvm->lock);
+	return r;
+}
+
 struct kvm_memory_slot *gfn_to_memslot(struct kvm *kvm, gfn_t gfn)
 {
 	int i;
@@ -2153,6 +2208,17 @@ static long kvm_vm_ioctl(struct file *filp,
 		if (copy_from_user(&log, argp, sizeof log))
 			goto out;
 		r = kvm_vm_ioctl_get_dirty_log(kvm, &log);
+		if (r)
+			goto out;
+		break;
+	}
+	case KVM_GET_MEM_MAP: {
+		struct kvm_dirty_log log;
+
+		r = -EFAULT;
+		if (copy_from_user(&log, argp, sizeof log))
+			goto out;
+		r = kvm_vm_ioctl_get_memory_map(kvm, &log);
 		if (r)
 			goto out;
 		break;

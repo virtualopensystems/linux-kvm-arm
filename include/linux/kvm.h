@@ -200,7 +200,7 @@ struct kvm_debug_guest {
 	__u32 singlestep;
 };
 
-/* for KVM_GET_DIRTY_LOG */
+/* for KVM_GET_DIRTY_LOG and KVM_GET_MEM_MAP */
 struct kvm_dirty_log {
 	__u32 slot;
 	__u32 padding;
@@ -229,6 +229,7 @@ struct kvm_dirty_log {
  */
 #define KVM_CREATE_VCPU           _IOW(KVMIO, 11, int)
 #define KVM_GET_DIRTY_LOG         _IOW(KVMIO, 12, struct kvm_dirty_log)
+#define KVM_GET_MEM_MAP           _IOW(KVMIO, 16, struct kvm_dirty_log)
 
 /*
  * ioctls for vcpu fds
