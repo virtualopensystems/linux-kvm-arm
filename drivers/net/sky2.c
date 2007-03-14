@@ -1053,8 +1053,7 @@ static void sky2_vlan_rx_kill_vid(struct net_device *dev, unsigned short vid)
 
 	sky2_write32(hw, SK_REG(port, RX_GMF_CTRL_T), RX_VLAN_STRIP_OFF);
 	sky2_write32(hw, SK_REG(port, TX_GMF_CTRL_T), TX_VLAN_TAG_OFF);
-	if (sky2->vlgrp)
-		sky2->vlgrp->vlan_devices[vid] = NULL;
+	vlan_group_set_device(sky2->vlgrp, vid, NULL);
 
 	netif_tx_unlock_bh(dev);
 }
@@ -2166,9 +2165,27 @@ force_update:
 			/* fall through */
 #endif
 		case OP_RXCHKS:
-			skb = sky2->rx_ring[sky2->rx_next].skb;
-			skb->ip_summed = CHECKSUM_COMPLETE;
-			skb->csum = status & 0xffff;
+			if (!sky2->rx_csum)
+				break;
+
+			/* Both checksum counters are programmed to start at
+			 * the same offset, so unless there is a problem they
+			 * should match. This failure is an early indication that
+			 * hardware receive checksumming won't work.
+			 */
+			if (likely(status >> 16 == (status & 0xffff))) {
+				skb = sky2->rx_ring[sky2->rx_next].skb;
+				skb->ip_summed = CHECKSUM_COMPLETE;
+				skb->csum = status & 0xffff;
+			} else {
+				printk(KERN_NOTICE PFX "%s: hardware receive "
+				       "checksum problem (status = %#x)\n",
+				       dev->name, status);
+				sky2->rx_csum = 0;
+				sky2_write32(sky2->hw,
+					     Q_ADDR(rxqaddr[le->link], Q_CSR),
+					     BMU_DIS_RX_CHKSUM);
+			}
 			break;
 
 		case OP_TXINDEXLE:

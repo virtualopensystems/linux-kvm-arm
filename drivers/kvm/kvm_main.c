@@ -1116,6 +1116,7 @@ int emulate_instruction(struct kvm_vcpu *vcpu,
 	int r;
 	int cs_db, cs_l;
 
+	vcpu->mmio_fault_cr2 = cr2;
 	kvm_arch_ops->cache_regs(vcpu);
 
 	kvm_arch_ops->get_cs_db_l_bits(vcpu, &cs_db, &cs_l);
@@ -1177,7 +1178,7 @@ int kvm_hypercall(struct kvm_vcpu *vcpu, struct kvm_run *run)
 {
 	unsigned long nr, a0, a1, a2, a3, a4, a5, ret;
 
-	kvm_arch_ops->decache_regs(vcpu);
+	kvm_arch_ops->cache_regs(vcpu);
 	ret = -KVM_EINVAL;
 #ifdef CONFIG_X86_64
 	if (is_long_mode(vcpu)) {
@@ -1204,7 +1205,7 @@ int kvm_hypercall(struct kvm_vcpu *vcpu, struct kvm_run *run)
 		;
 	}
 	vcpu->regs[VCPU_REGS_RAX] = ret;
-	kvm_arch_ops->cache_regs(vcpu);
+	kvm_arch_ops->decache_regs(vcpu);
 	return 1;
 }
 EXPORT_SYMBOL_GPL(kvm_hypercall);
@@ -1519,6 +1520,7 @@ static int kvm_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *kvm_run)
 	if (kvm_run->mmio_completed) {
 		memcpy(vcpu->mmio_data, kvm_run->mmio.data, 8);
 		vcpu->mmio_read_completed = 1;
+		emulate_instruction(vcpu, kvm_run, vcpu->mmio_fault_cr2, 0);
 	}
 
 	vcpu->mmio_needed = 0;
@@ -2299,7 +2301,7 @@ static struct file_operations kvm_chardev_ops = {
 };
 
 static struct miscdevice kvm_dev = {
-	MISC_DYNAMIC_MINOR,
+	KVM_MINOR,
 	"kvm",
 	&kvm_chardev_ops,
 };
@@ -2464,7 +2466,7 @@ int kvm_init_arch(struct kvm_arch_ops *ops, struct module *module)
 
 	r = kvm_arch_ops->hardware_setup();
 	if (r < 0)
-	    return r;
+		goto out;
 
 	on_each_cpu(kvm_arch_ops->hardware_enable, NULL, 0, 1);
 	r = register_cpu_notifier(&kvm_cpu_notifier);
@@ -2500,6 +2502,8 @@ out_free_2:
 out_free_1:
 	on_each_cpu(kvm_arch_ops->hardware_disable, NULL, 0, 1);
 	kvm_arch_ops->hardware_unsetup();
+out:
+	kvm_arch_ops = NULL;
 	return r;
 }
 

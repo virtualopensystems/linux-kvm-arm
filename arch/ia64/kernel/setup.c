@@ -91,8 +91,6 @@ static struct resource code_resource = {
 	.name	= "Kernel code",
 	.flags	= IORESOURCE_BUSY | IORESOURCE_MEM
 };
-extern void efi_initialize_iomem_resources(struct resource *,
-		struct resource *);
 extern char _text[], _end[], _etext[];
 
 unsigned long ia64_max_cacheline_size;
@@ -249,6 +247,12 @@ reserve_memory (void)
 		rsvd_region[n].end   = rsvd_region[n].start + ia64_boot_param->initrd_size;
 		n++;
 	}
+#endif
+
+#ifdef CONFIG_PROC_VMCORE
+	if (reserve_elfcorehdr(&rsvd_region[n].start,
+			       &rsvd_region[n].end) == 0)
+		n++;
 #endif
 
 	efi_memmap_init(&rsvd_region[n].start, &rsvd_region[n].end);
@@ -453,6 +457,30 @@ static int __init parse_elfcorehdr(char *arg)
 	return 0;
 }
 early_param("elfcorehdr", parse_elfcorehdr);
+
+int __init reserve_elfcorehdr(unsigned long *start, unsigned long *end)
+{
+	unsigned long length;
+
+	/* We get the address using the kernel command line,
+	 * but the size is extracted from the EFI tables.
+	 * Both address and size are required for reservation
+	 * to work properly.
+	 */
+
+	if (elfcorehdr_addr >= ELFCORE_ADDR_MAX)
+		return -EINVAL;
+
+	if ((length = vmcore_find_descriptor_size(elfcorehdr_addr)) == 0) {
+		elfcorehdr_addr = ELFCORE_ADDR_MAX;
+		return -EINVAL;
+	}
+
+	*start = (unsigned long)__va(elfcorehdr_addr);
+	*end = *start + length;
+	return 0;
+}
+
 #endif /* CONFIG_PROC_VMCORE */
 
 void __init

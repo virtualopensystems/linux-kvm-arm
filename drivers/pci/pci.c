@@ -757,7 +757,8 @@ int pci_enable_device(struct pci_dev *dev)
  * when a device is enabled using managed PCI device enable interface.
  */
 struct pci_devres {
-	unsigned int disable:1;
+	unsigned int enabled:1;
+	unsigned int pinned:1;
 	unsigned int orig_intx:1;
 	unsigned int restore_intx:1;
 	u32 region_mask;
@@ -781,7 +782,7 @@ static void pcim_release(struct device *gendev, void *res)
 	if (this->restore_intx)
 		pci_intx(dev, this->orig_intx);
 
-	if (this->disable)
+	if (this->enabled && !this->pinned)
 		pci_disable_device(dev);
 }
 
@@ -820,12 +821,12 @@ int pcim_enable_device(struct pci_dev *pdev)
 	dr = get_pci_dr(pdev);
 	if (unlikely(!dr))
 		return -ENOMEM;
-	WARN_ON(!!dr->disable);
+	WARN_ON(!!dr->enabled);
 
 	rc = pci_enable_device(pdev);
 	if (!rc) {
 		pdev->is_managed = 1;
-		dr->disable = 1;
+		dr->enabled = 1;
 	}
 	return rc;
 }
@@ -843,9 +844,9 @@ void pcim_pin_device(struct pci_dev *pdev)
 	struct pci_devres *dr;
 
 	dr = find_pci_dr(pdev);
-	WARN_ON(!dr || !dr->disable);
+	WARN_ON(!dr || !dr->enabled);
 	if (dr)
-		dr->disable = 0;
+		dr->pinned = 1;
 }
 
 /**
@@ -876,17 +877,10 @@ pci_disable_device(struct pci_dev *dev)
 
 	dr = find_pci_dr(dev);
 	if (dr)
-		dr->disable = 0;
+		dr->enabled = 0;
 
 	if (atomic_sub_return(1, &dev->enable_cnt) != 0)
 		return;
-
-	if (dev->msi_enabled)
-		disable_msi_mode(dev, pci_find_capability(dev, PCI_CAP_ID_MSI),
-			PCI_CAP_ID_MSI);
-	if (dev->msix_enabled)
-		disable_msi_mode(dev, pci_find_capability(dev, PCI_CAP_ID_MSI),
-			PCI_CAP_ID_MSIX);
 
 	pci_read_config_word(dev, PCI_COMMAND, &pci_command);
 	if (pci_command & PCI_COMMAND_MASTER) {
@@ -1274,6 +1268,33 @@ pci_intx(struct pci_dev *pdev, int enable)
 			dr->restore_intx = 1;
 			dr->orig_intx = !enable;
 		}
+	}
+}
+
+/**
+ * pci_msi_off - disables any msi or msix capabilities
+ * @pdev: the PCI device to operate on
+ *
+ * If you want to use msi see pci_enable_msi and friends.
+ * This is a lower level primitive that allows us to disable
+ * msi operation at the device level.
+ */
+void pci_msi_off(struct pci_dev *dev)
+{
+	int pos;
+	u16 control;
+
+	pos = pci_find_capability(dev, PCI_CAP_ID_MSI);
+	if (pos) {
+		pci_read_config_word(dev, pos + PCI_MSI_FLAGS, &control);
+		control &= ~PCI_MSI_FLAGS_ENABLE;
+		pci_write_config_word(dev, pos + PCI_MSI_FLAGS, control);
+	}
+	pos = pci_find_capability(dev, PCI_CAP_ID_MSIX);
+	if (pos) {
+		pci_read_config_word(dev, pos + PCI_MSIX_FLAGS, &control);
+		control &= ~PCI_MSIX_FLAGS_ENABLE;
+		pci_write_config_word(dev, pos + PCI_MSIX_FLAGS, control);
 	}
 }
 

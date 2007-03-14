@@ -38,7 +38,7 @@ static struct dentry *lock_parent(struct dentry *dentry)
 	struct dentry *dir;
 
 	dir = dget(dentry->d_parent);
-	mutex_lock(&(dir->d_inode->i_mutex));
+	mutex_lock_nested(&(dir->d_inode->i_mutex), I_MUTEX_PARENT);
 	return dir;
 }
 
@@ -168,9 +168,9 @@ static int grow_file(struct dentry *ecryptfs_dentry, struct file *lower_file,
 		goto out;
 	}
 	i_size_write(inode, 0);
-	ecryptfs_write_inode_size_to_metadata(lower_file, lower_inode, inode,
-					      ecryptfs_dentry,
-					      ECRYPTFS_LOWER_I_MUTEX_NOT_HELD);
+	rc = ecryptfs_write_inode_size_to_metadata(lower_file, lower_inode,
+			inode, ecryptfs_dentry,
+			ECRYPTFS_LOWER_I_MUTEX_NOT_HELD);
 	ecryptfs_inode_to_private(inode)->crypt_stat.flags |= ECRYPTFS_NEW_FILE;
 out:
 	return rc;

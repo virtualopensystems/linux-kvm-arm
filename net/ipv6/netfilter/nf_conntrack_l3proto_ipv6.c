@@ -257,6 +257,7 @@ static unsigned int ipv6_conntrack_in(unsigned int hooknum,
 		}
 		nf_conntrack_get(reasm->nfct);
 		(*pskb)->nfct = reasm->nfct;
+		(*pskb)->nfctinfo = reasm->nfctinfo;
 		return NF_ACCEPT;
 	}
 
@@ -353,8 +354,7 @@ static ctl_table nf_ct_ipv6_sysctl_table[] = {
 };
 #endif
 
-#if defined(CONFIG_NF_CT_NETLINK) || \
-    defined(CONFIG_NF_CT_NETLINK_MODULE)
+#if defined(CONFIG_NF_CT_NETLINK) || defined(CONFIG_NF_CT_NETLINK_MODULE)
 
 #include <linux/netfilter/nfnetlink.h>
 #include <linux/netfilter/nfnetlink_conntrack.h>
@@ -403,8 +403,7 @@ struct nf_conntrack_l3proto nf_conntrack_l3proto_ipv6 = {
 	.print_tuple		= ipv6_print_tuple,
 	.print_conntrack	= ipv6_print_conntrack,
 	.prepare		= ipv6_prepare,
-#if defined(CONFIG_NF_CT_NETLINK) || \
-    defined(CONFIG_NF_CT_NETLINK_MODULE)
+#if defined(CONFIG_NF_CT_NETLINK) || defined(CONFIG_NF_CT_NETLINK_MODULE)
 	.tuple_to_nfattr	= ipv6_tuple_to_nfattr,
 	.nfattr_to_tuple	= ipv6_nfattr_to_tuple,
 #endif
