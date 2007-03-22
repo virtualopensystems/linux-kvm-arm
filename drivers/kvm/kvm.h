@@ -288,7 +288,6 @@ struct kvm_vcpu {
 	int mmio_size;
 	unsigned char mmio_data[8];
 	gpa_t mmio_phys_addr;
-	gva_t mmio_fault_cr2;
 	struct kvm_pio_request pio;
 	void *pio_data;
 
