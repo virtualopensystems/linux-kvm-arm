@@ -1661,6 +1661,7 @@ static int pio_copy_data(struct kvm_vcpu *vcpu)
 		 PAGE_KERNEL);
 	if (!q) {
 		kvm_arch_ops->vcpu_load(vcpu);
+		free_pio_guest_pages(vcpu);
 		return -ENOMEM;
 	}
 	q += vcpu->pio.guest_page_offset;
@@ -1672,6 +1673,7 @@ static int pio_copy_data(struct kvm_vcpu *vcpu)
 	q -= vcpu->pio.guest_page_offset;
 	vunmap(q);
 	kvm_arch_ops->vcpu_load(vcpu);
+	free_pio_guest_pages(vcpu);
 	return 0;
 }
 
