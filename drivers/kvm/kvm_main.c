@@ -1757,6 +1757,11 @@ int kvm_setup_pio(struct kvm_vcpu *vcpu, struct kvm_run *run, int in,
 		return 0;
 	}
 
+	if (!count) {
+		kvm_arch_ops->skip_emulated_instruction(vcpu);
+		return 1;
+	}
+
 	now = min(count, PAGE_SIZE / size);
 
 	if (!down)
