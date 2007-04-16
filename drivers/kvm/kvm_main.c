@@ -1685,7 +1685,6 @@ static int complete_pio(struct kvm_vcpu *vcpu)
 
 	kvm_arch_ops->cache_regs(vcpu);
 
-	io->count -= io->cur_count;
 	if (!io->string) {
 		if (io->in)
 			memcpy(&vcpu->regs[VCPU_REGS_RAX], vcpu->pio_data,
@@ -1720,6 +1719,9 @@ static int complete_pio(struct kvm_vcpu *vcpu)
 	vcpu->run->io_completed = 0;
 
 	kvm_arch_ops->decache_regs(vcpu);
+
+	io->count -= io->cur_count;
+	io->cur_count = 0;
 
 	if (!io->count)
 		kvm_arch_ops->skip_emulated_instruction(vcpu);
@@ -1823,7 +1825,7 @@ static int kvm_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *kvm_run)
 	vcpu->cr8 = kvm_run->cr8;
 
 	if (kvm_run->io_completed) {
-		if (vcpu->pio.count) {
+		if (vcpu->pio.cur_count) {
 			r = complete_pio(vcpu);
 			if (r)
 				goto out;
