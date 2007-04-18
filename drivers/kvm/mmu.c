@@ -1190,6 +1190,7 @@ void kvm_mmu_pre_write(struct kvm_vcpu *vcpu, gpa_t gpa, int bytes)
 			 * and zap two pdes instead of one.
 			 */
 			if (level == PT32_ROOT_LEVEL) {
+				page_offset &= ~7; /* kill rounding error */
 				page_offset <<= 1;
 				npte = 2;
 			}
