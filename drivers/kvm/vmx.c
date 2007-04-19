@@ -323,6 +323,16 @@ static void setup_msrs(struct kvm_vcpu *vcpu)
 		nr_skip = NR_64BIT_MSRS;
 	nr_good_msrs = vcpu->nmsrs - nr_skip;
 
+	/*
+	 * MSR_K6_STAR is only needed on long mode guests, and only
+	 * if efer.sce is enabled.
+	 */
+	--nr_good_msrs;
+#if CONFIG_X86_64
+	if (is_long_mode(vcpu) && (vcpu->shadow_efer & EFER_SCE))
+		++nr_good_msrs;
+#endif
+
 	vmcs_writel(VM_ENTRY_MSR_LOAD_ADDR,
 		    virt_to_phys(vcpu->guest_msrs + nr_skip));
 	vmcs_writel(VM_EXIT_MSR_STORE_ADDR,
