@@ -328,7 +328,7 @@ static void setup_msrs(struct kvm_vcpu *vcpu)
 	 * if efer.sce is enabled.
 	 */
 	--nr_good_msrs;
-#if CONFIG_X86_64
+#ifdef CONFIG_X86_64
 	if (is_long_mode(vcpu) && (vcpu->shadow_efer & EFER_SCE))
 		++nr_good_msrs;
 #endif
