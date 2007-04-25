@@ -1999,8 +1999,7 @@ again:
 				return -EINTR;
 			}
 
-			if (need_resched())
-				kvm_resched(vcpu);
+			kvm_resched(vcpu);
 			goto again;
 		}
 	}
