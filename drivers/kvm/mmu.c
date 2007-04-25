@@ -52,7 +52,7 @@ static void kvm_mmu_audit(struct kvm_vcpu *vcpu, const char *msg) {}
 static int dbg = 1;
 #endif
 
-#if defined(MMU_DEBUG)
+#ifndef MMU_DEBUG
 #define ASSERT(x) do { } while (0)
 #else
 #define ASSERT(x)							\
