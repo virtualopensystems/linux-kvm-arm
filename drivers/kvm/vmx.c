@@ -69,6 +69,10 @@ static struct kvm_vmx_segment_field {
 	VMX_SEGMENT_FIELD(LDTR),
 };
 
+/*
+ * Keep MSR_K6_STAR at the end, as setup_msrs() will try to optimize it
+ * away by decrementing the array size.
+ */
 static const u32 vmx_msr_index[] = {
 #ifdef CONFIG_X86_64
 	MSR_SYSCALL_MASK, MSR_LSTAR, MSR_CSTAR, MSR_KERNEL_GS_BASE,
