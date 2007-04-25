@@ -52,11 +52,15 @@ static void kvm_mmu_audit(struct kvm_vcpu *vcpu, const char *msg) {}
 static int dbg = 1;
 #endif
 
+#if defined(MMU_DEBUG)
+#define ASSERT(x) do { } while (0)
+#else
 #define ASSERT(x)							\
 	if (!(x)) {							\
 		printk(KERN_WARNING "assertion failed %s:%d: %s\n",	\
 		       __FILE__, __LINE__, #x);				\
 	}
+#endif
 
 #define PT64_PT_BITS 9
 #define PT64_ENT_PER_PAGE (1 << PT64_PT_BITS)
