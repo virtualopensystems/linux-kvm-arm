@@ -438,6 +438,7 @@ static void rmap_write_protect(struct kvm_vcpu *vcpu, u64 gfn)
 	}
 }
 
+#ifdef MMU_DEBUG
 static int is_empty_shadow_page(hpa_t page_hpa)
 {
 	u64 *pos;
@@ -452,6 +453,7 @@ static int is_empty_shadow_page(hpa_t page_hpa)
 		}
 	return 1;
 }
+#endif
 
 static void kvm_mmu_free_page(struct kvm_vcpu *vcpu, hpa_t page_hpa)
 {
