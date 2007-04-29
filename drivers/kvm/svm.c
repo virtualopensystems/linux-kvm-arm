@@ -767,7 +767,7 @@ static void svm_set_cr0(struct kvm_vcpu *vcpu, unsigned long cr0)
 		vcpu->svm->vmcb->control.intercept_exceptions &= ~(1 << NM_VECTOR);
 		vcpu->fpu_active = 1;
 	}
- 
+
 	vcpu->cr0 = cr0;
 	cr0 |= CR0_PG_MASK | CR0_WP_MASK;
 	cr0 &= ~(CR0_CD_MASK | CR0_NW_MASK);
@@ -1689,7 +1689,7 @@ static void svm_set_cr3(struct kvm_vcpu *vcpu, unsigned long root)
 {
 	vcpu->svm->vmcb->save.cr3 = root;
 	force_new_asid(vcpu);
- 
+
 	if (vcpu->fpu_active) {
 		vcpu->svm->vmcb->control.intercept_exceptions |= (1 << NM_VECTOR);
 		vcpu->svm->vmcb->save.cr0 |= CR0_TS_MASK;
