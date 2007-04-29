@@ -1237,8 +1237,10 @@ int emulate_instruction(struct kvm_vcpu *vcpu,
 	kvm_arch_ops->decache_regs(vcpu);
 	kvm_arch_ops->set_rflags(vcpu, emulate_ctxt.eflags);
 
-	if (vcpu->mmio_is_write)
+	if (vcpu->mmio_is_write) {
+		vcpu->mmio_needed = 0;
 		return EMULATE_DO_MMIO;
+	}
 
 	return EMULATE_DONE;
 }
@@ -1692,8 +1694,6 @@ static int complete_pio(struct kvm_vcpu *vcpu)
 			vcpu->regs[VCPU_REGS_RSI] += delta;
 	}
 
-	vcpu->run->io_completed = 0;
-
 	kvm_arch_ops->decache_regs(vcpu);
 
 	io->count -= io->cur_count;
@@ -1800,20 +1800,18 @@ static int kvm_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *kvm_run)
 	/* re-sync apic's tpr */
 	vcpu->cr8 = kvm_run->cr8;
 
-	if (kvm_run->io_completed) {
-		if (vcpu->pio.cur_count) {
-			r = complete_pio(vcpu);
-			if (r)
-				goto out;
-		} else if (!vcpu->mmio_is_write) {
-			memcpy(vcpu->mmio_data, kvm_run->mmio.data, 8);
-			vcpu->mmio_read_completed = 1;
-			emulate_instruction(vcpu, kvm_run,
-					    vcpu->mmio_fault_cr2, 0);
-		}
+	if (vcpu->pio.cur_count) {
+		r = complete_pio(vcpu);
+		if (r)
+			goto out;
 	}
 
-	vcpu->mmio_needed = 0;
+	if (vcpu->mmio_needed) {
+		memcpy(vcpu->mmio_data, kvm_run->mmio.data, 8);
+		vcpu->mmio_read_completed = 1;
+		emulate_instruction(vcpu, kvm_run, vcpu->mmio_fault_cr2, 0);
+		vcpu->mmio_needed = 0;
+	}
 
 	if (kvm_run->exit_reason == KVM_EXIT_HYPERCALL) {
 		kvm_arch_ops->cache_regs(vcpu);
