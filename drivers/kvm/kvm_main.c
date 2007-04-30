@@ -1809,8 +1809,17 @@ static int kvm_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *kvm_run)
 	if (vcpu->mmio_needed) {
 		memcpy(vcpu->mmio_data, kvm_run->mmio.data, 8);
 		vcpu->mmio_read_completed = 1;
-		emulate_instruction(vcpu, kvm_run, vcpu->mmio_fault_cr2, 0);
 		vcpu->mmio_needed = 0;
+		r = emulate_instruction(vcpu, kvm_run,
+					vcpu->mmio_fault_cr2, 0);
+		if (r == EMULATE_DO_MMIO) {
+			/*
+			 * Read-modify-write.  Back to userspace.
+			 */
+			kvm_run->exit_reason = KVM_EXIT_MMIO;
+			r = 0;
+			goto out;
+		}
 	}
 
 	if (kvm_run->exit_reason == KVM_EXIT_HYPERCALL) {
