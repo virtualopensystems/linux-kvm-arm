@@ -370,6 +370,7 @@ static void vmx_vcpu_load(struct kvm_vcpu *vcpu)
 static void vmx_vcpu_put(struct kvm_vcpu *vcpu)
 {
 	vmx_load_host_state(vcpu);
+	kvm_put_guest_fpu(vcpu);
 	put_cpu();
 }
 
@@ -1901,11 +1902,6 @@ preempted:
 	if (vcpu->guest_debug.enabled)
 		kvm_guest_debug_pre(vcpu);
 
-	if (vcpu->fpu_active) {
-		fx_save(vcpu->host_fx_image);
-		fx_restore(vcpu->guest_fx_image);
-	}
-
 #ifdef CONFIG_X86_64
 	if (is_long_mode(vcpu)) {
 		save_msrs(vcpu->host_msrs + msr_offset_kernel_gs_base, 1);
@@ -1915,6 +1911,7 @@ preempted:
 
 again:
 	vmx_save_host_state(vcpu);
+	kvm_load_guest_fpu(vcpu);
 
 	asm (
 		/* Store host registers */
@@ -2078,11 +2075,6 @@ again:
 	}
 
 out:
-	if (vcpu->fpu_active) {
-		fx_save(vcpu->guest_fx_image);
-		fx_restore(vcpu->host_fx_image);
-	}
-
 	if (r > 0) {
 		kvm_resched(vcpu);
 		goto preempted;
