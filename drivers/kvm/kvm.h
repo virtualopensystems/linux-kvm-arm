@@ -304,6 +304,11 @@ struct kvm_vcpu {
 	char *host_fx_image;
 	char *guest_fx_image;
 	int fpu_active;
+	struct vmx_host_state {
+		int loaded;
+		u16 fs_sel, gs_sel, ldt_sel;
+		int fs_gs_ldt_reload_needed;
+	} vmx_host_state;
 
 	int mmio_needed;
 	int mmio_read_completed;
