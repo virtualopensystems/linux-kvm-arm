@@ -1926,6 +1926,11 @@ again:
 	vmx_save_host_state(vcpu);
 	kvm_load_guest_fpu(vcpu);
 
+	/*
+	 * Loading guest fpu may have cleared host cr0.ts
+	 */
+	vmcs_writel(HOST_CR0, read_cr0());
+
 	asm (
 		/* Store host registers */
 		"pushf \n\t"
