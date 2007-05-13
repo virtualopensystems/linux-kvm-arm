@@ -24,7 +24,6 @@
 
 #include <linux/module.h>
 #include <linux/kernel.h>
-#include <linux/pci.h>
 #include <linux/init.h>
 #include <linux/ioport.h>
 #include <linux/netdevice.h>
@@ -344,8 +343,8 @@ xpnet_dev_open(struct net_device *dev)
 	enum xpc_retval ret;
 
 
-	dev_dbg(xpnet, "calling xpc_connect(%d, 0x%p, NULL, %ld, %ld, %d, "
-		"%d)\n", XPC_NET_CHANNEL, xpnet_connection_activity,
+	dev_dbg(xpnet, "calling xpc_connect(%d, 0x%p, NULL, %ld, %ld, %ld, "
+		"%ld)\n", XPC_NET_CHANNEL, xpnet_connection_activity,
 		XPNET_MSG_SIZE, XPNET_MSG_NENTRIES, XPNET_MAX_KTHREADS,
 		XPNET_MAX_IDLE_KTHREADS);
 

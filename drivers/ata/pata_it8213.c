@@ -24,12 +24,13 @@
 /**
  *	it8213_pre_reset	-	check for 40/80 pin
  *	@ap: Port
+ *	@deadline: deadline jiffies for the operation
  *
  *	Filter out ports by the enable bits before doing the normal reset
  *	and probe.
  */
 
-static int it8213_pre_reset(struct ata_port *ap)
+static int it8213_pre_reset(struct ata_port *ap, unsigned long deadline)
 {
 	static const struct pci_bits it8213_enable_bits[] = {
 		{ 0x41U, 1U, 0x80UL, 0x80UL },	/* port 0 */
@@ -37,7 +38,8 @@ static int it8213_pre_reset(struct ata_port *ap)
 	struct pci_dev *pdev = to_pci_dev(ap->host->dev);
 	if (!pci_test_config_bits(pdev, &it8213_enable_bits[ap->port_no]))
 		return -ENOENT;
-	return ata_std_prereset(ap);
+
+	return ata_std_prereset(ap, deadline);
 }
 
 /**
@@ -255,10 +257,6 @@ static struct scsi_host_template it8213_sht = {
 	.dma_boundary		= ATA_DMA_BOUNDARY,
 	.slave_configure	= ata_scsi_slave_config,
 	.bios_param		= ata_std_bios_param,
-#ifdef CONFIG_PM
-	.resume			= ata_scsi_device_resume,
-	.suspend		= ata_scsi_device_suspend,
-#endif
 };
 
 static const struct ata_port_operations it8213_ops = {
@@ -313,7 +311,7 @@ static const struct ata_port_operations it8213_ops = {
 static int it8213_init_one (struct pci_dev *pdev, const struct pci_device_id *ent)
 {
 	static int printed_version;
-	static struct ata_port_info info = {
+	static const struct ata_port_info info = {
 		.sht		= &it8213_sht,
 		.flags		= ATA_FLAG_SLAVE_POSS | ATA_FLAG_SRST,
 		.pio_mask	= 0x1f,	/* pio0-4 */
@@ -321,14 +319,14 @@ static int it8213_init_one (struct pci_dev *pdev, const struct pci_device_id *en
 		.udma_mask 	= 0x1f, /* UDMA 100 */
 		.port_ops	= &it8213_ops,
 	};
-	static struct ata_port_info *port_info[2] = { &info, &info };
+	/* Current IT8213 stuff is single port */
+	const struct ata_port_info *ppi[] = { &info, &ata_dummy_port_info };
 
 	if (!printed_version++)
 		dev_printk(KERN_DEBUG, &pdev->dev,
 			   "version " DRV_VERSION "\n");
 
-	/* Current IT8213 stuff is single port */
-	return ata_pci_init_one(pdev, port_info, 1);
+	return ata_pci_init_one(pdev, ppi);
 }
 
 static const struct pci_device_id it8213_pci_tbl[] = {

@@ -38,8 +38,8 @@
 #define DRV_VERSION	"0.5.1"
 
 struct sis_chipset {
-	u16 device;			/* PCI host ID */
-	struct ata_port_info *info;	/* Info block */
+	u16 device;				/* PCI host ID */
+	const struct ata_port_info *info;	/* Info block */
 	/* Probably add family, cable detect type etc here to clean
 	   up code later */
 };
@@ -88,6 +88,7 @@ static int sis_port_base(struct ata_device *adev)
 /**
  *	sis_133_cable_detect	-	check for 40/80 pin
  *	@ap: Port
+ *	@deadline: deadline jiffies for the operation
  *
  *	Perform cable detection for the later UDMA133 capable
  *	SiS chipset.
@@ -108,6 +109,7 @@ static int sis_133_cable_detect(struct ata_port *ap)
 /**
  *	sis_66_cable_detect	-	check for 40/80 pin
  *	@ap: Port
+ *	@deadline: deadline jiffies for the operation
  *
  *	Perform cable detection on the UDMA66, UDMA100 and early UDMA133
  *	SiS IDE controllers.
@@ -130,11 +132,12 @@ static int sis_66_cable_detect(struct ata_port *ap)
 /**
  *	sis_pre_reset		-	probe begin
  *	@ap: ATA port
+ *	@deadline: deadline jiffies for the operation
  *
  *	Set up cable type and use generic probe init
  */
 
-static int sis_pre_reset(struct ata_port *ap)
+static int sis_pre_reset(struct ata_port *ap, unsigned long deadline)
 {
 	static const struct pci_bits sis_enable_bits[] = {
 		{ 0x4aU, 1U, 0x02UL, 0x02UL },	/* port 0 */
@@ -145,7 +148,8 @@ static int sis_pre_reset(struct ata_port *ap)
 
 	if (!pci_test_config_bits(pdev, &sis_enable_bits[ap->port_no]))
 		return -ENOENT;
-	return ata_std_prereset(ap);
+
+	return ata_std_prereset(ap, deadline);
 }
 
 
@@ -520,10 +524,6 @@ static struct scsi_host_template sis_sht = {
 	.slave_configure	= ata_scsi_slave_config,
 	.slave_destroy		= ata_scsi_slave_destroy,
 	.bios_param		= ata_std_bios_param,
-#ifdef CONFIG_PM
-	.resume			= ata_scsi_device_resume,
-	.suspend		= ata_scsi_device_suspend,
-#endif
 };
 
 static const struct ata_port_operations sis_133_ops = {
@@ -696,7 +696,7 @@ static const struct ata_port_operations sis_old_ops = {
 	.port_start		= ata_port_start,
 };
 
-static struct ata_port_info sis_info = {
+static const struct ata_port_info sis_info = {
 	.sht		= &sis_sht,
 	.flags		= ATA_FLAG_SLAVE_POSS | ATA_FLAG_SRST,
 	.pio_mask	= 0x1f,	/* pio0-4 */
@@ -704,7 +704,7 @@ static struct ata_port_info sis_info = {
 	.udma_mask	= 0,
 	.port_ops	= &sis_old_ops,
 };
-static struct ata_port_info sis_info33 = {
+static const struct ata_port_info sis_info33 = {
 	.sht		= &sis_sht,
 	.flags		= ATA_FLAG_SLAVE_POSS | ATA_FLAG_SRST,
 	.pio_mask	= 0x1f,	/* pio0-4 */
@@ -712,35 +712,35 @@ static struct ata_port_info sis_info33 = {
 	.udma_mask	= ATA_UDMA2,	/* UDMA 33 */
 	.port_ops	= &sis_old_ops,
 };
-static struct ata_port_info sis_info66 = {
+static const struct ata_port_info sis_info66 = {
 	.sht		= &sis_sht,
 	.flags		= ATA_FLAG_SLAVE_POSS | ATA_FLAG_SRST,
 	.pio_mask	= 0x1f,	/* pio0-4 */
 	.udma_mask	= ATA_UDMA4,	/* UDMA 66 */
 	.port_ops	= &sis_66_ops,
 };
-static struct ata_port_info sis_info100 = {
+static const struct ata_port_info sis_info100 = {
 	.sht		= &sis_sht,
 	.flags		= ATA_FLAG_SLAVE_POSS | ATA_FLAG_SRST,
 	.pio_mask	= 0x1f,	/* pio0-4 */
 	.udma_mask	= ATA_UDMA5,
 	.port_ops	= &sis_100_ops,
 };
-static struct ata_port_info sis_info100_early = {
+static const struct ata_port_info sis_info100_early = {
 	.sht		= &sis_sht,
 	.flags		= ATA_FLAG_SLAVE_POSS | ATA_FLAG_SRST,
 	.udma_mask	= ATA_UDMA5,
 	.pio_mask	= 0x1f,	/* pio0-4 */
 	.port_ops	= &sis_66_ops,
 };
-struct ata_port_info sis_info133 = {
+const struct ata_port_info sis_info133 = {
 	.sht		= &sis_sht,
 	.flags		= ATA_FLAG_SLAVE_POSS | ATA_FLAG_SRST,
 	.pio_mask	= 0x1f,	/* pio0-4 */
 	.udma_mask	= ATA_UDMA6,
 	.port_ops	= &sis_133_ops,
 };
-static struct ata_port_info sis_info133_early = {
+static const struct ata_port_info sis_info133_early = {
 	.sht		= &sis_sht,
 	.flags		= ATA_FLAG_SLAVE_POSS | ATA_FLAG_SRST,
 	.pio_mask	= 0x1f,	/* pio0-4 */
@@ -823,8 +823,8 @@ static void sis_fixup(struct pci_dev *pdev, struct sis_chipset *sis)
 static int sis_init_one (struct pci_dev *pdev, const struct pci_device_id *ent)
 {
 	static int printed_version;
-	static struct ata_port_info *port_info[2];
-	struct ata_port_info *port;
+	struct ata_port_info port;
+	const struct ata_port_info *ppi[] = { &port, NULL };
 	struct pci_dev *host = NULL;
 	struct sis_chipset *chipset = NULL;
 	struct sis_chipset *sets;
@@ -964,13 +964,12 @@ static int sis_init_one (struct pci_dev *pdev, const struct pci_device_id *ent)
 	if (chipset == NULL)
 		return -ENODEV;
 
-	port = chipset->info;
-	port->private_data = chipset;
+	port = *chipset->info;
+	port.private_data = chipset;
 
 	sis_fixup(pdev, chipset);
 
-	port_info[0] = port_info[1] = port;
-	return ata_pci_init_one(pdev, port_info, 2);
+	return ata_pci_init_one(pdev, ppi);
 }
 
 static const struct pci_device_id sis_pci_tbl[] = {

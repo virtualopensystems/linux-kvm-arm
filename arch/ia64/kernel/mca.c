@@ -63,7 +63,6 @@
 #include <linux/sched.h>
 #include <linux/interrupt.h>
 #include <linux/irq.h>
-#include <linux/smp_lock.h>
 #include <linux/bootmem.h>
 #include <linux/acpi.h>
 #include <linux/timer.h>
@@ -72,9 +71,9 @@
 #include <linux/smp.h>
 #include <linux/workqueue.h>
 #include <linux/cpumask.h>
+#include <linux/kdebug.h>
 
 #include <asm/delay.h>
-#include <asm/kdebug.h>
 #include <asm/machvec.h>
 #include <asm/meminit.h>
 #include <asm/page.h>
@@ -119,7 +118,9 @@ static ia64_mc_info_t		ia64_mc_info;
 #define CPE_HISTORY_LENGTH    5
 #define CMC_HISTORY_LENGTH    5
 
+#ifdef CONFIG_ACPI
 static struct timer_list cpe_poll_timer;
+#endif
 static struct timer_list cmc_poll_timer;
 /*
  * This variable tells whether we are currently in polling mode.
@@ -1690,7 +1691,7 @@ format_mca_init_stack(void *mca_data, unsigned long offset,
 	ti->preempt_count = 1;
 	ti->task = p;
 	ti->cpu = cpu;
-	p->thread_info = ti;
+	p->stack = ti;
 	p->state = TASK_UNINTERRUPTIBLE;
 	cpu_set(cpu, p->cpus_allowed);
 	INIT_LIST_HEAD(&p->tasks);

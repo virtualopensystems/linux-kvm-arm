@@ -380,10 +380,6 @@ static struct scsi_host_template sil24_sht = {
 	.slave_configure	= ata_scsi_slave_config,
 	.slave_destroy		= ata_scsi_slave_destroy,
 	.bios_param		= ata_std_bios_param,
-#ifdef CONFIG_PM
-	.suspend		= ata_scsi_device_suspend,
-	.resume			= ata_scsi_device_resume,
-#endif
 };
 
 static const struct ata_port_operations sil24_ops = {
@@ -534,7 +530,8 @@ static int sil24_init_port(struct ata_port *ap)
 	return 0;
 }
 
-static int sil24_softreset(struct ata_port *ap, unsigned int *class)
+static int sil24_softreset(struct ata_port *ap, unsigned int *class,
+			   unsigned long deadline)
 {
 	void __iomem *port = ap->ioaddr.cmd_addr;
 	struct sil24_port_priv *pp = ap->private_data;
@@ -566,7 +563,7 @@ static int sil24_softreset(struct ata_port *ap, unsigned int *class)
 
 	mask = (PORT_IRQ_COMPLETE | PORT_IRQ_ERROR) << PORT_IRQ_RAW_SHIFT;
 	irq_stat = ata_wait_register(port + PORT_IRQ_STAT, mask, 0x0,
-				     100, ATA_TMOUT_BOOT / HZ * 1000);
+				     100, jiffies_to_msecs(deadline - jiffies));
 
 	writel(irq_stat, port + PORT_IRQ_STAT); /* clear IRQs */
 	irq_stat >>= PORT_IRQ_RAW_SHIFT;
@@ -594,7 +591,8 @@ static int sil24_softreset(struct ata_port *ap, unsigned int *class)
 	return -EIO;
 }
 
-static int sil24_hardreset(struct ata_port *ap, unsigned int *class)
+static int sil24_hardreset(struct ata_port *ap, unsigned int *class,
+			   unsigned long deadline)
 {
 	void __iomem *port = ap->ioaddr.cmd_addr;
 	const char *reason;
@@ -615,7 +613,7 @@ static int sil24_hardreset(struct ata_port *ap, unsigned int *class)
 	/* SStatus oscillates between zero and valid status after
 	 * DEV_RST, debounce it.
 	 */
-	rc = sata_phy_debounce(ap, sata_deb_timing_long);
+	rc = sata_phy_debounce(ap, sata_deb_timing_long, deadline);
 	if (rc) {
 		reason = "PHY debouncing failed";
 		goto err;

@@ -101,6 +101,12 @@ int libata_noacpi = 1;
 module_param_named(noacpi, libata_noacpi, int, 0444);
 MODULE_PARM_DESC(noacpi, "Disables the use of ACPI in suspend/resume when set");
 
+int ata_spindown_compat = 1;
+module_param_named(spindown_compat, ata_spindown_compat, int, 0644);
+MODULE_PARM_DESC(spindown_compat, "Enable backward compatible spindown "
+		 "behavior.  Will be removed.  More info can be found in "
+		 "Documentation/feature-removal-schedule.txt\n");
+
 MODULE_AUTHOR("Jeff Garzik");
 MODULE_DESCRIPTION("Library module for ATA devices");
 MODULE_LICENSE("GPL");
@@ -895,6 +901,7 @@ static u64 ata_read_native_max_address(struct ata_device *dev)
 /**
  *	ata_set_native_max_address_ext	-	LBA48 native max set
  *	@dev: Device to query
+ *	@new_sectors: new max sectors value to set for the device
  *
  *	Perform an LBA48 size set max upon the device in question. Return the
  *	actual LBA48 size or zero if the command fails.
@@ -932,6 +939,7 @@ static u64 ata_set_native_max_address_ext(struct ata_device *dev, u64 new_sector
 /**
  *	ata_set_native_max_address	-	LBA28 native max set
  *	@dev: Device to query
+ *	@new_sectors: new max sectors value to set for the device
  *
  *	Perform an LBA28 size set max upon the device in question. Return the
  *	actual LBA28 size or zero if the command fails.
@@ -1316,7 +1324,7 @@ void ata_port_flush_task(struct ata_port *ap)
 	spin_unlock_irqrestore(ap->lock, flags);
 
 	DPRINTK("flush #1\n");
-	flush_workqueue(ata_wq);
+	cancel_work_sync(&ap->port_task.work); /* akpm: seems unneeded */
 
 	/*
 	 * At this point, if a task is running, it's guaranteed to see
@@ -1327,7 +1335,7 @@ void ata_port_flush_task(struct ata_port *ap)
 		if (ata_msg_ctl(ap))
 			ata_port_printk(ap, KERN_DEBUG, "%s: flush #2\n",
 					__FUNCTION__);
-		flush_workqueue(ata_wq);
+		cancel_work_sync(&ap->port_task.work);
 	}
 
 	spin_lock_irqsave(ap->lock, flags);
@@ -1652,7 +1660,7 @@ int ata_dev_read_id(struct ata_device *dev, unsigned int *p_class,
 	struct ata_taskfile tf;
 	unsigned int err_mask = 0;
 	const char *reason;
-	int tried_spinup = 0;
+	int may_fallback = 1, tried_spinup = 0;
 	int rc;
 
 	if (ata_msg_ctl(ap))
@@ -1696,10 +1704,30 @@ int ata_dev_read_id(struct ata_device *dev, unsigned int *p_class,
 			return -ENOENT;
 		}
 
+		/* Device or controller might have reported the wrong
+		 * device class.  Give a shot at the other IDENTIFY if
+		 * the current one is aborted by the device.
+		 */
+		if (may_fallback &&
+		    (err_mask == AC_ERR_DEV) && (tf.feature & ATA_ABORTED)) {
+			may_fallback = 0;
+
+			if (class == ATA_DEV_ATA)
+				class = ATA_DEV_ATAPI;
+			else
+				class = ATA_DEV_ATA;
+			goto retry;
+		}
+
 		rc = -EIO;
 		reason = "I/O error";
 		goto err_out;
 	}
+
+	/* Falling back doesn't make sense if ID data was read
+	 * successfully at least once.
+	 */
+	may_fallback = 0;
 
 	swap_buf_le16(id, ATA_ID_WORDS);
 
@@ -1841,7 +1869,7 @@ int ata_dev_configure(struct ata_device *dev)
 		ata_dev_printk(dev, KERN_DEBUG, "%s: ENTER\n", __FUNCTION__);
 
 	/* set _SDD */
-	rc = ata_acpi_push_id(ap, dev->devno);
+	rc = ata_acpi_push_id(dev);
 	if (rc) {
 		ata_dev_printk(dev, KERN_WARNING, "failed to set _SDD(%d)\n",
 			rc);
@@ -2858,7 +2886,7 @@ int ata_do_set_mode(struct ata_port *ap, struct ata_device **r_failed_dev)
 		dev = &ap->device[i];
 
 		/* don't update suspended devices' xfer mode */
-		if (!ata_dev_ready(dev))
+		if (!ata_dev_enabled(dev))
 			continue;
 
 		rc = ata_dev_set_mode(dev);
@@ -2979,23 +3007,71 @@ int ata_busy_sleep(struct ata_port *ap,
 	return 0;
 }
 
-static void ata_bus_post_reset(struct ata_port *ap, unsigned int devmask)
+/**
+ *	ata_wait_ready - sleep until BSY clears, or timeout
+ *	@ap: port containing status register to be polled
+ *	@deadline: deadline jiffies for the operation
+ *
+ *	Sleep until ATA Status register bit BSY clears, or timeout
+ *	occurs.
+ *
+ *	LOCKING:
+ *	Kernel thread context (may sleep).
+ *
+ *	RETURNS:
+ *	0 on success, -errno otherwise.
+ */
+int ata_wait_ready(struct ata_port *ap, unsigned long deadline)
+{
+	unsigned long start = jiffies;
+	int warned = 0;
+
+	while (1) {
+		u8 status = ata_chk_status(ap);
+		unsigned long now = jiffies;
+
+		if (!(status & ATA_BUSY))
+			return 0;
+		if (status == 0xff)
+			return -ENODEV;
+		if (time_after(now, deadline))
+			return -EBUSY;
+
+		if (!warned && time_after(now, start + 5 * HZ) &&
+		    (deadline - now > 3 * HZ)) {
+			ata_port_printk(ap, KERN_WARNING,
+				"port is slow to respond, please be patient "
+				"(Status 0x%x)\n", status);
+			warned = 1;
+		}
+
+		msleep(50);
+	}
+}
+
+static int ata_bus_post_reset(struct ata_port *ap, unsigned int devmask,
+			      unsigned long deadline)
 {
 	struct ata_ioports *ioaddr = &ap->ioaddr;
 	unsigned int dev0 = devmask & (1 << 0);
 	unsigned int dev1 = devmask & (1 << 1);
-	unsigned long timeout;
+	int rc, ret = 0;
 
 	/* if device 0 was found in ata_devchk, wait for its
 	 * BSY bit to clear
 	 */
-	if (dev0)
-		ata_busy_sleep(ap, ATA_TMOUT_BOOT_QUICK, ATA_TMOUT_BOOT);
+	if (dev0) {
+		rc = ata_wait_ready(ap, deadline);
+		if (rc) {
+			if (rc != -ENODEV)
+				return rc;
+			ret = rc;
+		}
+	}
 
 	/* if device 1 was found in ata_devchk, wait for
 	 * register access, then wait for BSY to clear
 	 */
-	timeout = jiffies + ATA_TMOUT_BOOT;
 	while (dev1) {
 		u8 nsect, lbal;
 
@@ -3004,14 +3080,18 @@ static void ata_bus_post_reset(struct ata_port *ap, unsigned int devmask)
 		lbal = ioread8(ioaddr->lbal_addr);
 		if ((nsect == 1) && (lbal == 1))
 			break;
-		if (time_after(jiffies, timeout)) {
-			dev1 = 0;
-			break;
-		}
+		if (time_after(jiffies, deadline))
+			return -EBUSY;
 		msleep(50);	/* give drive a breather */
 	}
-	if (dev1)
-		ata_busy_sleep(ap, ATA_TMOUT_BOOT_QUICK, ATA_TMOUT_BOOT);
+	if (dev1) {
+		rc = ata_wait_ready(ap, deadline);
+		if (rc) {
+			if (rc != -ENODEV)
+				return rc;
+			ret = rc;
+		}
+	}
 
 	/* is all this really necessary? */
 	ap->ops->dev_select(ap, 0);
@@ -3019,10 +3099,12 @@ static void ata_bus_post_reset(struct ata_port *ap, unsigned int devmask)
 		ap->ops->dev_select(ap, 1);
 	if (dev0)
 		ap->ops->dev_select(ap, 0);
+
+	return ret;
 }
 
-static unsigned int ata_bus_softreset(struct ata_port *ap,
-				      unsigned int devmask)
+static int ata_bus_softreset(struct ata_port *ap, unsigned int devmask,
+			     unsigned long deadline)
 {
 	struct ata_ioports *ioaddr = &ap->ioaddr;
 
@@ -3052,11 +3134,9 @@ static unsigned int ata_bus_softreset(struct ata_port *ap,
 	 * pulldown resistor.
 	 */
 	if (ata_check_status(ap) == 0xFF)
-		return 0;
+		return -ENODEV;
 
-	ata_bus_post_reset(ap, devmask);
-
-	return 0;
+	return ata_bus_post_reset(ap, devmask, deadline);
 }
 
 /**
@@ -3085,6 +3165,7 @@ void ata_bus_reset(struct ata_port *ap)
 	unsigned int slave_possible = ap->flags & ATA_FLAG_SLAVE_POSS;
 	u8 err;
 	unsigned int dev0, dev1 = 0, devmask = 0;
+	int rc;
 
 	DPRINTK("ENTER, host %u, port %u\n", ap->print_id, ap->port_no);
 
@@ -3106,9 +3187,11 @@ void ata_bus_reset(struct ata_port *ap)
 	ap->ops->dev_select(ap, 0);
 
 	/* issue bus reset */
-	if (ap->flags & ATA_FLAG_SRST)
-		if (ata_bus_softreset(ap, devmask))
+	if (ap->flags & ATA_FLAG_SRST) {
+		rc = ata_bus_softreset(ap, devmask, jiffies + 40 * HZ);
+		if (rc && rc != -ENODEV)
 			goto err_out;
+	}
 
 	/*
 	 * determine by signature whether we have ATA or ATAPI devices
@@ -3150,13 +3233,17 @@ err_out:
  *	sata_phy_debounce - debounce SATA phy status
  *	@ap: ATA port to debounce SATA phy status for
  *	@params: timing parameters { interval, duratinon, timeout } in msec
+ *	@deadline: deadline jiffies for the operation
  *
  *	Make sure SStatus of @ap reaches stable state, determined by
  *	holding the same value where DET is not 1 for @duration polled
  *	every @interval, before @timeout.  Timeout constraints the
- *	beginning of the stable state.  Because, after hot unplugging,
- *	DET gets stuck at 1 on some controllers, this functions waits
+ *	beginning of the stable state.  Because DET gets stuck at 1 on
+ *	some controllers after hot unplugging, this functions waits
  *	until timeout then returns 0 if DET is stable at 1.
+ *
+ *	@timeout is further limited by @deadline.  The sooner of the
+ *	two is used.
  *
  *	LOCKING:
  *	Kernel thread context (may sleep)
@@ -3164,14 +3251,18 @@ err_out:
  *	RETURNS:
  *	0 on success, -errno on failure.
  */
-int sata_phy_debounce(struct ata_port *ap, const unsigned long *params)
+int sata_phy_debounce(struct ata_port *ap, const unsigned long *params,
+		      unsigned long deadline)
 {
 	unsigned long interval_msec = params[0];
-	unsigned long duration = params[1] * HZ / 1000;
-	unsigned long timeout = jiffies + params[2] * HZ / 1000;
-	unsigned long last_jiffies;
+	unsigned long duration = msecs_to_jiffies(params[1]);
+	unsigned long last_jiffies, t;
 	u32 last, cur;
 	int rc;
+
+	t = jiffies + msecs_to_jiffies(params[2]);
+	if (time_before(t, deadline))
+		deadline = t;
 
 	if ((rc = sata_scr_read(ap, SCR_STATUS, &cur)))
 		return rc;
@@ -3188,7 +3279,7 @@ int sata_phy_debounce(struct ata_port *ap, const unsigned long *params)
 
 		/* DET stable? */
 		if (cur == last) {
-			if (cur == 1 && time_before(jiffies, timeout))
+			if (cur == 1 && time_before(jiffies, deadline))
 				continue;
 			if (time_after(jiffies, last_jiffies + duration))
 				return 0;
@@ -3199,8 +3290,8 @@ int sata_phy_debounce(struct ata_port *ap, const unsigned long *params)
 		last = cur;
 		last_jiffies = jiffies;
 
-		/* check timeout */
-		if (time_after(jiffies, timeout))
+		/* check deadline */
+		if (time_after(jiffies, deadline))
 			return -EBUSY;
 	}
 }
@@ -3209,6 +3300,7 @@ int sata_phy_debounce(struct ata_port *ap, const unsigned long *params)
  *	sata_phy_resume - resume SATA phy
  *	@ap: ATA port to resume SATA phy for
  *	@params: timing parameters { interval, duratinon, timeout } in msec
+ *	@deadline: deadline jiffies for the operation
  *
  *	Resume SATA phy of @ap and debounce it.
  *
@@ -3218,7 +3310,8 @@ int sata_phy_debounce(struct ata_port *ap, const unsigned long *params)
  *	RETURNS:
  *	0 on success, -errno on failure.
  */
-int sata_phy_resume(struct ata_port *ap, const unsigned long *params)
+int sata_phy_resume(struct ata_port *ap, const unsigned long *params,
+		    unsigned long deadline)
 {
 	u32 scontrol;
 	int rc;
@@ -3236,43 +3329,19 @@ int sata_phy_resume(struct ata_port *ap, const unsigned long *params)
 	 */
 	msleep(200);
 
-	return sata_phy_debounce(ap, params);
-}
-
-static void ata_wait_spinup(struct ata_port *ap)
-{
-	struct ata_eh_context *ehc = &ap->eh_context;
-	unsigned long end, secs;
-	int rc;
-
-	/* first, debounce phy if SATA */
-	if (ap->cbl == ATA_CBL_SATA) {
-		rc = sata_phy_debounce(ap, sata_deb_timing_hotplug);
-
-		/* if debounced successfully and offline, no need to wait */
-		if ((rc == 0 || rc == -EOPNOTSUPP) && ata_port_offline(ap))
-			return;
-	}
-
-	/* okay, let's give the drive time to spin up */
-	end = ehc->i.hotplug_timestamp + ATA_SPINUP_WAIT * HZ / 1000;
-	secs = ((end - jiffies) + HZ - 1) / HZ;
-
-	if (time_after(jiffies, end))
-		return;
-
-	if (secs > 5)
-		ata_port_printk(ap, KERN_INFO, "waiting for device to spin up "
-				"(%lu secs)\n", secs);
-
-	schedule_timeout_uninterruptible(end - jiffies);
+	return sata_phy_debounce(ap, params, deadline);
 }
 
 /**
  *	ata_std_prereset - prepare for reset
  *	@ap: ATA port to be reset
+ *	@deadline: deadline jiffies for the operation
  *
- *	@ap is about to be reset.  Initialize it.
+ *	@ap is about to be reset.  Initialize it.  Failure from
+ *	prereset makes libata abort whole reset sequence and give up
+ *	that port, so prereset should be best-effort.  It does its
+ *	best to prepare for reset sequence but if things go wrong, it
+ *	should just whine, not fail.
  *
  *	LOCKING:
  *	Kernel thread context (may sleep)
@@ -3280,20 +3349,16 @@ static void ata_wait_spinup(struct ata_port *ap)
  *	RETURNS:
  *	0 on success, -errno otherwise.
  */
-int ata_std_prereset(struct ata_port *ap)
+int ata_std_prereset(struct ata_port *ap, unsigned long deadline)
 {
 	struct ata_eh_context *ehc = &ap->eh_context;
 	const unsigned long *timing = sata_ehc_deb_timing(ehc);
 	int rc;
 
-	/* handle link resume & hotplug spinup */
+	/* handle link resume */
 	if ((ehc->i.flags & ATA_EHI_RESUME_LINK) &&
 	    (ap->flags & ATA_FLAG_HRST_TO_RESUME))
 		ehc->i.action |= ATA_EH_HARDRESET;
-
-	if ((ehc->i.flags & ATA_EHI_HOTPLUGGED) &&
-	    (ap->flags & ATA_FLAG_SKIP_D2H_BSY))
-		ata_wait_spinup(ap);
 
 	/* if we're about to do hardreset, nothing more to do */
 	if (ehc->i.action & ATA_EH_HARDRESET)
@@ -3301,20 +3366,24 @@ int ata_std_prereset(struct ata_port *ap)
 
 	/* if SATA, resume phy */
 	if (ap->cbl == ATA_CBL_SATA) {
-		rc = sata_phy_resume(ap, timing);
-		if (rc && rc != -EOPNOTSUPP) {
-			/* phy resume failed */
+		rc = sata_phy_resume(ap, timing, deadline);
+		/* whine about phy resume failure but proceed */
+		if (rc && rc != -EOPNOTSUPP)
 			ata_port_printk(ap, KERN_WARNING, "failed to resume "
 					"link for reset (errno=%d)\n", rc);
-			return rc;
-		}
 	}
 
 	/* Wait for !BSY if the controller can wait for the first D2H
 	 * Reg FIS and we don't know that no device is attached.
 	 */
-	if (!(ap->flags & ATA_FLAG_SKIP_D2H_BSY) && !ata_port_offline(ap))
-		ata_busy_sleep(ap, ATA_TMOUT_BOOT_QUICK, ATA_TMOUT_BOOT);
+	if (!(ap->flags & ATA_FLAG_SKIP_D2H_BSY) && !ata_port_offline(ap)) {
+		rc = ata_wait_ready(ap, deadline);
+		if (rc) {
+			ata_port_printk(ap, KERN_WARNING, "device not ready "
+					"(errno=%d), forcing hardreset\n", rc);
+			ehc->i.action |= ATA_EH_HARDRESET;
+		}
+	}
 
 	return 0;
 }
@@ -3323,6 +3392,7 @@ int ata_std_prereset(struct ata_port *ap)
  *	ata_std_softreset - reset host port via ATA SRST
  *	@ap: port to reset
  *	@classes: resulting classes of attached devices
+ *	@deadline: deadline jiffies for the operation
  *
  *	Reset host port using ATA SRST.
  *
@@ -3332,10 +3402,12 @@ int ata_std_prereset(struct ata_port *ap)
  *	RETURNS:
  *	0 on success, -errno otherwise.
  */
-int ata_std_softreset(struct ata_port *ap, unsigned int *classes)
+int ata_std_softreset(struct ata_port *ap, unsigned int *classes,
+		      unsigned long deadline)
 {
 	unsigned int slave_possible = ap->flags & ATA_FLAG_SLAVE_POSS;
-	unsigned int devmask = 0, err_mask;
+	unsigned int devmask = 0;
+	int rc;
 	u8 err;
 
 	DPRINTK("ENTER\n");
@@ -3356,11 +3428,11 @@ int ata_std_softreset(struct ata_port *ap, unsigned int *classes)
 
 	/* issue bus reset */
 	DPRINTK("about to softreset, devmask=%x\n", devmask);
-	err_mask = ata_bus_softreset(ap, devmask);
-	if (err_mask) {
-		ata_port_printk(ap, KERN_ERR, "SRST failed (err_mask=0x%x)\n",
-				err_mask);
-		return -EIO;
+	rc = ata_bus_softreset(ap, devmask, deadline);
+	/* if link is occupied, -ENODEV too is an error */
+	if (rc && (rc != -ENODEV || sata_scr_valid(ap))) {
+		ata_port_printk(ap, KERN_ERR, "SRST failed (errno=%d)\n", rc);
+		return rc;
 	}
 
 	/* determine by signature whether we have ATA or ATAPI devices */
@@ -3377,6 +3449,7 @@ int ata_std_softreset(struct ata_port *ap, unsigned int *classes)
  *	sata_port_hardreset - reset port via SATA phy reset
  *	@ap: port to reset
  *	@timing: timing parameters { interval, duratinon, timeout } in msec
+ *	@deadline: deadline jiffies for the operation
  *
  *	SATA phy-reset host port using DET bits of SControl register.
  *
@@ -3386,7 +3459,8 @@ int ata_std_softreset(struct ata_port *ap, unsigned int *classes)
  *	RETURNS:
  *	0 on success, -errno otherwise.
  */
-int sata_port_hardreset(struct ata_port *ap, const unsigned long *timing)
+int sata_port_hardreset(struct ata_port *ap, const unsigned long *timing,
+			unsigned long deadline)
 {
 	u32 scontrol;
 	int rc;
@@ -3425,7 +3499,7 @@ int sata_port_hardreset(struct ata_port *ap, const unsigned long *timing)
 	msleep(1);
 
 	/* bring phy back */
-	rc = sata_phy_resume(ap, timing);
+	rc = sata_phy_resume(ap, timing, deadline);
  out:
 	DPRINTK("EXIT, rc=%d\n", rc);
 	return rc;
@@ -3435,6 +3509,7 @@ int sata_port_hardreset(struct ata_port *ap, const unsigned long *timing)
  *	sata_std_hardreset - reset host port via SATA phy reset
  *	@ap: port to reset
  *	@class: resulting class of attached device
+ *	@deadline: deadline jiffies for the operation
  *
  *	SATA phy-reset host port using DET bits of SControl register,
  *	wait for !BSY and classify the attached device.
@@ -3445,7 +3520,8 @@ int sata_port_hardreset(struct ata_port *ap, const unsigned long *timing)
  *	RETURNS:
  *	0 on success, -errno otherwise.
  */
-int sata_std_hardreset(struct ata_port *ap, unsigned int *class)
+int sata_std_hardreset(struct ata_port *ap, unsigned int *class,
+		       unsigned long deadline)
 {
 	const unsigned long *timing = sata_ehc_deb_timing(&ap->eh_context);
 	int rc;
@@ -3453,7 +3529,7 @@ int sata_std_hardreset(struct ata_port *ap, unsigned int *class)
 	DPRINTK("ENTER\n");
 
 	/* do hardreset */
-	rc = sata_port_hardreset(ap, timing);
+	rc = sata_port_hardreset(ap, timing, deadline);
 	if (rc) {
 		ata_port_printk(ap, KERN_ERR,
 				"COMRESET failed (errno=%d)\n", rc);
@@ -3470,10 +3546,12 @@ int sata_std_hardreset(struct ata_port *ap, unsigned int *class)
 	/* wait a while before checking status, see SRST for more info */
 	msleep(150);
 
-	if (ata_busy_sleep(ap, ATA_TMOUT_BOOT_QUICK, ATA_TMOUT_BOOT)) {
+	rc = ata_wait_ready(ap, deadline);
+	/* link occupied, -ENODEV too is an error */
+	if (rc) {
 		ata_port_printk(ap, KERN_ERR,
-				"COMRESET failed (device not ready)\n");
-		return -EIO;
+				"COMRESET failed (errno=%d)\n", rc);
+		return rc;
 	}
 
 	ap->ops->dev_select(ap, 0);	/* probably unnecessary */
@@ -5793,37 +5871,11 @@ static int ata_host_request_pm(struct ata_host *host, pm_message_t mesg,
  */
 int ata_host_suspend(struct ata_host *host, pm_message_t mesg)
 {
-	int i, j, rc;
+	int rc;
 
 	rc = ata_host_request_pm(host, mesg, 0, ATA_EHI_QUIET, 1);
-	if (rc)
-		goto fail;
-
-	/* EH is quiescent now.  Fail if we have any ready device.
-	 * This happens if hotplug occurs between completion of device
-	 * suspension and here.
-	 */
-	for (i = 0; i < host->n_ports; i++) {
-		struct ata_port *ap = host->ports[i];
-
-		for (j = 0; j < ATA_MAX_DEVICES; j++) {
-			struct ata_device *dev = &ap->device[j];
-
-			if (ata_dev_ready(dev)) {
-				ata_port_printk(ap, KERN_WARNING,
-						"suspend failed, device %d "
-						"still active\n", dev->devno);
-				rc = -EBUSY;
-				goto fail;
-			}
-		}
-	}
-
-	host->dev->power.power_state = mesg;
-	return 0;
-
- fail:
-	ata_host_resume(host);
+	if (rc == 0)
+		host->dev->power.power_state = mesg;
 	return rc;
 }
 
@@ -5932,6 +5984,7 @@ struct ata_port *ata_port_alloc(struct ata_host *host)
 	if (!ap)
 		return NULL;
 
+	ap->pflags |= ATA_PFLAG_INITIALIZING;
 	ap->lock = &host->lock;
 	ap->flags = ATA_FLAG_DISABLED;
 	ap->print_id = -1;
@@ -6300,6 +6353,7 @@ int ata_host_register(struct ata_host *host, struct scsi_host_template *sht)
 			ehi->action |= ATA_EH_SOFTRESET;
 			ehi->flags |= ATA_EHI_NO_AUTOPSY | ATA_EHI_QUIET;
 
+			ap->pflags &= ~ATA_PFLAG_INITIALIZING;
 			ap->pflags |= ATA_PFLAG_LOADING;
 			ata_port_schedule_eh(ap);
 
@@ -6425,9 +6479,9 @@ void ata_port_detach(struct ata_port *ap)
 	/* Flush hotplug task.  The sequence is similar to
 	 * ata_port_flush_task().
 	 */
-	flush_workqueue(ata_aux_wq);
+	cancel_work_sync(&ap->hotplug_task.work); /* akpm: why? */
 	cancel_delayed_work(&ap->hotplug_task);
-	flush_workqueue(ata_aux_wq);
+	cancel_work_sync(&ap->hotplug_task.work);
 
  skip_eh:
 	/* remove the associated SCSI host */
@@ -6793,6 +6847,7 @@ EXPORT_SYMBOL_GPL(ata_port_disable);
 EXPORT_SYMBOL_GPL(ata_ratelimit);
 EXPORT_SYMBOL_GPL(ata_wait_register);
 EXPORT_SYMBOL_GPL(ata_busy_sleep);
+EXPORT_SYMBOL_GPL(ata_wait_ready);
 EXPORT_SYMBOL_GPL(ata_port_queue_task);
 EXPORT_SYMBOL_GPL(ata_scsi_ioctl);
 EXPORT_SYMBOL_GPL(ata_scsi_queuecmd);
@@ -6823,6 +6878,7 @@ EXPORT_SYMBOL_GPL(ata_timing_merge);
 #ifdef CONFIG_PCI
 EXPORT_SYMBOL_GPL(pci_test_config_bits);
 EXPORT_SYMBOL_GPL(ata_pci_init_native_host);
+EXPORT_SYMBOL_GPL(ata_pci_init_bmdma);
 EXPORT_SYMBOL_GPL(ata_pci_prepare_native_host);
 EXPORT_SYMBOL_GPL(ata_pci_init_one);
 EXPORT_SYMBOL_GPL(ata_pci_remove_one);
@@ -6835,11 +6891,6 @@ EXPORT_SYMBOL_GPL(ata_pci_device_resume);
 EXPORT_SYMBOL_GPL(ata_pci_default_filter);
 EXPORT_SYMBOL_GPL(ata_pci_clear_simplex);
 #endif /* CONFIG_PCI */
-
-#ifdef CONFIG_PM
-EXPORT_SYMBOL_GPL(ata_scsi_device_suspend);
-EXPORT_SYMBOL_GPL(ata_scsi_device_resume);
-#endif /* CONFIG_PM */
 
 EXPORT_SYMBOL_GPL(ata_eng_timeout);
 EXPORT_SYMBOL_GPL(ata_port_schedule_eh);

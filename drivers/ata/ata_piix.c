@@ -275,10 +275,6 @@ static struct scsi_host_template piix_sht = {
 	.slave_configure	= ata_scsi_slave_config,
 	.slave_destroy		= ata_scsi_slave_destroy,
 	.bios_param		= ata_std_bios_param,
-#ifdef CONFIG_PM
-	.resume			= ata_scsi_device_resume,
-	.suspend		= ata_scsi_device_suspend,
-#endif
 };
 
 static const struct ata_port_operations piix_pata_ops = {
@@ -625,17 +621,18 @@ static int ich_pata_cable_detect(struct ata_port *ap)
 /**
  *	piix_pata_prereset - prereset for PATA host controller
  *	@ap: Target port
+ *	@deadline: deadline jiffies for the operation
  *
  *	LOCKING:
  *	None (inherited from caller).
  */
-static int piix_pata_prereset(struct ata_port *ap)
+static int piix_pata_prereset(struct ata_port *ap, unsigned long deadline)
 {
 	struct pci_dev *pdev = to_pci_dev(ap->host->dev);
 
 	if (!pci_test_config_bits(pdev, &piix_enable_bits[ap->port_no]))
 		return -ENOENT;
-	return ata_std_prereset(ap);
+	return ata_std_prereset(ap, deadline);
 }
 
 static void piix_pata_error_handler(struct ata_port *ap)
@@ -643,7 +640,6 @@ static void piix_pata_error_handler(struct ata_port *ap)
 	ata_bmdma_drive_eh(ap, piix_pata_prereset, ata_std_softreset, NULL,
 			   ata_std_postreset);
 }
-
 
 static void piix_sata_error_handler(struct ata_port *ap)
 {
@@ -1034,7 +1030,7 @@ static int piix_init_one (struct pci_dev *pdev, const struct pci_device_id *ent)
 	static int printed_version;
 	struct device *dev = &pdev->dev;
 	struct ata_port_info port_info[2];
-	struct ata_port_info *ppinfo[2] = { &port_info[0], &port_info[1] };
+	const struct ata_port_info *ppi[] = { &port_info[0], &port_info[1] };
 	struct piix_host_priv *hpriv;
 	unsigned long port_flags;
 
@@ -1093,7 +1089,7 @@ static int piix_init_one (struct pci_dev *pdev, const struct pci_device_id *ent)
 		port_info[1].mwdma_mask = 0;
 		port_info[1].udma_mask = 0;
 	}
-	return ata_pci_init_one(pdev, ppinfo, 2);
+	return ata_pci_init_one(pdev, ppi);
 }
 
 static int __init piix_init(void)

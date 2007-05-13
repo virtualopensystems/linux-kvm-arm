@@ -140,7 +140,6 @@ enum {
 
 	ATA_DFLAG_PIO		= (1 << 8), /* device limited to PIO mode */
 	ATA_DFLAG_NCQ_OFF	= (1 << 9), /* device limited to non-NCQ mode */
-	ATA_DFLAG_SUSPENDED	= (1 << 10), /* device suspended */
 	ATA_DFLAG_INIT_MASK	= (1 << 16) - 1,
 
 	ATA_DFLAG_DETACH	= (1 << 16),
@@ -191,6 +190,7 @@ enum {
 	ATA_PFLAG_LOADING	= (1 << 4), /* boot/loading probe */
 	ATA_PFLAG_UNLOADING	= (1 << 5), /* module is unloading */
 	ATA_PFLAG_SCSI_HOTPLUG	= (1 << 6), /* SCSI hotplug scheduled */
+	ATA_PFLAG_INITIALIZING	= (1 << 7), /* being initialized, don't touch */
 
 	ATA_PFLAG_FLUSH_PORT_TASK = (1 << 16), /* flush port task */
 	ATA_PFLAG_SUSPENDED	= (1 << 17), /* port is suspended (power) */
@@ -254,10 +254,6 @@ enum {
 	ATA_DMA_PAD_SZ		= 4,
 	ATA_DMA_PAD_BUF_SZ	= ATA_DMA_PAD_SZ * ATA_MAX_QUEUE,
 
-	/* masks for port functions */
-	ATA_PORT_PRIMARY	= (1 << 0),
-	ATA_PORT_SECONDARY	= (1 << 1),
-
 	/* ering size */
 	ATA_ERING_SIZE		= 32,
 
@@ -268,13 +264,9 @@ enum {
 	ATA_EH_REVALIDATE	= (1 << 0),
 	ATA_EH_SOFTRESET	= (1 << 1),
 	ATA_EH_HARDRESET	= (1 << 2),
-	ATA_EH_SUSPEND		= (1 << 3),
-	ATA_EH_RESUME		= (1 << 4),
-	ATA_EH_PM_FREEZE	= (1 << 5),
 
 	ATA_EH_RESET_MASK	= ATA_EH_SOFTRESET | ATA_EH_HARDRESET,
-	ATA_EH_PERDEV_MASK	= ATA_EH_REVALIDATE | ATA_EH_SUSPEND |
-				  ATA_EH_RESUME | ATA_EH_PM_FREEZE,
+	ATA_EH_PERDEV_MASK	= ATA_EH_REVALIDATE,
 
 	/* ata_eh_info->flags */
 	ATA_EHI_HOTPLUGGED	= (1 << 0),  /* could have been hotplugged */
@@ -296,17 +288,7 @@ enum {
 
 	/* how hard are we gonna try to probe/recover devices */
 	ATA_PROBE_MAX_TRIES	= 3,
-	ATA_EH_RESET_TRIES	= 3,
 	ATA_EH_DEV_TRIES	= 3,
-
-	/* Drive spinup time (time from power-on to the first D2H FIS)
-	 * in msecs - 8s currently.  Failing to get ready in this time
-	 * isn't critical.  It will result in reset failure for
-	 * controllers which can't wait for the first D2H FIS.  libata
-	 * will retry, so it just has to be long enough to spin up
-	 * most devices.
-	 */
-	ATA_SPINUP_WAIT		= 8000,
 
 	/* Horkage types. May be set by libata or controller on drives
 	   (some horkage may be drive/controller pair dependant */
@@ -348,8 +330,9 @@ struct ata_queued_cmd;
 
 /* typedefs */
 typedef void (*ata_qc_cb_t) (struct ata_queued_cmd *qc);
-typedef int (*ata_prereset_fn_t)(struct ata_port *ap);
-typedef int (*ata_reset_fn_t)(struct ata_port *ap, unsigned int *classes);
+typedef int (*ata_prereset_fn_t)(struct ata_port *ap, unsigned long deadline);
+typedef int (*ata_reset_fn_t)(struct ata_port *ap, unsigned int *classes,
+			      unsigned long deadline);
 typedef void (*ata_postreset_fn_t)(struct ata_port *ap, unsigned int *classes);
 
 struct ata_ioports {
@@ -475,7 +458,7 @@ struct ata_device {
 	struct ata_ering	ering;
 	int			spdn_cnt;
 	unsigned int		horkage;	/* List of broken features */
-#ifdef CONFIG_SATA_ACPI
+#ifdef CONFIG_ATA_ACPI
 	/* ACPI objects info */
 	acpi_handle obj_handle;
 #endif
@@ -494,7 +477,6 @@ struct ata_eh_info {
 	unsigned int		dev_action[ATA_MAX_DEVICES]; /* dev EH action */
 	unsigned int		flags;		/* ATA_EHI_* flags */
 
-	unsigned long		hotplug_timestamp;
 	unsigned int		probe_mask;
 
 	char			desc[ATA_EH_DESC_LEN];
@@ -688,19 +670,23 @@ extern void __sata_phy_reset(struct ata_port *ap);
 extern void sata_phy_reset(struct ata_port *ap);
 extern void ata_bus_reset(struct ata_port *ap);
 extern int sata_set_spd(struct ata_port *ap);
-extern int sata_phy_debounce(struct ata_port *ap, const unsigned long *param);
-extern int sata_phy_resume(struct ata_port *ap, const unsigned long *param);
-extern int ata_std_prereset(struct ata_port *ap);
-extern int ata_std_softreset(struct ata_port *ap, unsigned int *classes);
-extern int sata_port_hardreset(struct ata_port *ap,
-			       const unsigned long *timing);
-extern int sata_std_hardreset(struct ata_port *ap, unsigned int *class);
+extern int sata_phy_debounce(struct ata_port *ap, const unsigned long *param,
+			     unsigned long deadline);
+extern int sata_phy_resume(struct ata_port *ap, const unsigned long *param,
+			   unsigned long deadline);
+extern int ata_std_prereset(struct ata_port *ap, unsigned long deadline);
+extern int ata_std_softreset(struct ata_port *ap, unsigned int *classes,
+			     unsigned long deadline);
+extern int sata_port_hardreset(struct ata_port *ap, const unsigned long *timing,
+			       unsigned long deadline);
+extern int sata_std_hardreset(struct ata_port *ap, unsigned int *class,
+			      unsigned long deadline);
 extern void ata_std_postreset(struct ata_port *ap, unsigned int *classes);
 extern void ata_port_disable(struct ata_port *);
 extern void ata_std_ports(struct ata_ioports *ioaddr);
 #ifdef CONFIG_PCI
-extern int ata_pci_init_one (struct pci_dev *pdev, struct ata_port_info **port_info,
-			     unsigned int n_ports);
+extern int ata_pci_init_one (struct pci_dev *pdev,
+			     const struct ata_port_info * const * ppi);
 extern void ata_pci_remove_one (struct pci_dev *pdev);
 #ifdef CONFIG_PM
 extern void ata_pci_device_do_suspend(struct pci_dev *pdev, pm_message_t mesg);
@@ -742,14 +728,13 @@ extern int sata_scr_write_flush(struct ata_port *ap, int reg, u32 val);
 extern int ata_port_online(struct ata_port *ap);
 extern int ata_port_offline(struct ata_port *ap);
 #ifdef CONFIG_PM
-extern int ata_scsi_device_resume(struct scsi_device *);
-extern int ata_scsi_device_suspend(struct scsi_device *, pm_message_t mesg);
 extern int ata_host_suspend(struct ata_host *host, pm_message_t mesg);
 extern void ata_host_resume(struct ata_host *host);
 #endif
 extern int ata_ratelimit(void);
 extern int ata_busy_sleep(struct ata_port *ap,
 			  unsigned long timeout_pat, unsigned long timeout);
+extern int ata_wait_ready(struct ata_port *ap, unsigned long deadline);
 extern void ata_port_queue_task(struct ata_port *ap, work_func_t fn,
 				void *data, unsigned long delay);
 extern u32 ata_wait_register(void __iomem *reg, u32 mask, u32 val,
@@ -866,11 +851,11 @@ struct pci_bits {
 	unsigned long		val;
 };
 
-extern int ata_pci_init_native_host(struct ata_host *host,
-				    unsigned int port_mask);
+extern int ata_pci_init_native_host(struct ata_host *host);
+extern int ata_pci_init_bmdma(struct ata_host *host);
 extern int ata_pci_prepare_native_host(struct pci_dev *pdev,
 				const struct ata_port_info * const * ppi,
-				int n_ports, struct ata_host **r_host);
+				struct ata_host **r_host);
 extern int pci_test_config_bits(struct pci_dev *pdev, const struct pci_bits *bits);
 extern unsigned long ata_pci_default_filter(struct ata_device *, unsigned long);
 #endif /* CONFIG_PCI */
@@ -919,12 +904,7 @@ extern void ata_do_eh(struct ata_port *ap, ata_prereset_fn_t prereset,
 
 static inline void __ata_ehi_hotplugged(struct ata_eh_info *ehi)
 {
-	if (ehi->flags & ATA_EHI_HOTPLUGGED)
-		return;
-
 	ehi->flags |= ATA_EHI_HOTPLUGGED | ATA_EHI_RESUME_LINK;
-	ehi->hotplug_timestamp = jiffies;
-
 	ehi->action |= ATA_EH_SOFTRESET;
 	ehi->probe_mask |= (1 << ATA_MAX_DEVICES) - 1;
 }
@@ -1016,11 +996,6 @@ static inline unsigned int ata_dev_disabled(const struct ata_device *dev)
 static inline unsigned int ata_dev_absent(const struct ata_device *dev)
 {
 	return ata_class_absent(dev->class);
-}
-
-static inline unsigned int ata_dev_ready(const struct ata_device *dev)
-{
-	return ata_dev_enabled(dev) && !(dev->flags & ATA_DFLAG_SUSPENDED);
 }
 
 /*

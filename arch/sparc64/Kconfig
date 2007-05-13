@@ -34,6 +34,10 @@ config MMU
 	bool
 	default y
 
+config QUICKLIST
+	bool
+	default y
+
 config STACKTRACE_SUPPORT
 	bool
 	default y
@@ -222,9 +226,6 @@ config ARCH_SPARSEMEM_DEFAULT
 	def_bool y
 	select SPARSEMEM_STATIC
 
-config LARGE_ALLOCS
-	def_bool y
-
 source "mm/Kconfig"
 
 config ISA
@@ -306,6 +307,7 @@ config SUN_IO
 
 config PCI
 	bool "PCI support"
+	select ARCH_SUPPORTS_MSI
 	help
 	  Find out whether you have a PCI motherboard. PCI is the name of a
 	  bus system, i.e. the way the CPU talks to the other stuff inside

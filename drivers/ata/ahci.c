@@ -250,10 +250,6 @@ static struct scsi_host_template ahci_sht = {
 	.slave_configure	= ata_scsi_slave_config,
 	.slave_destroy		= ata_scsi_slave_destroy,
 	.bios_param		= ata_std_bios_param,
-#ifdef CONFIG_PM
-	.suspend		= ata_scsi_device_suspend,
-	.resume			= ata_scsi_device_resume,
-#endif
 };
 
 static const struct ata_port_operations ahci_ops = {
@@ -400,6 +396,7 @@ static const struct pci_device_id ahci_pci_tbl[] = {
 
 	/* ATI */
 	{ PCI_VDEVICE(ATI, 0x4380), board_ahci_sb600 }, /* ATI SB600 */
+	{ PCI_VDEVICE(ATI, 0x4390), board_ahci_sb600 }, /* ATI SB700 */
 
 	/* VIA */
 	{ PCI_VDEVICE(VIA, 0x3349), board_ahci_vt8251 }, /* VIA VT8251 */
@@ -874,7 +871,8 @@ static int ahci_clo(struct ata_port *ap)
 	return 0;
 }
 
-static int ahci_softreset(struct ata_port *ap, unsigned int *class)
+static int ahci_softreset(struct ata_port *ap, unsigned int *class,
+			  unsigned long deadline)
 {
 	struct ahci_port_priv *pp = ap->private_data;
 	void __iomem *port_mmio = ahci_port_base(ap);
@@ -959,15 +957,13 @@ static int ahci_softreset(struct ata_port *ap, unsigned int *class)
 	 */
 	msleep(150);
 
-	*class = ATA_DEV_NONE;
-	if (ata_port_online(ap)) {
-		if (ata_busy_sleep(ap, ATA_TMOUT_BOOT_QUICK, ATA_TMOUT_BOOT)) {
-			rc = -EIO;
-			reason = "device not ready";
-			goto fail;
-		}
-		*class = ahci_dev_classify(ap);
+	rc = ata_wait_ready(ap, deadline);
+	/* link occupied, -ENODEV too is an error */
+	if (rc) {
+		reason = "device not ready";
+		goto fail;
 	}
+	*class = ahci_dev_classify(ap);
 
 	DPRINTK("EXIT, class=%u\n", *class);
 	return 0;
@@ -979,7 +975,8 @@ static int ahci_softreset(struct ata_port *ap, unsigned int *class)
 	return rc;
 }
 
-static int ahci_hardreset(struct ata_port *ap, unsigned int *class)
+static int ahci_hardreset(struct ata_port *ap, unsigned int *class,
+			  unsigned long deadline)
 {
 	struct ahci_port_priv *pp = ap->private_data;
 	u8 *d2h_fis = pp->rx_fis + RX_FIS_D2H_REG;
@@ -995,7 +992,7 @@ static int ahci_hardreset(struct ata_port *ap, unsigned int *class)
 	tf.command = 0x80;
 	ata_tf_to_fis(&tf, d2h_fis, 0);
 
-	rc = sata_std_hardreset(ap, class);
+	rc = sata_std_hardreset(ap, class, deadline);
 
 	ahci_start_engine(ap);
 
@@ -1008,7 +1005,8 @@ static int ahci_hardreset(struct ata_port *ap, unsigned int *class)
 	return rc;
 }
 
-static int ahci_vt8251_hardreset(struct ata_port *ap, unsigned int *class)
+static int ahci_vt8251_hardreset(struct ata_port *ap, unsigned int *class,
+				 unsigned long deadline)
 {
 	int rc;
 
@@ -1016,7 +1014,8 @@ static int ahci_vt8251_hardreset(struct ata_port *ap, unsigned int *class)
 
 	ahci_stop_engine(ap);
 
-	rc = sata_port_hardreset(ap, sata_ehc_deb_timing(&ap->eh_context));
+	rc = sata_port_hardreset(ap, sata_ehc_deb_timing(&ap->eh_context),
+				 deadline);
 
 	/* vt8251 needs SError cleared for the port to operate */
 	ahci_scr_write(ap, SCR_ERROR, ahci_scr_read(ap, SCR_ERROR));

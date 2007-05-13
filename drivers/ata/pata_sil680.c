@@ -94,11 +94,13 @@ static int sil680_cable_detect(struct ata_port *ap) {
 /**
  *	sil680_bus_reset	-	reset the SIL680 bus
  *	@ap: ATA port to reset
+ *	@deadline: deadline jiffies for the operation
  *
  *	Perform the SIL680 housekeeping when doing an ATA bus reset
  */
 
-static int sil680_bus_reset(struct ata_port *ap,unsigned int *classes)
+static int sil680_bus_reset(struct ata_port *ap,unsigned int *classes,
+			    unsigned long deadline)
 {
 	struct pci_dev *pdev = to_pci_dev(ap->host->dev);
 	unsigned long addr = sil680_selreg(ap, 0);
@@ -108,7 +110,7 @@ static int sil680_bus_reset(struct ata_port *ap,unsigned int *classes)
 	pci_write_config_byte(pdev, addr, reset | 0x03);
 	udelay(25);
 	pci_write_config_byte(pdev, addr, reset);
-	return ata_std_softreset(ap, classes);
+	return ata_std_softreset(ap, classes, deadline);
 }
 
 static void sil680_error_handler(struct ata_port *ap)
@@ -230,10 +232,6 @@ static struct scsi_host_template sil680_sht = {
 	.slave_configure	= ata_scsi_slave_config,
 	.slave_destroy		= ata_scsi_slave_destroy,
 	.bios_param		= ata_std_bios_param,
-#ifdef CONFIG_PM
-	.suspend		= ata_scsi_device_suspend,
-	.resume			= ata_scsi_device_resume,
-#endif
 };
 
 static struct ata_port_operations sil680_port_ops = {
@@ -343,7 +341,7 @@ static u8 sil680_init_chip(struct pci_dev *pdev)
 
 static int sil680_init_one(struct pci_dev *pdev, const struct pci_device_id *id)
 {
-	static struct ata_port_info info = {
+	static const struct ata_port_info info = {
 		.sht = &sil680_sht,
 		.flags = ATA_FLAG_SLAVE_POSS | ATA_FLAG_SRST,
 		.pio_mask = 0x1f,
@@ -351,7 +349,7 @@ static int sil680_init_one(struct pci_dev *pdev, const struct pci_device_id *id)
 		.udma_mask = 0x7f,
 		.port_ops = &sil680_port_ops
 	};
-	static struct ata_port_info info_slow = {
+	static const struct ata_port_info info_slow = {
 		.sht = &sil680_sht,
 		.flags = ATA_FLAG_SLAVE_POSS | ATA_FLAG_SRST,
 		.pio_mask = 0x1f,
@@ -359,7 +357,7 @@ static int sil680_init_one(struct pci_dev *pdev, const struct pci_device_id *id)
 		.udma_mask = 0x3f,
 		.port_ops = &sil680_port_ops
 	};
-	static struct ata_port_info *port_info[2] = {&info, &info};
+	const struct ata_port_info *ppi[] = { &info, NULL };
 	static int printed_version;
 
 	if (!printed_version++)
@@ -368,12 +366,12 @@ static int sil680_init_one(struct pci_dev *pdev, const struct pci_device_id *id)
 	switch(sil680_init_chip(pdev))
 	{
 		case 0:
-			port_info[0] = port_info[1] = &info_slow;
+			ppi[0] = &info_slow;
 			break;
 		case 0x30:
 			return -ENODEV;
 	}
-	return ata_pci_init_one(pdev, port_info, 2);
+	return ata_pci_init_one(pdev, ppi);
 }
 
 #ifdef CONFIG_PM
