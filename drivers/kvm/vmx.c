@@ -2188,7 +2188,6 @@ static int vmx_create_vcpu(struct kvm_vcpu *vcpu)
 	vmcs_clear(vmcs);
 	vcpu->vmcs = vmcs;
 	vcpu->launched = 0;
-	vcpu->fpu_active = 1;
 
 	return 0;
 
