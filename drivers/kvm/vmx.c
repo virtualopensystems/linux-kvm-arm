@@ -479,7 +479,7 @@ static void setup_msrs(struct kvm_vcpu *vcpu)
 	int index, save_nmsrs;
 
 	save_nmsrs = 0;
-#ifdef X86_64
+#ifdef CONFIG_X86_64
 	if (is_long_mode(vcpu)) {
 		index = __find_msr_index(vcpu, MSR_SYSCALL_MASK);
 		if (index >= 0)
