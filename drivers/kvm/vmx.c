@@ -479,6 +479,7 @@ static void setup_msrs(struct kvm_vcpu *vcpu)
 	int index, save_nmsrs;
 
 	save_nmsrs = 0;
+#ifdef X86_64
 	if (is_long_mode(vcpu)) {
 		index = __find_msr_index(vcpu, MSR_SYSCALL_MASK);
 		if (index >= 0)
@@ -496,12 +497,11 @@ static void setup_msrs(struct kvm_vcpu *vcpu)
 		 * MSR_K6_STAR is only needed on long mode guests, and only
 		 * if efer.sce is enabled.
 		 */
-#ifdef X86_64
 		index = __find_msr_index(vcpu, MSR_K6_STAR);
 		if ((index >= 0) && (vcpu->shadow_efer & EFER_SCE))
 			move_msr_up(vcpu, index, save_nmsrs++);
-#endif
 	}
+#endif
 	vcpu->save_nmsrs = save_nmsrs;
 
 #ifdef CONFIG_X86_64
