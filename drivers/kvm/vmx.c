@@ -41,6 +41,7 @@ static struct page *vmx_io_bitmap_b;
 #else
 #define HOST_IS_64 0
 #endif
+#define EFER_SAVE_RESTORE_BITS ((u64)EFER_SCE)
 
 static struct vmcs_descriptor {
 	int size;
@@ -83,6 +84,18 @@ static const u32 vmx_msr_index[] = {
 	MSR_EFER, MSR_K6_STAR,
 };
 #define NR_VMX_MSR ARRAY_SIZE(vmx_msr_index)
+
+static inline u64 msr_efer_save_restore_bits(struct vmx_msr_entry msr)
+{
+	return (u64)msr.data & EFER_SAVE_RESTORE_BITS;
+}
+
+static inline int msr_efer_need_save_restore(struct kvm_vcpu *vcpu)
+{
+	int efer_offset = vcpu->msr_offset_efer;
+	return msr_efer_save_restore_bits(vcpu->host_msrs[efer_offset]) !=
+		msr_efer_save_restore_bits(vcpu->guest_msrs[efer_offset]);
+}
 
 static inline int is_page_fault(u32 intr_info)
 {
@@ -264,6 +277,19 @@ static void reload_tss(void)
 #endif
 }
 
+static void load_transition_efer(struct kvm_vcpu *vcpu)
+{
+	u64 trans_efer;
+	int efer_offset = vcpu->msr_offset_efer;
+
+	trans_efer = vcpu->host_msrs[efer_offset].data;
+	trans_efer &= ~EFER_SAVE_RESTORE_BITS;
+	trans_efer |= msr_efer_save_restore_bits(
+				vcpu->guest_msrs[efer_offset]);
+	wrmsrl(MSR_EFER, trans_efer);
+	vcpu->stat.efer_reload++;
+}
+
 static void vmx_save_host_state(struct kvm_vcpu *vcpu)
 {
 	struct vmx_host_state *hs = &vcpu->vmx_host_state;
@@ -307,6 +333,8 @@ static void vmx_save_host_state(struct kvm_vcpu *vcpu)
 	}
 #endif
 	load_msrs(vcpu->guest_msrs, vcpu->save_nmsrs);
+	if (msr_efer_need_save_restore(vcpu))
+		load_transition_efer(vcpu);
 }
 
 static void vmx_load_host_state(struct kvm_vcpu *vcpu)
@@ -335,6 +363,8 @@ static void vmx_load_host_state(struct kvm_vcpu *vcpu)
 	}
 	save_msrs(vcpu->guest_msrs, vcpu->save_nmsrs);
 	load_msrs(vcpu->host_msrs, vcpu->save_nmsrs);
+	if (msr_efer_need_save_restore(vcpu))
+		load_msrs(vcpu->host_msrs + vcpu->msr_offset_efer, 1);
 }
 
 /*
@@ -508,22 +538,7 @@ static void setup_msrs(struct kvm_vcpu *vcpu)
 	vcpu->msr_offset_kernel_gs_base =
 		__find_msr_index(vcpu, MSR_KERNEL_GS_BASE);
 #endif
-	index = __find_msr_index(vcpu, MSR_EFER);
-	if (index >= 0)
-		save_nmsrs = 1;
-	else {
-		save_nmsrs = 0;
-		index = 0;
-	}
-	vmcs_writel(VM_ENTRY_MSR_LOAD_ADDR,
-		    virt_to_phys(vcpu->guest_msrs + index));
-	vmcs_writel(VM_EXIT_MSR_STORE_ADDR,
-		    virt_to_phys(vcpu->guest_msrs + index));
-	vmcs_writel(VM_EXIT_MSR_LOAD_ADDR,
-		    virt_to_phys(vcpu->host_msrs + index));
-	vmcs_write32(VM_EXIT_MSR_STORE_COUNT, save_nmsrs);
-	vmcs_write32(VM_EXIT_MSR_LOAD_COUNT, save_nmsrs);
-	vmcs_write32(VM_ENTRY_MSR_LOAD_COUNT, save_nmsrs);
+	vcpu->msr_offset_efer = __find_msr_index(vcpu, MSR_EFER);
 }
 
 /*
@@ -610,10 +625,15 @@ static int vmx_get_msr(struct kvm_vcpu *vcpu, u32 msr_index, u64 *pdata)
 static int vmx_set_msr(struct kvm_vcpu *vcpu, u32 msr_index, u64 data)
 {
 	struct vmx_msr_entry *msr;
+	int ret;
+
 	switch (msr_index) {
 #ifdef CONFIG_X86_64
 	case MSR_EFER:
-		return kvm_set_msr_common(vcpu, msr_index, data);
+		ret = kvm_set_msr_common(vcpu, msr_index, data);
+		if (vcpu->vmx_host_state.loaded)
+			load_transition_efer(vcpu);
+		return ret;
 	case MSR_FS_BASE:
 		vmcs_writel(GUEST_FS_BASE, data);
 		break;
@@ -638,7 +658,7 @@ static int vmx_set_msr(struct kvm_vcpu *vcpu, u32 msr_index, u64 data)
 		if (msr) {
 			msr->data = data;
 			if (vcpu->vmx_host_state.loaded)
-				load_msrs(vcpu->guest_msrs,vcpu->save_nmsrs);
+				load_msrs(vcpu->guest_msrs, vcpu->save_nmsrs);
 			break;
 		}
 		return kvm_set_msr_common(vcpu, msr_index, data);
@@ -1325,6 +1345,9 @@ static int vmx_vcpu_setup(struct kvm_vcpu *vcpu)
 
 	asm ("mov $.Lkvm_vmx_return, %0" : "=g"(kvm_vmx_return));
 	vmcs_writel(HOST_RIP, kvm_vmx_return); /* 22.2.5 */
+	vmcs_write32(VM_EXIT_MSR_STORE_COUNT, 0);
+	vmcs_write32(VM_EXIT_MSR_LOAD_COUNT, 0);
+	vmcs_write32(VM_ENTRY_MSR_LOAD_COUNT, 0);
 
 	rdmsr(MSR_IA32_SYSENTER_CS, host_sysenter_cs, junk);
 	vmcs_write32(HOST_IA32_SYSENTER_CS, host_sysenter_cs);
