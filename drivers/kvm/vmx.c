@@ -506,11 +506,13 @@ void move_msr_up(struct kvm_vcpu *vcpu, int from, int to)
  */
 static void setup_msrs(struct kvm_vcpu *vcpu)
 {
-	int index, save_nmsrs;
+	int save_nmsrs;
 
 	save_nmsrs = 0;
 #ifdef CONFIG_X86_64
 	if (is_long_mode(vcpu)) {
+		int index;
+
 		index = __find_msr_index(vcpu, MSR_SYSCALL_MASK);
 		if (index >= 0)
 			move_msr_up(vcpu, index, save_nmsrs++);
@@ -625,7 +627,7 @@ static int vmx_get_msr(struct kvm_vcpu *vcpu, u32 msr_index, u64 *pdata)
 static int vmx_set_msr(struct kvm_vcpu *vcpu, u32 msr_index, u64 data)
 {
 	struct vmx_msr_entry *msr;
-	int ret;
+	int ret = 0;
 
 	switch (msr_index) {
 #ifdef CONFIG_X86_64
@@ -633,7 +635,7 @@ static int vmx_set_msr(struct kvm_vcpu *vcpu, u32 msr_index, u64 data)
 		ret = kvm_set_msr_common(vcpu, msr_index, data);
 		if (vcpu->vmx_host_state.loaded)
 			load_transition_efer(vcpu);
-		return ret;
+		break;
 	case MSR_FS_BASE:
 		vmcs_writel(GUEST_FS_BASE, data);
 		break;
@@ -661,10 +663,10 @@ static int vmx_set_msr(struct kvm_vcpu *vcpu, u32 msr_index, u64 data)
 				load_msrs(vcpu->guest_msrs, vcpu->save_nmsrs);
 			break;
 		}
-		return kvm_set_msr_common(vcpu, msr_index, data);
+		ret = kvm_set_msr_common(vcpu, msr_index, data);
 	}
 
-	return 0;
+	return ret;
 }
 
 /*
