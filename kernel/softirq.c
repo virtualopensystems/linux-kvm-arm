@@ -658,4 +658,28 @@ int on_each_cpu(void (*func) (void *info), void *info, int retry, int wait)
 	return ret;
 }
 EXPORT_SYMBOL(on_each_cpu);
+
+/*
+ * Call a function on one processor, which might be the currently executing
+ * processor.
+ */
+int on_cpu(int cpu, void (*func) (void *info), void *info,
+	       int retry, int wait)
+{
+	int ret;
+	int this_cpu;
+
+	this_cpu = get_cpu();
+	if (this_cpu == cpu) {
+		local_irq_disable();
+		func(info);
+		local_irq_enable();
+		ret = 0;
+	} else
+		ret = smp_call_function_single(cpu, func, info, retry, wait);
+	put_cpu();
+	return ret;
+}
+EXPORT_SYMBOL(on_cpu);
+
 #endif
