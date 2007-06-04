@@ -1345,7 +1345,7 @@ static int vmx_vcpu_setup(struct kvm_vcpu *vcpu)
 	get_idt(&dt);
 	vmcs_writel(HOST_IDTR_BASE, dt.base);   /* 22.2.4 */
 
-	asm ("mov $.Lkvm_vmx_return, %0" : "=g"(kvm_vmx_return));
+	asm ("mov $.Lkvm_vmx_return, %0" : "=r"(kvm_vmx_return));
 	vmcs_writel(HOST_RIP, kvm_vmx_return); /* 22.2.5 */
 	vmcs_write32(VM_EXIT_MSR_STORE_COUNT, 0);
 	vmcs_write32(VM_EXIT_MSR_LOAD_COUNT, 0);
