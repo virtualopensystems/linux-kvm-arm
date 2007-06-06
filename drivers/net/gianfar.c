@@ -140,7 +140,6 @@ int gfar_clean_rx_ring(struct net_device *dev, int rx_work_limit);
 static int gfar_process_frame(struct net_device *dev, struct sk_buff *skb, int length);
 static void gfar_vlan_rx_register(struct net_device *netdev,
 		                struct vlan_group *grp);
-static void gfar_vlan_rx_kill_vid(struct net_device *netdev, uint16_t vid);
 void gfar_halt(struct net_device *dev);
 void gfar_start(struct net_device *dev);
 static void gfar_clear_exact_match(struct net_device *dev);
@@ -284,7 +283,6 @@ static int gfar_probe(struct platform_device *pdev)
 
 	if (priv->einfo->device_flags & FSL_GIANFAR_DEV_HAS_VLAN) {
 		dev->vlan_rx_register = gfar_vlan_rx_register;
-		dev->vlan_rx_kill_vid = gfar_vlan_rx_kill_vid;
 
 		dev->features |= NETIF_F_HW_VLAN_TX | NETIF_F_HW_VLAN_RX;
 
@@ -1025,6 +1023,15 @@ static int gfar_start_xmit(struct sk_buff *skb, struct net_device *dev)
 
 	dev->trans_start = jiffies;
 
+	/* The powerpc-specific eieio() is used, as wmb() has too strong
+	 * semantics (it requires synchronization between cacheable and
+	 * uncacheable mappings, which eieio doesn't provide and which we
+	 * don't need), thus requiring a more expensive sync instruction.  At
+	 * some point, the set of architecture-independent barrier functions
+	 * should be expanded to include weaker barriers.
+	 */
+
+	eieio();
 	txbdp->status = status;
 
 	/* If this was the last BD in the ring, the next one */
@@ -1123,20 +1130,6 @@ static void gfar_vlan_rx_register(struct net_device *dev,
 
 	spin_unlock_irqrestore(&priv->rxlock, flags);
 }
-
-
-static void gfar_vlan_rx_kill_vid(struct net_device *dev, uint16_t vid)
-{
-	struct gfar_private *priv = netdev_priv(dev);
-	unsigned long flags;
-
-	spin_lock_irqsave(&priv->rxlock, flags);
-
-	vlan_group_set_device(priv->vlgrp, vid, NULL);
-
-	spin_unlock_irqrestore(&priv->rxlock, flags);
-}
-
 
 static int gfar_change_mtu(struct net_device *dev, int new_mtu)
 {
@@ -1301,6 +1294,7 @@ struct sk_buff * gfar_new_skb(struct net_device *dev, struct rxbd8 *bdp)
 	bdp->length = 0;
 
 	/* Mark the buffer empty */
+	eieio();
 	bdp->status |= (RXBD_EMPTY | RXBD_INTERRUPT);
 
 	return skb;
@@ -1484,6 +1478,7 @@ int gfar_clean_rx_ring(struct net_device *dev, int rx_work_limit)
 	bdp = priv->cur_rx;
 
 	while (!((bdp->status & RXBD_EMPTY) || (--rx_work_limit < 0))) {
+		rmb();
 		skb = priv->rx_skbuff[priv->skb_currx];
 
 		if (!(bdp->status &

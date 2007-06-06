@@ -154,7 +154,8 @@ static long ehca_plpar_hcall9(unsigned long opcode,
 			      unsigned long arg9)
 {
 	long ret;
-	int i, sleep_msecs;
+	int i, sleep_msecs, lock_is_set = 0;
+	unsigned long flags;
 
 	ehca_gen_dbg("opcode=%lx arg1=%lx arg2=%lx arg3=%lx arg4=%lx "
 		     "arg5=%lx arg6=%lx arg7=%lx arg8=%lx arg9=%lx",
@@ -162,9 +163,17 @@ static long ehca_plpar_hcall9(unsigned long opcode,
 		     arg8, arg9);
 
 	for (i = 0; i < 5; i++) {
+		if ((opcode == H_ALLOC_RESOURCE) && (arg2 == 5)) {
+			spin_lock_irqsave(&hcall_lock, flags);
+			lock_is_set = 1;
+		}
+
 		ret = plpar_hcall9(opcode, outs,
 				   arg1, arg2, arg3, arg4, arg5,
 				   arg6, arg7, arg8, arg9);
+
+		if (lock_is_set)
+			spin_unlock_irqrestore(&hcall_lock, flags);
 
 		if (H_IS_LONG_BUSY(ret)) {
 			sleep_msecs = get_longbusy_msecs(ret);
@@ -193,11 +202,11 @@ static long ehca_plpar_hcall9(unsigned long opcode,
 			     opcode, ret, outs[0], outs[1], outs[2], outs[3],
 			     outs[4], outs[5], outs[6], outs[7], outs[8]);
 		return ret;
-
 	}
 
 	return H_BUSY;
 }
+
 u64 hipz_h_alloc_resource_eq(const struct ipz_adapter_handle adapter_handle,
 			     struct ehca_pfeq *pfeq,
 			     const u32 neq_control,
@@ -322,7 +331,7 @@ u64 hipz_h_alloc_resource_qp(const struct ipz_adapter_handle adapter_handle,
 				0);
 	qp->ipz_qp_handle.handle = outs[0];
 	qp->real_qp_num = (u32)outs[1];
-	parms->act_nr_send_sges =
+	parms->act_nr_send_wqes =
 		(u16)EHCA_BMASK_GET(H_ALL_RES_QP_ACT_OUTST_SEND_WR, outs[2]);
 	parms->act_nr_recv_wqes =
 		(u16)EHCA_BMASK_GET(H_ALL_RES_QP_ACT_OUTST_RECV_WR, outs[2]);

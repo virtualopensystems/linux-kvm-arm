@@ -13,6 +13,7 @@
 #include <linux/signal.h>
 #include <linux/sched.h>
 #include <linux/mm.h>
+#include <asm/signal.h>
 
 #include "vmx.h"
 #include <linux/kvm.h>

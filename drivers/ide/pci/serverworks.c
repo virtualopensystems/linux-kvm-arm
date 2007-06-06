@@ -1,9 +1,10 @@
 /*
- * linux/drivers/ide/pci/serverworks.c		Version 0.8	 25 Ebr 2003
+ * linux/drivers/ide/pci/serverworks.c		Version 0.9	Mar 4 2007
  *
  * Copyright (C) 1998-2000 Michel Aubry
  * Copyright (C) 1998-2000 Andrzej Krzysztofowicz
  * Copyright (C) 1998-2000 Andre Hedrick <andre@linux-ide.org>
+ * Copyright (C)      2007 Bartlomiej Zolnierkiewicz
  * Portions copyright (c) 2001 Sun Microsystems
  *
  *
@@ -136,18 +137,13 @@ static int svwks_tune_chipset (ide_drive_t *drive, u8 xferspeed)
 
 	ide_hwif_t *hwif	= HWIF(drive);
 	struct pci_dev *dev	= hwif->pci_dev;
-	u8 speed;
-	u8 pio			= ide_get_best_pio_mode(drive, 255, 5, NULL);
+	u8 speed		= ide_rate_filter(drive, xferspeed);
+	u8 pio			= ide_get_best_pio_mode(drive, 255, 4, NULL);
 	u8 unit			= (drive->select.b.unit & 0x01);
 	u8 csb5			= svwks_csb_check(dev);
 	u8 ultra_enable		= 0, ultra_timing = 0;
 	u8 dma_timing		= 0, pio_timing = 0;
 	u16 csb5_pio		= 0;
-
-	if (xferspeed == 255)	/* PIO auto-tuning */
-		speed = XFER_PIO_0 + pio;
-	else
-		speed = ide_rate_filter(drive, xferspeed);
 
 	/* If we are about to put a disk into UDMA mode we screwed up.
 	   Our code assumes we never _ever_ do this on an OSB4 */
@@ -161,6 +157,12 @@ static int svwks_tune_chipset (ide_drive_t *drive, u8 xferspeed)
 	pci_read_config_byte(dev, (0x56|hwif->channel), &ultra_timing);
 	pci_read_config_word(dev, 0x4A, &csb5_pio);
 	pci_read_config_byte(dev, 0x54, &ultra_enable);
+
+	/* If we are in RAID mode (eg AMI MegaIDE) then we can't it
+	   turns out trust the firmware configuration */
+
+	if ((dev->class >> 8) != PCI_CLASS_STORAGE_IDE)
+		goto oem_setup_failed;
 
 	/* Per Specified Design by OEM, and ASIC Architect */
 	if ((dev->device == PCI_DEVICE_ID_SERVERWORKS_CSB6IDE) ||
@@ -177,7 +179,7 @@ dma_pio:
 				   ((dma_stat&(1<<(5+unit)))==(1<<(5+unit)))) {
 				u8 dmaspeed = dma_timing;
 
-				dma_timing &= ~0xFF;
+				dma_timing &= ~0xFFU;
 				if ((dmaspeed & 0x20) == 0x20)
 					dmaspeed = XFER_MW_DMA_2;
 				else if ((dmaspeed & 0x21) == 0x21)
@@ -191,7 +193,7 @@ dma_pio:
 			} else if (pio_timing) {
 				u8 piospeed = pio_timing;
 
-				pio_timing &= ~0xFF;
+				pio_timing &= ~0xFFU;
 				if ((piospeed & 0x20) == 0x20)
 					piospeed = XFER_PIO_4;
 				else if ((piospeed & 0x22) == 0x22)
@@ -212,8 +214,8 @@ dma_pio:
 
 oem_setup_failed:
 
-	pio_timing	&= ~0xFF;
-	dma_timing	&= ~0xFF;
+	pio_timing	&= ~0xFFU;
+	dma_timing	&= ~0xFFU;
 	ultra_timing	&= ~(0x0F << (4*unit));
 	ultra_enable	&= ~(0x01 << drive->dn);
 	csb5_pio	&= ~(0x0F << (4*drive->dn));
@@ -231,6 +233,9 @@ oem_setup_failed:
 		case XFER_MW_DMA_2:
 		case XFER_MW_DMA_1:
 		case XFER_MW_DMA_0:
+			/*
+			 * TODO: always setup PIO mode so this won't be needed
+			 */
 			pio_timing |= pio_modes[pio];
 			csb5_pio   |= (pio << (4*drive->dn));
 			dma_timing |= dma_modes[speed - XFER_MW_DMA_0];
@@ -242,6 +247,9 @@ oem_setup_failed:
 		case XFER_UDMA_2:
 		case XFER_UDMA_1:
 		case XFER_UDMA_0:
+			/*
+			 * TODO: always setup PIO mode so this won't be needed
+			 */
 			pio_timing   |= pio_modes[pio];
 			csb5_pio     |= (pio << (4*drive->dn));
 			dma_timing   |= dma_modes[2];
@@ -262,72 +270,21 @@ oem_setup_failed:
 	return (ide_config_drive_speed(drive, speed));
 }
 
-static void config_chipset_for_pio (ide_drive_t *drive)
-{
-	u16 eide_pio_timing[6] = {960, 480, 240, 180, 120, 90};
-	u16 xfer_pio = drive->id->eide_pio_modes;
-	u8 timing, speed, pio;
-
-	pio = ide_get_best_pio_mode(drive, 255, 5, NULL);
-
-	if (xfer_pio > 4)
-		xfer_pio = 0;
-
-	if (drive->id->eide_pio_iordy > 0)
-		for (xfer_pio = 5;
-			xfer_pio>0 &&
-			drive->id->eide_pio_iordy>eide_pio_timing[xfer_pio];
-			xfer_pio--);
-	else
-		xfer_pio = (drive->id->eide_pio_modes & 4) ? 0x05 :
-			   (drive->id->eide_pio_modes & 2) ? 0x04 :
-			   (drive->id->eide_pio_modes & 1) ? 0x03 :
-			   (drive->id->tPIO & 2) ? 0x02 :
-			   (drive->id->tPIO & 1) ? 0x01 : xfer_pio;
-
-	timing = (xfer_pio >= pio) ? xfer_pio : pio;
-
-	switch(timing) {
-		case 4: speed = XFER_PIO_4;break;
-		case 3: speed = XFER_PIO_3;break;
-		case 2: speed = XFER_PIO_2;break;
-		case 1: speed = XFER_PIO_1;break;
-		default:
-			speed = (!drive->id->tPIO) ? XFER_PIO_0 : XFER_PIO_SLOW;
-			break;
-	}
-	(void) svwks_tune_chipset(drive, speed);
-	drive->current_speed = speed;
-}
-
 static void svwks_tune_drive (ide_drive_t *drive, u8 pio)
 {
-	if(pio == 255)
-		(void) svwks_tune_chipset(drive, 255);
-	else
-		(void) svwks_tune_chipset(drive, (XFER_PIO_0 + pio));
-}
-
-static int config_chipset_for_dma (ide_drive_t *drive)
-{
-	u8 speed = ide_max_dma_mode(drive);
-
-	if (!(speed))
-		speed = XFER_PIO_0 + ide_get_best_pio_mode(drive, 255, 5, NULL);
-
-	(void) svwks_tune_chipset(drive, speed);
-	return ide_dma_enable(drive);
+	pio = ide_get_best_pio_mode(drive, pio, 4, NULL);
+	(void)svwks_tune_chipset(drive, XFER_PIO_0 + pio);
 }
 
 static int svwks_config_drive_xfer_rate (ide_drive_t *drive)
 {
 	drive->init_speed = 0;
 
-	if (ide_use_dma(drive) && config_chipset_for_dma(drive))
+	if (ide_tune_dma(drive))
 		return 0;
 
 	if (ide_use_fast_pio(drive))
-		config_chipset_for_pio(drive);
+		svwks_tune_drive(drive, 255);
 
 	return -1;
 }

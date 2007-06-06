@@ -30,8 +30,11 @@ trivial patch so apply some common sense.
 	job the maintainers (and especially Linus) do is to keep things
 	looking the same. Sometimes this means that the clever hack in
 	your driver to get around a problem actually needs to become a
-	generalized kernel feature ready for next time. See
-	Documentation/CodingStyle for guidance here.
+	generalized kernel feature ready for next time.
+
+	PLEASE check your patch with the automated style checker
+	(scripts/checkpatch.pl) to catch trival style violations.
+	See Documentation/CodingStyle for guidance here.
 
 	PLEASE try to include any credit lines you want added with the
 	patch. It avoids people being missed off by mistake and makes
@@ -332,6 +335,9 @@ L:	linux-usb-devel@lists.sourceforge.net
 W:	http://www.linux-usb.org/SpeedTouch/
 S:	Maintained
 
+ALCHEMY AU1XX0 MMC DRIVER
+S:	Orphan
+
 ALI1563 I2C DRIVER
 P:	Rudolf Marek
 M:	r.marek@assembler.cz
@@ -416,6 +422,12 @@ S:	Maintained
 ARM MFM AND FLOPPY DRIVERS
 P:	Ian Molton
 M:	spyro@f2s.com
+S:	Maintained
+
+ARM PRIMECELL MMCI PL180/1 DRIVER
+P:	Russell King
+M:	rmk@arm.linux.org.uk
+L:	linux-arm-kernel@lists.arm.linux.org.uk (subscribers-only)
 S:	Maintained
 
 ARM/ADI ROADRUNNER MACHINE SUPPORT
@@ -648,6 +660,9 @@ M:	chas@cmf.nrl.navy.mil
 L:	linux-atm-general@lists.sourceforge.net (subscribers-only)
 W:	http://linux-atm.sourceforge.net
 S:	Maintained
+
+ATMEL AT91 MCI DRIVER
+S:	Orphan
 
 ATMEL MACB ETHERNET DRIVER
 P:	Haavard Skinnemoen
@@ -959,6 +974,15 @@ P:	Johannes Berg
 M:	johannes@sipsolutions.net
 L:	linux-wireless@vger.kernel.org
 S:	Maintained
+
+CHECKPATCH
+P:	Andy Whitcroft
+M:	apw@shadowen.org
+P:	Randy Dunlap
+M:	rdunlap@xenotime.net
+P:	Joel Schopp
+M:	jschopp@austin.ibm.com
+S:	Supported
 
 COMMON INTERNET FILE SYSTEM (CIFS)
 P:	Steve French
@@ -1463,6 +1487,13 @@ L:	linux-usb-devel@lists.sourceforge.net
 L:	linuxppc-embedded@ozlabs.org
 S:	Maintained
 
+FREESCALE QUICC ENGINE UCC ETHERNET DRIVER
+P:	Li Yang
+M:	leoli@freescale.com
+L:	netdev@vger.kernel.org
+L:	linuxppc-embedded@ozlabs.org
+S:	Maintained
+
 FILE LOCKING (flock() and fcntl()/lockf())
 P:	Matthew Wilcox
 M:	matthew@wil.cx
@@ -1472,6 +1503,14 @@ S:	Maintained
 FILESYSTEMS (VFS and infrastructure)
 P:	Alexander Viro
 M:	viro@zeniv.linux.org.uk
+S:	Maintained
+
+FIREWIRE SUBSYSTEM
+P:	Kristian Hoegsberg, Stefan Richter
+M:	krh@redhat.com, stefanr@s5r6.in-berlin.de
+L:	linux1394-devel@lists.sourceforge.net
+W:	http://www.linux1394.org/
+T:	git kernel.org:/pub/scm/linux/kernel/git/ieee1394/linux1394-2.6.git
 S:	Maintained
 
 FIRMWARE LOADER (request_firmware)
@@ -1712,8 +1751,6 @@ L:	Linux-Kernel@vger.kernel.org
 S:	Maintained
 
 i386 SETUP CODE / CPU ERRATA WORKAROUNDS
-P:	Dave Jones
-M:	davej@codemonkey.org.uk
 P:	H. Peter Anvin
 M:	hpa@zytor.com
 S:	Maintained
@@ -2233,11 +2270,11 @@ M:	khali@linux-fr.org
 L:	lm-sensors@lm-sensors.org
 S:	Maintained
 
-LOGICAL DISK MANAGER SUPPORT (LDM, Windows 2000/XP Dynamic Disks)
+LOGICAL DISK MANAGER SUPPORT (LDM, Windows 2000/XP/Vista Dynamic Disks)
 P:	Richard Russon (FlatCap)
 M:	ldm@flatcap.org
-L:	ldm-devel@lists.sourceforge.net
-W:	http://ldm.sourceforge.net
+L:	linux-ntfs-dev@lists.sourceforge.net
+W:	http://www.linux-ntfs.org/content/view/19/37/
 S:	Maintained
 
 LSILOGIC MPT FUSION DRIVERS (FC/SAS/SPI)
@@ -2324,7 +2361,7 @@ S:	Maintained
 
 MEGARAID SCSI DRIVERS
 P:	Neela Syam Kolli
-M:	Neela.Kolli@engenio.com
+M:	megaraidlinux@lsi.com
 S:	linux-scsi@vger.kernel.org
 W:	http://megaraid.lsilogic.com
 S:	Maintained
@@ -2380,6 +2417,13 @@ MOTION EYE VAIO PICTUREBOOK CAMERA DRIVER
 P:	Stelian Pop
 M:	stelian@popies.net
 W:	http://popies.net/meye/
+S:	Maintained
+
+MOTOROLA IMX MMC/SD HOST CONTROLLER INTERFACE DRIVER
+P:	Pavel Pisa
+M:	ppisa@pikron.com
+L:	linux-arm-kernel@lists.arm.linux.org.uk (subscribers-only)
+W:	http://mmc.drzeus.cx/wiki/Controllers/Freescale/SDHC
 S:	Maintained
 
 MOUSE AND MISC DEVICES [GENERAL]
@@ -2691,13 +2735,13 @@ L:	i2c@lm-sensors.org
 S:	Maintained
 
 PARALLEL PORT SUPPORT
-L:	linux-parport@lists.infradead.org
+L:	linux-parport@lists.infradead.org (subscribers-only)
 S:	Orphan
 
 PARIDE DRIVERS FOR PARALLEL PORT IDE DEVICES
 P:	Tim Waugh
 M:	tim@cyberelk.net
-L:	linux-parport@lists.infradead.org
+L:	linux-parport@lists.infradead.org (subscribers-only)
 W:	http://www.torque.net/linux-pp.html
 S:	Maintained
 
@@ -2863,8 +2907,8 @@ W:	ftp://ftp.kernel.org/pub/linux/kernel/people/rml/preempt-kernel
 S:	Supported
 
 PRISM54 WIRELESS DRIVER
-P:	Prism54 Development Team
-M:	developers@islsm.org
+P:	Luis R. Rodriguez
+M:	mcgrof@gmail.com
 L:	linux-wireless@vger.kernel.org
 W:	http://prism54.org
 S:	Maintained
@@ -2901,6 +2945,9 @@ P:	Nicolas Pitre
 M:	nico@cam.org
 L:	linux-arm-kernel@lists.arm.linux.org.uk	(subscribers-only)
 S:	Maintained
+
+PXA MMCI DRIVER
+S:	Orphan
 
 QLOGIC QLA2XXX FC-SCSI DRIVER
 P:	Andrew Vasquez
@@ -3269,6 +3316,7 @@ W:	http://tpmdd.sourceforge.net
 P:	Marcel Selhorst
 M:	tpm@selhorst.net
 W:	http://www.prosec.rub.de/tpm/
+L:	tpmdd-devel@lists.sourceforge.net
 S:	Maintained
 
 Telecom Clock Driver for MCPL0010
@@ -3417,6 +3465,13 @@ P:      Alex Dubov
 M:      oakad@yahoo.com
 S:      Maintained
 
+TI OMAP MMC INTERFACE DRIVER
+P:	Carlos Aguiar, Anderson Briglia and Syed Khasim
+M:	linux-omap-open-source@linux.omap.com 
+W:	http://linux.omap.com
+W:	http://www.muru.com/linux/omap/
+S:	Maintained
+
 TI OMAP RANDOM NUMBER GENERATOR SUPPORT
 P:	Deepak Saxena
 M:	dsaxena@plexity.net
@@ -3497,7 +3552,7 @@ S:	Maintained
 
 TULIP NETWORK DRIVER
 P:	Valerie Henson
-M:	val_henson@linux.intel.com
+M:	val@nmt.edu
 L:	tulip-users@lists.sourceforge.net
 W:	http://sourceforge.net/projects/tulip/
 S:	Maintained

@@ -40,26 +40,26 @@ static nodemask_t nodes_found_map = NODE_MASK_NONE;
 #define NID_INVAL	-1
 
 /* maps to convert between proximity domain and logical node ID */
-int __cpuinitdata pxm_to_node_map[MAX_PXM_DOMAINS]
+static int pxm_to_node_map[MAX_PXM_DOMAINS]
 				= { [0 ... MAX_PXM_DOMAINS - 1] = NID_INVAL };
-int __cpuinitdata node_to_pxm_map[MAX_NUMNODES]
+static int node_to_pxm_map[MAX_NUMNODES]
 				= { [0 ... MAX_NUMNODES - 1] = PXM_INVAL };
 
-int __cpuinit pxm_to_node(int pxm)
+int pxm_to_node(int pxm)
 {
 	if (pxm < 0)
 		return NID_INVAL;
 	return pxm_to_node_map[pxm];
 }
 
-int __cpuinit node_to_pxm(int node)
+int node_to_pxm(int node)
 {
 	if (node < 0)
 		return PXM_INVAL;
 	return node_to_pxm_map[node];
 }
 
-int __cpuinit acpi_map_pxm_to_node(int pxm)
+int acpi_map_pxm_to_node(int pxm)
 {
 	int node = pxm_to_node_map[pxm];
 

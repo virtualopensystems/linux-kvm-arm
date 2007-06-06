@@ -45,8 +45,6 @@
  */
 #define MMC_SHIFT	3
 
-static int major;
-
 /*
  * There is one mmc_blk_data per slot.
  */
@@ -136,23 +134,6 @@ struct mmc_blk_request {
 	struct mmc_command	stop;
 	struct mmc_data		data;
 };
-
-static int mmc_blk_prep_rq(struct mmc_queue *mq, struct request *req)
-{
-	struct mmc_blk_data *md = mq->data;
-	int stat = BLKPREP_OK;
-
-	/*
-	 * If we have no device, we haven't finished initialising.
-	 */
-	if (!md || !mq->card) {
-		printk(KERN_ERR "%s: killing request - no device/host\n",
-		       req->rq_disk->disk_name);
-		stat = BLKPREP_KILL;
-	}
-
-	return stat;
-}
 
 static u32 mmc_sd_num_wr_blocks(struct mmc_card *card)
 {
@@ -462,11 +443,10 @@ static struct mmc_blk_data *mmc_blk_alloc(struct mmc_card *card)
 	if (ret)
 		goto err_putdisk;
 
-	md->queue.prep_fn = mmc_blk_prep_rq;
 	md->queue.issue_fn = mmc_blk_issue_rq;
 	md->queue.data = md;
 
-	md->disk->major	= major;
+	md->disk->major	= MMC_BLOCK_MAJOR;
 	md->disk->first_minor = devidx << MMC_SHIFT;
 	md->disk->fops = &mmc_bdops;
 	md->disk->private_data = md;
@@ -634,14 +614,9 @@ static int __init mmc_blk_init(void)
 {
 	int res = -ENOMEM;
 
-	res = register_blkdev(major, "mmc");
-	if (res < 0) {
-		printk(KERN_WARNING "Unable to get major %d for MMC media: %d\n",
-		       major, res);
+	res = register_blkdev(MMC_BLOCK_MAJOR, "mmc");
+	if (res)
 		goto out;
-	}
-	if (major == 0)
-		major = res;
 
 	return mmc_register_driver(&mmc_driver);
 
@@ -652,7 +627,7 @@ static int __init mmc_blk_init(void)
 static void __exit mmc_blk_exit(void)
 {
 	mmc_unregister_driver(&mmc_driver);
-	unregister_blkdev(major, "mmc");
+	unregister_blkdev(MMC_BLOCK_MAJOR, "mmc");
 }
 
 module_init(mmc_blk_init);
@@ -661,5 +636,3 @@ module_exit(mmc_blk_exit);
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("Multimedia Card (MMC) block device driver");
 
-module_param(major, int, 0444);
-MODULE_PARM_DESC(major, "specify the major device number for MMC block driver");

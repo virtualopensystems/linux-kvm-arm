@@ -170,7 +170,10 @@ and is between 256 and 4096 characters. It is defined in the file
 	acpi_os_name=	[HW,ACPI] Tell ACPI BIOS the name of the OS
 			Format: To spoof as Windows 98: ="Microsoft Windows"
 
-	acpi_osi=	[HW,ACPI] empty param disables _OSI
+	acpi_osi=	[HW,ACPI] Modify list of supported OS interface strings
+			acpi_osi="string1"	# add string1 -- only one string
+			acpi_osi="!string2"	# remove built-in string2
+			acpi_osi=		# disable all strings
 
 	acpi_serialize	[HW,ACPI] force serialization of AML methods
 
@@ -395,6 +398,26 @@ and is between 256 and 4096 characters. It is defined in the file
 			when calculating gettimeofday(). If specified
 			clocksource is not available, it defaults to PIT.
 			Format: { pit | tsc | cyclone | pmtmr }
+
+	clocksource=	[GENERIC_TIME] Override the default clocksource
+			Format: <string>
+			Override the default clocksource and use the clocksource
+			with the name specified.
+			Some clocksource names to choose from, depending on
+			the platform:
+			[all] jiffies (this is the base, fallback clocksource)
+			[ACPI] acpi_pm
+			[ARM] imx_timer1,OSTS,netx_timer,mpu_timer2,
+				pxa_timer,timer3,32k_counter,timer0_1
+			[AVR32] avr32
+			[IA-32] pit,hpet,tsc,vmi-timer;
+				scx200_hrt on Geode; cyclone on IBM x440
+			[MIPS] MIPS
+			[PARISC] cr16
+			[S390] tod
+			[SH] SuperH
+			[SPARC64] tick
+			[X86-64] hpet,tsc
 
 	code_bytes	[IA32] How many bytes of object code to print in an
 			oops report.
@@ -1112,9 +1135,9 @@ and is between 256 and 4096 characters. It is defined in the file
 			when set.
 			Format: <int>
 
-	noaliencache	[MM, NUMA] Disables the allcoation of alien caches in
-			the slab allocator.  Saves per-node memory, but will
-			impact performance on real NUMA hardware.
+	noaliencache	[MM, NUMA, SLAB] Disables the allocation of alien
+			caches in the slab allocator.  Saves per-node memory,
+			but will impact performance.
 
 	noalign		[KNL,ARM]
 
@@ -1593,6 +1616,37 @@ and is between 256 and 4096 characters. It is defined in the file
 
 	slram=		[HW,MTD]
 
+	slub_debug	[MM, SLUB]
+			Enabling slub_debug allows one to determine the culprit
+			if slab objects become corrupted. Enabling slub_debug
+			creates guard zones around objects and poisons objects
+			when not in use. Also tracks the last alloc / free.
+			For more information see Documentation/vm/slub.txt.
+
+	slub_max_order= [MM, SLUB]
+			Determines the maximum allowed order for slabs. Setting
+			this too high may cause fragmentation.
+			For more information see Documentation/vm/slub.txt.
+
+	slub_min_objects=	[MM, SLUB]
+			The minimum objects per slab. SLUB will increase the
+			slab order up to slub_max_order to generate a
+			sufficiently big slab to satisfy the number of objects.
+			The higher the number of objects the smaller the overhead
+			of tracking slabs.
+			For more information see Documentation/vm/slub.txt.
+
+	slub_min_order=	[MM, SLUB]
+			Determines the mininum page order for slabs. Must be
+			lower than slub_max_order
+			For more information see Documentation/vm/slub.txt.
+
+	slub_nomerge	[MM, SLUB]
+			Disable merging of slabs of similar size. May be
+			necessary if there is some reason to distinguish
+			allocs to different slabs.
+			For more information see Documentation/vm/slub.txt.
+
 	smart2=		[HW]
 			Format: <io1>[,<io2>[,...,<io8>]]
 
@@ -1806,10 +1860,6 @@ and is between 256 and 4096 characters. It is defined in the file
 			Set number of hash buckets for TCP connection
 
 	time		Show timing data prefixed to each printk message line
-
-	clocksource=	[GENERIC_TIME] Override the default clocksource
-			Override the default clocksource and use the clocksource
-			with the name specified.
 
 	tipar.timeout=	[HW,PPT]
 			Set communications timeout in tenths of a second

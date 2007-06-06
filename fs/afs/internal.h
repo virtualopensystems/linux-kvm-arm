@@ -16,6 +16,9 @@
 #include <linux/skbuff.h>
 #include <linux/rxrpc.h>
 #include <linux/key.h>
+#include <linux/workqueue.h>
+#include <linux/sched.h>
+
 #include "afs.h"
 #include "afs_vl.h"
 

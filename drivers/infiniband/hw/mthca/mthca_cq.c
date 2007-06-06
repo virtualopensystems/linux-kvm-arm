@@ -37,6 +37,7 @@
  */
 
 #include <linux/hardirq.h>
+#include <linux/sched.h>
 
 #include <asm/io.h>
 
@@ -284,7 +285,7 @@ void mthca_cq_clean(struct mthca_dev *dev, struct mthca_cq *cq, u32 qpn,
 {
 	struct mthca_cqe *cqe;
 	u32 prod_index;
-	int nfreed = 0;
+	int i, nfreed = 0;
 
 	spin_lock_irq(&cq->lock);
 
@@ -321,6 +322,8 @@ void mthca_cq_clean(struct mthca_dev *dev, struct mthca_cq *cq, u32 qpn,
 	}
 
 	if (nfreed) {
+		for (i = 0; i < nfreed; ++i)
+			set_cqe_hw(get_cqe(cq, (cq->cons_index + i) & cq->ibcq.cqe));
 		wmb();
 		cq->cons_index += nfreed;
 		update_cons_index(dev, cq, nfreed);

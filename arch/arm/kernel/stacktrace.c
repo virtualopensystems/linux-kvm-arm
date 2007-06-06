@@ -1,3 +1,4 @@
+#include <linux/module.h>
 #include <linux/sched.h>
 #include <linux/stacktrace.h>
 
@@ -12,7 +13,7 @@ int walk_stackframe(unsigned long fp, unsigned long low, unsigned long high,
 		/*
 		 * Check current frame pointer is within bounds
 		 */
-		if ((fp - 12) < low || fp + 4 >= high)
+		if (fp < (low + 12) || fp + 4 >= high)
 			break;
 
 		frame = (struct stackframe *)(fp - 12);
@@ -30,6 +31,7 @@ int walk_stackframe(unsigned long fp, unsigned long low, unsigned long high,
 
 	return 0;
 }
+EXPORT_SYMBOL(walk_stackframe);
 
 #ifdef CONFIG_STACKTRACE
 struct stack_trace_data {

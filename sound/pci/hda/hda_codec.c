@@ -707,9 +707,23 @@ static u32 query_amp_caps(struct hda_codec *codec, hda_nid_t nid, int direction)
 						    direction == HDA_OUTPUT ?
 						    AC_PAR_AMP_OUT_CAP :
 						    AC_PAR_AMP_IN_CAP);
-		info->status |= INFO_AMP_CAPS;
+		if (info->amp_caps)
+			info->status |= INFO_AMP_CAPS;
 	}
 	return info->amp_caps;
+}
+
+int snd_hda_override_amp_caps(struct hda_codec *codec, hda_nid_t nid, int dir,
+			      unsigned int caps)
+{
+	struct hda_amp_info *info;
+
+	info = get_alloc_amp_hash(codec, HDA_HASH_KEY(nid, dir, 0));
+	if (!info)
+		return -EINVAL;
+	info->amp_caps = caps;
+	info->status |= INFO_AMP_CAPS;
+	return 0;
 }
 
 /*

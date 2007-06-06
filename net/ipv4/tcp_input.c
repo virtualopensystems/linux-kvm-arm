@@ -1501,6 +1501,8 @@ void tcp_enter_loss(struct sock *sk, int how)
 	tcp_set_ca_state(sk, TCP_CA_Loss);
 	tp->high_seq = tp->snd_nxt;
 	TCP_ECN_queue_cwr(tp);
+	/* Abort FRTO algorithm if one is in progress */
+	tp->frto_counter = 0;
 
 	clear_all_retrans_hints(tp);
 }
@@ -2405,8 +2407,8 @@ static int tcp_clean_rtx_queue(struct sock *sk, __s32 *seq_rtt_p)
 	struct sk_buff *skb;
 	__u32 now = tcp_time_stamp;
 	int acked = 0;
+	int prior_packets = tp->packets_out;
 	__s32 seq_rtt = -1;
-	u32 pkts_acked = 0;
 	ktime_t last_ackt = ktime_set(0,0);
 
 	while ((skb = tcp_write_queue_head(sk)) &&
@@ -2435,7 +2437,6 @@ static int tcp_clean_rtx_queue(struct sock *sk, __s32 *seq_rtt_p)
 		 */
 		if (!(scb->flags & TCPCB_FLAG_SYN)) {
 			acked |= FLAG_DATA_ACKED;
-			++pkts_acked;
 		} else {
 			acked |= FLAG_SYN_ACKED;
 			tp->retrans_stamp = 0;
@@ -2479,6 +2480,7 @@ static int tcp_clean_rtx_queue(struct sock *sk, __s32 *seq_rtt_p)
 	}
 
 	if (acked&FLAG_ACKED) {
+		u32 pkts_acked = prior_packets - tp->packets_out;
 		const struct tcp_congestion_ops *ca_ops
 			= inet_csk(sk)->icsk_ca_ops;
 
@@ -2608,6 +2610,7 @@ static void tcp_conservative_spur_to_response(struct tcp_sock *tp)
 {
 	tp->snd_cwnd = min(tp->snd_cwnd, tp->snd_ssthresh);
 	tp->snd_cwnd_cnt = 0;
+	TCP_ECN_queue_cwr(tp);
 	tcp_moderate_cwnd(tp);
 }
 
