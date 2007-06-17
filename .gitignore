@@ -45,6 +45,3 @@ series
 
 # cscope files
 cscope.*
-
-# emacs backup files
-*~
