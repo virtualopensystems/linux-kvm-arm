@@ -2387,6 +2387,7 @@ static int kvm_vm_ioctl_create_vcpu(struct kvm *kvm, int n)
 		goto out;
 
 	vcpu = &kvm->vcpus[n];
+	vcpu->vcpu_id = n;
 
 	mutex_lock(&vcpu->mutex);
 
