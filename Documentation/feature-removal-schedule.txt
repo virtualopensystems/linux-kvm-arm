@@ -196,28 +196,6 @@ Who:   Adrian Bunk <bunk@stusta.de>
 
 ---------------------------
 
-What:	ACPI hooks (X86_SPEEDSTEP_CENTRINO_ACPI) in speedstep-centrino driver
-When:	December 2006
-Why:	Speedstep-centrino driver with ACPI hooks and acpi-cpufreq driver are
-	functionally very much similar. They talk to ACPI in same way. Only
-	difference between them is the way they do frequency transitions.
-	One uses MSRs and the other one uses IO ports. Functionaliy of
-	speedstep_centrino with ACPI hooks is now merged into acpi-cpufreq.
-	That means one common driver will support all Intel Enhanced Speedstep
-	capable CPUs. That means less confusion over name of
-	speedstep-centrino driver (with that driver supposed to be used on
-	non-centrino platforms). That means less duplication of code and
-	less maintenance effort and no possibility of these two drivers
-	going out of sync.
-	Current users of speedstep_centrino with ACPI hooks are requested to
-	switch over to acpi-cpufreq driver. speedstep-centrino will continue
-	to work using older non-ACPI static table based scheme even after this
-	date.
-
-Who:	Venkatesh Pallipadi <venkatesh.pallipadi@intel.com>
-
----------------------------
-
 What:	/sys/firmware/acpi/namespace
 When:	2.6.21
 Why:	The ACPI namespace is effectively the symbol list for
@@ -259,25 +237,6 @@ Why:	The code says it was obsolete when it was written in 2001.
 	The name "tsdev" is also extremely confusing and lots of people have
 	it loaded when they don't need/use it.
 Who:	Richard Purdie <rpurdie@rpsys.net>
-
----------------------------
-
-What:	Multipath cached routing support in ipv4
-When:	in 2.6.23
-Why:	Code was merged, then submitter immediately disappeared leaving
-	us with no maintainer and lots of bugs.  The code should not have
-	been merged in the first place, and many aspects of it's
-	implementation are blocking more critical core networking
-	development.  It's marked EXPERIMENTAL and no distribution
-	enables it because it cause obscure crashes due to unfixable bugs
-	(interfaces don't return errors so memory allocation can't be
-	handled, calling contexts of these interfaces make handling
-	errors impossible too because they get called after we've
-	totally commited to creating a route object, for example).
-	This problem has existed for years and no forward progress
-	has ever been made, and nobody steps up to try and salvage
-	this code, so we're going to finally just get rid of it.
-Who:	David S. Miller <davem@davemloft.net>
 
 ---------------------------
 
@@ -330,3 +289,18 @@ Who:  Tejun Heo <htejun@gmail.com>
 
 ---------------------------
 
+What:	Legacy RTC drivers (under drivers/i2c/chips)
+When:	November 2007
+Why:	Obsolete. We have a RTC subsystem with better drivers.
+Who:	Jean Delvare <khali@linux-fr.org>
+
+---------------------------
+
+What:	iptables SAME target
+When:	1.1. 2008
+Files:	net/ipv4/netfilter/ipt_SAME.c, include/linux/netfilter_ipv4/ipt_SAME.h
+Why:	Obsolete for multiple years now, NAT core provides the same behaviour.
+	Unfixable broken wrt. 32/64 bit cleanness.
+Who:	Patrick McHardy <kaber@trash.net>
+
+---------------------------

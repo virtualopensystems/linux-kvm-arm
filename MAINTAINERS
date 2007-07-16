@@ -315,10 +315,9 @@ M:	zippel@linux-m68k.org
 S:	Maintained
 
 AGPGART DRIVER
-P:	Dave Jones
-M:	davej@codemonkey.org.uk
-W:	http://www.codemonkey.org.uk/projects/agp/
-T:	git kernel.org:/pub/scm/linux/kernel/git/davej/agpgart.git
+P:	David Airlie
+M:	airlied@linux.ie
+T:	git kernel.org:/pub/scm/linux/kernel/git/airlied/drm-2.6.git
 S:	Maintained
 
 AHA152X SCSI DRIVER
@@ -371,7 +370,7 @@ P:	Tom Tucker
 M:	tom@opengridcomputing.com
 P:	Steve Wise
 M:	swise@opengridcomputing.com
-L:	openib-general@openib.org
+L:	general@lists.openfabrics.org
 S:	Maintained
 
 AOA (Apple Onboard Audio) ALSA DRIVER
@@ -1396,7 +1395,7 @@ P:	Hoang-Nam Nguyen
 M:	hnguyen@de.ibm.com
 P:	Christoph Raisch
 M:	raisch@de.ibm.com
-L:	openib-general@openib.org
+L:	general@lists.openfabrics.org
 S:	Supported
 
 EMU10K1 SOUND DRIVER
@@ -1750,8 +1749,8 @@ T:	http://www.harbaum.org/till/i2c_tiny_usb
 S:	Maintained
 
 i386 BOOT CODE
-P:	Riley H. Williams
-M:	Riley@Williams.Name
+P:	H. Peter Anvin
+M:	hpa@zytor.com
 L:	Linux-Kernel@vger.kernel.org
 S:	Maintained
 
@@ -1850,8 +1849,8 @@ M:	rolandd@cisco.com
 P:	Sean Hefty
 M:	mshefty@ichips.intel.com
 P:	Hal Rosenstock
-M:	halr@voltaire.com
-L:	openib-general@openib.org
+M:	hal.rosenstock@gmail.com 
+L:	general@lists.openfabrics.org
 W:	http://www.openib.org/
 T:	git kernel.org:/pub/scm/linux/kernel/git/roland/infiniband.git
 S:	Supported
@@ -1989,9 +1988,10 @@ M:	jjciarla@raiz.uncu.edu.ar
 S:	Maintained
 
 IPATH DRIVER:
-P:	Bryan O'Sullivan
-M:	support@pathscale.com
-L:	openib-general@openib.org
+P:	Arthur Jones
+M:	infinipath@qlogic.com
+L:	general@lists.openfabrics.org
+T:	git git://git.qlogic.com/ipath-linux-2.6
 S:	Supported
 
 IPMI SUBSYSTEM
@@ -2328,6 +2328,12 @@ M:	flamingice@sourmilk.net
 L:	linux-wireless@vger.kernel.org
 W:	http://linuxwireless.org/
 T:	git kernel.org:/pub/scm/linux/kernel/git/jbenc/mac80211.git
+S:	Maintained
+
+MACVLAN DRIVER
+P:	Patrick McHardy
+M:	kaber@trash.net
+L:	netdev@vger.kernel.org
 S:	Maintained
 
 MARVELL YUKON / SYSKONNECT DRIVER
@@ -2814,11 +2820,6 @@ P: 	Kristen Carlson Accardi
 M:	kristen.c.accardi@intel.com
 S:	Supported
 
-PCI HOTPLUG COMPAQ DRIVER
-P:	Greg Kroah-Hartman
-M:	greg@kroah.com
-S:	Maintained
-
 PCIE HOTPLUG DRIVER
 P:	Kristen Carlson Accardi
 M:	kristen.c.accardi@intel.com
@@ -2868,6 +2869,16 @@ M:	george@mvista.com
 L:	linux-kernel@vger.kernel.org
 S:	Supported
 
+POWER SUPPLY CLASS/SUBSYSTEM and DRIVERS
+P:	Anton Vorontsov
+M:	cbou@mail.ru
+P:	David Woodhouse
+M:	dwmw2@infradead.org
+L:	linux-kernel@vger.kernel.org
+L:	kernel-discuss@handhelds.org
+T:	git git.infradead.org/battery-2.6.git
+S:	Maintained
+
 POWERPC 4xx EMAC DRIVER
 P:	Eugene Surovegin
 M:	ebs@ebshome.net
@@ -2901,6 +2912,11 @@ S:	Maintained
 PPP OVER ETHERNET
 P:	Michal Ostrowski
 M:	mostrows@speakeasy.net
+S:	Maintained
+
+PPP OVER L2TP
+P:	James Chapman
+M:	jchapman@katalix.com
 S:	Maintained
 
 PREEMPTIBLE KERNEL
@@ -3724,12 +3740,12 @@ L:	netdev@vger.kernel.org
 W:	http://pegasus2.sourceforge.net/
 S:	Maintained
 
-USB PRINTER DRIVER
-P:	Vojtech Pavlik
-M:	vojtech@suse.cz
+USB PRINTER DRIVER (usblp)
+P:	Pete Zaitcev
+M:	zaitcev@redhat.com
 L:	linux-usb-users@lists.sourceforge.net
 L:	linux-usb-devel@lists.sourceforge.net
-S:	Maintained
+S:	Supported
 
 USB RTL8150 DRIVER
 P:	Petko Manolov
