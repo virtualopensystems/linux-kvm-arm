@@ -205,7 +205,7 @@ config MII
 config MACB
 	tristate "Atmel MACB support"
 	depends on AVR32 || ARCH_AT91SAM9260 || ARCH_AT91SAM9263
-	select MII
+	select PHYLIB
 	help
 	  The Atmel MACB ethernet interface is found on many AT32 and AT91
 	  parts. Say Y to include support for the MACB chip.
@@ -405,22 +405,6 @@ config ATARILANCE
 	  on the AMD Lance chipset: RieblCard (with or without battery), or
 	  PAMCard VME (also the version by Rhotron, with different addresses).
 
-config ATARI_BIONET
-	tristate "BioNet-100 support"
-	depends on ATARI && ATARI_ACSI && BROKEN
-	help
-	  Say Y to include support for BioData's BioNet-100 Ethernet adapter
-	  for the ACSI port. The driver works (has to work...) with a polled
-	  I/O scheme, so it's rather slow :-(
-
-config ATARI_PAMSNET
-	tristate "PAMsNet support"
-	depends on ATARI && ATARI_ACSI && BROKEN
-	help
-	  Say Y to include support for the PAMsNet Ethernet adapter for the
-	  ACSI port ("ACSI node"). The driver works (has to work...) with a
-	  polled I/O scheme, so it's rather slow :-(
-
 config SUN3LANCE
 	tristate "Sun3/Sun3x on-board LANCE support"
 	depends on SUN3 || SUN3X
@@ -603,6 +587,12 @@ config CASSINI
 	help
 	  Support for the Sun Cassini chip, aka Sun GigaSwift Ethernet. See also
 	  <http://www.sun.com/products-n-solutions/hardware/docs/pdf/817-4341-10.pdf>
+
+config SUNVNET
+	tristate "Sun Virtual Network support"
+	depends on SUN_LDOMS
+	help
+	  Support for virtual network devices under Sun Logical Domains.
 
 config NET_VENDOR_3COM
 	bool "3COM cards"

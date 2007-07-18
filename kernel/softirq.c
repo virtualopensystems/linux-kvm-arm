@@ -14,6 +14,7 @@
 #include <linux/notifier.h>
 #include <linux/percpu.h>
 #include <linux/cpu.h>
+#include <linux/freezer.h>
 #include <linux/kthread.h>
 #include <linux/rcupdate.h>
 #include <linux/smp.h>
@@ -488,8 +489,6 @@ void __init softirq_init(void)
 
 static int ksoftirqd(void * __bind_cpu)
 {
-	current->flags |= PF_NOFREEZE;
-
 	set_current_state(TASK_INTERRUPTIBLE);
 
 	while (!kthread_should_stop()) {
@@ -614,12 +613,16 @@ static int __cpuinit cpu_callback(struct notifier_block *nfb,
 		kthread_bind(per_cpu(ksoftirqd, hotcpu),
 			     any_online_cpu(cpu_online_map));
 	case CPU_DEAD:
-	case CPU_DEAD_FROZEN:
+	case CPU_DEAD_FROZEN: {
+		struct sched_param param = { .sched_priority = MAX_RT_PRIO-1 };
+
 		p = per_cpu(ksoftirqd, hotcpu);
 		per_cpu(ksoftirqd, hotcpu) = NULL;
+		sched_setscheduler(p, SCHED_FIFO, &param);
 		kthread_stop(p);
 		takeover_tasklets(hotcpu);
 		break;
+	}
 #endif /* CONFIG_HOTPLUG_CPU */
  	}
 	return NOTIFY_OK;
@@ -657,28 +660,4 @@ int on_each_cpu(void (*func) (void *info), void *info, int retry, int wait)
 	return ret;
 }
 EXPORT_SYMBOL(on_each_cpu);
-
-/*
- * Call a function on one processor, which might be the currently executing
- * processor.
- */
-int on_cpu(int cpu, void (*func) (void *info), void *info,
-	       int retry, int wait)
-{
-	int ret;
-	int this_cpu;
-
-	this_cpu = get_cpu();
-	if (this_cpu == cpu) {
-		local_irq_disable();
-		func(info);
-		local_irq_enable();
-		ret = 0;
-	} else
-		ret = smp_call_function_single(cpu, func, info, retry, wait);
-	put_cpu();
-	return ret;
-}
-EXPORT_SYMBOL(on_cpu);
-
 #endif

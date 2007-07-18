@@ -41,14 +41,6 @@ Who:	Pavel Machek <pavel@suse.cz>
 
 ---------------------------
 
-What:	RAW driver (CONFIG_RAW_DRIVER)
-When:	December 2005
-Why:	declared obsolete since kernel 2.6.3
-	O_DIRECT can be used instead
-Who:	Adrian Bunk <bunk@stusta.de>
-
----------------------------
-
 What:	old NCR53C9x driver
 When:	October 2007
 Why:	Replaced by the much better esp_scsi driver.  Actual low-level
@@ -116,13 +108,6 @@ What:   eepro100 network driver
 When:   January 2007
 Why:    replaced by the e100 driver
 Who:    Adrian Bunk <bunk@stusta.de>
-
----------------------------
-
-What:  drivers depending on OSS_OBSOLETE_DRIVER
-When:  options in 2.6.20, code in 2.6.22
-Why:   OSS drivers with ALSA replacements
-Who:   Adrian Bunk <bunk@stusta.de>
 
 ---------------------------
 
@@ -264,6 +249,14 @@ Who:	Jean Delvare <khali@linux-fr.org>
 
 ---------------------------
 
+What:	'time' kernel boot parameter
+When:	January 2008
+Why:	replaced by 'printk.time=<value>' so that printk timestamps can be
+	enabled or disabled as needed
+Who:	Randy Dunlap <randy.dunlap@oracle.com>
+
+---------------------------
+
 What:  drivers depending on OSS_OBSOLETE
 When:  options in 2.6.23, code in 2.6.25
 Why:   obsolete OSS drivers
@@ -302,5 +295,18 @@ Files:	net/ipv4/netfilter/ipt_SAME.c, include/linux/netfilter_ipv4/ipt_SAME.h
 Why:	Obsolete for multiple years now, NAT core provides the same behaviour.
 	Unfixable broken wrt. 32/64 bit cleanness.
 Who:	Patrick McHardy <kaber@trash.net>
+
+---------------------------
+
+What: The arch/ppc and include/asm-ppc directories
+When: Jun 2008
+Why:  The arch/powerpc tree is the merged architecture for ppc32 and ppc64
+      platforms.  Currently there are efforts underway to port the remaining
+      arch/ppc platforms to the merged tree.  New submissions to the arch/ppc
+      tree have been frozen with the 2.6.22 kernel release and that tree will
+      remain in bug-fix only mode until its scheduled removal.  Platforms
+      that are not ported by June 2008 will be removed due to the lack of an
+      interested maintainer.
+Who:  linuxppc-dev@ozlabs.org
 
 ---------------------------

@@ -630,7 +630,7 @@ static int auerchain_start_wait_urb (pauerchain_t acp, struct urb *urb, int time
 	} else
 		status = urb->status;
 
-	if (actual_length)
+	if (status >= 0)
 		*actual_length = urb->actual_length;
 
   	return status;
@@ -664,7 +664,7 @@ static int auerchain_control_msg (pauerchain_t acp, struct usb_device *dev, unsi
 	int ret;
 	struct usb_ctrlrequest *dr;
 	struct urb *urb;
-        int length;
+        int uninitialized_var(length);
 
         dbg ("auerchain_control_msg");
         dr = kmalloc (sizeof (struct usb_ctrlrequest), GFP_KERNEL);

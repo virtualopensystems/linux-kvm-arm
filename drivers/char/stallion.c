@@ -1788,7 +1788,6 @@ static void stl_offintr(struct work_struct *work)
 	if (tty == NULL)
 		return;
 
-	lock_kernel();
 	if (test_bit(ASYI_TXLOW, &portp->istate))
 		tty_wakeup(tty);
 
@@ -1802,7 +1801,6 @@ static void stl_offintr(struct work_struct *work)
 			if (portp->flags & ASYNC_CHECK_CD)
 				tty_hangup(tty);	/* FIXME: module removal race here - AKPM */
 	}
-	unlock_kernel();
 }
 
 /*****************************************************************************/
@@ -2356,9 +2354,6 @@ static int __devinit stl_pciprobe(struct pci_dev *pdev,
 
 	if ((pdev->class >> 8) == PCI_CLASS_STORAGE_IDE)
 		goto err;
-
-	dev_info(&pdev->dev, "please, report this to LKML: %x/%x/%x\n",
-			pdev->vendor, pdev->device, pdev->class);
 
 	retval = pci_enable_device(pdev);
 	if (retval)

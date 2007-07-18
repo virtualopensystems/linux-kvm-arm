@@ -7,7 +7,6 @@
  */
 
 #include <linux/errno.h>
-#include <asm/system.h>
 
 extern void cpu_idle(void);
 
@@ -62,11 +61,6 @@ int smp_call_function_single(int cpuid, void (*func) (void *info), void *info,
  * Call a function on all processors
  */
 int on_each_cpu(void (*func) (void *info), void *info, int retry, int wait);
-/*
- * Call a function on one processor
- */
-int on_cpu(int cpu, void (*func)(void *info), void *info,
-	       int retry, int wait);
 
 #define MSG_ALL_BUT_SELF	0x8000	/* Assume <32768 CPU's */
 #define MSG_ALL			0x8001
@@ -102,24 +96,17 @@ static inline int up_smp_call_function(void)
 		local_irq_enable();		\
 		0;				\
 	})
-
-static inline int on_cpu(int cpu, void (*func)(void *info), void *info,
-			     int retry, int wait)
-{
-	local_irq_disable();
-	func(info);
-	local_irq_enable();
-	return 0;
-}
-
 static inline void smp_send_reschedule(int cpu) { }
 #define num_booting_cpus()			1
 #define smp_prepare_boot_cpu()			do {} while (0)
-static inline int smp_call_function_single(int cpuid, void (*func) (void *info),
-					   void *info, int retry, int wait)
-{
-	return -EBUSY;
-}
+#define smp_call_function_single(cpuid, func, info, retry, wait) \
+({ \
+	WARN_ON(cpuid != 0);	\
+	local_irq_disable();	\
+	(func)(info);		\
+	local_irq_enable();	\
+	0;			\
+})
 
 #endif /* !SMP */
 

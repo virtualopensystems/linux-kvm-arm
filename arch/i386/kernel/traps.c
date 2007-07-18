@@ -390,7 +390,7 @@ void die(const char * str, struct pt_regs * regs, long err)
 		unsigned long esp;
 		unsigned short ss;
 
-		report_bug(regs->eip);
+		report_bug(regs->eip, regs);
 
 		printk(KERN_EMERG "%s: %04lx [#%d]\n", str, err & 0xffff, ++die_counter);
 #ifdef CONFIG_PREEMPT
@@ -433,6 +433,7 @@ void die(const char * str, struct pt_regs * regs, long err)
 
 	bust_spinlocks(0);
 	die.lock_owner = -1;
+	add_taint(TAINT_DIE);
 	spin_unlock_irqrestore(&die.lock, flags);
 
 	if (!regs)
