@@ -1341,11 +1341,10 @@ int in_gate_area_no_task(unsigned long addr)
 	return 0;
 }
 
-struct page *filemap_nopage(struct vm_area_struct *area,
-			unsigned long address, int *type)
+int filemap_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
 {
 	BUG();
-	return NULL;
+	return 0;
 }
 
 /*

@@ -2394,7 +2394,7 @@ size_t ksize(const void *object)
 	struct page *page;
 	struct kmem_cache *s;
 
-	if (object == ZERO_SIZE_PTR)
+	if (ZERO_OR_NULL_PTR(object))
 		return 0;
 
 	page = get_object_page(object);
@@ -2668,12 +2668,10 @@ static struct kmem_cache *find_mergeable(size_t size,
 
 struct kmem_cache *kmem_cache_create(const char *name, size_t size,
 		size_t align, unsigned long flags,
-		void (*ctor)(void *, struct kmem_cache *, unsigned long),
-		void (*dtor)(void *, struct kmem_cache *, unsigned long))
+		void (*ctor)(void *, struct kmem_cache *, unsigned long))
 {
 	struct kmem_cache *s;
 
-	BUG_ON(dtor);
 	down_write(&slub_lock);
 	s = find_mergeable(size, align, flags, ctor);
 	if (s) {

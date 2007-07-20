@@ -8,11 +8,6 @@
 
 struct kstatfs;
 
-struct coda_sb_info
-{
-	struct venus_comm *sbi_vcomm;
-};
-
 /* communication pending/processing queues */
 struct venus_comm {
 	u_long		    vc_seq;
@@ -24,9 +19,9 @@ struct venus_comm {
 };
 
 
-static inline struct coda_sb_info *coda_sbp(struct super_block *sb)
+static inline struct venus_comm *coda_vcp(struct super_block *sb)
 {
-    return ((struct coda_sb_info *)((sb)->s_fs_info));
+	return (struct venus_comm *)((sb)->s_fs_info);
 }
 
 
@@ -74,8 +69,6 @@ int venus_statfs(struct dentry *dentry, struct kstatfs *sfs);
 
 
 /* messages between coda filesystem in kernel and Venus */
-extern int coda_hard;
-extern unsigned long coda_timeout;
 struct upc_req {
 	struct list_head    uc_chain;
 	caddr_t	            uc_data;
@@ -85,7 +78,6 @@ struct upc_req {
 	u_short	            uc_opcode;  /* copied from data to save lookup */
 	int		    uc_unique;
 	wait_queue_head_t   uc_sleep;   /* process' wait queue */
-	unsigned long       uc_posttime;
 };
 
 #define REQ_ASYNC  0x1

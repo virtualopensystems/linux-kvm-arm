@@ -63,6 +63,8 @@ SECTIONS
 		__stop___ex_table = .;
 	}
 
+	NOTES
+
 	BUG_TABLE
 
 /*
@@ -144,6 +146,7 @@ SECTIONS
 	.data.percpu : {
 		__per_cpu_start = .;
 		*(.data.percpu)
+		*(.data.percpu.shared_aligned)
 		__per_cpu_end = .;
 	}
 
@@ -174,7 +177,9 @@ SECTIONS
 	}
 #else
 	.data : {
-		*(.data .data.rel* .toc1)
+		DATA_DATA
+		*(.data.rel*)
+		*(.toc1)
 		*(.branch_lt)
 	}
 

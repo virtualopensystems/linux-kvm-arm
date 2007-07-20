@@ -229,9 +229,8 @@ static void *alloc_ep(int size, gfp_t gfp)
 {
 	struct iwch_ep_common *epc;
 
-	epc = kmalloc(size, gfp);
+	epc = kzalloc(size, gfp);
 	if (epc) {
-		memset(epc, 0, size);
 		kref_init(&epc->kref);
 		spin_lock_init(&epc->lock);
 		init_waitqueue_head(&epc->waitq);
@@ -1914,6 +1913,7 @@ int iwch_create_listen(struct iw_cm_id *cm_id, int backlog)
 fail3:
 	cxgb3_free_stid(ep->com.tdev, ep->stid);
 fail2:
+	cm_id->rem_ref(cm_id);
 	put_ep(&ep->com);
 fail1:
 out:

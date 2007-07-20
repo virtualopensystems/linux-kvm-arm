@@ -181,7 +181,7 @@ static int ct_seq_show(struct seq_file *s, void *v)
 
 	if (seq_printf(s, "use=%u\n", atomic_read(&conntrack->ct_general.use)))
 		return -ENOSPC;
-	
+
 	return 0;
 }
 
@@ -198,7 +198,7 @@ static int ct_open(struct inode *inode, struct file *file)
 	struct ct_iter_state *st;
 	int ret;
 
-	st = kmalloc(sizeof(struct ct_iter_state), GFP_KERNEL);
+	st = kzalloc(sizeof(struct ct_iter_state), GFP_KERNEL);
 	if (st == NULL)
 		return -ENOMEM;
 	ret = seq_open(file, &ct_seq_ops);
@@ -206,7 +206,6 @@ static int ct_open(struct inode *inode, struct file *file)
 		goto out_free;
 	seq          = file->private_data;
 	seq->private = st;
-	memset(st, 0, sizeof(struct ct_iter_state));
 	return ret;
 out_free:
 	kfree(st);
