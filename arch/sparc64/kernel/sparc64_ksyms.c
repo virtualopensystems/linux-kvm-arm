@@ -280,6 +280,7 @@ EXPORT_SYMBOL(sys_getgid);
 EXPORT_SYMBOL(svr4_getcontext);
 EXPORT_SYMBOL(svr4_setcontext);
 EXPORT_SYMBOL(compat_sys_ioctl);
+EXPORT_SYMBOL(sys_ioctl);
 EXPORT_SYMBOL(sparc32_open);
 #endif
 
@@ -330,7 +331,6 @@ EXPORT_SYMBOL(VISenter);
 
 /* for input/keybdev */
 EXPORT_SYMBOL(sun_do_break);
-EXPORT_SYMBOL(serial_console);
 EXPORT_SYMBOL(stop_a_enabled);
 
 #ifdef CONFIG_DEBUG_BUGVERBOSE

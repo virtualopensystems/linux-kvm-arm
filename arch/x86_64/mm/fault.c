@@ -301,7 +301,7 @@ static int vmalloc_fault(unsigned long address)
 	return 0;
 }
 
-int page_fault_trace = 0;
+static int page_fault_trace;
 int exception_trace = 1;
 
 /*
@@ -568,7 +568,7 @@ out_of_memory:
 	}
 	printk("VM: killing process %s\n", tsk->comm);
 	if (error_code & 4)
-		do_exit(SIGKILL);
+		do_group_exit(SIGKILL);
 	goto no_context;
 
 do_sigbus:

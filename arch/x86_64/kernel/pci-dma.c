@@ -8,7 +8,7 @@
 #include <linux/pci.h>
 #include <linux/module.h>
 #include <asm/io.h>
-#include <asm/proto.h>
+#include <asm/iommu.h>
 #include <asm/calgary.h>
 
 int iommu_merge __read_mostly = 0;
@@ -319,6 +319,11 @@ static int __init pci_iommu_init(void)
 
 	no_iommu_init();
 	return 0;
+}
+
+void pci_iommu_shutdown(void)
+{
+	gart_iommu_shutdown();
 }
 
 #ifdef CONFIG_PCI
