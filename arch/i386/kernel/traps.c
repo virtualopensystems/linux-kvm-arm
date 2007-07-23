@@ -618,6 +618,13 @@ fastcall void __kprobes do_general_protection(struct pt_regs * regs,
 
 	current->thread.error_code = error_code;
 	current->thread.trap_no = 13;
+	if (show_unhandled_signals && unhandled_signal(current, SIGSEGV) &&
+	    printk_ratelimit())
+		printk(KERN_INFO
+		    "%s[%d] general protection eip:%lx esp:%lx error:%lx\n",
+		    current->comm, current->pid,
+		    regs->eip, regs->esp, error_code);
+
 	force_sig(SIGSEGV, current);
 	return;
 
@@ -768,6 +775,8 @@ static __kprobes void default_do_nmi(struct pt_regs * regs)
 	reassert_nmi();
 }
 
+static int ignore_nmis;
+
 fastcall __kprobes void do_nmi(struct pt_regs * regs, long error_code)
 {
 	int cpu;
@@ -778,9 +787,22 @@ fastcall __kprobes void do_nmi(struct pt_regs * regs, long error_code)
 
 	++nmi_count(cpu);
 
-	default_do_nmi(regs);
+	if (!ignore_nmis)
+		default_do_nmi(regs);
 
 	nmi_exit();
+}
+
+void stop_nmi(void)
+{
+	acpi_nmi_disable();
+	ignore_nmis++;
+}
+
+void restart_nmi(void)
+{
+	ignore_nmis--;
+	acpi_nmi_enable();
 }
 
 #ifdef CONFIG_KPROBES

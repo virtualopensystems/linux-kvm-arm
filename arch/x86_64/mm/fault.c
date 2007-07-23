@@ -159,7 +159,7 @@ void dump_pagetable(unsigned long address)
 	pmd_t *pmd;
 	pte_t *pte;
 
-	asm("movq %%cr3,%0" : "=r" (pgd));
+	pgd = (pgd_t *)read_cr3();
 
 	pgd = __va((unsigned long)pgd & PHYSICAL_PAGE_MASK); 
 	pgd += pgd_index(address);
@@ -220,16 +220,6 @@ static int is_errata93(struct pt_regs *regs, unsigned long address)
 	}
 	return 0;
 } 
-
-int unhandled_signal(struct task_struct *tsk, int sig)
-{
-	if (is_init(tsk))
-		return 1;
-	if (tsk->ptrace & PT_PTRACED)
-		return 0;
-	return (tsk->sighand->action[sig-1].sa.sa_handler == SIG_IGN) ||
-		(tsk->sighand->action[sig-1].sa.sa_handler == SIG_DFL);
-}
 
 static noinline void pgtable_bad(unsigned long address, struct pt_regs *regs,
 				 unsigned long error_code)
@@ -302,7 +292,7 @@ static int vmalloc_fault(unsigned long address)
 }
 
 static int page_fault_trace;
-int exception_trace = 1;
+int show_unhandled_signals = 1;
 
 /*
  * This routine handles page faults.  It determines the address,
@@ -326,7 +316,7 @@ asmlinkage void __kprobes do_page_fault(struct pt_regs *regs,
 	prefetchw(&mm->mmap_sem);
 
 	/* get the address */
-	__asm__("movq %%cr2,%0":"=r" (address));
+	address = read_cr2();
 
 	info.si_code = SEGV_MAPERR;
 
@@ -494,7 +484,8 @@ bad_area_nosemaphore:
 		    (address >> 32))
 			return;
 
-		if (exception_trace && unhandled_signal(tsk, SIGSEGV)) {
+		if (show_unhandled_signals && unhandled_signal(tsk, SIGSEGV) &&
+		    printk_ratelimit()) {
 			printk(
 		       "%s%s[%d]: segfault at %016lx rip %016lx rsp %016lx error %lx\n",
 					tsk->pid > 1 ? KERN_INFO : KERN_EMERG,
