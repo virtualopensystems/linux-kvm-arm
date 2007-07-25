@@ -1183,6 +1183,8 @@ pop_instruction:
 twobyte_insn:
 	switch (b) {
 	case 0x01: /* lgdt, lidt, lmsw */
+		/* Disable writeback. */
+		no_wb = 1;
 		switch (modrm_reg) {
 			u16 size;
 			unsigned long address;
