@@ -367,7 +367,7 @@ static void free_pio_guest_pages(struct kvm_vcpu *vcpu)
 
 static void kvm_unload_vcpu_mmu(struct kvm_vcpu *vcpu)
 {
-	if (!vcpu->vmcs)
+	if (!vcpu->valid)
 		return;
 
 	vcpu_load(vcpu);
@@ -377,7 +377,7 @@ static void kvm_unload_vcpu_mmu(struct kvm_vcpu *vcpu)
 
 static void kvm_free_vcpu(struct kvm_vcpu *vcpu)
 {
-	if (!vcpu->vmcs)
+	if (!vcpu->valid)
 		return;
 
 	vcpu_load(vcpu);
@@ -1646,24 +1646,6 @@ void kvm_resched(struct kvm_vcpu *vcpu)
 }
 EXPORT_SYMBOL_GPL(kvm_resched);
 
-void load_msrs(struct vmx_msr_entry *e, int n)
-{
-	int i;
-
-	for (i = 0; i < n; ++i)
-		wrmsrl(e[i].index, e[i].data);
-}
-EXPORT_SYMBOL_GPL(load_msrs);
-
-void save_msrs(struct vmx_msr_entry *e, int n)
-{
-	int i;
-
-	for (i = 0; i < n; ++i)
-		rdmsrl(e[i].index, e[i].data);
-}
-EXPORT_SYMBOL_GPL(save_msrs);
-
 void kvm_emulate_cpuid(struct kvm_vcpu *vcpu)
 {
 	int i;
@@ -2402,7 +2384,7 @@ static int kvm_vm_ioctl_create_vcpu(struct kvm *kvm, int n)
 
 	mutex_lock(&vcpu->mutex);
 
-	if (vcpu->vmcs) {
+	if (vcpu->valid) {
 		mutex_unlock(&vcpu->mutex);
 		return -EEXIST;
 	}
@@ -2449,6 +2431,8 @@ static int kvm_vm_ioctl_create_vcpu(struct kvm *kvm, int n)
 	if (n >= kvm->nvcpus)
 		kvm->nvcpus = n + 1;
 	spin_unlock(&kvm_lock);
+
+	vcpu->valid = 1;
 
 	return r;
 
