@@ -420,6 +420,11 @@ static inline struct kvm_pic *pic_irqchip(struct kvm *kvm)
 	return kvm->vpic;
 }
 
+static inline struct kvm_ioapic *ioapic_irqchip(struct kvm *kvm)
+{
+	return kvm->vioapic;
+}
+
 static inline int irqchip_in_kernel(struct kvm *kvm)
 {
 	return pic_irqchip(kvm) != 0;

@@ -61,7 +61,7 @@ int kvm_cpu_get_interrupt(struct kvm_vcpu *v);
 int kvm_cpu_has_interrupt(struct kvm_vcpu *v);
 void kvm_pic_update_irq(struct kvm_pic *s);
 
-#define IOAPIC_NUM_PINS  24
+#define IOAPIC_NUM_PINS  KVM_IOAPIC_NUM_PINS
 #define IOAPIC_VERSION_ID 0x11	/* IOAPIC version */
 #define IOAPIC_EDGE_TRIG  0
 #define IOAPIC_LEVEL_TRIG 1
@@ -80,12 +80,11 @@ void kvm_pic_update_irq(struct kvm_pic *s);
 #define IOAPIC_REG_ARB_ID  0x02	/* x86 IOAPIC only */
 
 struct kvm_ioapic {
-	struct kvm_io_device dev;
-	unsigned long base_address;
-	struct kvm *kvm;
+	u64 base_address;
 	u32 ioregsel;
 	u32 id;
 	u32 irr;
+	u32 pad;
 	union ioapic_redir_entry {
 		u64 bits;
 		struct {
@@ -102,6 +101,8 @@ struct kvm_ioapic {
 			u8 dest_id;
 		} fields;
 	} redirtbl[IOAPIC_NUM_PINS];
+	struct kvm_io_device dev;
+	struct kvm *kvm;
 };
 
 struct kvm_lapic {
