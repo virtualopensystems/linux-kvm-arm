@@ -387,21 +387,6 @@ P:	Jaya Kumar
 M:	jayalk@intworks.biz
 S:	Maintained
 
-ARM26 ARCHITECTURE
-P:	Ian Molton
-M:	spyro@f2s.com
-S:	Maintained
-
-ARM26/ARCHIMEDES
-P:	Ian Molton
-M:	spyro@f2s.com
-S:	Maintained
-
-ARM26/A5000
-P:	John Appleby
-M:	john@dnsworld.co.uk
-S:	Maintained
-
 ARM MFM AND FLOPPY DRIVERS
 P:	Ian Molton
 M:	spyro@f2s.com
@@ -627,6 +612,15 @@ W:	http://sourceforge.net/projects/acpi4asus
 W:	http://xf.iksaif.net/acpi4asus
 S:	Maintained
 
+ASYNCHRONOUS TRANSFERS/TRANSFORMS API
+P:	Dan Williams
+M:	dan.j.williams@intel.com
+P:	Shannon Nelson
+M:	shannon.nelson@intel.com
+L:	linux-kernel@vger.kernel.org
+W:	http://sourceforge.net/projects/xscaleiop
+S:	Supported
+
 ATA OVER ETHERNET DRIVER
 P:	Ed L. Cashin
 M:	ecashin@coraid.com
@@ -679,7 +673,7 @@ S:	Maintained
 AUDIT SUBSYSTEM
 P:	David Woodhouse
 M:	dwmw2@infradead.org
-L:	linux-audit@redhat.com
+L:	linux-audit@redhat.com (subscribers-only)
 W:	http://people.redhat.com/sgrubb/audit/
 T:	git kernel.org:/pub/scm/linux/kernel/git/dwmw2/audit-2.6.git
 S:	Maintained
@@ -767,6 +761,14 @@ S:	Supported
 BLACKFIN SERIAL DRIVER
 P:	Aubrey Li
 M:	aubrey.li@analog.com
+L:	uclinux-dist-devel@blackfin.uclinux.org (subscribers-only)
+W:	http://blackfin.uclinux.org
+S:	Supported
+
+BLACKFIN WATCHDOG DRIVER
+P:	Mike Frysinger
+M:	michael.frysinger@analog.com
+M:	vapier.adi@gmail.com
 L:	uclinux-dist-devel@blackfin.uclinux.org (subscribers-only)
 W:	http://blackfin.uclinux.org
 S:	Supported
@@ -1284,11 +1286,13 @@ M:	tori@unhappy.mine.nu
 L:	netdev@vger.kernel.org
 S:	Maintained
 
-DMA GENERIC MEMCPY SUBSYSTEM
+DMA GENERIC OFFLOAD ENGINE SUBSYSTEM
 P:	Shannon Nelson
 M:	shannon.nelson@intel.com
+P:	Dan Williams
+M:	dan.j.williams@intel.com
 L:	linux-kernel@vger.kernel.org
-S:	Maintained
+S:	Supported
 
 DME1737 HARDWARE MONITOR DRIVER
 P:	Juerg Haefliger
@@ -1965,6 +1969,12 @@ M:	shannon.nelson@intel.com
 L:	linux-kernel@vger.kernel.org
 S:	Supported
 
+INTEL IOP-ADMA DMA DRIVER
+P:	Dan Williams
+M:	dan.j.williams@intel.com
+L:	linux-kernel@vger.kernel.org
+S:	Supported
+
 INTEL IXP4XX RANDOM NUMBER GENERATOR SUPPORT
 P:	Deepak Saxena
 M:	dsaxena@plexity.net
@@ -2171,6 +2181,8 @@ W:	http://www.kerneljanitors.org/
 S:	Maintained
 
 KERNEL NFSD
+P:	J. Bruce Fields
+M:	bfields@fieldses.org
 P:	Neil Brown
 M:	neilb@suse.de
 L:	nfs@lists.sourceforge.net
@@ -3674,11 +3686,9 @@ W:	http://www.auk.cx/tms380tr/
 S:	Maintained
 
 TULIP NETWORK DRIVER
-P:	Valerie Henson
-M:	val@nmt.edu
 L:	tulip-users@lists.sourceforge.net
 W:	http://sourceforge.net/projects/tulip/
-S:	Maintained
+S:	Orphan
 
 TUN/TAP driver
 P:	Maxim Krasnyansky
@@ -3761,7 +3771,7 @@ L:	linux-usb-devel@lists.sourceforge.net
 W:	http://www.linux-usb.org/gadget
 S:	Maintained
 
-USB HID/HIDBP DRIVERS
+USB HID/HIDBP DRIVERS (USB KEYBOARDS, MICE, REMOTE CONTROLS, ...)
 P:	Jiri Kosina
 M:	jkosina@suse.cz
 L:	linux-usb-devel@lists.sourceforge.net

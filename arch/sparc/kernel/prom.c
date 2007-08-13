@@ -102,6 +102,21 @@ int of_set_property(struct device_node *dp, const char *name, void *val, int len
 }
 EXPORT_SYMBOL(of_set_property);
 
+int of_find_in_proplist(const char *list, const char *match, int len)
+{
+	while (len > 0) {
+		int l;
+
+		if (!strcmp(list, match))
+			return 1;
+		l = strlen(list) + 1;
+		list += l;
+		len -= l;
+	}
+	return 0;
+}
+EXPORT_SYMBOL(of_find_in_proplist);
+
 static unsigned int prom_early_allocated;
 
 static void * __init prom_early_alloc(unsigned long size)
@@ -415,7 +430,7 @@ static void __init of_console_init(void)
 	unsigned long flags;
 	const char *type;
 	phandle node;
-	int skip, fd;
+	int skip, tmp, fd;
 
 	of_console_path = prom_early_alloc(256);
 
@@ -442,8 +457,9 @@ static void __init of_console_init(void)
 			prom_halt();
 		}
 
+		tmp = skip;
 		for_each_node_by_type(dp, type) {
-			if (!skip--)
+			if (!tmp--)
 				break;
 		}
 		if (!dp) {

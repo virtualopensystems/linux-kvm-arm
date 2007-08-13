@@ -695,14 +695,13 @@ static int do_pci_enable_device(struct pci_dev *dev, int bars)
 }
 
 /**
- * __pci_reenable_device - Resume abandoned device
+ * pci_reenable_device - Resume abandoned device
  * @dev: PCI device to be resumed
  *
  *  Note this function is a backend of pci_default_resume and is not supposed
  *  to be called by normal code, write proper resume handler and use it instead.
  */
-int
-__pci_reenable_device(struct pci_dev *dev)
+int pci_reenable_device(struct pci_dev *dev)
 {
 	if (atomic_read(&dev->enable_cnt))
 		return do_pci_enable_device(dev, (1 << PCI_NUM_RESOURCES) - 1);
@@ -1517,7 +1516,7 @@ EXPORT_SYMBOL(pcie_get_readrq);
 /**
  * pcie_set_readrq - set PCI Express maximum memory read request
  * @dev: PCI device to query
- * @count: maximum memory read count in bytes
+ * @rq: maximum memory read count in bytes
  *    valid values are 128, 256, 512, 1024, 2048, 4096
  *
  * If possible sets maximum read byte count
@@ -1604,7 +1603,7 @@ early_param("pci", pci_setup);
 device_initcall(pci_init);
 
 EXPORT_SYMBOL_GPL(pci_restore_bars);
-EXPORT_SYMBOL(__pci_reenable_device);
+EXPORT_SYMBOL(pci_reenable_device);
 EXPORT_SYMBOL(pci_enable_device_bars);
 EXPORT_SYMBOL(pci_enable_device);
 EXPORT_SYMBOL(pcim_enable_device);

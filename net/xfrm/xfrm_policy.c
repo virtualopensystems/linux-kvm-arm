@@ -1299,7 +1299,8 @@ xfrm_tmpl_resolve_one(struct xfrm_policy *policy, struct flowi *fl,
 		xfrm_address_t *local  = saddr;
 		struct xfrm_tmpl *tmpl = &policy->xfrm_vec[i];
 
-		if (tmpl->mode == XFRM_MODE_TUNNEL) {
+		if (tmpl->mode == XFRM_MODE_TUNNEL ||
+		    tmpl->mode == XFRM_MODE_BEET) {
 			remote = &tmpl->id.daddr;
 			local = &tmpl->saddr;
 			family = tmpl->encap_family;
@@ -2194,9 +2195,10 @@ void xfrm_audit_log(uid_t auid, u32 sid, int type, int result,
 	}
 
 	if (sid != 0 &&
-		security_secid_to_secctx(sid, &secctx, &secctx_len) == 0)
+	    security_secid_to_secctx(sid, &secctx, &secctx_len) == 0) {
 		audit_log_format(audit_buf, " subj=%s", secctx);
-	else
+		security_release_secctx(secctx, secctx_len);
+	} else
 		audit_log_task_context(audit_buf);
 
 	if (xp) {

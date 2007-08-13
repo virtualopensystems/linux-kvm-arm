@@ -139,7 +139,7 @@ struct cfs_rq;
 extern void proc_sched_show_task(struct task_struct *p, struct seq_file *m);
 extern void proc_sched_set_task(struct task_struct *p);
 extern void
-print_cfs_rq(struct seq_file *m, int cpu, struct cfs_rq *cfs_rq, u64 now);
+print_cfs_rq(struct seq_file *m, int cpu, struct cfs_rq *cfs_rq);
 #else
 static inline void
 proc_sched_show_task(struct task_struct *p, struct seq_file *m)
@@ -149,7 +149,7 @@ static inline void proc_sched_set_task(struct task_struct *p)
 {
 }
 static inline void
-print_cfs_rq(struct seq_file *m, int cpu, struct cfs_rq *cfs_rq, u64 now)
+print_cfs_rq(struct seq_file *m, int cpu, struct cfs_rq *cfs_rq)
 {
 }
 #endif
@@ -734,7 +734,6 @@ struct sched_domain {
 	unsigned long max_interval;	/* Maximum balance interval ms */
 	unsigned int busy_factor;	/* less balancing by factor if busy */
 	unsigned int imbalance_pct;	/* No balance until over watermark */
-	unsigned long long cache_hot_time; /* Task considered cache hot (ns) */
 	unsigned int cache_nice_tries;	/* Leave cache hot tasks for # tries */
 	unsigned int busy_idx;
 	unsigned int idle_idx;
@@ -856,22 +855,20 @@ struct sched_domain;
 struct sched_class {
 	struct sched_class *next;
 
-	void (*enqueue_task) (struct rq *rq, struct task_struct *p,
-			      int wakeup, u64 now);
-	void (*dequeue_task) (struct rq *rq, struct task_struct *p,
-			      int sleep, u64 now);
+	void (*enqueue_task) (struct rq *rq, struct task_struct *p, int wakeup);
+	void (*dequeue_task) (struct rq *rq, struct task_struct *p, int sleep);
 	void (*yield_task) (struct rq *rq, struct task_struct *p);
 
 	void (*check_preempt_curr) (struct rq *rq, struct task_struct *p);
 
-	struct task_struct * (*pick_next_task) (struct rq *rq, u64 now);
-	void (*put_prev_task) (struct rq *rq, struct task_struct *p, u64 now);
+	struct task_struct * (*pick_next_task) (struct rq *rq);
+	void (*put_prev_task) (struct rq *rq, struct task_struct *p);
 
-	int (*load_balance) (struct rq *this_rq, int this_cpu,
+	unsigned long (*load_balance) (struct rq *this_rq, int this_cpu,
 			struct rq *busiest,
 			unsigned long max_nr_move, unsigned long max_load_move,
 			struct sched_domain *sd, enum cpu_idle_type idle,
-			int *all_pinned, unsigned long *total_load_moved);
+			int *all_pinned, int *this_best_prio);
 
 	void (*set_curr_task) (struct rq *rq);
 	void (*task_tick) (struct rq *rq, struct task_struct *p);
@@ -905,23 +902,28 @@ struct sched_entity {
 	struct rb_node		run_node;
 	unsigned int		on_rq;
 
-	u64			wait_start_fair;
-	u64			wait_start;
 	u64			exec_start;
-	u64			sleep_start;
+	u64			sum_exec_runtime;
+	u64			wait_start_fair;
 	u64			sleep_start_fair;
-	u64			block_start;
+
+#ifdef CONFIG_SCHEDSTATS
+	u64			wait_start;
+	u64			wait_max;
+	s64			sum_wait_runtime;
+
+	u64			sleep_start;
 	u64			sleep_max;
+	s64			sum_sleep_runtime;
+
+	u64			block_start;
 	u64			block_max;
 	u64			exec_max;
-	u64			wait_max;
-	u64			last_ran;
 
-	u64			sum_exec_runtime;
-	s64			sum_wait_runtime;
-	s64			sum_sleep_runtime;
 	unsigned long		wait_runtime_overruns;
 	unsigned long		wait_runtime_underruns;
+#endif
+
 #ifdef CONFIG_FAIR_GROUP_SCHED
 	struct sched_entity	*parent;
 	/* rq on which this entity is (to be) queued: */

@@ -211,7 +211,8 @@ static inline void ClearSlabDebug(struct page *page)
 #define MAX_OBJECTS_PER_SLAB 65535
 
 /* Internal SLUB flags */
-#define __OBJECT_POISON 0x80000000	/* Poison object */
+#define __OBJECT_POISON		0x80000000 /* Poison object */
+#define __SYSFS_ADD_DEFERRED	0x40000000 /* Not yet visible via sysfs */
 
 /* Not all arches define cache_line_size */
 #ifndef cache_line_size
@@ -1131,6 +1132,7 @@ static void __free_slab(struct kmem_cache *s, struct page *page)
 		slab_pad_check(s, page);
 		for_each_object(p, s, page_address(page))
 			check_object(s, page, p, 0);
+		ClearSlabDebug(page);
 	}
 
 	mod_zone_page_state(page_zone(page),
@@ -1169,7 +1171,6 @@ static void discard_slab(struct kmem_cache *s, struct page *page)
 
 	atomic_long_dec(&n->nr_slabs);
 	reset_page_mapcount(page);
-	ClearSlabDebug(page);
 	__ClearPageSlab(page);
 	free_slab(s, page);
 }
@@ -1656,6 +1657,7 @@ static void __always_inline slab_free(struct kmem_cache *s,
 	unsigned long flags;
 
 	local_irq_save(flags);
+	debug_check_no_locks_freed(object, s->objsize);
 	if (likely(page == s->cpu_slab[smp_processor_id()] &&
 						!SlabDebug(page))) {
 		object[page->offset] = page->lockless_freelist;
@@ -2276,10 +2278,26 @@ panic:
 }
 
 #ifdef CONFIG_ZONE_DMA
+
+static void sysfs_add_func(struct work_struct *w)
+{
+	struct kmem_cache *s;
+
+	down_write(&slub_lock);
+	list_for_each_entry(s, &slab_caches, list) {
+		if (s->flags & __SYSFS_ADD_DEFERRED) {
+			s->flags &= ~__SYSFS_ADD_DEFERRED;
+			sysfs_slab_add(s);
+		}
+	}
+	up_write(&slub_lock);
+}
+
+static DECLARE_WORK(sysfs_add_work, sysfs_add_func);
+
 static noinline struct kmem_cache *dma_kmalloc_cache(int index, gfp_t flags)
 {
 	struct kmem_cache *s;
-	struct kmem_cache *x;
 	char *text;
 	size_t realsize;
 
@@ -2288,22 +2306,36 @@ static noinline struct kmem_cache *dma_kmalloc_cache(int index, gfp_t flags)
 		return s;
 
 	/* Dynamically create dma cache */
-	x = kmalloc(kmem_size, flags & ~SLUB_DMA);
-	if (!x)
-		panic("Unable to allocate memory for dma cache\n");
+	if (flags & __GFP_WAIT)
+		down_write(&slub_lock);
+	else {
+		if (!down_write_trylock(&slub_lock))
+			goto out;
+	}
+
+	if (kmalloc_caches_dma[index])
+		goto unlock_out;
 
 	realsize = kmalloc_caches[index].objsize;
-	text = kasprintf(flags & ~SLUB_DMA, "kmalloc_dma-%d",
-			(unsigned int)realsize);
-	s = create_kmalloc_cache(x, text, realsize, flags);
-	down_write(&slub_lock);
-	if (!kmalloc_caches_dma[index]) {
-		kmalloc_caches_dma[index] = s;
-		up_write(&slub_lock);
-		return s;
+	text = kasprintf(flags & ~SLUB_DMA, "kmalloc_dma-%d", (unsigned int)realsize),
+	s = kmalloc(kmem_size, flags & ~SLUB_DMA);
+
+	if (!s || !text || !kmem_cache_open(s, flags, text,
+			realsize, ARCH_KMALLOC_MINALIGN,
+			SLAB_CACHE_DMA|__SYSFS_ADD_DEFERRED, NULL)) {
+		kfree(s);
+		kfree(text);
+		goto unlock_out;
 	}
+
+	list_add(&s->list, &slab_caches);
+	kmalloc_caches_dma[index] = s;
+
+	schedule_work(&sysfs_add_work);
+
+unlock_out:
 	up_write(&slub_lock);
-	kmem_cache_destroy(s);
+out:
 	return kmalloc_caches_dma[index];
 }
 #endif
@@ -2499,14 +2531,10 @@ int kmem_cache_shrink(struct kmem_cache *s)
 				slab_unlock(page);
 				discard_slab(s, page);
 			} else {
-				if (n->nr_partial > MAX_PARTIAL)
-					list_move(&page->lru,
-					slabs_by_inuse + page->inuse);
+				list_move(&page->lru,
+				slabs_by_inuse + page->inuse);
 			}
 		}
-
-		if (n->nr_partial <= MAX_PARTIAL)
-			goto out;
 
 		/*
 		 * Rebuild the partial list with the slabs filled up most
@@ -2515,7 +2543,6 @@ int kmem_cache_shrink(struct kmem_cache *s)
 		for (i = s->objects - 1; i >= 0; i--)
 			list_splice(slabs_by_inuse + i, n->partial.prev);
 
-	out:
 		spin_unlock_irqrestore(&n->list_lock, flags);
 	}
 

@@ -263,6 +263,7 @@ struct rq {
 
 	unsigned int clock_warps, clock_overflows;
 	unsigned int clock_unstable_events;
+	u64 tick_timestamp;
 
 	atomic_t nr_iowait;
 
@@ -318,15 +319,19 @@ static inline int cpu_of(struct rq *rq)
 }
 
 /*
- * Per-runqueue clock, as finegrained as the platform can give us:
+ * Update the per-runqueue clock, as finegrained as the platform can give
+ * us, but without assuming monotonicity, etc.:
  */
-static unsigned long long __rq_clock(struct rq *rq)
+static void __update_rq_clock(struct rq *rq)
 {
 	u64 prev_raw = rq->prev_clock_raw;
 	u64 now = sched_clock();
 	s64 delta = now - prev_raw;
 	u64 clock = rq->clock;
 
+#ifdef CONFIG_SCHED_DEBUG
+	WARN_ON_ONCE(cpu_of(rq) != smp_processor_id());
+#endif
 	/*
 	 * Protect against sched_clock() occasionally going backwards:
 	 */
@@ -337,8 +342,11 @@ static unsigned long long __rq_clock(struct rq *rq)
 		/*
 		 * Catch too large forward jumps too:
 		 */
-		if (unlikely(delta > 2*TICK_NSEC)) {
-			clock++;
+		if (unlikely(clock + delta > rq->tick_timestamp + TICK_NSEC)) {
+			if (clock < rq->tick_timestamp + TICK_NSEC)
+				clock = rq->tick_timestamp + TICK_NSEC;
+			else
+				clock++;
 			rq->clock_overflows++;
 		} else {
 			if (unlikely(delta > rq->clock_max_delta))
@@ -349,18 +357,12 @@ static unsigned long long __rq_clock(struct rq *rq)
 
 	rq->prev_clock_raw = now;
 	rq->clock = clock;
-
-	return clock;
 }
 
-static inline unsigned long long rq_clock(struct rq *rq)
+static void update_rq_clock(struct rq *rq)
 {
-	int this_cpu = smp_processor_id();
-
-	if (this_cpu == cpu_of(rq))
-		return __rq_clock(rq);
-
-	return rq->clock;
+	if (likely(smp_processor_id() == cpu_of(rq)))
+		__update_rq_clock(rq);
 }
 
 /*
@@ -386,9 +388,12 @@ unsigned long long cpu_clock(int cpu)
 {
 	unsigned long long now;
 	unsigned long flags;
+	struct rq *rq;
 
 	local_irq_save(flags);
-	now = rq_clock(cpu_rq(cpu));
+	rq = cpu_rq(cpu);
+	update_rq_clock(rq);
+	now = rq->clock;
 	local_irq_restore(flags);
 
 	return now;
@@ -637,27 +642,31 @@ static u64 div64_likely32(u64 divident, unsigned long divisor)
 
 #define WMULT_SHIFT	32
 
-static inline unsigned long
+/*
+ * Shift right and round:
+ */
+#define RSR(x, y) (((x) + (1UL << ((y) - 1))) >> (y))
+
+static unsigned long
 calc_delta_mine(unsigned long delta_exec, unsigned long weight,
 		struct load_weight *lw)
 {
 	u64 tmp;
 
 	if (unlikely(!lw->inv_weight))
-		lw->inv_weight = WMULT_CONST / lw->weight;
+		lw->inv_weight = (WMULT_CONST - lw->weight/2) / lw->weight + 1;
 
 	tmp = (u64)delta_exec * weight;
 	/*
 	 * Check whether we'd overflow the 64-bit multiplication:
 	 */
-	if (unlikely(tmp > WMULT_CONST)) {
-		tmp = ((tmp >> WMULT_SHIFT/2) * lw->inv_weight)
-				>> (WMULT_SHIFT/2);
-	} else {
-		tmp = (tmp * lw->inv_weight) >> WMULT_SHIFT;
-	}
+	if (unlikely(tmp > WMULT_CONST))
+		tmp = RSR(RSR(tmp, WMULT_SHIFT/2) * lw->inv_weight,
+			WMULT_SHIFT/2);
+	else
+		tmp = RSR(tmp * lw->inv_weight, WMULT_SHIFT);
 
-	return (unsigned long)min(tmp, (u64)sysctl_sched_runtime_limit);
+	return (unsigned long)min(tmp, (u64)(unsigned long)LONG_MAX);
 }
 
 static inline unsigned long
@@ -677,6 +686,88 @@ static void update_load_sub(struct load_weight *lw, unsigned long dec)
 	lw->weight -= dec;
 	lw->inv_weight = 0;
 }
+
+/*
+ * To aid in avoiding the subversion of "niceness" due to uneven distribution
+ * of tasks with abnormal "nice" values across CPUs the contribution that
+ * each task makes to its run queue's load is weighted according to its
+ * scheduling class and "nice" value.  For SCHED_NORMAL tasks this is just a
+ * scaled version of the new time slice allocation that they receive on time
+ * slice expiry etc.
+ */
+
+#define WEIGHT_IDLEPRIO		2
+#define WMULT_IDLEPRIO		(1 << 31)
+
+/*
+ * Nice levels are multiplicative, with a gentle 10% change for every
+ * nice level changed. I.e. when a CPU-bound task goes from nice 0 to
+ * nice 1, it will get ~10% less CPU time than another CPU-bound task
+ * that remained on nice 0.
+ *
+ * The "10% effect" is relative and cumulative: from _any_ nice level,
+ * if you go up 1 level, it's -10% CPU usage, if you go down 1 level
+ * it's +10% CPU usage. (to achieve that we use a multiplier of 1.25.
+ * If a task goes up by ~10% and another task goes down by ~10% then
+ * the relative distance between them is ~25%.)
+ */
+static const int prio_to_weight[40] = {
+ /* -20 */     88761,     71755,     56483,     46273,     36291,
+ /* -15 */     29154,     23254,     18705,     14949,     11916,
+ /* -10 */      9548,      7620,      6100,      4904,      3906,
+ /*  -5 */      3121,      2501,      1991,      1586,      1277,
+ /*   0 */      1024,       820,       655,       526,       423,
+ /*   5 */       335,       272,       215,       172,       137,
+ /*  10 */       110,        87,        70,        56,        45,
+ /*  15 */        36,        29,        23,        18,        15,
+};
+
+/*
+ * Inverse (2^32/x) values of the prio_to_weight[] array, precalculated.
+ *
+ * In cases where the weight does not change often, we can use the
+ * precalculated inverse to speed up arithmetics by turning divisions
+ * into multiplications:
+ */
+static const u32 prio_to_wmult[40] = {
+ /* -20 */     48388,     59856,     76040,     92818,    118348,
+ /* -15 */    147320,    184698,    229616,    287308,    360437,
+ /* -10 */    449829,    563644,    704093,    875809,   1099582,
+ /*  -5 */   1376151,   1717300,   2157191,   2708050,   3363326,
+ /*   0 */   4194304,   5237765,   6557202,   8165337,  10153587,
+ /*   5 */  12820798,  15790321,  19976592,  24970740,  31350126,
+ /*  10 */  39045157,  49367440,  61356676,  76695844,  95443717,
+ /*  15 */ 119304647, 148102320, 186737708, 238609294, 286331153,
+};
+
+static void activate_task(struct rq *rq, struct task_struct *p, int wakeup);
+
+/*
+ * runqueue iterator, to support SMP load-balancing between different
+ * scheduling classes, without having to expose their internal data
+ * structures to the load-balancing proper:
+ */
+struct rq_iterator {
+	void *arg;
+	struct task_struct *(*start)(void *);
+	struct task_struct *(*next)(void *);
+};
+
+static int balance_tasks(struct rq *this_rq, int this_cpu, struct rq *busiest,
+		      unsigned long max_nr_move, unsigned long max_load_move,
+		      struct sched_domain *sd, enum cpu_idle_type idle,
+		      int *all_pinned, unsigned long *load_moved,
+		      int *this_best_prio, struct rq_iterator *iterator);
+
+#include "sched_stats.h"
+#include "sched_rt.c"
+#include "sched_fair.c"
+#include "sched_idletask.c"
+#ifdef CONFIG_SCHED_DEBUG
+# include "sched_debug.c"
+#endif
+
+#define sched_class_highest (&rt_sched_class)
 
 static void __update_curr_load(struct rq *rq, struct load_stat *ls)
 {
@@ -702,14 +793,14 @@ static void __update_curr_load(struct rq *rq, struct load_stat *ls)
  * This function is called /before/ updating rq->ls.load
  * and when switching tasks.
  */
-static void update_curr_load(struct rq *rq, u64 now)
+static void update_curr_load(struct rq *rq)
 {
 	struct load_stat *ls = &rq->ls;
 	u64 start;
 
 	start = ls->load_update_start;
-	ls->load_update_start = now;
-	ls->delta_stat += now - start;
+	ls->load_update_start = rq->clock;
+	ls->delta_stat += rq->clock - start;
 	/*
 	 * Stagger updates to ls->delta_fair. Very frequent updates
 	 * can be expensive.
@@ -718,124 +809,29 @@ static void update_curr_load(struct rq *rq, u64 now)
 		__update_curr_load(rq, ls);
 }
 
-/*
- * To aid in avoiding the subversion of "niceness" due to uneven distribution
- * of tasks with abnormal "nice" values across CPUs the contribution that
- * each task makes to its run queue's load is weighted according to its
- * scheduling class and "nice" value.  For SCHED_NORMAL tasks this is just a
- * scaled version of the new time slice allocation that they receive on time
- * slice expiry etc.
- */
-
-/*
- * Assume: static_prio_timeslice(NICE_TO_PRIO(0)) == DEF_TIMESLICE
- * If static_prio_timeslice() is ever changed to break this assumption then
- * this code will need modification
- */
-#define TIME_SLICE_NICE_ZERO DEF_TIMESLICE
-#define load_weight(lp) \
-	(((lp) * SCHED_LOAD_SCALE) / TIME_SLICE_NICE_ZERO)
-#define PRIO_TO_LOAD_WEIGHT(prio) \
-	load_weight(static_prio_timeslice(prio))
-#define RTPRIO_TO_LOAD_WEIGHT(rp) \
-	(PRIO_TO_LOAD_WEIGHT(MAX_RT_PRIO) + load_weight(rp))
-
-#define WEIGHT_IDLEPRIO		2
-#define WMULT_IDLEPRIO		(1 << 31)
-
-/*
- * Nice levels are multiplicative, with a gentle 10% change for every
- * nice level changed. I.e. when a CPU-bound task goes from nice 0 to
- * nice 1, it will get ~10% less CPU time than another CPU-bound task
- * that remained on nice 0.
- *
- * The "10% effect" is relative and cumulative: from _any_ nice level,
- * if you go up 1 level, it's -10% CPU usage, if you go down 1 level
- * it's +10% CPU usage. (to achieve that we use a multiplier of 1.25.
- * If a task goes up by ~10% and another task goes down by ~10% then
- * the relative distance between them is ~25%.)
- */
-static const int prio_to_weight[40] = {
-/* -20 */ 88818, 71054, 56843, 45475, 36380, 29104, 23283, 18626, 14901, 11921,
-/* -10 */  9537,  7629,  6103,  4883,  3906,  3125,  2500,  2000,  1600,  1280,
-/*   0 */  NICE_0_LOAD /* 1024 */,
-/*   1 */          819,   655,   524,   419,   336,   268,   215,   172,   137,
-/*  10 */   110,    87,    70,    56,    45,    36,    29,    23,    18,    15,
-};
-
-/*
- * Inverse (2^32/x) values of the prio_to_weight[] array, precalculated.
- *
- * In cases where the weight does not change often, we can use the
- * precalculated inverse to speed up arithmetics by turning divisions
- * into multiplications:
- */
-static const u32 prio_to_wmult[40] = {
-/* -20 */     48356,     60446,     75558,     94446,    118058,
-/* -15 */    147573,    184467,    230589,    288233,    360285,
-/* -10 */    450347,    562979,    703746,    879575,   1099582,
-/*  -5 */   1374389,   1717986,   2147483,   2684354,   3355443,
-/*   0 */   4194304,   5244160,   6557201,   8196502,  10250518,
-/*   5 */  12782640,  16025997,  19976592,  24970740,  31350126,
-/*  10 */  39045157,  49367440,  61356675,  76695844,  95443717,
-/*  15 */ 119304647, 148102320, 186737708, 238609294, 286331153,
-};
-
-static inline void
-inc_load(struct rq *rq, const struct task_struct *p, u64 now)
+static inline void inc_load(struct rq *rq, const struct task_struct *p)
 {
-	update_curr_load(rq, now);
+	update_curr_load(rq);
 	update_load_add(&rq->ls.load, p->se.load.weight);
 }
 
-static inline void
-dec_load(struct rq *rq, const struct task_struct *p, u64 now)
+static inline void dec_load(struct rq *rq, const struct task_struct *p)
 {
-	update_curr_load(rq, now);
+	update_curr_load(rq);
 	update_load_sub(&rq->ls.load, p->se.load.weight);
 }
 
-static inline void inc_nr_running(struct task_struct *p, struct rq *rq, u64 now)
+static void inc_nr_running(struct task_struct *p, struct rq *rq)
 {
 	rq->nr_running++;
-	inc_load(rq, p, now);
+	inc_load(rq, p);
 }
 
-static inline void dec_nr_running(struct task_struct *p, struct rq *rq, u64 now)
+static void dec_nr_running(struct task_struct *p, struct rq *rq)
 {
 	rq->nr_running--;
-	dec_load(rq, p, now);
+	dec_load(rq, p);
 }
-
-static void activate_task(struct rq *rq, struct task_struct *p, int wakeup);
-
-/*
- * runqueue iterator, to support SMP load-balancing between different
- * scheduling classes, without having to expose their internal data
- * structures to the load-balancing proper:
- */
-struct rq_iterator {
-	void *arg;
-	struct task_struct *(*start)(void *);
-	struct task_struct *(*next)(void *);
-};
-
-static int balance_tasks(struct rq *this_rq, int this_cpu, struct rq *busiest,
-		      unsigned long max_nr_move, unsigned long max_load_move,
-		      struct sched_domain *sd, enum cpu_idle_type idle,
-		      int *all_pinned, unsigned long *load_moved,
-		      int this_best_prio, int best_prio, int best_prio_seen,
-		      struct rq_iterator *iterator);
-
-#include "sched_stats.h"
-#include "sched_rt.c"
-#include "sched_fair.c"
-#include "sched_idletask.c"
-#ifdef CONFIG_SCHED_DEBUG
-# include "sched_debug.c"
-#endif
-
-#define sched_class_highest (&rt_sched_class)
 
 static void set_load_weight(struct task_struct *p)
 {
@@ -861,18 +857,16 @@ static void set_load_weight(struct task_struct *p)
 	p->se.load.inv_weight = prio_to_wmult[p->static_prio - MAX_RT_PRIO];
 }
 
-static void
-enqueue_task(struct rq *rq, struct task_struct *p, int wakeup, u64 now)
+static void enqueue_task(struct rq *rq, struct task_struct *p, int wakeup)
 {
 	sched_info_queued(p);
-	p->sched_class->enqueue_task(rq, p, wakeup, now);
+	p->sched_class->enqueue_task(rq, p, wakeup);
 	p->se.on_rq = 1;
 }
 
-static void
-dequeue_task(struct rq *rq, struct task_struct *p, int sleep, u64 now)
+static void dequeue_task(struct rq *rq, struct task_struct *p, int sleep)
 {
-	p->sched_class->dequeue_task(rq, p, sleep, now);
+	p->sched_class->dequeue_task(rq, p, sleep);
 	p->se.on_rq = 0;
 }
 
@@ -927,13 +921,11 @@ static int effective_prio(struct task_struct *p)
  */
 static void activate_task(struct rq *rq, struct task_struct *p, int wakeup)
 {
-	u64 now = rq_clock(rq);
-
 	if (p->state == TASK_UNINTERRUPTIBLE)
 		rq->nr_uninterruptible--;
 
-	enqueue_task(rq, p, wakeup, now);
-	inc_nr_running(p, rq, now);
+	enqueue_task(rq, p, wakeup);
+	inc_nr_running(p, rq);
 }
 
 /*
@@ -941,13 +933,13 @@ static void activate_task(struct rq *rq, struct task_struct *p, int wakeup)
  */
 static inline void activate_idle_task(struct task_struct *p, struct rq *rq)
 {
-	u64 now = rq_clock(rq);
+	update_rq_clock(rq);
 
 	if (p->state == TASK_UNINTERRUPTIBLE)
 		rq->nr_uninterruptible--;
 
-	enqueue_task(rq, p, 0, now);
-	inc_nr_running(p, rq, now);
+	enqueue_task(rq, p, 0);
+	inc_nr_running(p, rq);
 }
 
 /*
@@ -955,13 +947,11 @@ static inline void activate_idle_task(struct task_struct *p, struct rq *rq)
  */
 static void deactivate_task(struct rq *rq, struct task_struct *p, int sleep)
 {
-	u64 now = rq_clock(rq);
-
 	if (p->state == TASK_UNINTERRUPTIBLE)
 		rq->nr_uninterruptible++;
 
-	dequeue_task(rq, p, sleep, now);
-	dec_nr_running(p, rq, now);
+	dequeue_task(rq, p, sleep);
+	dec_nr_running(p, rq);
 }
 
 /**
@@ -996,18 +986,21 @@ void set_task_cpu(struct task_struct *p, unsigned int new_cpu)
 	u64 clock_offset, fair_clock_offset;
 
 	clock_offset = old_rq->clock - new_rq->clock;
-	fair_clock_offset = old_rq->cfs.fair_clock -
-						 new_rq->cfs.fair_clock;
-	if (p->se.wait_start)
-		p->se.wait_start -= clock_offset;
+	fair_clock_offset = old_rq->cfs.fair_clock - new_rq->cfs.fair_clock;
+
 	if (p->se.wait_start_fair)
 		p->se.wait_start_fair -= fair_clock_offset;
+	if (p->se.sleep_start_fair)
+		p->se.sleep_start_fair -= fair_clock_offset;
+
+#ifdef CONFIG_SCHEDSTATS
+	if (p->se.wait_start)
+		p->se.wait_start -= clock_offset;
 	if (p->se.sleep_start)
 		p->se.sleep_start -= clock_offset;
 	if (p->se.block_start)
 		p->se.block_start -= clock_offset;
-	if (p->se.sleep_start_fair)
-		p->se.sleep_start_fair -= fair_clock_offset;
+#endif
 
 	__set_task_cpu(p, new_cpu);
 }
@@ -1526,6 +1519,7 @@ out_set_cpu:
 
 out_activate:
 #endif /* CONFIG_SMP */
+	update_rq_clock(rq);
 	activate_task(rq, p, 1);
 	/*
 	 * Sync wakeups (i.e. those types of wakeups where the waker
@@ -1568,17 +1562,19 @@ int fastcall wake_up_state(struct task_struct *p, unsigned int state)
 static void __sched_fork(struct task_struct *p)
 {
 	p->se.wait_start_fair		= 0;
-	p->se.wait_start		= 0;
 	p->se.exec_start		= 0;
 	p->se.sum_exec_runtime		= 0;
 	p->se.delta_exec		= 0;
 	p->se.delta_fair_run		= 0;
 	p->se.delta_fair_sleep		= 0;
 	p->se.wait_runtime		= 0;
+	p->se.sleep_start_fair		= 0;
+
+#ifdef CONFIG_SCHEDSTATS
+	p->se.wait_start		= 0;
 	p->se.sum_wait_runtime		= 0;
 	p->se.sum_sleep_runtime		= 0;
 	p->se.sleep_start		= 0;
-	p->se.sleep_start_fair		= 0;
 	p->se.block_start		= 0;
 	p->se.sleep_max			= 0;
 	p->se.block_max			= 0;
@@ -1586,6 +1582,7 @@ static void __sched_fork(struct task_struct *p)
 	p->se.wait_max			= 0;
 	p->se.wait_runtime_overruns	= 0;
 	p->se.wait_runtime_underruns	= 0;
+#endif
 
 	INIT_LIST_HEAD(&p->run_list);
 	p->se.on_rq = 0;
@@ -1658,11 +1655,14 @@ void fastcall wake_up_new_task(struct task_struct *p, unsigned long clone_flags)
 	rq = task_rq_lock(p, &flags);
 	BUG_ON(p->state != TASK_RUNNING);
 	this_cpu = smp_processor_id(); /* parent's CPU */
+	update_rq_clock(rq);
 
 	p->prio = effective_prio(p);
 
-	if (!sysctl_sched_child_runs_first || (clone_flags & CLONE_VM) ||
-			task_cpu(p) != this_cpu || !current->se.on_rq) {
+	if (!p->sched_class->task_new || !sysctl_sched_child_runs_first ||
+			(clone_flags & CLONE_VM) || task_cpu(p) != this_cpu ||
+			!current->se.on_rq) {
+
 		activate_task(rq, p, 0);
 	} else {
 		/*
@@ -1670,6 +1670,7 @@ void fastcall wake_up_new_task(struct task_struct *p, unsigned long clone_flags)
 		 * management (if any):
 		 */
 		p->sched_class->task_new(rq, p);
+		inc_nr_running(p, rq);
 	}
 	check_preempt_curr(rq, p);
 	task_rq_unlock(rq, &flags);
@@ -1678,8 +1679,8 @@ void fastcall wake_up_new_task(struct task_struct *p, unsigned long clone_flags)
 #ifdef CONFIG_PREEMPT_NOTIFIERS
 
 /**
- * preempt_notifier_register - tell me when current is being being preempted
- *                         and rescheduled
+ * preempt_notifier_register - tell me when current is being being preempted & rescheduled
+ * @notifier: notifier struct to register
  */
 void preempt_notifier_register(struct preempt_notifier *notifier)
 {
@@ -1689,6 +1690,7 @@ EXPORT_SYMBOL_GPL(preempt_notifier_register);
 
 /**
  * preempt_notifier_unregister - no longer interested in preemption notifications
+ * @notifier: notifier struct to unregister
  *
  * This is safe to call from within a preemption notifier.
  */
@@ -1735,6 +1737,7 @@ fire_sched_out_preempt_notifiers(struct task_struct *curr,
 /**
  * prepare_task_switch - prepare to switch tasks
  * @rq: the runqueue preparing to switch
+ * @prev: the current task that is being switched out
  * @next: the task we are going to switch to.
  *
  * This is called with the rq lock held and interrupts off. It must
@@ -1954,7 +1957,6 @@ static void update_cpu_load(struct rq *this_rq)
 	unsigned long total_load = this_rq->ls.load.weight;
 	unsigned long this_load =  total_load;
 	struct load_stat *ls = &this_rq->ls;
-	u64 now = __rq_clock(this_rq);
 	int i, scale;
 
 	this_rq->nr_load_updates++;
@@ -1962,7 +1964,7 @@ static void update_cpu_load(struct rq *this_rq)
 		goto do_avg;
 
 	/* Update delta_fair/delta_exec fields first */
-	update_curr_load(this_rq, now);
+	update_curr_load(this_rq);
 
 	fair_delta64 = ls->delta_fair + 1;
 	ls->delta_fair = 0;
@@ -1970,8 +1972,8 @@ static void update_cpu_load(struct rq *this_rq)
 	exec_delta64 = ls->delta_exec + 1;
 	ls->delta_exec = 0;
 
-	sample_interval64 = now - ls->load_update_last;
-	ls->load_update_last = now;
+	sample_interval64 = this_rq->clock - ls->load_update_last;
+	ls->load_update_last = this_rq->clock;
 
 	if ((s64)sample_interval64 < (s64)TICK_NSEC)
 		sample_interval64 = TICK_NSEC;
@@ -2026,6 +2028,8 @@ static void double_rq_lock(struct rq *rq1, struct rq *rq2)
 			spin_lock(&rq1->lock);
 		}
 	}
+	update_rq_clock(rq1);
+	update_rq_clock(rq2);
 }
 
 /*
@@ -2166,8 +2170,7 @@ static int balance_tasks(struct rq *this_rq, int this_cpu, struct rq *busiest,
 		      unsigned long max_nr_move, unsigned long max_load_move,
 		      struct sched_domain *sd, enum cpu_idle_type idle,
 		      int *all_pinned, unsigned long *load_moved,
-		      int this_best_prio, int best_prio, int best_prio_seen,
-		      struct rq_iterator *iterator)
+		      int *this_best_prio, struct rq_iterator *iterator)
 {
 	int pulled = 0, pinned = 0, skip_for_load;
 	struct task_struct *p;
@@ -2192,12 +2195,8 @@ next:
 	 */
 	skip_for_load = (p->se.load.weight >> 1) > rem_load_move +
 							 SCHED_LOAD_SCALE_FUZZ;
-	if (skip_for_load && p->prio < this_best_prio)
-		skip_for_load = !best_prio_seen && p->prio == best_prio;
-	if (skip_for_load ||
+	if ((skip_for_load && p->prio >= *this_best_prio) ||
 	    !can_migrate_task(p, busiest, this_cpu, sd, idle, &pinned)) {
-
-		best_prio_seen |= p->prio == best_prio;
 		p = iterator->next(iterator->arg);
 		goto next;
 	}
@@ -2211,8 +2210,8 @@ next:
 	 * and the prescribed amount of weighted load.
 	 */
 	if (pulled < max_nr_move && rem_load_move > 0) {
-		if (p->prio < this_best_prio)
-			this_best_prio = p->prio;
+		if (p->prio < *this_best_prio)
+			*this_best_prio = p->prio;
 		p = iterator->next(iterator->arg);
 		goto next;
 	}
@@ -2231,32 +2230,52 @@ out:
 }
 
 /*
- * move_tasks tries to move up to max_nr_move tasks and max_load_move weighted
- * load from busiest to this_rq, as part of a balancing operation within
- * "domain". Returns the number of tasks moved.
+ * move_tasks tries to move up to max_load_move weighted load from busiest to
+ * this_rq, as part of a balancing operation within domain "sd".
+ * Returns 1 if successful and 0 otherwise.
  *
  * Called with both runqueues locked.
  */
 static int move_tasks(struct rq *this_rq, int this_cpu, struct rq *busiest,
-		      unsigned long max_nr_move, unsigned long max_load_move,
+		      unsigned long max_load_move,
 		      struct sched_domain *sd, enum cpu_idle_type idle,
 		      int *all_pinned)
 {
 	struct sched_class *class = sched_class_highest;
-	unsigned long load_moved, total_nr_moved = 0, nr_moved;
-	long rem_load_move = max_load_move;
+	unsigned long total_load_moved = 0;
+	int this_best_prio = this_rq->curr->prio;
 
 	do {
-		nr_moved = class->load_balance(this_rq, this_cpu, busiest,
-				max_nr_move, (unsigned long)rem_load_move,
-				sd, idle, all_pinned, &load_moved);
-		total_nr_moved += nr_moved;
-		max_nr_move -= nr_moved;
-		rem_load_move -= load_moved;
+		total_load_moved +=
+			class->load_balance(this_rq, this_cpu, busiest,
+				ULONG_MAX, max_load_move - total_load_moved,
+				sd, idle, all_pinned, &this_best_prio);
 		class = class->next;
-	} while (class && max_nr_move && rem_load_move > 0);
+	} while (class && max_load_move > total_load_moved);
 
-	return total_nr_moved;
+	return total_load_moved > 0;
+}
+
+/*
+ * move_one_task tries to move exactly one task from busiest to this_rq, as
+ * part of active balancing operations within "domain".
+ * Returns 1 if successful and 0 otherwise.
+ *
+ * Called with both runqueues locked.
+ */
+static int move_one_task(struct rq *this_rq, int this_cpu, struct rq *busiest,
+			 struct sched_domain *sd, enum cpu_idle_type idle)
+{
+	struct sched_class *class;
+	int this_best_prio = MAX_PRIO;
+
+	for (class = sched_class_highest; class; class = class->next)
+		if (class->load_balance(this_rq, this_cpu, busiest,
+					1, ULONG_MAX, sd, idle, NULL,
+					&this_best_prio))
+			return 1;
+
+	return 0;
 }
 
 /*
@@ -2588,11 +2607,6 @@ find_busiest_queue(struct sched_group *group, enum cpu_idle_type idle,
  */
 #define MAX_PINNED_INTERVAL	512
 
-static inline unsigned long minus_1_or_zero(unsigned long n)
-{
-	return n > 0 ? n - 1 : 0;
-}
-
 /*
  * Check this_cpu to ensure it is balanced within domain. Attempt to move
  * tasks if there is an imbalance.
@@ -2601,7 +2615,7 @@ static int load_balance(int this_cpu, struct rq *this_rq,
 			struct sched_domain *sd, enum cpu_idle_type idle,
 			int *balance)
 {
-	int nr_moved, all_pinned = 0, active_balance = 0, sd_idle = 0;
+	int ld_moved, all_pinned = 0, active_balance = 0, sd_idle = 0;
 	struct sched_group *group;
 	unsigned long imbalance;
 	struct rq *busiest;
@@ -2642,18 +2656,17 @@ redo:
 
 	schedstat_add(sd, lb_imbalance[idle], imbalance);
 
-	nr_moved = 0;
+	ld_moved = 0;
 	if (busiest->nr_running > 1) {
 		/*
 		 * Attempt to move tasks. If find_busiest_group has found
 		 * an imbalance but busiest->nr_running <= 1, the group is
-		 * still unbalanced. nr_moved simply stays zero, so it is
+		 * still unbalanced. ld_moved simply stays zero, so it is
 		 * correctly treated as an imbalance.
 		 */
 		local_irq_save(flags);
 		double_rq_lock(this_rq, busiest);
-		nr_moved = move_tasks(this_rq, this_cpu, busiest,
-				      minus_1_or_zero(busiest->nr_running),
+		ld_moved = move_tasks(this_rq, this_cpu, busiest,
 				      imbalance, sd, idle, &all_pinned);
 		double_rq_unlock(this_rq, busiest);
 		local_irq_restore(flags);
@@ -2661,7 +2674,7 @@ redo:
 		/*
 		 * some other cpu did the load balance for us.
 		 */
-		if (nr_moved && this_cpu != smp_processor_id())
+		if (ld_moved && this_cpu != smp_processor_id())
 			resched_cpu(this_cpu);
 
 		/* All tasks on this runqueue were pinned by CPU affinity */
@@ -2673,7 +2686,7 @@ redo:
 		}
 	}
 
-	if (!nr_moved) {
+	if (!ld_moved) {
 		schedstat_inc(sd, lb_failed[idle]);
 		sd->nr_balance_failed++;
 
@@ -2722,10 +2735,10 @@ redo:
 			sd->balance_interval *= 2;
 	}
 
-	if (!nr_moved && !sd_idle && sd->flags & SD_SHARE_CPUPOWER &&
+	if (!ld_moved && !sd_idle && sd->flags & SD_SHARE_CPUPOWER &&
 	    !test_sd_parent(sd, SD_POWERSAVINGS_BALANCE))
 		return -1;
-	return nr_moved;
+	return ld_moved;
 
 out_balanced:
 	schedstat_inc(sd, lb_balanced[idle]);
@@ -2757,7 +2770,7 @@ load_balance_newidle(int this_cpu, struct rq *this_rq, struct sched_domain *sd)
 	struct sched_group *group;
 	struct rq *busiest = NULL;
 	unsigned long imbalance;
-	int nr_moved = 0;
+	int ld_moved = 0;
 	int sd_idle = 0;
 	int all_pinned = 0;
 	cpumask_t cpus = CPU_MASK_ALL;
@@ -2792,12 +2805,13 @@ redo:
 
 	schedstat_add(sd, lb_imbalance[CPU_NEWLY_IDLE], imbalance);
 
-	nr_moved = 0;
+	ld_moved = 0;
 	if (busiest->nr_running > 1) {
 		/* Attempt to move tasks */
 		double_lock_balance(this_rq, busiest);
-		nr_moved = move_tasks(this_rq, this_cpu, busiest,
-					minus_1_or_zero(busiest->nr_running),
+		/* this_rq->clock is already updated */
+		update_rq_clock(busiest);
+		ld_moved = move_tasks(this_rq, this_cpu, busiest,
 					imbalance, sd, CPU_NEWLY_IDLE,
 					&all_pinned);
 		spin_unlock(&busiest->lock);
@@ -2809,7 +2823,7 @@ redo:
 		}
 	}
 
-	if (!nr_moved) {
+	if (!ld_moved) {
 		schedstat_inc(sd, lb_failed[CPU_NEWLY_IDLE]);
 		if (!sd_idle && sd->flags & SD_SHARE_CPUPOWER &&
 		    !test_sd_parent(sd, SD_POWERSAVINGS_BALANCE))
@@ -2817,7 +2831,7 @@ redo:
 	} else
 		sd->nr_balance_failed = 0;
 
-	return nr_moved;
+	return ld_moved;
 
 out_balanced:
 	schedstat_inc(sd, lb_balanced[CPU_NEWLY_IDLE]);
@@ -2894,6 +2908,8 @@ static void active_load_balance(struct rq *busiest_rq, int busiest_cpu)
 
 	/* move a task from busiest_rq to target_rq */
 	double_lock_balance(busiest_rq, target_rq);
+	update_rq_clock(busiest_rq);
+	update_rq_clock(target_rq);
 
 	/* Search for an sd spanning us and the target CPU. */
 	for_each_domain(target_cpu, sd) {
@@ -2905,9 +2921,8 @@ static void active_load_balance(struct rq *busiest_rq, int busiest_cpu)
 	if (likely(sd)) {
 		schedstat_inc(sd, alb_cnt);
 
-		if (move_tasks(target_rq, target_cpu, busiest_rq, 1,
-			       RTPRIO_TO_LOAD_WEIGHT(100), sd, CPU_IDLE,
-			       NULL))
+		if (move_one_task(target_rq, target_cpu, busiest_rq,
+				  sd, CPU_IDLE))
 			schedstat_inc(sd, alb_pushed);
 		else
 			schedstat_inc(sd, alb_failed);
@@ -3091,7 +3106,7 @@ static void run_rebalance_domains(struct softirq_action *h)
 			if (need_resched())
 				break;
 
-			rebalance_domains(balance_cpu, SCHED_IDLE);
+			rebalance_domains(balance_cpu, CPU_IDLE);
 
 			rq = cpu_rq(balance_cpu);
 			if (time_after(this_rq->next_balance, rq->next_balance))
@@ -3176,8 +3191,7 @@ static int balance_tasks(struct rq *this_rq, int this_cpu, struct rq *busiest,
 		      unsigned long max_nr_move, unsigned long max_load_move,
 		      struct sched_domain *sd, enum cpu_idle_type idle,
 		      int *all_pinned, unsigned long *load_moved,
-		      int this_best_prio, int best_prio, int best_prio_seen,
-		      struct rq_iterator *iterator)
+		      int *this_best_prio, struct rq_iterator *iterator)
 {
 	*load_moved = 0;
 
@@ -3203,7 +3217,8 @@ unsigned long long task_sched_runtime(struct task_struct *p)
 	rq = task_rq_lock(p, &flags);
 	ns = p->se.sum_exec_runtime;
 	if (rq->curr == p) {
-		delta_exec = rq_clock(rq) - p->se.exec_start;
+		update_rq_clock(rq);
+		delta_exec = rq->clock - p->se.exec_start;
 		if ((s64)delta_exec > 0)
 			ns += delta_exec;
 	}
@@ -3297,11 +3312,19 @@ void scheduler_tick(void)
 	int cpu = smp_processor_id();
 	struct rq *rq = cpu_rq(cpu);
 	struct task_struct *curr = rq->curr;
+	u64 next_tick = rq->tick_timestamp + TICK_NSEC;
 
 	spin_lock(&rq->lock);
+	__update_rq_clock(rq);
+	/*
+	 * Let rq->clock advance by at least TICK_NSEC:
+	 */
+	if (unlikely(rq->clock < next_tick))
+		rq->clock = next_tick;
+	rq->tick_timestamp = rq->clock;
+	update_cpu_load(rq);
 	if (curr != rq->idle) /* FIXME: needed? */
 		curr->sched_class->task_tick(rq, curr);
-	update_cpu_load(rq);
 	spin_unlock(&rq->lock);
 
 #ifdef CONFIG_SMP
@@ -3383,7 +3406,7 @@ static inline void schedule_debug(struct task_struct *prev)
  * Pick up the highest-prio task:
  */
 static inline struct task_struct *
-pick_next_task(struct rq *rq, struct task_struct *prev, u64 now)
+pick_next_task(struct rq *rq, struct task_struct *prev)
 {
 	struct sched_class *class;
 	struct task_struct *p;
@@ -3393,14 +3416,14 @@ pick_next_task(struct rq *rq, struct task_struct *prev, u64 now)
 	 * the fair class we can call that function directly:
 	 */
 	if (likely(rq->nr_running == rq->cfs.nr_running)) {
-		p = fair_sched_class.pick_next_task(rq, now);
+		p = fair_sched_class.pick_next_task(rq);
 		if (likely(p))
 			return p;
 	}
 
 	class = sched_class_highest;
 	for ( ; ; ) {
-		p = class->pick_next_task(rq, now);
+		p = class->pick_next_task(rq);
 		if (p)
 			return p;
 		/*
@@ -3419,7 +3442,6 @@ asmlinkage void __sched schedule(void)
 	struct task_struct *prev, *next;
 	long *switch_count;
 	struct rq *rq;
-	u64 now;
 	int cpu;
 
 need_resched:
@@ -3437,6 +3459,7 @@ need_resched_nonpreemptible:
 
 	spin_lock_irq(&rq->lock);
 	clear_tsk_need_resched(prev);
+	__update_rq_clock(rq);
 
 	if (prev->state && !(preempt_count() & PREEMPT_ACTIVE)) {
 		if (unlikely((prev->state & TASK_INTERRUPTIBLE) &&
@@ -3451,9 +3474,8 @@ need_resched_nonpreemptible:
 	if (unlikely(!rq->nr_running))
 		idle_balance(cpu, rq);
 
-	now = __rq_clock(rq);
-	prev->sched_class->put_prev_task(rq, prev, now);
-	next = pick_next_task(rq, prev, now);
+	prev->sched_class->put_prev_task(rq, prev);
+	next = pick_next_task(rq, prev);
 
 	sched_info_switch(prev, next);
 
@@ -3896,17 +3918,16 @@ void rt_mutex_setprio(struct task_struct *p, int prio)
 	unsigned long flags;
 	int oldprio, on_rq;
 	struct rq *rq;
-	u64 now;
 
 	BUG_ON(prio < 0 || prio > MAX_PRIO);
 
 	rq = task_rq_lock(p, &flags);
-	now = rq_clock(rq);
+	update_rq_clock(rq);
 
 	oldprio = p->prio;
 	on_rq = p->se.on_rq;
 	if (on_rq)
-		dequeue_task(rq, p, 0, now);
+		dequeue_task(rq, p, 0);
 
 	if (rt_prio(prio))
 		p->sched_class = &rt_sched_class;
@@ -3916,7 +3937,7 @@ void rt_mutex_setprio(struct task_struct *p, int prio)
 	p->prio = prio;
 
 	if (on_rq) {
-		enqueue_task(rq, p, 0, now);
+		enqueue_task(rq, p, 0);
 		/*
 		 * Reschedule if we are currently running on this runqueue and
 		 * our priority decreased, or if we are not currently running on
@@ -3939,7 +3960,6 @@ void set_user_nice(struct task_struct *p, long nice)
 	int old_prio, delta, on_rq;
 	unsigned long flags;
 	struct rq *rq;
-	u64 now;
 
 	if (TASK_NICE(p) == nice || nice < -20 || nice > 19)
 		return;
@@ -3948,7 +3968,7 @@ void set_user_nice(struct task_struct *p, long nice)
 	 * the task might be in the middle of scheduling on another CPU.
 	 */
 	rq = task_rq_lock(p, &flags);
-	now = rq_clock(rq);
+	update_rq_clock(rq);
 	/*
 	 * The RT priorities are set via sched_setscheduler(), but we still
 	 * allow the 'normal' nice value to be set - but as expected
@@ -3961,8 +3981,8 @@ void set_user_nice(struct task_struct *p, long nice)
 	}
 	on_rq = p->se.on_rq;
 	if (on_rq) {
-		dequeue_task(rq, p, 0, now);
-		dec_load(rq, p, now);
+		dequeue_task(rq, p, 0);
+		dec_load(rq, p);
 	}
 
 	p->static_prio = NICE_TO_PRIO(nice);
@@ -3972,8 +3992,8 @@ void set_user_nice(struct task_struct *p, long nice)
 	delta = p->prio - old_prio;
 
 	if (on_rq) {
-		enqueue_task(rq, p, 0, now);
-		inc_load(rq, p, now);
+		enqueue_task(rq, p, 0);
+		inc_load(rq, p);
 		/*
 		 * If the task increased its priority or is running and
 		 * lowered its priority, then reschedule its CPU:
@@ -4209,6 +4229,7 @@ recheck:
 		spin_unlock_irqrestore(&p->pi_lock, flags);
 		goto recheck;
 	}
+	update_rq_clock(rq);
 	on_rq = p->se.on_rq;
 	if (on_rq)
 		deactivate_task(rq, p, 0);
@@ -4464,10 +4485,8 @@ long sched_getaffinity(pid_t pid, cpumask_t *mask)
 out_unlock:
 	read_unlock(&tasklist_lock);
 	mutex_unlock(&sched_hotcpu_mutex);
-	if (retval)
-		return retval;
 
-	return 0;
+	return retval;
 }
 
 /**
@@ -4967,6 +4986,7 @@ static int __migrate_task(struct task_struct *p, int src_cpu, int dest_cpu)
 	on_rq = p->se.on_rq;
 	if (on_rq)
 		deactivate_task(rq_src, p, 0);
+
 	set_task_cpu(p, dest_cpu);
 	if (on_rq) {
 		activate_task(rq_dest, p, 0);
@@ -5199,7 +5219,8 @@ static void migrate_dead_tasks(unsigned int dead_cpu)
 	for ( ; ; ) {
 		if (!rq->nr_running)
 			break;
-		next = pick_next_task(rq, rq->curr, rq_clock(rq));
+		update_rq_clock(rq);
+		next = pick_next_task(rq, rq->curr);
 		if (!next)
 			break;
 		migrate_dead(dead_cpu, next);
@@ -5211,12 +5232,19 @@ static void migrate_dead_tasks(unsigned int dead_cpu)
 #if defined(CONFIG_SCHED_DEBUG) && defined(CONFIG_SYSCTL)
 
 static struct ctl_table sd_ctl_dir[] = {
-	{CTL_UNNUMBERED, "sched_domain", NULL, 0, 0755, NULL, },
+	{
+		.procname	= "sched_domain",
+		.mode		= 0755,
+	},
 	{0,},
 };
 
 static struct ctl_table sd_ctl_root[] = {
-	{CTL_UNNUMBERED, "kernel", NULL, 0, 0755, sd_ctl_dir, },
+	{
+		.procname	= "kernel",
+		.mode		= 0755,
+		.child		= sd_ctl_dir,
+	},
 	{0,},
 };
 
@@ -5232,11 +5260,10 @@ static struct ctl_table *sd_alloc_ctl_entry(int n)
 }
 
 static void
-set_table_entry(struct ctl_table *entry, int ctl_name,
+set_table_entry(struct ctl_table *entry,
 		const char *procname, void *data, int maxlen,
 		mode_t mode, proc_handler *proc_handler)
 {
-	entry->ctl_name = ctl_name;
 	entry->procname = procname;
 	entry->data = data;
 	entry->maxlen = maxlen;
@@ -5249,30 +5276,28 @@ sd_alloc_ctl_domain_table(struct sched_domain *sd)
 {
 	struct ctl_table *table = sd_alloc_ctl_entry(14);
 
-	set_table_entry(&table[0], 1, "min_interval", &sd->min_interval,
+	set_table_entry(&table[0], "min_interval", &sd->min_interval,
 		sizeof(long), 0644, proc_doulongvec_minmax);
-	set_table_entry(&table[1], 2, "max_interval", &sd->max_interval,
+	set_table_entry(&table[1], "max_interval", &sd->max_interval,
 		sizeof(long), 0644, proc_doulongvec_minmax);
-	set_table_entry(&table[2], 3, "busy_idx", &sd->busy_idx,
+	set_table_entry(&table[2], "busy_idx", &sd->busy_idx,
 		sizeof(int), 0644, proc_dointvec_minmax);
-	set_table_entry(&table[3], 4, "idle_idx", &sd->idle_idx,
+	set_table_entry(&table[3], "idle_idx", &sd->idle_idx,
 		sizeof(int), 0644, proc_dointvec_minmax);
-	set_table_entry(&table[4], 5, "newidle_idx", &sd->newidle_idx,
+	set_table_entry(&table[4], "newidle_idx", &sd->newidle_idx,
 		sizeof(int), 0644, proc_dointvec_minmax);
-	set_table_entry(&table[5], 6, "wake_idx", &sd->wake_idx,
+	set_table_entry(&table[5], "wake_idx", &sd->wake_idx,
 		sizeof(int), 0644, proc_dointvec_minmax);
-	set_table_entry(&table[6], 7, "forkexec_idx", &sd->forkexec_idx,
+	set_table_entry(&table[6], "forkexec_idx", &sd->forkexec_idx,
 		sizeof(int), 0644, proc_dointvec_minmax);
-	set_table_entry(&table[7], 8, "busy_factor", &sd->busy_factor,
+	set_table_entry(&table[7], "busy_factor", &sd->busy_factor,
 		sizeof(int), 0644, proc_dointvec_minmax);
-	set_table_entry(&table[8], 9, "imbalance_pct", &sd->imbalance_pct,
+	set_table_entry(&table[8], "imbalance_pct", &sd->imbalance_pct,
 		sizeof(int), 0644, proc_dointvec_minmax);
-	set_table_entry(&table[9], 10, "cache_hot_time", &sd->cache_hot_time,
-		sizeof(long long), 0644, proc_doulongvec_minmax);
-	set_table_entry(&table[10], 11, "cache_nice_tries",
+	set_table_entry(&table[10], "cache_nice_tries",
 		&sd->cache_nice_tries,
 		sizeof(int), 0644, proc_dointvec_minmax);
-	set_table_entry(&table[12], 13, "flags", &sd->flags,
+	set_table_entry(&table[12], "flags", &sd->flags,
 		sizeof(int), 0644, proc_dointvec_minmax);
 
 	return table;
@@ -5292,7 +5317,6 @@ static ctl_table *sd_alloc_ctl_cpu_table(int cpu)
 	i = 0;
 	for_each_domain(cpu, sd) {
 		snprintf(buf, 32, "domain%d", i);
-		entry->ctl_name = i + 1;
 		entry->procname = kstrdup(buf, GFP_KERNEL);
 		entry->mode = 0755;
 		entry->child = sd_alloc_ctl_domain_table(sd);
@@ -5313,7 +5337,6 @@ static void init_sched_domain_sysctl(void)
 
 	for (i = 0; i < cpu_num; i++, entry++) {
 		snprintf(buf, 32, "cpu%d", i);
-		entry->ctl_name = i + 1;
 		entry->procname = kstrdup(buf, GFP_KERNEL);
 		entry->mode = 0755;
 		entry->child = sd_alloc_ctl_cpu_table(i);
@@ -5382,6 +5405,7 @@ migration_call(struct notifier_block *nfb, unsigned long action, void *hcpu)
 		rq->migration_thread = NULL;
 		/* Idle task back to normal (off runqueue, low prio) */
 		rq = task_rq_lock(rq->idle, &flags);
+		update_rq_clock(rq);
 		deactivate_task(rq, rq->idle, 0);
 		rq->idle->static_prio = MAX_PRIO;
 		__setscheduler(rq, rq->idle, SCHED_NORMAL, 0);
@@ -6304,7 +6328,7 @@ int partition_sched_domains(cpumask_t *partition1, cpumask_t *partition2)
 }
 
 #if defined(CONFIG_SCHED_MC) || defined(CONFIG_SCHED_SMT)
-int arch_reinit_sched_domains(void)
+static int arch_reinit_sched_domains(void)
 {
 	int err;
 
@@ -6333,6 +6357,34 @@ static ssize_t sched_power_savings_store(const char *buf, size_t count, int smt)
 	return ret ? ret : count;
 }
 
+#ifdef CONFIG_SCHED_MC
+static ssize_t sched_mc_power_savings_show(struct sys_device *dev, char *page)
+{
+	return sprintf(page, "%u\n", sched_mc_power_savings);
+}
+static ssize_t sched_mc_power_savings_store(struct sys_device *dev,
+					    const char *buf, size_t count)
+{
+	return sched_power_savings_store(buf, count, 0);
+}
+static SYSDEV_ATTR(sched_mc_power_savings, 0644, sched_mc_power_savings_show,
+		   sched_mc_power_savings_store);
+#endif
+
+#ifdef CONFIG_SCHED_SMT
+static ssize_t sched_smt_power_savings_show(struct sys_device *dev, char *page)
+{
+	return sprintf(page, "%u\n", sched_smt_power_savings);
+}
+static ssize_t sched_smt_power_savings_store(struct sys_device *dev,
+					     const char *buf, size_t count)
+{
+	return sched_power_savings_store(buf, count, 1);
+}
+static SYSDEV_ATTR(sched_smt_power_savings, 0644, sched_smt_power_savings_show,
+		   sched_smt_power_savings_store);
+#endif
+
 int sched_create_sysfs_power_savings_entries(struct sysdev_class *cls)
 {
 	int err = 0;
@@ -6349,34 +6401,6 @@ int sched_create_sysfs_power_savings_entries(struct sysdev_class *cls)
 #endif
 	return err;
 }
-#endif
-
-#ifdef CONFIG_SCHED_MC
-static ssize_t sched_mc_power_savings_show(struct sys_device *dev, char *page)
-{
-	return sprintf(page, "%u\n", sched_mc_power_savings);
-}
-static ssize_t sched_mc_power_savings_store(struct sys_device *dev,
-					    const char *buf, size_t count)
-{
-	return sched_power_savings_store(buf, count, 0);
-}
-SYSDEV_ATTR(sched_mc_power_savings, 0644, sched_mc_power_savings_show,
-	    sched_mc_power_savings_store);
-#endif
-
-#ifdef CONFIG_SCHED_SMT
-static ssize_t sched_smt_power_savings_show(struct sys_device *dev, char *page)
-{
-	return sprintf(page, "%u\n", sched_smt_power_savings);
-}
-static ssize_t sched_smt_power_savings_store(struct sys_device *dev,
-					     const char *buf, size_t count)
-{
-	return sched_power_savings_store(buf, count, 1);
-}
-SYSDEV_ATTR(sched_smt_power_savings, 0644, sched_smt_power_savings_show,
-	    sched_smt_power_savings_store);
 #endif
 
 /*
@@ -6588,12 +6612,14 @@ void normalize_rt_tasks(void)
 	do_each_thread(g, p) {
 		p->se.fair_key			= 0;
 		p->se.wait_runtime		= 0;
-		p->se.wait_start_fair		= 0;
-		p->se.wait_start		= 0;
 		p->se.exec_start		= 0;
-		p->se.sleep_start		= 0;
+		p->se.wait_start_fair		= 0;
 		p->se.sleep_start_fair		= 0;
+#ifdef CONFIG_SCHEDSTATS
+		p->se.wait_start		= 0;
+		p->se.sleep_start		= 0;
 		p->se.block_start		= 0;
+#endif
 		task_rq(p)->cfs.fair_clock	= 0;
 		task_rq(p)->clock		= 0;
 
@@ -6617,12 +6643,13 @@ void normalize_rt_tasks(void)
 			goto out_unlock;
 #endif
 
+		update_rq_clock(rq);
 		on_rq = p->se.on_rq;
 		if (on_rq)
-			deactivate_task(task_rq(p), p, 0);
+			deactivate_task(rq, p, 0);
 		__setscheduler(rq, p, SCHED_NORMAL, 0);
 		if (on_rq) {
-			activate_task(task_rq(p), p, 0);
+			activate_task(rq, p, 0);
 			resched_task(rq->curr);
 		}
 #ifdef CONFIG_SMP
