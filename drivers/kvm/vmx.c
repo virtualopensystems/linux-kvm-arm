@@ -864,8 +864,10 @@ static __init int setup_vmcs_config(struct vmcs_config *vmcs_conf)
 		return -EIO;
 
 	min = CPU_BASED_HLT_EXITING |
+#ifdef CONFIG_X86_64
 	      CPU_BASED_CR8_LOAD_EXITING |
 	      CPU_BASED_CR8_STORE_EXITING |
+#endif
 	      CPU_BASED_USE_IO_BITMAPS |
 	      CPU_BASED_MOV_DR_EXITING |
 	      CPU_BASED_USE_TSC_OFFSETING;
