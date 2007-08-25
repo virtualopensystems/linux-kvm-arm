@@ -2147,8 +2147,10 @@ static void vmx_intr_assist(struct kvm_vcpu *vcpu)
 {
 	u32 idtv_info_field, intr_info_field;
 	int has_ext_irq, interrupt_window_open;
+	int vector;
 
 	update_tpr_threshold(vcpu);
+	kvm_inject_pending_timer_irqs(vcpu);
 
 	has_ext_irq = kvm_cpu_has_interrupt(vcpu);
 	intr_info_field = vmcs_read32(VM_ENTRY_INTR_INFO_FIELD);
@@ -2179,9 +2181,11 @@ static void vmx_intr_assist(struct kvm_vcpu *vcpu)
 	interrupt_window_open =
 		((vmcs_readl(GUEST_RFLAGS) & X86_EFLAGS_IF) &&
 		 (vmcs_read32(GUEST_INTERRUPTIBILITY_INFO) & 3) == 0);
-	if (interrupt_window_open)
-		vmx_inject_irq(vcpu, kvm_cpu_get_interrupt(vcpu));
-	else
+	if (interrupt_window_open) {
+		vector = kvm_cpu_get_interrupt(vcpu);
+		vmx_inject_irq(vcpu, vector);
+		kvm_timer_intr_post(vcpu, vector);
+	} else
 		enable_irq_window(vcpu);
 }
 
