@@ -79,7 +79,7 @@ void kvm_vcpu_kick(struct kvm_vcpu *vcpu)
 		wake_up_interruptible(&vcpu->wq);
 		++vcpu->stat.halt_wakeup;
 	}
-	if (vcpu->guest_mode)
+	if (vcpu->guest_mode && ipi_pcpu != smp_processor_id())
 		smp_call_function_single(ipi_pcpu, vcpu_kick_intr, vcpu, 0, 0);
 }
 
