@@ -978,3 +978,17 @@ void kvm_apic_post_state_restore(struct kvm_vcpu *vcpu)
 	update_divide_count(apic);
 	start_apic_timer(apic);
 }
+
+void kvm_migrate_apic_timer(struct kvm_vcpu *vcpu)
+{
+	struct kvm_lapic *apic = vcpu->apic;
+	struct hrtimer *timer;
+
+	if (apic) {
+		timer = &apic->timer.dev;
+		hrtimer_cancel(timer);
+		hrtimer_start(timer, timer->expires, HRTIMER_MODE_ABS);
+	}
+}
+EXPORT_SYMBOL_GPL(kvm_migrate_apic_timer);
+
