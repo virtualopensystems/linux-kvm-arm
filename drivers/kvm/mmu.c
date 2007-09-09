@@ -967,7 +967,7 @@ static int nonpaging_init_context(struct kvm_vcpu *vcpu)
 static void kvm_mmu_flush_tlb(struct kvm_vcpu *vcpu)
 {
 	++vcpu->stat.tlb_flush;
-	kvm_arch_ops->tlb_flush(vcpu);
+	kvm_x86_ops->tlb_flush(vcpu);
 }
 
 static void paging_new_cr3(struct kvm_vcpu *vcpu)
@@ -980,7 +980,7 @@ static void inject_page_fault(struct kvm_vcpu *vcpu,
 			      u64 addr,
 			      u32 err_code)
 {
-	kvm_arch_ops->inject_page_fault(vcpu, addr, err_code);
+	kvm_x86_ops->inject_page_fault(vcpu, addr, err_code);
 }
 
 static void paging_free(struct kvm_vcpu *vcpu)
@@ -1074,7 +1074,7 @@ int kvm_mmu_load(struct kvm_vcpu *vcpu)
 	if (r)
 		goto out;
 	mmu_alloc_roots(vcpu);
-	kvm_arch_ops->set_cr3(vcpu, vcpu->mmu.root_hpa);
+	kvm_x86_ops->set_cr3(vcpu, vcpu->mmu.root_hpa);
 	kvm_mmu_flush_tlb(vcpu);
 out:
 	mutex_unlock(&vcpu->kvm->lock);
