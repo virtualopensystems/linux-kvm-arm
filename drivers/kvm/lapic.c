@@ -31,6 +31,7 @@
 #include <asm/current.h>
 #include <asm/apicdef.h>
 #include <asm/atomic.h>
+#include <asm/div64.h>
 #include "irq.h"
 
 #define PRId64 "d"
@@ -511,8 +512,8 @@ static u32 apic_get_tmcct(struct kvm_lapic *apic)
 	} else
 		passed = ktime_sub(now, apic->timer.last_update);
 
-	counter_passed = ktime_to_ns(passed) /
-	    (APIC_BUS_CYCLE_NS * apic->timer.divide_count);
+	counter_passed = div64_64(ktime_to_ns(passed),
+				  (APIC_BUS_CYCLE_NS * apic->timer.divide_count));
 	tmcct -= counter_passed;
 
 	if (tmcct <= 0) {
