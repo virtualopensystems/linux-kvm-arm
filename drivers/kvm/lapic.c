@@ -1037,11 +1037,12 @@ void kvm_migrate_apic_timer(struct kvm_vcpu *vcpu)
 	struct kvm_lapic *apic = vcpu->apic;
 	struct hrtimer *timer;
 
-	if (apic) {
-		timer = &apic->timer.dev;
-		hrtimer_cancel(timer);
+	if (!apic)
+		return;
+
+	timer = &apic->timer.dev;
+	if (hrtimer_cancel(timer))
 		hrtimer_start(timer, timer->expires, HRTIMER_MODE_ABS);
-	}
 }
 EXPORT_SYMBOL_GPL(kvm_migrate_apic_timer);
 
