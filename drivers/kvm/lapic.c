@@ -110,7 +110,7 @@ static inline int apic_enabled(struct kvm_lapic *apic)
 
 static inline int kvm_apic_id(struct kvm_lapic *apic)
 {
-	return GET_APIC_ID(apic_get_reg(apic, APIC_ID));
+	return (apic_get_reg(apic, APIC_ID) >> 24) & 0xff;
 }
 
 static inline int apic_lvt_enabled(struct kvm_lapic *apic, int lvt_type)
@@ -859,7 +859,7 @@ void kvm_lapic_reset(struct kvm_vcpu *vcpu)
 
 	apic_debug(KERN_INFO "%s: vcpu=%p, id=%d, base_msr="
 		   "0x%016" PRIx64 ", base_address=0x%0lx.\n", __FUNCTION__,
-		   vcpu, GET_APIC_ID(apic_get_reg(apic, APIC_ID)),
+		   vcpu, kvm_apic_id(apic),
 		   vcpu->apic_base, apic->base_address);
 }
 EXPORT_SYMBOL_GPL(kvm_lapic_reset);
