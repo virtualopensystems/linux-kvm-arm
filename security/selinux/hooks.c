@@ -1584,7 +1584,7 @@ static int selinux_syslog(int type)
  * Do not audit the selinux permission check, as this is applied to all
  * processes that allocate mappings.
  */
-static int selinux_vm_enough_memory(long pages)
+static int selinux_vm_enough_memory(struct mm_struct *mm, long pages)
 {
 	int rc, cap_sys_admin = 0;
 	struct task_security_struct *tsec = current->security;
@@ -1600,7 +1600,7 @@ static int selinux_vm_enough_memory(long pages)
 	if (rc == 0)
 		cap_sys_admin = 1;
 
-	return __vm_enough_memory(pages, cap_sys_admin);
+	return __vm_enough_memory(mm, pages, cap_sys_admin);
 }
 
 /* binprm security operations */
@@ -1906,6 +1906,9 @@ static void selinux_bprm_post_apply_creds(struct linux_binprm *bprm)
 		recalc_sigpending();
 		spin_unlock_irq(&current->sighand->siglock);
 	}
+
+	/* Always clear parent death signal on SID transitions. */
+	current->pdeath_signal = 0;
 
 	/* Check whether the new SID can inherit resource limits
 	   from the old SID.  If not, reset all soft limits to

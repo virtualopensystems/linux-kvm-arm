@@ -72,7 +72,7 @@
 #include "myri10ge_mcp.h"
 #include "myri10ge_mcp_gen_header.h"
 
-#define MYRI10GE_VERSION_STR "1.3.1-1.248"
+#define MYRI10GE_VERSION_STR "1.3.2-1.269"
 
 MODULE_DESCRIPTION("Myricom 10G driver (10GbE)");
 MODULE_AUTHOR("Maintainer: help@myri.com");
@@ -191,6 +191,7 @@ struct myri10ge_priv {
 	struct timer_list watchdog_timer;
 	int watchdog_tx_done;
 	int watchdog_tx_req;
+	int watchdog_pause;
 	int watchdog_resets;
 	int tx_linearized;
 	int pause;
@@ -2513,26 +2514,20 @@ static void myri10ge_firmware_probe(struct myri10ge_priv *mgp)
 {
 	struct pci_dev *pdev = mgp->pdev;
 	struct device *dev = &pdev->dev;
-	int cap, status;
-	u16 val;
+	int status;
 
 	mgp->tx.boundary = 4096;
 	/*
 	 * Verify the max read request size was set to 4KB
 	 * before trying the test with 4KB.
 	 */
-	cap = pci_find_capability(pdev, PCI_CAP_ID_EXP);
-	if (cap < 64) {
-		dev_err(dev, "Bad PCI_CAP_ID_EXP location %d\n", cap);
-		goto abort;
-	}
-	status = pci_read_config_word(pdev, cap + PCI_EXP_DEVCTL, &val);
-	if (status != 0) {
+	status = pcie_get_readrq(pdev);
+	if (status < 0) {
 		dev_err(dev, "Couldn't read max read req size: %d\n", status);
 		goto abort;
 	}
-	if ((val & (5 << 12)) != (5 << 12)) {
-		dev_warn(dev, "Max Read Request size != 4096 (0x%x)\n", val);
+	if (status != 4096) {
+		dev_warn(dev, "Max Read Request size != 4096 (%d)\n", status);
 		mgp->tx.boundary = 2048;
 	}
 	/*
@@ -2800,6 +2795,7 @@ static void myri10ge_watchdog(struct work_struct *work)
 static void myri10ge_watchdog_timer(unsigned long arg)
 {
 	struct myri10ge_priv *mgp;
+	u32 rx_pause_cnt;
 
 	mgp = (struct myri10ge_priv *)arg;
 
@@ -2816,19 +2812,28 @@ static void myri10ge_watchdog_timer(unsigned long arg)
 		    myri10ge_fill_thresh)
 			mgp->rx_big.watchdog_needed = 0;
 	}
+	rx_pause_cnt = ntohl(mgp->fw_stats->dropped_pause);
 
 	if (mgp->tx.req != mgp->tx.done &&
 	    mgp->tx.done == mgp->watchdog_tx_done &&
-	    mgp->watchdog_tx_req != mgp->watchdog_tx_done)
+	    mgp->watchdog_tx_req != mgp->watchdog_tx_done) {
 		/* nic seems like it might be stuck.. */
-		schedule_work(&mgp->watchdog_work);
-	else
-		/* rearm timer */
-		mod_timer(&mgp->watchdog_timer,
-			  jiffies + myri10ge_watchdog_timeout * HZ);
-
+		if (rx_pause_cnt != mgp->watchdog_pause) {
+			if (net_ratelimit())
+				printk(KERN_WARNING "myri10ge %s:"
+				       "TX paused, check link partner\n",
+				       mgp->dev->name);
+		} else {
+			schedule_work(&mgp->watchdog_work);
+			return;
+		}
+	}
+	/* rearm timer */
+	mod_timer(&mgp->watchdog_timer,
+		  jiffies + myri10ge_watchdog_timeout * HZ);
 	mgp->watchdog_tx_done = mgp->tx.done;
 	mgp->watchdog_tx_req = mgp->tx.req;
+	mgp->watchdog_pause = rx_pause_cnt;
 }
 
 static int myri10ge_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
@@ -2839,9 +2844,7 @@ static int myri10ge_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	size_t bytes;
 	int i;
 	int status = -ENXIO;
-	int cap;
 	int dac_enabled;
-	u16 val;
 
 	netdev = alloc_etherdev(sizeof(*mgp));
 	if (netdev == NULL) {
@@ -2873,19 +2876,7 @@ static int myri10ge_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	    = pci_find_capability(pdev, PCI_CAP_ID_VNDR);
 
 	/* Set our max read request to 4KB */
-	cap = pci_find_capability(pdev, PCI_CAP_ID_EXP);
-	if (cap < 64) {
-		dev_err(&pdev->dev, "Bad PCI_CAP_ID_EXP location %d\n", cap);
-		goto abort_with_netdev;
-	}
-	status = pci_read_config_word(pdev, cap + PCI_EXP_DEVCTL, &val);
-	if (status != 0) {
-		dev_err(&pdev->dev, "Error %d reading PCI_EXP_DEVCTL\n",
-			status);
-		goto abort_with_netdev;
-	}
-	val = (val & ~PCI_EXP_DEVCTL_READRQ) | (5 << 12);
-	status = pci_write_config_word(pdev, cap + PCI_EXP_DEVCTL, val);
+	status = pcie_set_readrq(pdev, 4096);
 	if (status != 0) {
 		dev_err(&pdev->dev, "Error %d writing PCI_EXP_DEVCTL\n",
 			status);

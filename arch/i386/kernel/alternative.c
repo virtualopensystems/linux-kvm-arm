@@ -366,6 +366,8 @@ void apply_paravirt(struct paravirt_patch_site *start,
 		unsigned int used;
 
 		BUG_ON(p->len > MAX_PATCH_LEN);
+		/* prep the buffer with the original instructions */
+		memcpy(insnbuf, p->instr, p->len);
 		used = paravirt_ops.patch(p->instrtype, p->clobbers, insnbuf,
 					  (unsigned long)p->instr, p->len);
 
@@ -443,8 +445,6 @@ void __kprobes text_poke(void *addr, unsigned char *opcode, int len)
 {
 	memcpy(addr, opcode, len);
 	sync_core();
-	/* Not strictly needed, but can speed CPU recovery up. Ignore cross cacheline
-	   case. */
-	if (cpu_has_clflush)
-		asm("clflush (%0) " :: "r" (addr) : "memory");
+	/* Could also do a CLFLUSH here to speed up CPU recovery; but
+	   that causes hangs on some VIA CPUs. */
 }

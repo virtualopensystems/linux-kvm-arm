@@ -149,7 +149,7 @@ static struct zonelist *bind_zonelist(nodemask_t *nodes)
 	   lower zones etc. Avoid empty zones because the memory allocator
 	   doesn't like them. If you implement node hot removal you
 	   have to fix that. */
-	k = policy_zone;
+	k = MAX_NR_ZONES - 1;
 	while (1) {
 		for_each_node_mask(nd, *nodes) { 
 			struct zone *z = &NODE_DATA(nd)->node_zones[k];
@@ -952,6 +952,11 @@ asmlinkage long sys_migrate_pages(pid_t pid, unsigned long maxnode,
 	/* Is the user allowed to access the target nodes? */
 	if (!nodes_subset(new, task_nodes) && !capable(CAP_SYS_NICE)) {
 		err = -EPERM;
+		goto out;
+	}
+
+	if (!nodes_subset(new, node_online_map)) {
+		err = -EINVAL;
 		goto out;
 	}
 

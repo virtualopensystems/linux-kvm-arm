@@ -1285,13 +1285,14 @@ void ide_init_sg_cmd(ide_drive_t *, struct request *);
 #define BAD_DMA_DRIVE		0
 #define GOOD_DMA_DRIVE		1
 
-#ifdef CONFIG_BLK_DEV_IDEDMA
 struct drive_list_entry {
 	const char *id_model;
 	const char *id_firmware;
 };
 
 int ide_in_drive_list(struct hd_driveid *, const struct drive_list_entry *);
+
+#ifdef CONFIG_BLK_DEV_IDEDMA
 int __ide_dma_bad_drive(ide_drive_t *);
 int __ide_dma_good_drive(ide_drive_t *);
 u8 ide_max_dma_mode(ide_drive_t *);
@@ -1312,7 +1313,6 @@ void ide_dma_host_off(ide_drive_t *);
 void ide_dma_off_quietly(ide_drive_t *);
 void ide_dma_host_on(ide_drive_t *);
 extern int __ide_dma_on(ide_drive_t *);
-extern int __ide_dma_check(ide_drive_t *);
 extern int ide_dma_setup(ide_drive_t *);
 extern void ide_dma_start(ide_drive_t *);
 extern int __ide_dma_end(ide_drive_t *);
@@ -1376,6 +1376,19 @@ int ide_use_fast_pio(ide_drive_t *);
 static inline int ide_dev_has_iordy(struct hd_driveid *id)
 {
 	return ((id->field_valid & 2) && (id->capability & 8)) ? 1 : 0;
+}
+
+static inline int ide_dev_is_sata(struct hd_driveid *id)
+{
+	/*
+	 * See if word 93 is 0 AND drive is at least ATA-5 compatible
+	 * verifying that word 80 by casting it to a signed type --
+	 * this trick allows us to filter out the reserved values of
+	 * 0x0000 and 0xffff along with the earlier ATA revisions...
+	 */
+	if (id->hw_config == 0 && (short)id->major_rev_num >= 0x0020)
+		return 1;
+	return 0;
 }
 
 u8 ide_dump_status(ide_drive_t *, const char *, u8);

@@ -9,7 +9,7 @@
  *  Split from:
  *  linux/drivers/ide/pdc202xx.c	Version 0.35	Mar. 30, 2002
  *  Copyright (C) 1998-2002		Andre Hedrick <andre@linux-ide.org>
- *  Copyright (C) 2005-2006		MontaVista Software, Inc.
+ *  Copyright (C) 2005-2007		MontaVista Software, Inc.
  *  Portions Copyright (C) 1999 Promise Technology, Inc.
  *  Author: Frank Tiernan (frankt@promise.com)
  *  Released under terms of General Public License
@@ -341,7 +341,7 @@ static long __devinit detect_pll_input_clock(unsigned long dma_base)
 	 */
 	usec_elapsed = (end_time.tv_sec - start_time.tv_sec) * 1000000 +
 		(end_time.tv_usec - start_time.tv_usec);
-	pll_input = ((start_count - end_count) & 0x3ffffff) / 10 *
+	pll_input = ((start_count - end_count) & 0x3fffffff) / 10 *
 		(10000000 / usec_elapsed);
 
 	DBG("start[%ld] end[%ld]\n", start_count, end_count);
@@ -377,6 +377,9 @@ static unsigned int __devinit init_chipset_pdcnew(struct pci_dev *dev, const cha
 	long pll_input, pll_output, ratio;
 	int f, r;
 	u8 pll_ctl0, pll_ctl1;
+
+	if (dma_base == 0)
+		return -EFAULT;
 
 #ifdef CONFIG_PPC_PMAC
 	apple_kiwi_init(dev);
@@ -494,14 +497,17 @@ static void __devinit init_hwif_pdc202new(ide_hwif_t *hwif)
 	hwif->speedproc = &pdcnew_tune_chipset;
 	hwif->resetproc = &pdcnew_reset;
 
+	hwif->err_stops_fifo = 1;
+
 	hwif->drives[0].autotune = hwif->drives[1].autotune = 1;
+
+	if (hwif->dma_base == 0)
+		return;
 
 	hwif->atapi_dma  = 1;
 
 	hwif->ultra_mask = hwif->cds->udma_mask;
 	hwif->mwdma_mask = 0x07;
-
-	hwif->err_stops_fifo = 1;
 
 	hwif->ide_dma_check = &pdcnew_config_drive_xfer_rate;
 
@@ -529,7 +535,7 @@ static int __devinit init_setup_pdc20270(struct pci_dev *dev,
 	    (dev->bus->self->device == PCI_DEVICE_ID_DEC_21150)) {
 		if (PCI_SLOT(dev->devfn) & 2)
 			return -ENODEV;
-		d->extra = 0;
+
 		while ((findev = pci_get_device(PCI_ANY_ID, PCI_ANY_ID, findev)) != NULL) {
 			if ((findev->vendor == dev->vendor) &&
 			    (findev->device == dev->device) &&
@@ -538,7 +544,8 @@ static int __devinit init_setup_pdc20270(struct pci_dev *dev,
 					findev->irq = dev->irq;
 				}
 				ret = ide_setup_pci_devices(dev, findev, d);
-				pci_dev_put(findev);
+				if (ret < 0)
+					pci_dev_put(findev);
 				return ret;
 			}
 		}
