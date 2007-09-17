@@ -1367,7 +1367,11 @@ twobyte_insn:
 			if (modrm_mod != 3 || modrm_rm != 1)
 				goto cannot_emulate;
 
-			/* nop */
+			rc = kvm_fix_hypercall(ctxt->vcpu);
+			if (rc)
+				goto done;
+
+			kvm_emulate_hypercall(ctxt->vcpu);
 			break;
 		case 2: /* lgdt */
 			rc = read_descriptor(ctxt, ops, src.ptr,
@@ -1378,7 +1382,10 @@ twobyte_insn:
 			break;
 		case 3: /* lidt/vmmcall */
 			if (modrm_mod == 3 && modrm_rm == 1) {
-				/* nop */
+				rc = kvm_fix_hypercall(ctxt->vcpu);
+				if (rc)
+					goto done;
+				kvm_emulate_hypercall(ctxt->vcpu);
 			} else {
 				rc = read_descriptor(ctxt, ops, src.ptr,
 						     &size, &address,
