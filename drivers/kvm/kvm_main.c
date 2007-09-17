@@ -2271,7 +2271,7 @@ static int kvm_vcpu_ioctl_get_sregs(struct kvm_vcpu *vcpu,
 		       sizeof sregs->interrupt_bitmap);
 		pending_vec = kvm_x86_ops->get_irq(vcpu);
 		if (pending_vec >= 0) {
-			set_bit(pending_vec, sregs->interrupt_bitmap);
+			set_bit(pending_vec, (unsigned long *)sregs->interrupt_bitmap);
 			printk("pending irq in kernel %d\n",pending_vec);
 		}
 	} else
