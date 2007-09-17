@@ -2270,10 +2270,8 @@ static int kvm_vcpu_ioctl_get_sregs(struct kvm_vcpu *vcpu,
 		memset(sregs->interrupt_bitmap, 0,
 		       sizeof sregs->interrupt_bitmap);
 		pending_vec = kvm_x86_ops->get_irq(vcpu);
-		if (pending_vec >= 0) {
+		if (pending_vec >= 0)
 			set_bit(pending_vec, (unsigned long *)sregs->interrupt_bitmap);
-			printk("pending irq in kernel %d\n",pending_vec);
-		}
 	} else
 		memcpy(sregs->interrupt_bitmap, vcpu->irq_pending,
 		       sizeof sregs->interrupt_bitmap);
