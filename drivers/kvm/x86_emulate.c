@@ -1130,31 +1130,6 @@ push:
 	case 0xd2 ... 0xd3:	/* Grp2 */
 		c->src.val = c->regs[VCPU_REGS_RCX];
 		goto grp2;
-	case 0xe8: /* call (near) */ {
-		long int rel;
-		switch (c->op_bytes) {
-		case 2:
-			rel = insn_fetch(s16, 2, c->eip);
-			break;
-		case 4:
-			rel = insn_fetch(s32, 4, c->eip);
-			break;
-		case 8:
-			rel = insn_fetch(s64, 8, c->eip);
-			break;
-		default:
-			DPRINTF("Call: Invalid op_bytes\n");
-			goto cannot_emulate;
-		}
-		c->src.val = (unsigned long) c->eip;
-		JMP_REL(rel);
-		goto push;
-	}
-	case 0xe9: /* jmp rel */
-	case 0xeb: /* jmp rel short */
-		JMP_REL(c->src.val);
-		no_wb = 1; /* Disable writeback. */
-		break;
 	case 0xf6 ... 0xf7:	/* Grp3 */
 		switch (c->modrm_reg) {
 		case 0 ... 1:	/* test */
@@ -1434,6 +1409,32 @@ special_insn:
 	case 0xae ... 0xaf:	/* scas */
 		DPRINTF("Urk! I don't handle SCAS.\n");
 		goto cannot_emulate;
+	case 0xe8: /* call (near) */ {
+		long int rel;
+		switch (c->op_bytes) {
+		case 2:
+			rel = insn_fetch(s16, 2, c->eip);
+			break;
+		case 4:
+			rel = insn_fetch(s32, 4, c->eip);
+			break;
+		case 8:
+			rel = insn_fetch(s64, 8, c->eip);
+			break;
+		default:
+			DPRINTF("Call: Invalid op_bytes\n");
+			goto cannot_emulate;
+		}
+		c->src.val = (unsigned long) c->eip;
+		JMP_REL(rel);
+		goto push;
+	}
+	case 0xe9: /* jmp rel */
+	case 0xeb: /* jmp rel short */
+		JMP_REL(c->src.val);
+		no_wb = 1; /* Disable writeback. */
+		break;
+
 
 	}
 	goto writeback;
