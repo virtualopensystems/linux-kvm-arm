@@ -904,9 +904,13 @@ x86_emulate_insn(struct x86_emulate_ctxt *ctxt, struct x86_emulate_ops *ops)
 	unsigned long cr2 = ctxt->cr2;
 	int no_wb = 0;
 	u64 msr_data;
+	unsigned long saved_rcx = 0, saved_eip = 0;
 	unsigned long _eflags = ctxt->eflags;
 	struct decode_cache *c = &ctxt->decode;
 	int rc = 0;
+
+	if ((c->d & ModRM) && (c->modrm_mod != 3))
+		ctxt->cr2 = c->modrm_ea;
 
 	if (c->src.type == OP_MEM) {
 		c->src.ptr = (unsigned long *)ctxt->cr2;
@@ -1300,8 +1304,13 @@ special_insn:
 	pop_instruction:
 		if ((rc = ops->read_std(register_address(ctxt->ss_base,
 			c->regs[VCPU_REGS_RSP]), c->dst.ptr,
-			c->op_bytes, ctxt->vcpu)) != 0)
+			c->op_bytes, ctxt->vcpu)) != 0) {
+			if (c->rep_prefix) {
+				c->regs[VCPU_REGS_RCX] = saved_rcx;
+				c->eip = saved_eip;
+			}
 			goto done;
+		}
 
 		register_address_increment(c->regs[VCPU_REGS_RSP],
 					   c->op_bytes);
@@ -1362,6 +1371,8 @@ special_insn:
 			ctxt->vcpu->rip = c->eip;
 			goto done;
 		}
+		saved_rcx = c->regs[VCPU_REGS_RCX];
+		saved_eip = c->eip;
 		c->regs[VCPU_REGS_RCX]--;
 		c->eip = ctxt->vcpu->rip;
 	}
@@ -1377,8 +1388,13 @@ special_insn:
 					ctxt->ds_base,
 					c->regs[VCPU_REGS_RSI]),
 					&c->dst.val,
-					c->dst.bytes, ctxt->vcpu)) != 0)
+					c->dst.bytes, ctxt->vcpu)) != 0) {
+			if (c->rep_prefix) {
+				c->regs[VCPU_REGS_RCX] = saved_rcx;
+				c->eip = saved_eip;
+			}
 			goto done;
+		}
 		register_address_increment(c->regs[VCPU_REGS_RSI],
 				       (_eflags & EFLG_DF) ? -c->dst.bytes
 							   : c->dst.bytes);
@@ -1404,8 +1420,13 @@ special_insn:
 		c->dst.ptr = (unsigned long *)&c->regs[VCPU_REGS_RAX];
 		if ((rc = ops->read_emulated(cr2, &c->dst.val,
 					     c->dst.bytes,
-					     ctxt->vcpu)) != 0)
+					     ctxt->vcpu)) != 0) {
+			if (c->rep_prefix) {
+				c->regs[VCPU_REGS_RCX] = saved_rcx;
+				c->eip = saved_eip;
+			}
 			goto done;
+		}
 		register_address_increment(c->regs[VCPU_REGS_RSI],
 				       (_eflags & EFLG_DF) ? -c->dst.bytes
 							   : c->dst.bytes);
