@@ -568,9 +568,8 @@ static void vmx_inject_gp(struct kvm_vcpu *vcpu, unsigned error_code)
 static void vmx_inject_ud(struct kvm_vcpu *vcpu)
 {
 	vmcs_write32(VM_ENTRY_INTR_INFO_FIELD,
-		     GP_VECTOR |
+		     UD_VECTOR |
 		     INTR_TYPE_EXCEPTION |
-		     INTR_INFO_DELIEVER_CODE_MASK |
 		     INTR_INFO_VALID_MASK);
 }
 
