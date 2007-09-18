@@ -243,17 +243,10 @@ void kvm_ioapic_set_irq(struct kvm_ioapic *ioapic, int irq, int level)
 		entry = ioapic->redirtbl[irq];
 		if (!level)
 			ioapic->irr &= ~mask;
-		if (entry.fields.trig_mode) {	/* level triggered */
-			if (level && !entry.fields.remote_irr) {
-				ioapic->irr |= mask;
-				ioapic_service(ioapic, irq);
-			}
-		} else if (level && !(ioapic->irr & mask)) {
-			/*
-			 * edge triggered
-			 */
+		else {
 			ioapic->irr |= mask;
-			ioapic_service(ioapic, irq);
+			if (!entry.fields.trig_mode || !entry.fields.remote_irr)
+				ioapic_service(ioapic, irq);
 		}
 	}
 }
@@ -285,18 +278,8 @@ void kvm_ioapic_update_eoi(struct kvm *kvm, int vector)
 	ASSERT(ent->fields.trig_mode == IOAPIC_LEVEL_TRIG);
 
 	ent->fields.remote_irr = 0;
-	/*
-	 * TODO:
-	 * qemu ioapic doesn't re-deliver level
-	 * triggered irq at the time of APIC EOI.
-	 * Adding back following code sme time causes RHEL5U
-	 * guest boot no progress at ethernet bringup, so
-	 * leave it same with qemu for now and revisit later.
-	 */
-/*
 	if (!ent->fields.mask && (ioapic->irr & (1 << gsi)))
 		ioapic_deliver(ioapic, gsi);
-*/
 }
 
 static int ioapic_in_range(struct kvm_io_device *this, gpa_t addr)
