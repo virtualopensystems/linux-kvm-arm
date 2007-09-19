@@ -776,7 +776,6 @@ done_prefixes:
 		}
 		if (c->ad_bytes != 8)
 			c->modrm_ea = (u32)c->modrm_ea;
-		ctxt->cr2 = c->modrm_ea;
 	modrm_done:
 		;
 	}
@@ -910,10 +909,10 @@ x86_emulate_insn(struct x86_emulate_ctxt *ctxt, struct x86_emulate_ops *ops)
 	int rc = 0;
 
 	if ((c->d & ModRM) && (c->modrm_mod != 3))
-		ctxt->cr2 = c->modrm_ea;
+		cr2 = c->modrm_ea;
 
 	if (c->src.type == OP_MEM) {
-		c->src.ptr = (unsigned long *)ctxt->cr2;
+		c->src.ptr = (unsigned long *)cr2;
 		c->src.val = 0;
 		if ((rc = ops->read_emulated((unsigned long)c->src.ptr,
 					     &c->src.val,
@@ -928,7 +927,7 @@ x86_emulate_insn(struct x86_emulate_ctxt *ctxt, struct x86_emulate_ops *ops)
 
 
 	if (c->dst.type == OP_MEM) {
-		c->dst.ptr = (unsigned long *)ctxt->cr2;
+		c->dst.ptr = (unsigned long *)cr2;
 		c->dst.bytes = (c->d & ByteOp) ? 1 : c->op_bytes;
 		c->dst.val = 0;
 		if (c->d & BitOp) {
