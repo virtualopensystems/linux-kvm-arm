@@ -38,6 +38,7 @@
 #include <asm/page.h>
 #include <asm/current.h>
 #include <asm/apicdef.h>
+#include <asm/io_apic.h>
 #include "irq.h"
 /* #define ioapic_debug(fmt,arg...) printk(KERN_WARNING fmt,##arg) */
 #define ioapic_debug(fmt, arg...)
