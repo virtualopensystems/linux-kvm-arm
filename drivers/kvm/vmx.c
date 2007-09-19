@@ -343,11 +343,17 @@ static void load_transition_efer(struct vcpu_vmx *vmx)
 	u64 guest_efer = vmx->guest_msrs[efer_offset].data;
 	u64 ignore_bits;
 
-	/* NX is emulated; LMA and LME handled by hardware */
-	ignore_bits = EFER_NX | EFER_LMA | EFER_LME;
-	/* SCE is meaningless outside long mode */
-	if (!(guest_efer & EFER_LMA))
-		ignore_bits |= EFER_SCE;
+	/*
+	 * NX is emulated; LMA and LME handled by hardware; SCE meaninless
+	 * outside long mode
+	 */
+	ignore_bits = EFER_NX | EFER_SCE;
+#ifdef CONFIG_X86_64
+	ignore_bits |= EFER_LMA | EFER_LME;
+	/* SCE is meaningful only in long mode on Intel */
+	if (guest_efer & EFER_LMA)
+		ignore_bits &= ~(u64)EFER_SCE;
+#endif
 	vmx->host_state.guest_efer_loaded
 		= (guest_efer & ~ignore_bits) != (host_efer & ~ignore_bits);
 
