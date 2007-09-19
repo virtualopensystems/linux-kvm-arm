@@ -237,6 +237,7 @@ static void ioapic_deliver(struct kvm_ioapic *ioapic, int irq)
 
 void kvm_ioapic_set_irq(struct kvm_ioapic *ioapic, int irq, int level)
 {
+	u32 old_irr = ioapic->irr;
 	u32 mask = 1 << irq;
 	union ioapic_redir_entry entry;
 
@@ -246,7 +247,8 @@ void kvm_ioapic_set_irq(struct kvm_ioapic *ioapic, int irq, int level)
 			ioapic->irr &= ~mask;
 		else {
 			ioapic->irr |= mask;
-			if (!entry.fields.trig_mode || !entry.fields.remote_irr)
+			if ((!entry.fields.trig_mode && old_irr != ioapic->irr)
+			    || !entry.fields.remote_irr)
 				ioapic_service(ioapic, irq);
 		}
 	}
