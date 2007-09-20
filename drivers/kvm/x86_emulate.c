@@ -586,10 +586,9 @@ x86_decode_insn(struct x86_emulate_ctxt *ctxt, struct x86_emulate_ops *ops)
 		case 0xf0:	/* LOCK */
 			c->lock_prefix = 1;
 			break;
+		case 0xf2:	/* REPNE/REPNZ */
 		case 0xf3:	/* REP/REPE/REPZ */
 			c->rep_prefix = 1;
-			break;
-		case 0xf2:	/* REPNE/REPNZ */
 			break;
 		default:
 			goto done_prefixes;
