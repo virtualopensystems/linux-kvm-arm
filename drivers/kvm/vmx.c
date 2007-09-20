@@ -354,15 +354,22 @@ static void load_transition_efer(struct vcpu_vmx *vmx)
 	if (guest_efer & EFER_LMA)
 		ignore_bits &= ~(u64)EFER_SCE;
 #endif
-	vmx->host_state.guest_efer_loaded
-		= (guest_efer & ~ignore_bits) != (host_efer & ~ignore_bits);
-
-	if (!vmx->host_state.guest_efer_loaded)
+	if ((guest_efer & ~ignore_bits) == (host_efer & ~ignore_bits))
 		return;
+
+	vmx->host_state.guest_efer_loaded = 1;
 	guest_efer &= ~ignore_bits;
 	guest_efer |= host_efer & ignore_bits;
 	wrmsrl(MSR_EFER, guest_efer);
 	vmx->vcpu.stat.efer_reload++;
+}
+
+static void reload_host_efer(struct vcpu_vmx *vmx)
+{
+	if (vmx->host_state.guest_efer_loaded) {
+		vmx->host_state.guest_efer_loaded = 0;
+		load_msrs(vmx->host_msrs + vmx->msr_offset_efer, 1);
+	}
 }
 
 static void vmx_save_host_state(struct kvm_vcpu *vcpu)
@@ -439,8 +446,7 @@ static void vmx_load_host_state(struct vcpu_vmx *vmx)
 	reload_tss();
 	save_msrs(vmx->guest_msrs, vmx->save_nmsrs);
 	load_msrs(vmx->host_msrs, vmx->save_nmsrs);
-	if (vmx->host_state.guest_efer_loaded)
-		load_msrs(vmx->host_msrs + vmx->msr_offset_efer, 1);
+	reload_host_efer(vmx);
 }
 
 /*
@@ -728,8 +734,10 @@ static int vmx_set_msr(struct kvm_vcpu *vcpu, u32 msr_index, u64 data)
 #ifdef CONFIG_X86_64
 	case MSR_EFER:
 		ret = kvm_set_msr_common(vcpu, msr_index, data);
-		if (vmx->host_state.loaded)
+		if (vmx->host_state.loaded) {
+			reload_host_efer(vmx);
 			load_transition_efer(vmx);
+		}
 		break;
 	case MSR_FS_BASE:
 		vmcs_writel(GUEST_FS_BASE, data);
