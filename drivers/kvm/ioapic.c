@@ -90,6 +90,8 @@ static void ioapic_service(struct kvm_ioapic *ioapic, unsigned int idx)
 		if (pent->fields.trig_mode == IOAPIC_LEVEL_TRIG)
 			pent->fields.remote_irr = 1;
 	}
+	if (!pent->fields.trig_mode)
+		ioapic->irr &= ~(1 << idx);
 }
 
 static void ioapic_write_indirect(struct kvm_ioapic *ioapic, u32 val)
@@ -121,7 +123,8 @@ static void ioapic_write_indirect(struct kvm_ioapic *ioapic, u32 val)
 			ioapic->redirtbl[index].bits |= (u32) val;
 			ioapic->redirtbl[index].fields.remote_irr = 0;
 		}
-		ioapic_service(ioapic, index);
+		if (ioapic->irr & (1 << index))
+			ioapic_service(ioapic, index);
 		break;
 	}
 }
