@@ -1379,13 +1379,8 @@ special_insn:
 	pop_instruction:
 		if ((rc = ops->read_std(register_address(ctxt->ss_base,
 			c->regs[VCPU_REGS_RSP]), c->dst.ptr,
-			c->op_bytes, ctxt->vcpu)) != 0) {
-			if (c->rep_prefix) {
-				c->regs[VCPU_REGS_RCX] = saved_rcx;
-				c->eip = saved_eip;
-			}
+			c->op_bytes, ctxt->vcpu)) != 0)
 			goto done;
-		}
 
 		register_address_increment(c->regs[VCPU_REGS_RSP],
 					   c->op_bytes);
