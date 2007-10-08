@@ -23,7 +23,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <public/xen.h>
-#define DPRINTF(_f, _a ...) printf( _f , ## _a )
+#define DPRINTF(_f, _a ...) printf(_f , ## _a)
 #else
 #include "kvm.h"
 #define DPRINTF(x...) do {} while (0)
@@ -284,21 +284,21 @@ static u16 twobyte_table[256] = {
 		switch ((_dst).bytes) {					    \
 		case 2:							    \
 			__asm__ __volatile__ (				    \
-				_PRE_EFLAGS("0","4","2")		    \
+				_PRE_EFLAGS("0", "4", "2")		    \
 				_op"w %"_wx"3,%1; "			    \
-				_POST_EFLAGS("0","4","2")		    \
+				_POST_EFLAGS("0", "4", "2")		    \
 				: "=m" (_eflags), "=m" ((_dst).val),        \
 				  "=&r" (_tmp)				    \
-				: _wy ((_src).val), "i" (EFLAGS_MASK) );    \
+				: _wy ((_src).val), "i" (EFLAGS_MASK));     \
 			break;						    \
 		case 4:							    \
 			__asm__ __volatile__ (				    \
-				_PRE_EFLAGS("0","4","2")		    \
+				_PRE_EFLAGS("0", "4", "2")		    \
 				_op"l %"_lx"3,%1; "			    \
-				_POST_EFLAGS("0","4","2")		    \
+				_POST_EFLAGS("0", "4", "2")		    \
 				: "=m" (_eflags), "=m" ((_dst).val),	    \
 				  "=&r" (_tmp)				    \
-				: _ly ((_src).val), "i" (EFLAGS_MASK) );    \
+				: _ly ((_src).val), "i" (EFLAGS_MASK));     \
 			break;						    \
 		case 8:							    \
 			__emulate_2op_8byte(_op, _src, _dst,		    \
@@ -310,16 +310,15 @@ static u16 twobyte_table[256] = {
 #define __emulate_2op(_op,_src,_dst,_eflags,_bx,_by,_wx,_wy,_lx,_ly,_qx,_qy) \
 	do {								     \
 		unsigned long _tmp;					     \
-		switch ( (_dst).bytes )					     \
-		{							     \
+		switch ((_dst).bytes) {				             \
 		case 1:							     \
 			__asm__ __volatile__ (				     \
-				_PRE_EFLAGS("0","4","2")		     \
+				_PRE_EFLAGS("0", "4", "2")		     \
 				_op"b %"_bx"3,%1; "			     \
-				_POST_EFLAGS("0","4","2")		     \
+				_POST_EFLAGS("0", "4", "2")		     \
 				: "=m" (_eflags), "=m" ((_dst).val),	     \
 				  "=&r" (_tmp)				     \
-				: _by ((_src).val), "i" (EFLAGS_MASK) );     \
+				: _by ((_src).val), "i" (EFLAGS_MASK));      \
 			break;						     \
 		default:						     \
 			__emulate_2op_nobyte(_op, _src, _dst, _eflags,	     \
@@ -348,34 +347,33 @@ static u16 twobyte_table[256] = {
 	do {								\
 		unsigned long _tmp;					\
 									\
-		switch ( (_dst).bytes )					\
-		{							\
+		switch ((_dst).bytes) {				        \
 		case 1:							\
 			__asm__ __volatile__ (				\
-				_PRE_EFLAGS("0","3","2")		\
+				_PRE_EFLAGS("0", "3", "2")		\
 				_op"b %1; "				\
-				_POST_EFLAGS("0","3","2")		\
+				_POST_EFLAGS("0", "3", "2")		\
 				: "=m" (_eflags), "=m" ((_dst).val),	\
 				  "=&r" (_tmp)				\
-				: "i" (EFLAGS_MASK) );			\
+				: "i" (EFLAGS_MASK));			\
 			break;						\
 		case 2:							\
 			__asm__ __volatile__ (				\
-				_PRE_EFLAGS("0","3","2")		\
+				_PRE_EFLAGS("0", "3", "2")		\
 				_op"w %1; "				\
-				_POST_EFLAGS("0","3","2")		\
+				_POST_EFLAGS("0", "3", "2")		\
 				: "=m" (_eflags), "=m" ((_dst).val),	\
 				  "=&r" (_tmp)				\
-				: "i" (EFLAGS_MASK) );			\
+				: "i" (EFLAGS_MASK));			\
 			break;						\
 		case 4:							\
 			__asm__ __volatile__ (				\
-				_PRE_EFLAGS("0","3","2")		\
+				_PRE_EFLAGS("0", "3", "2")		\
 				_op"l %1; "				\
-				_POST_EFLAGS("0","3","2")		\
+				_POST_EFLAGS("0", "3", "2")		\
 				: "=m" (_eflags), "=m" ((_dst).val),	\
 				  "=&r" (_tmp)				\
-				: "i" (EFLAGS_MASK) );			\
+				: "i" (EFLAGS_MASK));			\
 			break;						\
 		case 8:							\
 			__emulate_1op_8byte(_op, _dst, _eflags);	\
@@ -388,21 +386,21 @@ static u16 twobyte_table[256] = {
 #define __emulate_2op_8byte(_op, _src, _dst, _eflags, _qx, _qy)           \
 	do {								  \
 		__asm__ __volatile__ (					  \
-			_PRE_EFLAGS("0","4","2")			  \
+			_PRE_EFLAGS("0", "4", "2")			  \
 			_op"q %"_qx"3,%1; "				  \
-			_POST_EFLAGS("0","4","2")			  \
+			_POST_EFLAGS("0", "4", "2")			  \
 			: "=m" (_eflags), "=m" ((_dst).val), "=&r" (_tmp) \
-			: _qy ((_src).val), "i" (EFLAGS_MASK) );	  \
+			: _qy ((_src).val), "i" (EFLAGS_MASK));		\
 	} while (0)
 
 #define __emulate_1op_8byte(_op, _dst, _eflags)                           \
 	do {								  \
 		__asm__ __volatile__ (					  \
-			_PRE_EFLAGS("0","3","2")			  \
+			_PRE_EFLAGS("0", "3", "2")			  \
 			_op"q %1; "					  \
-			_POST_EFLAGS("0","3","2")			  \
+			_POST_EFLAGS("0", "3", "2")			  \
 			: "=m" (_eflags), "=m" ((_dst).val), "=&r" (_tmp) \
-			: "i" (EFLAGS_MASK) );				  \
+			: "i" (EFLAGS_MASK));				  \
 	} while (0)
 
 #elif defined(__i386__)
@@ -414,8 +412,8 @@ static u16 twobyte_table[256] = {
 #define insn_fetch(_type, _size, _eip)                                  \
 ({	unsigned long _x;						\
 	rc = ops->read_std((unsigned long)(_eip) + ctxt->cs_base, &_x,	\
-                                                  (_size), ctxt->vcpu); \
-	if ( rc != 0 )							\
+			   (_size), ctxt->vcpu);			\
+	if (rc != 0)							\
 		goto done;						\
 	(_eip) += (_size);						\
 	(_type)_x;							\
@@ -781,7 +779,7 @@ done_prefixes:
 		}
 		if (c->ad_bytes != 8)
 			c->modrm_ea = (u32)c->modrm_ea;
-	modrm_done:
+modrm_done:
 		;
 	}
 
@@ -832,7 +830,7 @@ done_prefixes:
 		if (c->twobyte && c->b == 0x01
 				    && c->modrm_reg == 7)
 			break;
-	      srcmem_common:
+srcmem_common:
 		c->src.type = OP_MEM;
 		break;
 	case SrcImm:
@@ -1164,10 +1162,11 @@ x86_emulate_insn(struct x86_emulate_ctxt *ctxt, struct x86_emulate_ops *ops)
 	if (c->src.type == OP_MEM) {
 		c->src.ptr = (unsigned long *)cr2;
 		c->src.val = 0;
-		if ((rc = ops->read_emulated((unsigned long)c->src.ptr,
-					     &c->src.val,
-					     c->src.bytes,
-					     ctxt->vcpu)) != 0)
+		rc = ops->read_emulated((unsigned long)c->src.ptr,
+					&c->src.val,
+					c->src.bytes,
+					ctxt->vcpu);
+		if (rc != 0)
 			goto done;
 		c->src.orig_val = c->src.val;
 	}
@@ -1472,9 +1471,9 @@ special_insn:
 					ctxt->ds_base,
 					c->regs[VCPU_REGS_RSI]),
 					&c->dst.val,
-					c->dst.bytes, ctxt->vcpu)) != 0) {
+					c->dst.bytes, ctxt->vcpu)) != 0)
 			goto done;
-		}
+
 		register_address_increment(c->regs[VCPU_REGS_RSI],
 				       (ctxt->eflags & EFLG_DF) ? -c->dst.bytes
 							   : c->dst.bytes);
@@ -1500,9 +1499,9 @@ special_insn:
 		c->dst.ptr = (unsigned long *)&c->regs[VCPU_REGS_RAX];
 		if ((rc = ops->read_emulated(cr2, &c->dst.val,
 					     c->dst.bytes,
-					     ctxt->vcpu)) != 0) {
+					     ctxt->vcpu)) != 0)
 			goto done;
-		}
+
 		register_address_increment(c->regs[VCPU_REGS_RSI],
 				       (ctxt->eflags & EFLG_DF) ? -c->dst.bytes
 							   : c->dst.bytes);
