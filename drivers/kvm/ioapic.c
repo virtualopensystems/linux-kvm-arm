@@ -96,7 +96,7 @@ static void ioapic_service(struct kvm_ioapic *ioapic, unsigned int idx)
 
 static void ioapic_write_indirect(struct kvm_ioapic *ioapic, u32 val)
 {
-	int index;
+	unsigned index;
 
 	switch (ioapic->ioregsel) {
 	case IOAPIC_REG_VERSION:
@@ -114,7 +114,8 @@ static void ioapic_write_indirect(struct kvm_ioapic *ioapic, u32 val)
 		index = (ioapic->ioregsel - 0x10) >> 1;
 
 		ioapic_debug("change redir index %x val %x", index, val);
-		ASSERT(irq < IOAPIC_NUM_PINS);
+		if (index >= IOAPIC_NUM_PINS)
+			return;
 		if (ioapic->ioregsel & 1) {
 			ioapic->redirtbl[index].bits &= 0xffffffff;
 			ioapic->redirtbl[index].bits |= (u64) val << 32;
