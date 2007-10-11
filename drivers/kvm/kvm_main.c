@@ -28,6 +28,7 @@
 #include <linux/gfp.h>
 #include <linux/mm.h>
 #include <linux/miscdevice.h>
+#include <linux/vmalloc.h>
 #include <linux/reboot.h>
 #include <linux/debugfs.h>
 #include <linux/highmem.h>
