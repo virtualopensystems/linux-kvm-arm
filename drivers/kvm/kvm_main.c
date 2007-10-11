@@ -28,7 +28,6 @@
 #include <linux/gfp.h>
 #include <linux/mm.h>
 #include <linux/miscdevice.h>
-#include <linux/vmalloc.h>
 #include <linux/reboot.h>
 #include <linux/debugfs.h>
 #include <linux/highmem.h>
@@ -89,8 +88,6 @@ static struct kvm_stats_debugfs_item {
 };
 
 static struct dentry *debugfs_dir;
-
-#define MAX_IO_MSRS 256
 
 #define CR0_RESERVED_BITS						\
 	(~(unsigned long)(X86_CR0_PE | X86_CR0_MP | X86_CR0_EM | X86_CR0_TS \
@@ -179,21 +176,21 @@ EXPORT_SYMBOL_GPL(kvm_put_guest_fpu);
 /*
  * Switches to specified vcpu, until a matching vcpu_put()
  */
-static void vcpu_load(struct kvm_vcpu *vcpu)
+void vcpu_load(struct kvm_vcpu *vcpu)
 {
 	int cpu;
 
 	mutex_lock(&vcpu->mutex);
 	cpu = get_cpu();
 	preempt_notifier_register(&vcpu->preempt_notifier);
-	kvm_x86_ops->vcpu_load(vcpu, cpu);
+	kvm_arch_vcpu_load(vcpu, cpu);
 	put_cpu();
 }
 
-static void vcpu_put(struct kvm_vcpu *vcpu)
+void vcpu_put(struct kvm_vcpu *vcpu)
 {
 	preempt_disable();
-	kvm_x86_ops->vcpu_put(vcpu);
+	kvm_arch_vcpu_put(vcpu);
 	preempt_notifier_unregister(&vcpu->preempt_notifier);
 	preempt_enable();
 	mutex_unlock(&vcpu->mutex);
@@ -2519,86 +2516,6 @@ void kvm_get_cs_db_l_bits(struct kvm_vcpu *vcpu, int *db, int *l)
 EXPORT_SYMBOL_GPL(kvm_get_cs_db_l_bits);
 
 /*
- * Adapt set_msr() to msr_io()'s calling convention
- */
-static int do_set_msr(struct kvm_vcpu *vcpu, unsigned index, u64 *data)
-{
-	return kvm_set_msr(vcpu, index, *data);
-}
-
-/*
- * Read or write a bunch of msrs. All parameters are kernel addresses.
- *
- * @return number of msrs set successfully.
- */
-static int __msr_io(struct kvm_vcpu *vcpu, struct kvm_msrs *msrs,
-		    struct kvm_msr_entry *entries,
-		    int (*do_msr)(struct kvm_vcpu *vcpu,
-				  unsigned index, u64 *data))
-{
-	int i;
-
-	vcpu_load(vcpu);
-
-	for (i = 0; i < msrs->nmsrs; ++i)
-		if (do_msr(vcpu, entries[i].index, &entries[i].data))
-			break;
-
-	vcpu_put(vcpu);
-
-	return i;
-}
-
-/*
- * Read or write a bunch of msrs. Parameters are user addresses.
- *
- * @return number of msrs set successfully.
- */
-static int msr_io(struct kvm_vcpu *vcpu, struct kvm_msrs __user *user_msrs,
-		  int (*do_msr)(struct kvm_vcpu *vcpu,
-				unsigned index, u64 *data),
-		  int writeback)
-{
-	struct kvm_msrs msrs;
-	struct kvm_msr_entry *entries;
-	int r, n;
-	unsigned size;
-
-	r = -EFAULT;
-	if (copy_from_user(&msrs, user_msrs, sizeof msrs))
-		goto out;
-
-	r = -E2BIG;
-	if (msrs.nmsrs >= MAX_IO_MSRS)
-		goto out;
-
-	r = -ENOMEM;
-	size = sizeof(struct kvm_msr_entry) * msrs.nmsrs;
-	entries = vmalloc(size);
-	if (!entries)
-		goto out;
-
-	r = -EFAULT;
-	if (copy_from_user(entries, user_msrs->entries, size))
-		goto out_free;
-
-	r = n = __msr_io(vcpu, &msrs, entries, do_msr);
-	if (r < 0)
-		goto out_free;
-
-	r = -EFAULT;
-	if (writeback && copy_to_user(user_msrs->entries, entries, size))
-		goto out_free;
-
-	r = n;
-
-out_free:
-	vfree(entries);
-out:
-	return r;
-}
-
-/*
  * Translate a guest virtual address to a guest physical address.
  */
 static int kvm_vcpu_ioctl_translate(struct kvm_vcpu *vcpu,
@@ -2771,48 +2688,6 @@ free_vcpu:
 	return r;
 }
 
-static void cpuid_fix_nx_cap(struct kvm_vcpu *vcpu)
-{
-	u64 efer;
-	int i;
-	struct kvm_cpuid_entry *e, *entry;
-
-	rdmsrl(MSR_EFER, efer);
-	entry = NULL;
-	for (i = 0; i < vcpu->cpuid_nent; ++i) {
-		e = &vcpu->cpuid_entries[i];
-		if (e->function == 0x80000001) {
-			entry = e;
-			break;
-		}
-	}
-	if (entry && (entry->edx & (1 << 20)) && !(efer & EFER_NX)) {
-		entry->edx &= ~(1 << 20);
-		printk(KERN_INFO "kvm: guest NX capability removed\n");
-	}
-}
-
-static int kvm_vcpu_ioctl_set_cpuid(struct kvm_vcpu *vcpu,
-				    struct kvm_cpuid *cpuid,
-				    struct kvm_cpuid_entry __user *entries)
-{
-	int r;
-
-	r = -E2BIG;
-	if (cpuid->nent > KVM_MAX_CPUID_ENTRIES)
-		goto out;
-	r = -EFAULT;
-	if (copy_from_user(&vcpu->cpuid_entries, entries,
-			   cpuid->nent * sizeof(struct kvm_cpuid_entry)))
-		goto out;
-	vcpu->cpuid_nent = cpuid->nent;
-	cpuid_fix_nx_cap(vcpu);
-	return 0;
-
-out:
-	return r;
-}
-
 static int kvm_vcpu_ioctl_set_sigmask(struct kvm_vcpu *vcpu, sigset_t *sigset)
 {
 	if (sigset) {
@@ -2885,33 +2760,12 @@ static int kvm_vcpu_ioctl_set_fpu(struct kvm_vcpu *vcpu, struct kvm_fpu *fpu)
 	return 0;
 }
 
-static int kvm_vcpu_ioctl_get_lapic(struct kvm_vcpu *vcpu,
-				    struct kvm_lapic_state *s)
-{
-	vcpu_load(vcpu);
-	memcpy(s->regs, vcpu->apic->regs, sizeof *s);
-	vcpu_put(vcpu);
-
-	return 0;
-}
-
-static int kvm_vcpu_ioctl_set_lapic(struct kvm_vcpu *vcpu,
-				    struct kvm_lapic_state *s)
-{
-	vcpu_load(vcpu);
-	memcpy(vcpu->apic->regs, s->regs, sizeof *s);
-	kvm_apic_post_state_restore(vcpu);
-	vcpu_put(vcpu);
-
-	return 0;
-}
-
 static long kvm_vcpu_ioctl(struct file *filp,
 			   unsigned int ioctl, unsigned long arg)
 {
 	struct kvm_vcpu *vcpu = filp->private_data;
 	void __user *argp = (void __user *)arg;
-	int r = -EINVAL;
+	int r;
 
 	switch (ioctl) {
 	case KVM_RUN:
@@ -3009,24 +2863,6 @@ static long kvm_vcpu_ioctl(struct file *filp,
 		r = 0;
 		break;
 	}
-	case KVM_GET_MSRS:
-		r = msr_io(vcpu, argp, kvm_get_msr, 1);
-		break;
-	case KVM_SET_MSRS:
-		r = msr_io(vcpu, argp, do_set_msr, 0);
-		break;
-	case KVM_SET_CPUID: {
-		struct kvm_cpuid __user *cpuid_arg = argp;
-		struct kvm_cpuid cpuid;
-
-		r = -EFAULT;
-		if (copy_from_user(&cpuid, cpuid_arg, sizeof cpuid))
-			goto out;
-		r = kvm_vcpu_ioctl_set_cpuid(vcpu, &cpuid, cpuid_arg->entries);
-		if (r)
-			goto out;
-		break;
-	}
 	case KVM_SET_SIGNAL_MASK: {
 		struct kvm_signal_mask __user *sigmask_arg = argp;
 		struct kvm_signal_mask kvm_sigmask;
@@ -3075,33 +2911,8 @@ static long kvm_vcpu_ioctl(struct file *filp,
 		r = 0;
 		break;
 	}
-	case KVM_GET_LAPIC: {
-		struct kvm_lapic_state lapic;
-
-		memset(&lapic, 0, sizeof lapic);
-		r = kvm_vcpu_ioctl_get_lapic(vcpu, &lapic);
-		if (r)
-			goto out;
-		r = -EFAULT;
-		if (copy_to_user(argp, &lapic, sizeof lapic))
-			goto out;
-		r = 0;
-		break;
-	}
-	case KVM_SET_LAPIC: {
-		struct kvm_lapic_state lapic;
-
-		r = -EFAULT;
-		if (copy_from_user(&lapic, argp, sizeof lapic))
-			goto out;
-		r = kvm_vcpu_ioctl_set_lapic(vcpu, &lapic);;
-		if (r)
-			goto out;
-		r = 0;
-		break;
-	}
 	default:
-		;
+		r = kvm_arch_vcpu_ioctl(filp, ioctl, arg);
 	}
 out:
 	return r;
