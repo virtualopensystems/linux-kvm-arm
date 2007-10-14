@@ -30,22 +30,6 @@
 #include <asm/io.h>
 #include <asm/irq.h>
 
-/**
- *	cs5530_xfer_set_mode	-	set a new transfer mode at the drive
- *	@drive: drive to tune
- *	@mode: new mode
- *
- *	Logging wrapper to the IDE driver speed configuration. This can
- *	probably go away now.
- */
- 
-static int cs5530_set_xfer_mode (ide_drive_t *drive, u8 mode)
-{
-	printk(KERN_DEBUG "%s: cs5530_set_xfer_mode(%s)\n",
-		drive->name, ide_xfer_verbose(mode));
-	return (ide_config_drive_speed(drive, mode));
-}
-
 /*
  * Here are the standard PIO mode 0-4 timings for each "format".
  * Format-0 uses fast data reg timings, with slower command reg timings.
@@ -62,30 +46,23 @@ static unsigned int cs5530_pio_timings[2][5] = {
 #define CS5530_BAD_PIO(timings) (((timings)&~0x80000000)==0x0000e132)
 #define CS5530_BASEREG(hwif)	(((hwif)->dma_base & ~0xf) + ((hwif)->channel ? 0x30 : 0x20))
 
-static void cs5530_tunepio(ide_drive_t *drive, u8 pio)
+/**
+ *	cs5530_set_pio_mode	-	set host controller for PIO mode
+ *	@drive: drive
+ *	@pio: PIO mode number
+ *
+ *	Handles setting of PIO mode for the chipset.
+ *
+ *	The init_hwif_cs5530() routine guarantees that all drives
+ *	will have valid default PIO timings set up before we get here.
+ */
+
+static void cs5530_set_pio_mode(ide_drive_t *drive, const u8 pio)
 {
 	unsigned long basereg = CS5530_BASEREG(drive->hwif);
 	unsigned int format = (inl(basereg + 4) >> 31) & 1;
 
 	outl(cs5530_pio_timings[format][pio], basereg + ((drive->dn & 1)<<3));
-}
-
-/**
- *	cs5530_tuneproc		-	select/set PIO modes
- *
- *	cs5530_tuneproc() handles selection/setting of PIO modes
- *	for both the chipset and drive.
- *
- *	The ide_init_cs5530() routine guarantees that all drives
- *	will have valid default PIO timings set up before we get here.
- */
-
-static void cs5530_tuneproc (ide_drive_t *drive, u8 pio)	/* pio=255 means "autotune" */
-{
-	pio = ide_get_best_pio_mode(drive, pio, 4);
-
-	if (cs5530_set_xfer_mode(drive, XFER_PIO_0 + pio) == 0)
-		cs5530_tunepio(drive, pio);
 }
 
 /**
@@ -143,22 +120,11 @@ static int cs5530_config_dma(ide_drive_t *drive)
 	return 1;
 }
 
-static int cs5530_tune_chipset(ide_drive_t *drive, u8 mode)
+static void cs5530_set_dma_mode(ide_drive_t *drive, const u8 mode)
 {
 	unsigned long basereg;
 	unsigned int reg, timings = 0;
 
-	mode = ide_rate_filter(drive, mode);
-
-	/*
-	 * Tell the drive to switch to the new mode; abort on failure.
-	 */
-	if (cs5530_set_xfer_mode(drive, mode))
-		return 1;	/* failure */
-
-	/*
-	 * Now tune the chipset to match the drive:
-	 */
 	switch (mode) {
 		case XFER_UDMA_0:	timings = 0x00921250; break;
 		case XFER_UDMA_1:	timings = 0x00911140; break;
@@ -166,13 +132,6 @@ static int cs5530_tune_chipset(ide_drive_t *drive, u8 mode)
 		case XFER_MW_DMA_0:	timings = 0x00077771; break;
 		case XFER_MW_DMA_1:	timings = 0x00012121; break;
 		case XFER_MW_DMA_2:	timings = 0x00002020; break;
-		case XFER_PIO_4:
-		case XFER_PIO_3:
-		case XFER_PIO_2:
-		case XFER_PIO_1:
-		case XFER_PIO_0:
-			cs5530_tunepio(drive, mode - XFER_PIO_0);
-			return 0;
 		default:
 			BUG();
 			break;
@@ -190,8 +149,6 @@ static int cs5530_tune_chipset(ide_drive_t *drive, u8 mode)
 		outl(reg, basereg + 4);		/* write drive0 config register */
 		outl(timings, basereg + 12);	/* write drive1 config register */
 	}
-
-	return 0;	/* success */
 }
 
 /**
@@ -308,8 +265,8 @@ static void __devinit init_hwif_cs5530 (ide_hwif_t *hwif)
 	if (hwif->mate)
 		hwif->serialized = hwif->mate->serialized = 1;
 
-	hwif->tuneproc = &cs5530_tuneproc;
-	hwif->speedproc = &cs5530_tune_chipset;
+	hwif->set_pio_mode = &cs5530_set_pio_mode;
+	hwif->set_dma_mode = &cs5530_set_dma_mode;
 
 	basereg = CS5530_BASEREG(hwif);
 	d0_timings = inl(basereg + 0);
@@ -350,6 +307,7 @@ static ide_pci_device_t cs5530_chipset __devinitdata = {
 	.autodma	= AUTODMA,
 	.bootable	= ON_BOARD,
 	.pio_mask	= ATA_PIO4,
+	.host_flags	= IDE_HFLAG_POST_SET_MODE,
 };
 
 static int __devinit cs5530_init_one(struct pci_dev *dev, const struct pci_device_id *id)

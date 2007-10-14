@@ -248,15 +248,9 @@ static void icside_build_sglist(ide_drive_t *drive, struct request *rq)
  *	MW1	80	50	50	150	C
  *	MW2	70	25	25	120	C
  */
-static int icside_set_speed(ide_drive_t *drive, u8 xfer_mode)
+static void icside_set_dma_mode(ide_drive_t *drive, const u8 xfer_mode)
 {
-	int on = 0, cycle_time = 0, use_dma_info = 0;
-
-	/*
-	 * Limit the transfer speed to MW_DMA_2.
-	 */
-	if (xfer_mode > XFER_MW_DMA_2)
-		xfer_mode = XFER_MW_DMA_2;
+	int cycle_time, use_dma_info = 0;
 
 	switch (xfer_mode) {
 	case XFER_MW_DMA_2:
@@ -278,6 +272,8 @@ static int icside_set_speed(ide_drive_t *drive, u8 xfer_mode)
 	case XFER_SW_DMA_0:
 		cycle_time = 480;
 		break;
+	default:
+		return;
 	}
 
 	/*
@@ -289,17 +285,8 @@ static int icside_set_speed(ide_drive_t *drive, u8 xfer_mode)
 
 	drive->drive_data = cycle_time;
 
-	if (cycle_time && ide_config_drive_speed(drive, xfer_mode) == 0)
-		on = 1;
-	else
-		drive->drive_data = 480;
-
 	printk("%s: %s selected (peak %dMB/s)\n", drive->name,
 		ide_xfer_verbose(xfer_mode), 2000 / drive->drive_data);
-
-	drive->current_speed = xfer_mode;
-
-	return on;
 }
 
 static void icside_dma_host_off(ide_drive_t *drive)
@@ -324,41 +311,10 @@ static int icside_dma_on(ide_drive_t *drive)
 
 static int icside_dma_check(ide_drive_t *drive)
 {
-	struct hd_driveid *id = drive->id;
-	ide_hwif_t *hwif = HWIF(drive);
-	int xfer_mode = XFER_PIO_2;
-	int on;
+	if (ide_tune_dma(drive))
+		return 0;
 
-	if (!(id->capability & 1) || !hwif->autodma)
-		goto out;
-
-	/*
-	 * Consult the list of known "bad" drives
-	 */
-	if (__ide_dma_bad_drive(drive))
-		goto out;
-
-	/*
-	 * Enable DMA on any drive that has multiword DMA
-	 */
-	if (id->field_valid & 2) {
-		xfer_mode = ide_max_dma_mode(drive);
-		goto out;
-	}
-
-	/*
-	 * Consult the list of known "good" drives
-	 */
-	if (__ide_dma_good_drive(drive)) {
-		if (id->eide_dma_time > 150)
-			goto out;
-		xfer_mode = XFER_MW_DMA_1;
-	}
-
-out:
-	on = icside_set_speed(drive, xfer_mode);
-
-	return on ? 0 : -1;
+	return -1;
 }
 
 static int icside_dma_end(ide_drive_t *drive)
@@ -475,7 +431,7 @@ static void icside_dma_init(ide_hwif_t *hwif)
 
 	hwif->dmatable_cpu	= NULL;
 	hwif->dmatable_dma	= 0;
-	hwif->speedproc		= icside_set_speed;
+	hwif->set_dma_mode	= icside_set_dma_mode;
 	hwif->autodma		= 1;
 
 	hwif->ide_dma_check	= icside_dma_check;

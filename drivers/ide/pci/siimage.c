@@ -1,5 +1,5 @@
 /*
- * linux/drivers/ide/pci/siimage.c		Version 1.15	Jun 29 2007
+ * linux/drivers/ide/pci/siimage.c		Version 1.16	Jul 13 2007
  *
  * Copyright (C) 2001-2002	Andre Hedrick <andre@linux-ide.org>
  * Copyright (C) 2003		Red Hat <alan@redhat.com>
@@ -165,16 +165,16 @@ out:
 }
 
 /**
- *	sil_tune_pio	-	tune a drive
- *	@drive: drive to tune
- *	@pio: the desired PIO mode
+ *	sil_set_pio_mode	-	set host controller for PIO mode
+ *	@drive: drive
+ *	@pio: PIO mode number
  *
  *	Load the timing settings for this device mode into the
  *	controller. If we are in PIO mode 3 or 4 turn on IORDY
  *	monitoring (bit 9). The TF timing is bits 31:16
  */
 
-static void sil_tune_pio(ide_drive_t *drive, u8 pio)
+static void sil_set_pio_mode(ide_drive_t *drive, u8 pio)
 {
 	const u16 tf_speed[]	= { 0x328a, 0x2283, 0x1281, 0x10c3, 0x10c1 };
 	const u16 data_speed[]	= { 0x328a, 0x2283, 0x1104, 0x10c3, 0x10c1 };
@@ -185,7 +185,12 @@ static void sil_tune_pio(ide_drive_t *drive, u8 pio)
 	u16 speedp		= 0;
 	unsigned long addr	= siimage_seldev(drive, 0x04);
 	unsigned long tfaddr	= siimage_selreg(hwif, 0x02);
+	unsigned long base	= (unsigned long)hwif->hwif_data;
 	u8 tf_pio		= pio;
+	u8 addr_mask		= hwif->channel ? (hwif->mmio ? 0xF4 : 0x84)
+						: (hwif->mmio ? 0xB4 : 0x80);
+	u8 mode			= 0;
+	u8 unit			= drive->select.b.unit;
 
 	/* trim *taskfile* PIO to the slowest of the master/slave */
 	if (pair->present) {
@@ -207,6 +212,11 @@ static void sil_tune_pio(ide_drive_t *drive, u8 pio)
 			hwif->OUTW(hwif->INW(tfaddr-2)|0x200, tfaddr-2);
 		else
 			hwif->OUTW(hwif->INW(tfaddr-2)&~0x200, tfaddr-2);
+
+		mode = hwif->INB(base + addr_mask);
+		mode &= ~(unit ? 0x30 : 0x03);
+		mode |= (unit ? 0x10 : 0x01);
+		hwif->OUTB(mode, base + addr_mask);
 	} else {
 		pci_write_config_word(hwif->pci_dev, addr, speedp);
 		pci_write_config_word(hwif->pci_dev, tfaddr, speedt);
@@ -216,27 +226,23 @@ static void sil_tune_pio(ide_drive_t *drive, u8 pio)
 		if (pio > 2)
 			speedp |= 0x200;
 		pci_write_config_word(hwif->pci_dev, tfaddr-2, speedp);
+
+		pci_read_config_byte(hwif->pci_dev, addr_mask, &mode);
+		mode &= ~(unit ? 0x30 : 0x03);
+		mode |= (unit ? 0x10 : 0x01);
+		pci_write_config_byte(hwif->pci_dev, addr_mask, mode);
 	}
 }
 
-static void sil_tuneproc(ide_drive_t *drive, u8 pio)
-{
-	pio = ide_get_best_pio_mode(drive, pio, 4);
-	sil_tune_pio(drive, pio);
-	(void)ide_config_drive_speed(drive, XFER_PIO_0 + pio);
-}
-
 /**
- *	siimage_tune_chipset	-	set controller timings
- *	@drive: Drive to set up
- *	@xferspeed: speed we want to achieve
+ *	sil_set_dma_mode	-	set host controller for DMA mode
+ *	@drive: drive
+ *	@speed: DMA mode
  *
- *	Tune the SII chipset for the desired mode. If we can't achieve
- *	the desired mode then tune for a lower one, but ultimately
- *	make the thing work.
+ *	Tune the SiI chipset for the desired DMA mode.
  */
- 
-static int siimage_tune_chipset (ide_drive_t *drive, byte xferspeed)
+
+static void sil_set_dma_mode(ide_drive_t *drive, const u8 speed)
 {
 	u8 ultra6[]		= { 0x0F, 0x0B, 0x07, 0x05, 0x03, 0x02, 0x01 };
 	u8 ultra5[]		= { 0x0C, 0x07, 0x05, 0x04, 0x02, 0x01 };
@@ -245,7 +251,6 @@ static int siimage_tune_chipset (ide_drive_t *drive, byte xferspeed)
 	ide_hwif_t *hwif	= HWIF(drive);
 	u16 ultra = 0, multi	= 0;
 	u8 mode = 0, unit	= drive->select.b.unit;
-	u8 speed		= ide_rate_filter(drive, xferspeed);
 	unsigned long base	= (unsigned long)hwif->hwif_data;
 	u8 scsc = 0, addr_mask	= ((hwif->channel) ?
 				    ((hwif->mmio) ? 0xF4 : 0x84) :
@@ -273,14 +278,6 @@ static int siimage_tune_chipset (ide_drive_t *drive, byte xferspeed)
 	scsc = is_sata(hwif) ? 1 : scsc;
 
 	switch(speed) {
-		case XFER_PIO_4:
-		case XFER_PIO_3:
-		case XFER_PIO_2:
-		case XFER_PIO_1:
-		case XFER_PIO_0:
-			sil_tune_pio(drive, speed - XFER_PIO_0);
-			mode |= ((unit) ? 0x10 : 0x01);
-			break;
 		case XFER_MW_DMA_2:
 		case XFER_MW_DMA_1:
 		case XFER_MW_DMA_0:
@@ -300,7 +297,7 @@ static int siimage_tune_chipset (ide_drive_t *drive, byte xferspeed)
 			mode |= ((unit) ? 0x30 : 0x03);
 			break;
 		default:
-			return 1;
+			return;
 	}
 
 	if (hwif->mmio) {
@@ -312,7 +309,6 @@ static int siimage_tune_chipset (ide_drive_t *drive, byte xferspeed)
 		pci_write_config_word(hwif->pci_dev, ma, multi);
 		pci_write_config_word(hwif->pci_dev, ua, ultra);
 	}
-	return (ide_config_drive_speed(drive, speed));
 }
 
 /**
@@ -331,7 +327,7 @@ static int siimage_config_drive_for_dma (ide_drive_t *drive)
 		return 0;
 
 	if (ide_use_fast_pio(drive))
-		sil_tuneproc(drive, 255);
+		ide_set_max_pio(drive);
 
 	return -1;
 }
@@ -901,8 +897,8 @@ static void __devinit init_hwif_siimage(ide_hwif_t *hwif)
 	hwif->autodma = 0;
 	
 	hwif->resetproc = &siimage_reset;
-	hwif->speedproc = &siimage_tune_chipset;
-	hwif->tuneproc	= &sil_tuneproc;
+	hwif->set_pio_mode = &sil_set_pio_mode;
+	hwif->set_dma_mode = &sil_set_dma_mode;
 	hwif->reset_poll = &siimage_reset_poll;
 	hwif->pre_reset = &siimage_pre_reset;
 	hwif->udma_filter = &sil_udma_filter;

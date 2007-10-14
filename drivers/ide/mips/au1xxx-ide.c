@@ -99,20 +99,9 @@ void auide_outsw(unsigned long port, void *addr, u32 count)
 
 #endif
 
-static void auide_tune_drive(ide_drive_t *drive, byte pio)
+static void au1xxx_set_pio_mode(ide_drive_t *drive, const u8 pio)
 {
-	int mem_sttime;
-	int mem_stcfg;
-	u8 speed;
-
-	/* get the best pio mode for the drive */
-	pio = ide_get_best_pio_mode(drive, pio, 4);
-
-	printk(KERN_INFO "%s: setting Au1XXX IDE to PIO mode%d\n",
-	       drive->name, pio);
-
-	mem_sttime = 0;
-	mem_stcfg  = au_readl(MEM_STCFG2);
+	int mem_sttime = 0, mem_stcfg = au_readl(MEM_STCFG2);
 
 	/* set pio mode! */
 	switch(pio) {
@@ -170,23 +159,11 @@ static void auide_tune_drive(ide_drive_t *drive, byte pio)
 
 	au_writel(mem_sttime,MEM_STTIME2);
 	au_writel(mem_stcfg,MEM_STCFG2);
-
-	speed = pio + XFER_PIO_0;
-	ide_config_drive_speed(drive, speed);
 }
 
-static int auide_tune_chipset (ide_drive_t *drive, u8 speed)
+static void auide_set_dma_mode(ide_drive_t *drive, const u8 speed)
 {
-	int mem_sttime;
-	int mem_stcfg;
-
-	mem_sttime = 0;
-	mem_stcfg  = au_readl(MEM_STCFG2);
-
-	if (speed >= XFER_PIO_0 && speed <= XFER_PIO_4) {
-		auide_tune_drive(drive, speed - XFER_PIO_0);
-		return 0;
-	}
+	int mem_sttime = 0, mem_stcfg = au_readl(MEM_STCFG2);
 
 	switch(speed) {
 #ifdef CONFIG_BLK_DEV_IDE_AU1XXX_MDMA2_DBDMA
@@ -222,16 +199,11 @@ static int auide_tune_chipset (ide_drive_t *drive, u8 speed)
 		break;
 #endif
 	default:
-		return 1;
+		return;
 	}
-
-	if (ide_config_drive_speed(drive, speed))
-		return 1;
 
 	au_writel(mem_sttime,MEM_STTIME2);
 	au_writel(mem_stcfg,MEM_STCFG2);
-
-	return 0;
 }
 
 /*
@@ -693,6 +665,7 @@ static int au_ide_probe(struct device *dev)
 #endif
 
 	hwif->pio_mask = ATA_PIO4;
+	hwif->host_flags = IDE_HFLAG_POST_SET_MODE;
 
 	hwif->noprobe = 0;
 	hwif->drives[0].unmask          = 1;
@@ -712,8 +685,8 @@ static int au_ide_probe(struct device *dev)
 	hwif->OUTSW                     = auide_outsw;
 #endif
 
-	hwif->tuneproc                  = &auide_tune_drive;
-	hwif->speedproc                 = &auide_tune_chipset;
+	hwif->set_pio_mode		= &au1xxx_set_pio_mode;
+	hwif->set_dma_mode		= &auide_set_dma_mode;
 
 #ifdef CONFIG_BLK_DEV_IDE_AU1XXX_MDMA2_DBDMA
 	hwif->dma_off_quietly		= &auide_dma_off_quietly;

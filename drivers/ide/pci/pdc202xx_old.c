@@ -63,12 +63,11 @@ static const char *pdc_quirk_drives[] = {
 
 static void pdc_old_disable_66MHz_clock(ide_hwif_t *);
 
-static int pdc202xx_tune_chipset (ide_drive_t *drive, u8 xferspeed)
+static void pdc202xx_set_mode(ide_drive_t *drive, const u8 speed)
 {
 	ide_hwif_t *hwif	= HWIF(drive);
 	struct pci_dev *dev	= hwif->pci_dev;
 	u8 drive_pci		= 0x60 + (drive->dn << 2);
-	u8 speed		= ide_rate_filter(drive, xferspeed);
 
 	u8			AP = 0, BP = 0, CP = 0;
 	u8			TA = 0, TB = 0, TC = 0;
@@ -139,14 +138,11 @@ static int pdc202xx_tune_chipset (ide_drive_t *drive, u8 xferspeed)
 	pci_read_config_dword(dev, drive_pci, &drive_conf);
 	printk("0x%08x\n", drive_conf);
 #endif
-
-	return ide_config_drive_speed(drive, speed);
 }
 
-static void pdc202xx_tune_drive(ide_drive_t *drive, u8 pio)
+static void pdc202xx_set_pio_mode(ide_drive_t *drive, const u8 pio)
 {
-	pio = ide_get_best_pio_mode(drive, pio, 4);
-	pdc202xx_tune_chipset(drive, XFER_PIO_0 + pio);
+	pdc202xx_set_mode(drive, XFER_PIO_0 + pio);
 }
 
 static u8 pdc202xx_old_cable_detect (ide_hwif_t *hwif)
@@ -191,7 +187,7 @@ static int pdc202xx_config_drive_xfer_rate (ide_drive_t *drive)
 		return 0;
 
 	if (ide_use_fast_pio(drive))
-		pdc202xx_tune_drive(drive, 255);
+		ide_set_max_pio(drive);
 
 	return -1;
 }
@@ -307,10 +303,11 @@ static void pdc202xx_reset (ide_drive_t *drive)
 {
 	ide_hwif_t *hwif	= HWIF(drive);
 	ide_hwif_t *mate	= hwif->mate;
-	
+
 	pdc202xx_reset_host(hwif);
 	pdc202xx_reset_host(mate);
-	pdc202xx_tune_drive(drive, 255);
+
+	ide_set_max_pio(drive);
 }
 
 static unsigned int __devinit init_chipset_pdc202xx(struct pci_dev *dev,
@@ -329,13 +326,14 @@ static void __devinit init_hwif_pdc202xx(ide_hwif_t *hwif)
 		hwif->rqsize = 256;
 
 	hwif->autodma = 0;
-	hwif->tuneproc  = &pdc202xx_tune_drive;
+
+	hwif->set_pio_mode = &pdc202xx_set_pio_mode;
+	hwif->set_dma_mode = &pdc202xx_set_mode;
+
 	hwif->quirkproc = &pdc202xx_quirkproc;
 
 	if (hwif->pci_dev->device != PCI_DEVICE_ID_PROMISE_20246)
 		hwif->resetproc = &pdc202xx_reset;
-
-	hwif->speedproc = &pdc202xx_tune_chipset;
 
 	hwif->err_stops_fifo = 1;
 

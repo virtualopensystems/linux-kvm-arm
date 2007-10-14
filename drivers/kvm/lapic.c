@@ -1053,4 +1053,3 @@ void kvm_migrate_apic_timer(struct kvm_vcpu *vcpu)
 		hrtimer_start(timer, timer->expires, HRTIMER_MODE_ABS);
 }
 EXPORT_SYMBOL_GPL(kvm_migrate_apic_timer);
-

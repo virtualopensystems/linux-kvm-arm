@@ -75,7 +75,7 @@ static unsigned int cs5535_udma_timings[5] =
  *
  *	cs5535_set_speed() configures the chipset to a new speed.
  */
-static void cs5535_set_speed(ide_drive_t *drive, u8 speed)
+static void cs5535_set_speed(ide_drive_t *drive, const u8 speed)
 {
 
 	u32 reg = 0, dummy;
@@ -131,34 +131,29 @@ static void cs5535_set_speed(ide_drive_t *drive, u8 speed)
 	}
 }
 
-/****
- *	cs5535_set_drive         -     Configure the drive to the new speed
- *	@drive: Drive to set up
- *	@speed: desired speed
+/**
+ *	cs5535_set_dma_mode	-	set host controller for DMA mode
+ *	@drive: drive
+ *	@speed: DMA mode
  *
- *	cs5535_set_drive() configures the drive and the chipset to a
- *	new speed. It also can be called by upper layers.
+ *	Programs the chipset for DMA mode.
  */
-static int cs5535_set_drive(ide_drive_t *drive, u8 speed)
-{
-	speed = ide_rate_filter(drive, speed);
-	ide_config_drive_speed(drive, speed);
-	cs5535_set_speed(drive, speed);
 
-	return 0;
+static void cs5535_set_dma_mode(ide_drive_t *drive, const u8 speed)
+{
+	cs5535_set_speed(drive, speed);
 }
 
-/****
- *	cs5535_tuneproc    -       PIO setup
- *	@drive: drive to set up
- *	@pio: mode to use (255 for 'best possible')
+/**
+ *	cs5535_set_pio_mode	-	set host controller for PIO mode
+ *	@drive: drive
+ *	@pio: PIO mode number
  *
  *	A callback from the upper layers for PIO-only tuning.
  */
-static void cs5535_tuneproc(ide_drive_t *drive, u8 pio)
+
+static void cs5535_set_pio_mode(ide_drive_t *drive, const u8 pio)
 {
-	pio = ide_get_best_pio_mode(drive, pio, 4);
-	ide_config_drive_speed(drive, XFER_PIO_0 + pio);
 	cs5535_set_speed(drive, XFER_PIO_0 + pio);
 }
 
@@ -170,7 +165,7 @@ static int cs5535_dma_check(ide_drive_t *drive)
 		return 0;
 
 	if (ide_use_fast_pio(drive))
-		cs5535_tuneproc(drive, 255);
+		ide_set_max_pio(drive);
 
 	return -1;
 }
@@ -195,12 +190,16 @@ static u8 __devinit cs5535_cable_detect(struct pci_dev *dev)
  */
 static void __devinit init_hwif_cs5535(ide_hwif_t *hwif)
 {
-	int i;
-
 	hwif->autodma = 0;
 
-	hwif->tuneproc = &cs5535_tuneproc;
-	hwif->speedproc = &cs5535_set_drive;
+	hwif->set_pio_mode = &cs5535_set_pio_mode;
+	hwif->set_dma_mode = &cs5535_set_dma_mode;
+
+	hwif->drives[1].autotune = hwif->drives[0].autotune = 1;
+
+	if (hwif->dma_base == 0)
+		return;
+
 	hwif->ide_dma_check = &cs5535_dma_check;
 
 	hwif->atapi_dma = 1;
@@ -212,11 +211,7 @@ static void __devinit init_hwif_cs5535(ide_hwif_t *hwif)
 	if (!noautodma)
 		hwif->autodma = 1;
 
-	/* just setting autotune and not worrying about bios timings */
-	for (i = 0; i < 2; i++) {
-		hwif->drives[i].autotune = 1;
-		hwif->drives[i].autodma = hwif->autodma;
-	}
+	hwif->drives[1].autodma = hwif->drives[0].autodma = hwif->autodma;
 }
 
 static ide_pci_device_t cs5535_chipset __devinitdata = {
@@ -224,7 +219,7 @@ static ide_pci_device_t cs5535_chipset __devinitdata = {
 	.init_hwif	= init_hwif_cs5535,
 	.autodma	= AUTODMA,
 	.bootable	= ON_BOARD,
-	.host_flags	= IDE_HFLAG_SINGLE,
+	.host_flags	= IDE_HFLAG_SINGLE | IDE_HFLAG_POST_SET_MODE,
 	.pio_mask	= ATA_PIO4,
 };
 

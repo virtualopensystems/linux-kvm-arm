@@ -124,7 +124,7 @@ static u8 svwks_csb_check (struct pci_dev *dev)
 	return 0;
 }
 
-static void svwks_tune_pio(ide_drive_t *drive, const u8 pio)
+static void svwks_set_pio_mode(ide_drive_t *drive, const u8 pio)
 {
 	static const u8 pio_modes[] = { 0x5d, 0x47, 0x34, 0x22, 0x20 };
 	static const u8 drive_pci[] = { 0x41, 0x40, 0x43, 0x42 };
@@ -145,7 +145,7 @@ static void svwks_tune_pio(ide_drive_t *drive, const u8 pio)
 	}
 }
 
-static int svwks_tune_chipset (ide_drive_t *drive, u8 xferspeed)
+static void svwks_set_dma_mode(ide_drive_t *drive, const u8 speed)
 {
 	static const u8 udma_modes[]		= { 0x00, 0x01, 0x02, 0x03, 0x04, 0x05 };
 	static const u8 dma_modes[]		= { 0x77, 0x21, 0x20 };
@@ -153,15 +153,9 @@ static int svwks_tune_chipset (ide_drive_t *drive, u8 xferspeed)
 
 	ide_hwif_t *hwif	= HWIF(drive);
 	struct pci_dev *dev	= hwif->pci_dev;
-	u8 speed		= ide_rate_filter(drive, xferspeed);
 	u8 unit			= (drive->select.b.unit & 0x01);
 
 	u8 ultra_enable	 = 0, ultra_timing = 0, dma_timing = 0;
-
-	if (speed >= XFER_PIO_0 && speed <= XFER_PIO_4) {
-		svwks_tune_pio(drive, speed - XFER_PIO_0);
-		return ide_config_drive_speed(drive, speed);
-	}
 
 	/* If we are about to put a disk into UDMA mode we screwed up.
 	   Our code assumes we never _ever_ do this on an OSB4 */
@@ -199,15 +193,6 @@ static int svwks_tune_chipset (ide_drive_t *drive, u8 xferspeed)
 	pci_write_config_byte(dev, drive_pci2[drive->dn], dma_timing);
 	pci_write_config_byte(dev, (0x56|hwif->channel), ultra_timing);
 	pci_write_config_byte(dev, 0x54, ultra_enable);
-
-	return (ide_config_drive_speed(drive, speed));
-}
-
-static void svwks_tune_drive (ide_drive_t *drive, u8 pio)
-{
-	pio = ide_get_best_pio_mode(drive, pio, 4);
-	svwks_tune_pio(drive, pio);
-	(void)ide_config_drive_speed(drive, XFER_PIO_0 + pio);
 }
 
 static int svwks_config_drive_xfer_rate (ide_drive_t *drive)
@@ -218,7 +203,7 @@ static int svwks_config_drive_xfer_rate (ide_drive_t *drive)
 		return 0;
 
 	if (ide_use_fast_pio(drive))
-		svwks_tune_drive(drive, 255);
+		ide_set_max_pio(drive);
 
 	return -1;
 }
@@ -390,8 +375,8 @@ static void __devinit init_hwif_svwks (ide_hwif_t *hwif)
 	if (!hwif->irq)
 		hwif->irq = hwif->channel ? 15 : 14;
 
-	hwif->tuneproc = &svwks_tune_drive;
-	hwif->speedproc = &svwks_tune_chipset;
+	hwif->set_pio_mode = &svwks_set_pio_mode;
+	hwif->set_dma_mode = &svwks_set_dma_mode;
 	hwif->udma_filter = &svwks_udma_filter;
 
 	hwif->atapi_dma = 1;

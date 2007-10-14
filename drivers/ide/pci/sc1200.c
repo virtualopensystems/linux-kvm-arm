@@ -68,17 +68,6 @@ static unsigned short sc1200_get_pci_clock (void)
 	return pci_clock;
 }
 
-extern char *ide_xfer_verbose (byte xfer_rate);
-
-/*
- * Set a new transfer mode at the drive
- */
-static int sc1200_set_xfer_mode (ide_drive_t *drive, byte mode)
-{
-	printk("%s: sc1200_set_xfer_mode(%s)\n", drive->name, ide_xfer_verbose(mode));
-	return ide_config_drive_speed(drive, mode);
-}
-
 /*
  * Here are the standard PIO mode 0-4 timings for each "format".
  * Format-0 uses fast data reg timings, with slower command reg timings.
@@ -138,7 +127,7 @@ out:
 	return mask;
 }
 
-static int sc1200_tune_chipset(ide_drive_t *drive, u8 mode)
+static void sc1200_set_dma_mode(ide_drive_t *drive, const u8 mode)
 {
 	ide_hwif_t		*hwif = HWIF(drive);
 	int			unit = drive->select.b.unit;
@@ -146,31 +135,9 @@ static int sc1200_tune_chipset(ide_drive_t *drive, u8 mode)
 	unsigned short		pci_clock;
 	unsigned int		basereg = hwif->channel ? 0x50 : 0x40;
 
-	mode = ide_rate_filter(drive, mode);
-
-	/*
-	 * Tell the drive to switch to the new mode; abort on failure.
-	 */
-	if (sc1200_set_xfer_mode(drive, mode)) {
-		printk("SC1200: set xfer mode failure\n");
-		return 1;	/* failure */
-	}
-
-	switch (mode) {
-	case XFER_PIO_4:
-	case XFER_PIO_3:
-	case XFER_PIO_2:
-	case XFER_PIO_1:
-	case XFER_PIO_0:
-		sc1200_tunepio(drive, mode - XFER_PIO_0);
-		return 0;
-	}
-
 	pci_clock = sc1200_get_pci_clock();
 
 	/*
-	 * Now tune the chipset to match the drive:
-	 *
 	 * Note that each DMA mode has several timings associated with it.
 	 * The correct timing depends on the fast PCI clock freq.
 	 */
@@ -230,8 +197,6 @@ static int sc1200_tune_chipset(ide_drive_t *drive, u8 mode)
 	} else {
 		pci_write_config_dword(hwif->pci_dev, basereg+12, timings);
 	}
-
-	return 0;	/* success */
 }
 
 /*
@@ -274,19 +239,20 @@ static int sc1200_ide_dma_end (ide_drive_t *drive)
 }
 
 /*
- * sc1200_tuneproc() handles selection/setting of PIO modes
+ * sc1200_set_pio_mode() handles setting of PIO modes
  * for both the chipset and drive.
  *
  * All existing BIOSs for this chipset guarantee that all drives
  * will have valid default PIO timings set up before we get here.
  */
-static void sc1200_tuneproc (ide_drive_t *drive, byte pio)	/* mode=255 means "autotune" */
+
+static void sc1200_set_pio_mode(ide_drive_t *drive, const u8 pio)
 {
 	ide_hwif_t	*hwif = HWIF(drive);
 	int		mode = -1;
 
 	/*
-	 * bad abuse of ->tuneproc interface
+	 * bad abuse of ->set_pio_mode interface
 	 */
 	switch (pio) {
 		case 200: mode = XFER_UDMA_0;	break;
@@ -299,16 +265,12 @@ static void sc1200_tuneproc (ide_drive_t *drive, byte pio)	/* mode=255 means "au
 	if (mode != -1) {
 		printk("SC1200: %s: changing (U)DMA mode\n", drive->name);
 		hwif->dma_off_quietly(drive);
-		if (sc1200_tune_chipset(drive, mode) == 0)
+		if (ide_set_dma_mode(drive, mode) == 0)
 			hwif->dma_host_on(drive);
 		return;
 	}
 
-	pio = ide_get_best_pio_mode(drive, pio, 4);
-	printk("SC1200: %s: setting PIO mode%d\n", drive->name, pio);
-
-	if (sc1200_set_xfer_mode(drive, XFER_PIO_0 + pio) == 0)
-		sc1200_tunepio(drive, pio);
+	sc1200_tunepio(drive, pio);
 }
 
 #ifdef CONFIG_PM
@@ -416,15 +378,20 @@ static void __devinit init_hwif_sc1200 (ide_hwif_t *hwif)
 	if (hwif->mate)
 		hwif->serialized = hwif->mate->serialized = 1;
 	hwif->autodma = 0;
-	if (hwif->dma_base) {
-		hwif->udma_filter = sc1200_udma_filter;
-		hwif->ide_dma_check = &sc1200_config_dma;
-		hwif->ide_dma_end   = &sc1200_ide_dma_end;
-        	if (!noautodma)
-                	hwif->autodma = 1;
-		hwif->tuneproc = &sc1200_tuneproc;
-		hwif->speedproc = &sc1200_tune_chipset;
-	}
+
+	hwif->set_pio_mode = &sc1200_set_pio_mode;
+	hwif->set_dma_mode = &sc1200_set_dma_mode;
+
+	if (hwif->dma_base == 0)
+		return;
+
+	hwif->udma_filter = sc1200_udma_filter;
+	hwif->ide_dma_check = &sc1200_config_dma;
+	hwif->ide_dma_end   = &sc1200_ide_dma_end;
+
+	if (!noautodma)
+		hwif->autodma = 1;
+
         hwif->atapi_dma = 1;
         hwif->ultra_mask = 0x07;
         hwif->mwdma_mask = 0x07;
@@ -438,6 +405,7 @@ static ide_pci_device_t sc1200_chipset __devinitdata = {
 	.init_hwif	= init_hwif_sc1200,
 	.autodma	= AUTODMA,
 	.bootable	= ON_BOARD,
+	.host_flags	= IDE_HFLAG_ABUSE_DMA_MODES | IDE_HFLAG_POST_SET_MODE,
 	.pio_mask	= ATA_PIO4,
 };
 
