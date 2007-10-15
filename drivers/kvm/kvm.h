@@ -666,6 +666,16 @@ void kvm_arch_vcpu_put(struct kvm_vcpu *vcpu);
 
 __init void kvm_arch_init(void);
 
+static inline void kvm_guest_enter(void)
+{
+	current->flags |= PF_VCPU;
+}
+
+static inline void kvm_guest_exit(void)
+{
+	current->flags &= ~PF_VCPU;
+}
+
 static inline int kvm_mmu_page_fault(struct kvm_vcpu *vcpu, gva_t gva,
 				     u32 error_code)
 {

@@ -297,6 +297,12 @@ P:	Colin Leroy
 M:	colin@colino.net
 S:	Maintained
 
+ADVANSYS SCSI DRIVER
+P:	Matthew Wilcox
+M:	matthew@wil.cx
+L:	linux-scsi@vger.kernel.org
+S:	Maintained
+
 AEDSP16 DRIVER
 P:	Riccardo Facchetti
 M:	fizban@tin.it
@@ -1660,7 +1666,8 @@ P:	Mark M. Hoffman
 M:	mhoffman@lightlink.com
 L:	lm-sensors@lm-sensors.org
 W:	http://www.lm-sensors.org/
-T:	git lm-sensors.org:/kernel/mhoffman/hwmon-2.6.git
+T:	git lm-sensors.org:/kernel/mhoffman/hwmon-2.6.git testing
+T:	git lm-sensors.org:/kernel/mhoffman/hwmon-2.6.git release
 S:	Maintained
 
 HARDWARE RANDOM NUMBER GENERATOR CORE
@@ -1887,6 +1894,11 @@ P:	Gadi Oxman
 M:	Gadi Oxman <gadio@netvision.net.il>
 L:	linux-kernel@vger.kernel.org
 S:	Maintained
+
+IDE-SCSI DRIVER
+L:	linux-ide@vger.kernel.org
+L:	linux-scsi@vger.kernel.org
+S:	Orphan
 
 IEEE 1394 SUBSYSTEM
 P:	Ben Collins
@@ -2403,7 +2415,7 @@ LSILOGIC MPT FUSION DRIVERS (FC/SAS/SPI)
 P:	Eric Moore
 M:	Eric.Moore@lsi.com
 M:	support@lsi.com
-L:	mpt_linux_developer@lsi.com
+L:	DL-MPTFusionLinux@lsi.com
 L:	linux-scsi@vger.kernel.org
 W:	http://www.lsilogic.com/support
 S:	Supported
@@ -4177,7 +4189,7 @@ W83791D HARDWARE MONITORING DRIVER
 P:	Charles Spirakis
 M:	bezaur@gmail.com
 L:	lm-sensors@lm-sensors.org
-S:	Maintained
+S:	Odd Fixes
 
 W83793 HARDWARE MONITORING DRIVER
 P:	Rudolf Marek

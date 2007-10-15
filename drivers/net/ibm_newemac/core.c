@@ -1534,7 +1534,7 @@ static inline int emac_rx_sg_append(struct emac_instance *dev, int slot)
 			dev_kfree_skb(dev->rx_sg_skb);
 			dev->rx_sg_skb = NULL;
 		} else {
-			cacheable_memcpy(dev->rx_sg_skb->tail,
+			cacheable_memcpy(skb_tail_pointer(dev->rx_sg_skb),
 					 dev->rx_skb[slot]->data, len);
 			skb_put(dev->rx_sg_skb, len);
 			emac_recycle_rx_skb(dev, slot, len);
@@ -1950,7 +1950,7 @@ static u32 emac_ethtool_get_rx_csum(struct net_device *ndev)
 {
 	struct emac_instance *dev = netdev_priv(ndev);
 
-	return dev->tah_dev != 0;
+	return dev->tah_dev != NULL;
 }
 
 static int emac_get_regs_len(struct emac_instance *dev)

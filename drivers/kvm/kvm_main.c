@@ -2187,6 +2187,7 @@ again:
 		kvm_x86_ops->inject_pending_vectors(vcpu, kvm_run);
 
 	vcpu->guest_mode = 1;
+	kvm_guest_enter();
 
 	if (vcpu->requests)
 		if (test_and_clear_bit(KVM_TLB_FLUSH, &vcpu->requests))
@@ -2194,6 +2195,7 @@ again:
 
 	kvm_x86_ops->run(vcpu, kvm_run);
 
+	kvm_guest_exit();
 	vcpu->guest_mode = 0;
 	local_irq_enable();
 
