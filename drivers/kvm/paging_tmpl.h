@@ -160,6 +160,8 @@ static int FNAME(walk_addr)(struct guest_walker *walker,
 		if (walker->level == PT_PAGE_TABLE_LEVEL) {
 			walker->gfn = (*ptep & PT_BASE_ADDR_MASK)
 				>> PAGE_SHIFT;
+			kunmap_atomic(walker->table, KM_USER0);
+			walker->table = NULL;
 			FNAME(update_dirty_bit)(vcpu, write_fault, ptep,
 						table_gfn);
 			break;
@@ -171,6 +173,8 @@ static int FNAME(walk_addr)(struct guest_walker *walker,
 			walker->gfn = (*ptep & PT_DIR_BASE_ADDR_MASK)
 				>> PAGE_SHIFT;
 			walker->gfn += PT_INDEX(addr, PT_PAGE_TABLE_LEVEL);
+			kunmap_atomic(walker->table, KM_USER0);
+			walker->table = NULL;
 			FNAME(update_dirty_bit)(vcpu, write_fault, ptep,
 						table_gfn);
 			break;
