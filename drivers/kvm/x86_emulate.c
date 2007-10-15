@@ -212,7 +212,8 @@ static u16 twobyte_table[256] = {
 	0, 0, ByteOp | DstReg | SrcMem | ModRM | Mov,
 	    DstReg | SrcMem16 | ModRM | Mov,
 	/* 0xC0 - 0xCF */
-	0, 0, 0, 0, 0, 0, 0, ImplicitOps | ModRM, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, DstMem | SrcReg | ModRM | Mov, 0, 0, 0, ImplicitOps | ModRM,
+	0, 0, 0, 0, 0, 0, 0, 0,
 	/* 0xD0 - 0xDF */
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 	/* 0xE0 - 0xEF */
@@ -1685,6 +1686,11 @@ twobyte_insn:
 		c->dst.bytes = c->op_bytes;
 		c->dst.val = (c->d & ByteOp) ? (s8) c->src.val :
 							(s16) c->src.val;
+		break;
+	case 0xc3:		/* movnti */
+		c->dst.bytes = c->op_bytes;
+		c->dst.val = (c->op_bytes == 4) ? (u32) c->src.val :
+							(u64) c->src.val;
 		break;
 	}
 	goto writeback;
