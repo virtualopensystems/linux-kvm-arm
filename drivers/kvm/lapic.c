@@ -191,7 +191,7 @@ int kvm_apic_set_irq(struct kvm_lapic *apic, u8 vec, u8 trig)
 			apic_set_vector(vec, apic->regs + APIC_TMR);
 		else
 			apic_clear_vector(vec, apic->regs + APIC_TMR);
-		kvm_vcpu_kick(apic->vcpu);
+		kvm_vcpu_kick_request(apic->vcpu, KVM_REQ_INTR);
 		return 1;
 	}
 	return 0;
@@ -336,7 +336,7 @@ static int __apic_accept_irq(struct kvm_lapic *apic, int delivery_mode,
 			apic_clear_vector(vector, apic->regs + APIC_TMR);
 
 		if (vcpu->mp_state == VCPU_MP_STATE_RUNNABLE)
-			kvm_vcpu_kick(vcpu);
+			kvm_vcpu_kick_request(vcpu, KVM_REQ_INTR);
 		else if (vcpu->mp_state == VCPU_MP_STATE_HALTED) {
 			vcpu->mp_state = VCPU_MP_STATE_RUNNABLE;
 			if (waitqueue_active(&vcpu->wq))
@@ -364,7 +364,7 @@ static int __apic_accept_irq(struct kvm_lapic *apic, int delivery_mode,
 				       "INIT on a runnable vcpu %d\n",
 				       vcpu->vcpu_id);
 			vcpu->mp_state = VCPU_MP_STATE_INIT_RECEIVED;
-			kvm_vcpu_kick(vcpu);
+			kvm_vcpu_kick_request(vcpu, KVM_REQ_INTR);
 		} else {
 			printk(KERN_DEBUG
 			       "Ignoring de-assert INIT to vcpu %d\n",

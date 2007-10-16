@@ -2174,6 +2174,13 @@ again:
 
 	local_irq_disable();
 
+	kvm_inject_pending_timer_irqs(vcpu);
+	clear_bit(KVM_REQ_INTR, &vcpu->requests);
+	if (irqchip_in_kernel(vcpu->kvm))
+		kvm_x86_ops->inject_pending_irq(vcpu);
+	else if (!vcpu->mmio_read_completed)
+		kvm_x86_ops->inject_pending_vectors(vcpu, kvm_run);
+
 	if (signal_pending(current)) {
 		local_irq_enable();
 		preempt_enable();
@@ -2183,17 +2190,19 @@ again:
 		goto out;
 	}
 
-	if (irqchip_in_kernel(vcpu->kvm))
-		kvm_x86_ops->inject_pending_irq(vcpu);
-	else if (!vcpu->mmio_read_completed)
-		kvm_x86_ops->inject_pending_vectors(vcpu, kvm_run);
+	if (vcpu->requests) {
+		if (test_and_clear_bit(KVM_TLB_FLUSH, &vcpu->requests))
+			kvm_x86_ops->tlb_flush(vcpu);
+		if (test_bit(KVM_REQ_INTR, &vcpu->requests)) {
+			local_irq_enable();
+			preempt_enable();
+			r = 1;
+			goto out;
+		}
+	}
 
 	vcpu->guest_mode = 1;
 	kvm_guest_enter();
-
-	if (vcpu->requests)
-		if (test_and_clear_bit(KVM_TLB_FLUSH, &vcpu->requests))
-			kvm_x86_ops->tlb_flush(vcpu);
 
 	kvm_x86_ops->run(vcpu, kvm_run);
 

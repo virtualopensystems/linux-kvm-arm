@@ -68,6 +68,7 @@
  * vcpu->requests bit members
  */
 #define KVM_TLB_FLUSH 0
+#define KVM_REQ_INTR               1
 
 /*
  * Address types:
