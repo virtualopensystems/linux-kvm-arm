@@ -2187,7 +2187,6 @@ static void vmx_intr_assist(struct kvm_vcpu *vcpu)
 	int has_ext_irq, interrupt_window_open;
 	int vector;
 
-	kvm_inject_pending_timer_irqs(vcpu);
 	update_tpr_threshold(vcpu);
 
 	has_ext_irq = kvm_cpu_has_interrupt(vcpu);

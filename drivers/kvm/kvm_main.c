@@ -2165,6 +2165,8 @@ again:
 	if (unlikely(r))
 		goto out;
 
+	kvm_inject_pending_timer_irqs(vcpu);
+
 	preempt_disable();
 
 	kvm_x86_ops->prepare_guest_switch(vcpu);
