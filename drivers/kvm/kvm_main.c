@@ -2166,6 +2166,11 @@ again:
 		goto out;
 
 	kvm_inject_pending_timer_irqs(vcpu);
+	clear_bit(KVM_REQ_INTR, &vcpu->requests);
+	if (irqchip_in_kernel(vcpu->kvm))
+		kvm_x86_ops->inject_pending_irq(vcpu);
+	else if (!vcpu->mmio_read_completed)
+		kvm_x86_ops->inject_pending_vectors(vcpu, kvm_run);
 
 	preempt_disable();
 
@@ -2173,13 +2178,6 @@ again:
 	kvm_load_guest_fpu(vcpu);
 
 	local_irq_disable();
-
-	kvm_inject_pending_timer_irqs(vcpu);
-	clear_bit(KVM_REQ_INTR, &vcpu->requests);
-	if (irqchip_in_kernel(vcpu->kvm))
-		kvm_x86_ops->inject_pending_irq(vcpu);
-	else if (!vcpu->mmio_read_completed)
-		kvm_x86_ops->inject_pending_vectors(vcpu, kvm_run);
 
 	if (signal_pending(current)) {
 		local_irq_enable();
