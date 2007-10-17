@@ -72,8 +72,6 @@ static int FNAME(walk_addr)(struct guest_walker *walker,
 			    struct kvm_vcpu *vcpu, gva_t addr,
 			    int write_fault, int user_fault, int fetch_fault)
 {
-	hpa_t hpa;
-	struct kvm_memory_slot *slot;
 	struct page *page;
 	pt_element_t *table;
 	pt_element_t pte;
@@ -105,9 +103,8 @@ static int FNAME(walk_addr)(struct guest_walker *walker,
 		pgprintk("%s: table_gfn[%d] %lx\n", __FUNCTION__,
 			 walker->level - 1, table_gfn);
 
-		slot = gfn_to_memslot(vcpu->kvm, table_gfn);
-		hpa = safe_gpa_to_hpa(vcpu->kvm, pte & PT64_BASE_ADDR_MASK);
-		page = pfn_to_page(hpa >> PAGE_SHIFT);
+		page = gfn_to_page(vcpu->kvm, (pte & PT64_BASE_ADDR_MASK)
+				   >> PAGE_SHIFT);
 
 		table = kmap_atomic(page, KM_USER0);
 		pte = table[index];
@@ -160,7 +157,8 @@ static int FNAME(walk_addr)(struct guest_walker *walker,
 		table = kmap_atomic(page, KM_USER0);
 		table[index] = pte;
 		kunmap_atomic(table, KM_USER0);
-		pte_gpa = hpa + index * sizeof(pt_element_t);
+		pte_gpa = gpa_to_hpa(vcpu->kvm, pte & PT64_BASE_ADDR_MASK)
+			  + index * sizeof(pt_element_t);
 		kvm_mmu_pte_write(vcpu, pte_gpa, (u8 *)&pte, sizeof(pte));
 	}
 
