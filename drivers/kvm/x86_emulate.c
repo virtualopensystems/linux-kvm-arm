@@ -835,6 +835,14 @@ modrm_done:
 		if (c->twobyte && c->b == 0x01
 				    && c->modrm_reg == 7)
 			break;
+		/*
+		 * For instructions with a ModR/M byte, switch to register
+		 * access if Mod = 3.
+		 */
+		if ((c->d & ModRM) && c->modrm_mod == 3) {
+			c->src.type = OP_REG;
+			break;
+		}
 srcmem_common:
 		c->src.type = OP_MEM;
 		break;
@@ -897,7 +905,14 @@ srcmem_common:
 		}
 		break;
 	case DstMem:
-		c->dst.type = OP_MEM;
+		/*
+		 * For instructions with a ModR/M byte, switch to register
+		 * access if Mod = 3.
+		 */
+		if ((c->d & ModRM) && c->modrm_mod == 3)
+			c->dst.type = OP_REG;
+		else
+			c->dst.type = OP_MEM;
 		break;
 	}
 
