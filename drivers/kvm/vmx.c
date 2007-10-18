@@ -2423,7 +2423,6 @@ static struct kvm_vcpu *vmx_create_vcpu(struct kvm *kvm, unsigned int id)
 {
 	int err;
 	struct vcpu_vmx *vmx = kmem_cache_zalloc(kvm_vcpu_cache, GFP_KERNEL);
-	int cpu;
 
 	if (!vmx)
 		return ERR_PTR(-ENOMEM);
@@ -2448,11 +2447,9 @@ static struct kvm_vcpu *vmx_create_vcpu(struct kvm *kvm, unsigned int id)
 
 	vmcs_clear(vmx->vmcs);
 
-	cpu = get_cpu();
-	vmx_vcpu_load(&vmx->vcpu, cpu);
+	vcpu_load(&vmx->vcpu);
 	err = vmx_vcpu_setup(vmx);
-	vmx_vcpu_put(&vmx->vcpu);
-	put_cpu();
+	vcpu_put(&vmx->vcpu);
 	if (err)
 		goto free_vmcs;
 
