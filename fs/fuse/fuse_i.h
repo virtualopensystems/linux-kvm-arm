@@ -20,7 +20,10 @@
 #define FUSE_MAX_PAGES_PER_REQ 32
 
 /** Maximum number of outstanding background requests */
-#define FUSE_MAX_BACKGROUND 10
+#define FUSE_MAX_BACKGROUND 12
+
+/** Congestion starts at 75% of maximum */
+#define FUSE_CONGESTION_THRESHOLD (FUSE_MAX_BACKGROUND * 75 / 100)
 
 /** It could be as large as PATH_MAX, but would that have any uses? */
 #define FUSE_NAME_MAX 1024
@@ -60,6 +63,10 @@ struct fuse_inode {
 
 	/** Time in jiffies until the file attributes are valid */
 	u64 i_time;
+
+	/** The sticky bit in inode->i_mode may have been removed, so
+	    preserve the original mode */
+	mode_t orig_i_mode;
 };
 
 /** FUSE specific file data */
@@ -69,6 +76,9 @@ struct fuse_file {
 
 	/** File handle used by userspace */
 	u64 fh;
+
+	/** Refcount */
+	atomic_t count;
 };
 
 /** One input argument of a request */
@@ -213,7 +223,7 @@ struct fuse_req {
 	unsigned page_offset;
 
 	/** File used in the request (or NULL) */
-	struct file *file;
+	struct fuse_file *ff;
 
 	/** vfsmount used in release */
 	struct vfsmount *vfsmount;
@@ -285,6 +295,9 @@ struct fuse_conn {
 
 	/** waitq for blocked connection */
 	wait_queue_head_t blocked_waitq;
+
+	/** waitq for reserved requests */
+	wait_queue_head_t reserved_req_waitq;
 
 	/** The next unique request id */
 	u64 reqctr;
@@ -414,7 +427,7 @@ void fuse_send_forget(struct fuse_conn *fc, struct fuse_req *req,
 /**
  * Initialize READ or READDIR request
  */
-void fuse_read_fill(struct fuse_req *req, struct file *file,
+void fuse_read_fill(struct fuse_req *req, struct fuse_file *ff,
 		    struct inode *inode, loff_t pos, size_t count, int opcode);
 
 /**
@@ -427,9 +440,9 @@ void fuse_file_free(struct fuse_file *ff);
 void fuse_finish_open(struct inode *inode, struct file *file,
 		      struct fuse_file *ff, struct fuse_open_out *outarg);
 
-/** */
-struct fuse_req *fuse_release_fill(struct fuse_file *ff, u64 nodeid, int flags,
-				   int opcode);
+/** Fill in ff->reserved_req with a RELEASE request */
+void fuse_release_fill(struct fuse_file *ff, u64 nodeid, int flags, int opcode);
+
 /**
  * Send RELEASE or RELEASEDIR request
  */
@@ -522,11 +535,6 @@ void request_send_background(struct fuse_conn *fc, struct fuse_req *req);
 
 /* Abort all requests */
 void fuse_abort_conn(struct fuse_conn *fc);
-
-/**
- * Get the attributes of a file
- */
-int fuse_do_getattr(struct inode *inode);
 
 /**
  * Invalidate inode attributes

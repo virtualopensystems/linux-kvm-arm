@@ -222,20 +222,8 @@ static void tick_do_broadcast_on_off(void *why)
 	if (!dev || !(dev->features & CLOCK_EVT_FEAT_C3STOP))
 		goto out;
 
-	/*
-	 * Defect device ?
-	 */
-	if (!tick_device_is_functional(dev)) {
-		/*
-		 * AMD C1E wreckage fixup:
-		 *
-		 * Device was registered functional in the first
-		 * place. Now the secondary CPU detected the C1E
-		 * misfeature and notifies us to fix it up
-		 */
-		if (*reason != CLOCK_EVT_NOTIFY_BROADCAST_FORCE)
-			goto out;
-	}
+	if (!tick_device_is_functional(dev))
+		goto out;
 
 	switch (*reason) {
 	case CLOCK_EVT_NOTIFY_BROADCAST_ON:
@@ -246,6 +234,8 @@ static void tick_do_broadcast_on_off(void *why)
 				clockevents_set_mode(dev,
 						     CLOCK_EVT_MODE_SHUTDOWN);
 		}
+		if (*reason == CLOCK_EVT_NOTIFY_BROADCAST_FORCE)
+			dev->features |= CLOCK_EVT_FEAT_DUMMY;
 		break;
 	case CLOCK_EVT_NOTIFY_BROADCAST_OFF:
 		if (cpu_isset(cpu, tick_broadcast_mask)) {
@@ -274,21 +264,12 @@ out:
  */
 void tick_broadcast_on_off(unsigned long reason, int *oncpu)
 {
-	int cpu = get_cpu();
-
-	if (!cpu_isset(*oncpu, cpu_online_map)) {
+	if (!cpu_isset(*oncpu, cpu_online_map))
 		printk(KERN_ERR "tick-braodcast: ignoring broadcast for "
 		       "offline CPU #%d\n", *oncpu);
-	} else {
-
-		if (cpu == *oncpu)
-			tick_do_broadcast_on_off(&reason);
-		else
-			smp_call_function_single(*oncpu,
-						 tick_do_broadcast_on_off,
-						 &reason, 1, 1);
-	}
-	put_cpu();
+	else
+		smp_call_function_single(*oncpu, tick_do_broadcast_on_off,
+					 &reason, 1, 1);
 }
 
 /*

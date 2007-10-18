@@ -75,10 +75,12 @@ parameter is applicable:
 	PPT	Parallel port support is enabled.
 	PS2	Appropriate PS/2 support is enabled.
 	RAM	RAM disk support is enabled.
+	ROOTPLUG The example Root Plug LSM is enabled.
 	S390	S390 architecture is enabled.
 	SCSI	Appropriate SCSI support is enabled.
 			A lot of drivers has their options described inside of
 			Documentation/scsi/.
+	SECURITY Different security models are enabled.
 	SELINUX SELinux support is enabled.
 	SERIAL	Serial support is enabled.
 	SH	SuperH architecture is enabled.
@@ -349,6 +351,11 @@ and is between 256 and 4096 characters. It is defined in the file
 	blkmtd_bs=
 	blkmtd_count=
 
+	boot_delay=	Milliseconds to delay each printk during boot.
+			Values larger than 10 seconds (10000) are changed to
+			no delay (0).
+			Format: integer
+
 	bttv.card=	[HW,V4L] bttv (bt848 + bt878 based grabber cards)
 	bttv.radio=	Most important insmod options are available as
 			kernel args too.
@@ -367,6 +374,12 @@ and is between 256 and 4096 characters. It is defined in the file
 			to fix known problems, but for some CPUs it is not
 			possible to determine what the correct size should be.
 			This option provides an override for these situations.
+
+	capability.disable=
+			[SECURITY] Disable capabilities.  This would normally
+			be used only if an alternative security model is to be
+			configured.  Potentially dangerous and should only be
+			used if you are entirely sure of the consequences.
 
 	chandev=	[HW,NET] Generic channel device initialisation
 
@@ -906,6 +919,11 @@ and is between 256 and 4096 characters. It is defined in the file
 			n must be a power of two.  The default size
 			is set in the kernel config file.
 
+	logo.nologo	[FB] Disables display of the built-in Linux logo.
+			This may be used to provide more screen space for
+			kernel log messages and is useful when debugging
+			kernel boot problems.
+
 	lp=0		[LP]	Specify parallel ports to use, e.g,
 	lp=port[,port...]	lp=none,parport0 (lp0 not configured, lp1 uses
 	lp=reset		first parallel port). 'lp=0' disables the
@@ -975,6 +993,8 @@ and is between 256 and 4096 characters. It is defined in the file
 	mcatest=	[IA-64]
 
 	mce		[X86-32] Machine Check Exception
+
+	mce=option	[X86-64] See Documentation/x86_64/boot-options.txt
 
 	md=		[HW] RAID subsystems devices and level
 			See Documentation/md.txt.
@@ -1082,6 +1102,13 @@ and is between 256 and 4096 characters. It is defined in the file
 	nfs.idmap_cache_timeout=
 			[NFS] set the maximum lifetime for idmapper cache
 			entries.
+
+	nfs.enable_ino64=
+			[NFS] enable 64-bit inode numbers.
+			If zero, the NFS client will fake up a 32-bit inode
+			number for the readdir() and stat() syscalls instead
+			of returning the full 64-bit number.
+			The default is to return 64-bit inode numbers.
 
 	nmi_watchdog=	[KNL,BUGS=X86-32] Debugging features for SMP kernels
 
@@ -1456,14 +1483,10 @@ and is between 256 and 4096 characters. It is defined in the file
 	raid=		[HW,RAID]
 			See Documentation/md.txt.
 
-	ramdisk=	[RAM] Sizes of RAM disks in kilobytes [deprecated]
-			See Documentation/ramdisk.txt.
-
 	ramdisk_blocksize=	[RAM]
 			See Documentation/ramdisk.txt.
 
 	ramdisk_size=	[RAM] Sizes of RAM disks in kilobytes
-			New name for the ramdisk parameter.
 			See Documentation/ramdisk.txt.
 
 	rcu.blimit=	[KNL,BOOT] Set maximum number of finished
@@ -1525,6 +1548,15 @@ and is between 256 and 4096 characters. It is defined in the file
 	rootwait	[KNL] Wait (indefinitely) for root device to show up.
 			Useful for devices that are detected asynchronously
 			(e.g. USB and MMC devices).
+
+	root_plug.vendor_id=
+			[ROOTPLUG] Override the default vendor ID
+
+	root_plug.product_id=
+			[ROOTPLUG] Override the default product ID
+
+	root_plug.debug=
+			[ROOTPLUG] Enable debugging output
 
 	rw		[KNL] Mount root device read-write on boot
 
@@ -1882,9 +1914,6 @@ and is between 256 and 4096 characters. It is defined in the file
 	trix=		[HW,OSS] MediaTrix AudioTrix Pro
 			Format:
 			<io>,<irq>,<dma>,<dma2>,<sb_io>,<sb_irq>,<sb_dma>,<mpu_io>,<mpu_irq>
-
-	tsdev.xres=	[TS] Horizontal screen resolution.
-	tsdev.yres=	[TS] Vertical screen resolution.
 
 	turbografx.map[2|3]=	[HW,JOY]
 			TurboGraFX parallel port interface

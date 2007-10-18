@@ -109,6 +109,10 @@ static inline u64 get_jiffies_64(void)
 	 ((long)(a) - (long)(b) >= 0))
 #define time_before_eq(a,b)	time_after_eq(b,a)
 
+#define time_in_range(a,b,c) \
+	(time_after_eq(a,b) && \
+	 time_before_eq(a,c))
+
 /* Same as above, but does so with platform independent 64bit types.
  * These must be used when utilizing jiffies_64 (i.e. return value of
  * get_jiffies_64() */
@@ -143,6 +147,8 @@ static inline u64 get_jiffies_64(void)
  * be positive.
  */
 #define MAX_JIFFY_OFFSET ((LONG_MAX >> 1)-1)
+
+extern unsigned long preset_lpj;
 
 /*
  * We want to do realistic conversions of time so we need to use the same

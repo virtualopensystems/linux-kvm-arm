@@ -165,7 +165,7 @@ static unsigned long convert_eip_to_linear(struct task_struct *child, struct pt_
 
 		seg &= ~7UL;
 
-		down(&child->mm->context.sem);
+		mutex_lock(&child->mm->context.lock);
 		if (unlikely((seg >> 3) >= child->mm->context.size))
 			addr = -1L; /* bogus selector, access would fault */
 		else {
@@ -179,7 +179,7 @@ static unsigned long convert_eip_to_linear(struct task_struct *child, struct pt_
 				addr &= 0xffff;
 			addr += base;
 		}
-		up(&child->mm->context.sem);
+		mutex_unlock(&child->mm->context.lock);
 	}
 	return addr;
 }
@@ -522,11 +522,6 @@ long arch_ptrace(struct task_struct *child, long request, long addr, long data)
 		/* give it a chance to run. */
 		wake_up_process(child);
 		ret = 0;
-		break;
-
-	case PTRACE_DETACH:
-		/* detach a process that was attached. */
-		ret = ptrace_detach(child, data);
 		break;
 
 	case PTRACE_GETREGS: { /* Get all gp regs from the child. */

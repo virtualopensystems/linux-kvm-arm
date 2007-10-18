@@ -45,7 +45,6 @@
 #include <linux/init.h>
 #include <asm/types.h>
 #include <asm/atomic.h>
-#include <asm/types.h>
 #include <linux/fs.h>
 #include <linux/namei.h>
 #include <linux/mm.h>
@@ -1525,6 +1524,7 @@ add_names:
 			context->names[idx].ino = (unsigned long)-1;
 	}
 }
+EXPORT_SYMBOL_GPL(__audit_inode_child);
 
 /**
  * auditsc_get_stamp - get local copies of audit_context values

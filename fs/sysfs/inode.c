@@ -24,8 +24,8 @@ extern struct super_block * sysfs_sb;
 
 static const struct address_space_operations sysfs_aops = {
 	.readpage	= simple_readpage,
-	.prepare_write	= simple_prepare_write,
-	.commit_write	= simple_commit_write
+	.write_begin	= simple_write_begin,
+	.write_end	= simple_write_end,
 };
 
 static struct backing_dev_info sysfs_backing_dev_info = {
@@ -36,6 +36,11 @@ static struct backing_dev_info sysfs_backing_dev_info = {
 static const struct inode_operations sysfs_inode_operations ={
 	.setattr	= sysfs_setattr,
 };
+
+int __init sysfs_inode_init(void)
+{
+	return bdi_init(&sysfs_backing_dev_info);
+}
 
 int sysfs_setattr(struct dentry * dentry, struct iattr * iattr)
 {

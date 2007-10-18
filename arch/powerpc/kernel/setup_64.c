@@ -426,11 +426,14 @@ void __init setup_system(void)
 	printk("-----------------------------------------------------\n");
 	printk("ppc64_pft_size                = 0x%lx\n", ppc64_pft_size);
 	printk("physicalMemorySize            = 0x%lx\n", lmb_phys_mem_size());
-	printk("ppc64_caches.dcache_line_size = 0x%x\n",
-	       ppc64_caches.dline_size);
-	printk("ppc64_caches.icache_line_size = 0x%x\n",
-	       ppc64_caches.iline_size);
-	printk("htab_address                  = 0x%p\n", htab_address);
+	if (ppc64_caches.dline_size != 0x80)
+		printk("ppc64_caches.dcache_line_size = 0x%x\n",
+		       ppc64_caches.dline_size);
+	if (ppc64_caches.iline_size != 0x80)
+		printk("ppc64_caches.icache_line_size = 0x%x\n",
+		       ppc64_caches.iline_size);
+	if (htab_address)
+		printk("htab_address                  = 0x%p\n", htab_address);
 	printk("htab_hash_mask                = 0x%lx\n", htab_hash_mask);
 #if PHYSICAL_START > 0
 	printk("physical_start                = 0x%x\n", PHYSICAL_START);
@@ -597,6 +600,9 @@ void __init setup_per_cpu_areas(void)
 		paca[i].data_offset = ptr - __per_cpu_start;
 		memcpy(ptr, __per_cpu_start, __per_cpu_end - __per_cpu_start);
 	}
+
+	/* Now that per_cpu is setup, initialize cpu_sibling_map */
+	smp_setup_cpu_sibling_map();
 }
 #endif
 

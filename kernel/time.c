@@ -34,7 +34,6 @@
 #include <linux/syscalls.h>
 #include <linux/security.h>
 #include <linux/fs.h>
-#include <linux/module.h>
 
 #include <asm/uaccess.h>
 #include <asm/unistd.h>
@@ -57,11 +56,7 @@ EXPORT_SYMBOL(sys_tz);
  */
 asmlinkage long sys_time(time_t __user * tloc)
 {
-	time_t i;
-	struct timespec tv;
-
-	getnstimeofday(&tv);
-	i = tv.tv_sec;
+	time_t i = get_seconds();
 
 	if (tloc) {
 		if (put_user(i,tloc))

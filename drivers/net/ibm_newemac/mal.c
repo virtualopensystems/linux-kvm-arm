@@ -45,6 +45,8 @@ int __devinit mal_register_commac(struct mal_instance	*mal,
 		return -EBUSY;
 	}
 
+	if (list_empty(&mal->list))
+		napi_enable(&mal->napi);
 	mal->tx_chan_mask |= commac->tx_chan_mask;
 	mal->rx_chan_mask |= commac->rx_chan_mask;
 	list_add(&commac->list, &mal->list);
@@ -67,6 +69,8 @@ void __devexit mal_unregister_commac(struct mal_instance	*mal,
 	mal->tx_chan_mask &= ~commac->tx_chan_mask;
 	mal->rx_chan_mask &= ~commac->rx_chan_mask;
 	list_del_init(&commac->list);
+	if (list_empty(&mal->list))
+		napi_disable(&mal->napi);
 
 	spin_unlock_irqrestore(&mal->lock, flags);
 }
@@ -182,7 +186,7 @@ static inline void mal_enable_eob_irq(struct mal_instance *mal)
 	set_mal_dcrn(mal, MAL_CFG, get_mal_dcrn(mal, MAL_CFG) | MAL_CFG_EOPIE);
 }
 
-/* synchronized by __LINK_STATE_RX_SCHED bit in ndev->state */
+/* synchronized by NAPI state */
 static inline void mal_disable_eob_irq(struct mal_instance *mal)
 {
 	// XXX might want to cache MAL_CFG as the DCR read can be slooooow
@@ -317,8 +321,8 @@ void mal_poll_disable(struct mal_instance *mal, struct mal_commac *commac)
 	while (test_and_set_bit(MAL_COMMAC_POLL_DISABLED, &commac->flags))
 		msleep(1);
 
-	/* Synchronize with the MAL NAPI poller. */
-	napi_disable(&mal->napi);
+	/* Synchronize with the MAL NAPI poller */
+	__napi_synchronize(&mal->napi);
 }
 
 void mal_poll_enable(struct mal_instance *mal, struct mal_commac *commac)
@@ -326,7 +330,12 @@ void mal_poll_enable(struct mal_instance *mal, struct mal_commac *commac)
 	smp_wmb();
 	clear_bit(MAL_COMMAC_POLL_DISABLED, &commac->flags);
 
-	// XXX might want to kick a poll now...
+	/* Feels better to trigger a poll here to catch up with events that
+	 * may have happened on this channel while disabled. It will most
+	 * probably be delayed until the next interrupt but that's mostly a
+	 * non-issue in the context where this is called.
+	 */
+	napi_schedule(&mal->napi);
 }
 
 static int mal_poll(struct napi_struct *napi, int budget)
@@ -336,8 +345,7 @@ static int mal_poll(struct napi_struct *napi, int budget)
 	int received = 0;
 	unsigned long flags;
 
-	MAL_DBG2(mal, "poll(%d) %d ->" NL, *budget,
-		 rx_work_limit);
+	MAL_DBG2(mal, "poll(%d)" NL, budget);
  again:
 	/* Process TX skbs */
 	list_for_each(l, &mal->poll_list) {
@@ -461,6 +469,7 @@ static int __devinit mal_probe(struct of_device *ofdev,
 	struct mal_instance *mal;
 	int err = 0, i, bd_size;
 	int index = mal_count++;
+	unsigned int dcr_base;
 	const u32 *prop;
 	u32 cfg;
 
@@ -497,14 +506,14 @@ static int __devinit mal_probe(struct of_device *ofdev,
 	}
 	mal->num_rx_chans = prop[0];
 
-	mal->dcr_base = dcr_resource_start(ofdev->node, 0);
-	if (mal->dcr_base == 0) {
+	dcr_base = dcr_resource_start(ofdev->node, 0);
+	if (dcr_base == 0) {
 		printk(KERN_ERR
 		       "mal%d: can't find DCR resource!\n", index);
 		err = -ENODEV;
 		goto fail;
 	}
-        mal->dcr_host = dcr_map(ofdev->node, mal->dcr_base, 0x100);
+	mal->dcr_host = dcr_map(ofdev->node, dcr_base, 0x100);
 	if (!DCR_MAP_OK(mal->dcr_host)) {
 		printk(KERN_ERR
 		       "mal%d: failed to map DCRs !\n", index);
@@ -527,10 +536,11 @@ static int __devinit mal_probe(struct of_device *ofdev,
 	}
 
 	INIT_LIST_HEAD(&mal->poll_list);
-	mal->napi.weight = CONFIG_IBM_NEW_EMAC_POLL_WEIGHT;
-	mal->napi.poll = mal_poll;
 	INIT_LIST_HEAD(&mal->list);
 	spin_lock_init(&mal->lock);
+
+	netif_napi_add(NULL, &mal->napi, mal_poll,
+		       CONFIG_IBM_NEW_EMAC_POLL_WEIGHT);
 
 	/* Load power-on reset defaults */
 	mal_reset(mal);
@@ -626,7 +636,7 @@ static int __devinit mal_probe(struct of_device *ofdev,
  fail2:
 	dma_free_coherent(&ofdev->dev, bd_size, mal->bd_virt, mal->bd_dma);
  fail_unmap:
-	dcr_unmap(mal->dcr_host, mal->dcr_base, 0x100);
+	dcr_unmap(mal->dcr_host, 0x100);
  fail:
 	kfree(mal);
 

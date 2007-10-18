@@ -411,6 +411,9 @@ static void __exit rd_cleanup(void)
 		blk_cleanup_queue(rd_queue[i]);
 	}
 	unregister_blkdev(RAMDISK_MAJOR, "ramdisk");
+
+	bdi_destroy(&rd_file_backing_dev_info);
+	bdi_destroy(&rd_backing_dev_info);
 }
 
 /*
@@ -419,7 +422,19 @@ static void __exit rd_cleanup(void)
 static int __init rd_init(void)
 {
 	int i;
-	int err = -ENOMEM;
+	int err;
+
+	err = bdi_init(&rd_backing_dev_info);
+	if (err)
+		goto out2;
+
+	err = bdi_init(&rd_file_backing_dev_info);
+	if (err) {
+		bdi_destroy(&rd_backing_dev_info);
+		goto out2;
+	}
+
+	err = -ENOMEM;
 
 	if (rd_blocksize > PAGE_SIZE || rd_blocksize < 512 ||
 			(rd_blocksize & (rd_blocksize-1))) {
@@ -473,6 +488,9 @@ out:
 		put_disk(rd_disks[i]);
 		blk_cleanup_queue(rd_queue[i]);
 	}
+	bdi_destroy(&rd_backing_dev_info);
+	bdi_destroy(&rd_file_backing_dev_info);
+out2:
 	return err;
 }
 
@@ -486,17 +504,12 @@ static int __init ramdisk_size(char *str)
 	rd_size = simple_strtol(str,NULL,0);
 	return 1;
 }
-static int __init ramdisk_size2(char *str)	/* kludge */
-{
-	return ramdisk_size(str);
-}
 static int __init ramdisk_blocksize(char *str)
 {
 	rd_blocksize = simple_strtol(str,NULL,0);
 	return 1;
 }
-__setup("ramdisk=", ramdisk_size);
-__setup("ramdisk_size=", ramdisk_size2);
+__setup("ramdisk_size=", ramdisk_size);
 __setup("ramdisk_blocksize=", ramdisk_blocksize);
 #endif
 

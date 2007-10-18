@@ -1769,7 +1769,7 @@ S:	Maintained
 
 HP100:	Driver for HP 10/100 Mbit/s Voice Grade Network Adapter Series
 P:	Jaroslav Kysela
-M:	perex@suse.cz
+M:	perex@perex.cz
 S:	Maintained
 
 HPET:	High Precision Event Timers driver (hpet.c)
@@ -1877,10 +1877,8 @@ T:	quilt kernel.org/pub/linux/kernel/people/bart/pata-2.6/
 S:	Maintained
 
 IDE/ATAPI CDROM DRIVER
-P:	Alan Cox
-M:	alan@lxorguk.ukuu.org.uk
 L:	linux-ide@vger.kernel.org
-S:	Maintained
+S:	Unmaintained
 
 IDE/ATAPI FLOPPY DRIVERS
 P:	Paul Bristow
@@ -2132,14 +2130,12 @@ S:	Maintained
 
 ISAPNP
 P:	Jaroslav Kysela
-M:	perex@suse.cz
+M:	perex@perex.cz
 S:	Maintained
 
 ISDN SUBSYSTEM
 P:	Karsten Keil
 M:	kkeil@suse.de
-P:	Kai Germaschewski
-M:	kai.germaschewski@gmx.de
 L:	isdn4linux@listserv.isdn4linux.de
 W:	http://www.isdn4linux.de
 T:	git kernel.org:/pub/scm/linux/kernel/kkeil/isdn-2.6.git
@@ -2208,8 +2204,6 @@ L:	autofs@linux.kernel.org
 S:	Maintained
 
 KERNEL BUILD (kbuild: Makefile, scripts/Makefile.*)
-P:	Kai Germaschewski
-M:	kai@germaschewski.name
 P:	Sam Ravnborg
 M:	sam@ravnborg.org
 T:	git kernel.org:/pub/scm/linux/kernel/git/sam/kbuild.git
@@ -2404,6 +2398,15 @@ M:	khali@linux-fr.org
 L:	lm-sensors@lm-sensors.org
 S:	Maintained
 
+LOCKDEP AND LOCKSTAT
+P:	Peter Zijlstra
+M:	peterz@infradead.org
+P:	Ingo Molnar
+M:	mingo@redhat.com
+L:	linux-kernel@vger.kernel.org
+T:	git://git.kernel.org/pub/scm/linux/kernel/git/peterz/linux-2.6-lockdep.git
+S:	Maintained
+
 LOGICAL DISK MANAGER SUPPORT (LDM, Windows 2000/XP/Vista Dynamic Disks)
 P:	Richard Russon (FlatCap)
 M:	ldm@flatcap.org
@@ -2483,7 +2486,7 @@ S: 	Supported
 
 MAN-PAGES: MANUAL PAGES FOR LINUX -- Sections 2, 3, 4, 5, and 7
 P:	Michael Kerrisk
-M:	mtk-manpages@gmx.net
+M:	mtk.manpages@gmail.com
 W:	ftp://ftp.kernel.org/pub/linux/docs/manpages
 S:	Maintained
 
@@ -3514,7 +3517,7 @@ S:	Maintained
 
 SOUND
 P:	Jaroslav Kysela
-M:	perex@suse.cz
+M:	perex@perex.cz
 L:	alsa-devel@alsa-project.org (subscribers-only)
 S:	Maintained
 
@@ -3704,7 +3707,7 @@ S:      Maintained
 
 TI OMAP MMC INTERFACE DRIVER
 P:	Carlos Aguiar, Anderson Briglia and Syed Khasim
-M:	linux-omap-open-source@linux.omap.com 
+M:	linux-omap-open-source@linux.omap.com (subscribers only)
 W:	http://linux.omap.com
 W:	http://www.muru.com/linux/omap/
 S:	Maintained

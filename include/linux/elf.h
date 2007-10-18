@@ -2,7 +2,6 @@
 #define _LINUX_ELF_H
 
 #include <linux/types.h>
-#include <linux/auxvec.h>
 #include <linux/elf-em.h>
 #include <asm/elf.h>
 
@@ -355,6 +354,7 @@ typedef struct elf64_shdr {
 #define NT_TASKSTRUCT	4
 #define NT_AUXV		6
 #define NT_PRXFPREG     0x46e62b7f      /* copied from gdb5.1/include/elf/common.h */
+#define NT_PPC_VMX	0x100		/* PowerPC Altivec/VMX registers */
 
 
 /* Note header in a PT_NOTE section */

@@ -288,12 +288,11 @@ static struct dentry *fuse_lookup(struct inode *dir, struct dentry *entry,
 static void fuse_sync_release(struct fuse_conn *fc, struct fuse_file *ff,
 			      u64 nodeid, int flags)
 {
-	struct fuse_req *req;
-
-	req = fuse_release_fill(ff, nodeid, flags, FUSE_RELEASE);
-	req->force = 1;
-	request_send(fc, req);
-	fuse_put_request(fc, req);
+	fuse_release_fill(ff, nodeid, flags, FUSE_RELEASE);
+	ff->reserved_req->force = 1;
+	request_send(fc, ff->reserved_req);
+	fuse_put_request(fc, ff->reserved_req);
+	kfree(ff);
 }
 
 /*
@@ -664,7 +663,7 @@ static int fuse_link(struct dentry *entry, struct inode *newdir,
 	return err;
 }
 
-int fuse_do_getattr(struct inode *inode)
+static int fuse_do_getattr(struct inode *inode)
 {
 	int err;
 	struct fuse_attr_out arg;
@@ -696,6 +695,20 @@ int fuse_do_getattr(struct inode *inode)
 }
 
 /*
+ * Check if attributes are still valid, and if not send a GETATTR
+ * request to refresh them.
+ */
+static int fuse_refresh_attributes(struct inode *inode)
+{
+	struct fuse_inode *fi = get_fuse_inode(inode);
+
+	if (fi->i_time < get_jiffies_64())
+		return fuse_do_getattr(inode);
+	else
+		return 0;
+}
+
+/*
  * Calling into a user-controlled filesystem gives the filesystem
  * daemon ptrace-like capabilities over the requester process.  This
  * means, that the filesystem daemon is able to record the exact
@@ -722,30 +735,6 @@ static int fuse_allow_task(struct fuse_conn *fc, struct task_struct *task)
 		return 1;
 
 	return 0;
-}
-
-/*
- * Check whether the inode attributes are still valid
- *
- * If the attribute validity timeout has expired, then fetch the fresh
- * attributes with a 'getattr' request
- *
- * I'm not sure why cached attributes are never returned for the root
- * inode, this is probably being too cautious.
- */
-static int fuse_revalidate(struct dentry *entry)
-{
-	struct inode *inode = entry->d_inode;
-	struct fuse_inode *fi = get_fuse_inode(inode);
-	struct fuse_conn *fc = get_fuse_conn(inode);
-
-	if (!fuse_allow_task(fc, current))
-		return -EACCES;
-	if (get_node_id(inode) != FUSE_ROOT_ID &&
-	    fi->i_time >= get_jiffies_64())
-		return 0;
-
-	return fuse_do_getattr(inode);
 }
 
 static int fuse_access(struct inode *inode, int mask)
@@ -795,16 +784,31 @@ static int fuse_access(struct inode *inode, int mask)
 static int fuse_permission(struct inode *inode, int mask, struct nameidata *nd)
 {
 	struct fuse_conn *fc = get_fuse_conn(inode);
+	bool refreshed = false;
+	int err = 0;
 
 	if (!fuse_allow_task(fc, current))
 		return -EACCES;
-	else if (fc->flags & FUSE_DEFAULT_PERMISSIONS) {
+
+	/*
+	 * If attributes are needed, refresh them before proceeding
+	 */
+	if ((fc->flags & FUSE_DEFAULT_PERMISSIONS) ||
+	    ((mask & MAY_EXEC) && S_ISREG(inode->i_mode))) {
+		err = fuse_refresh_attributes(inode);
+		if (err)
+			return err;
+
+		refreshed = true;
+	}
+
+	if (fc->flags & FUSE_DEFAULT_PERMISSIONS) {
 		int err = generic_permission(inode, mask, NULL);
 
 		/* If permission is denied, try to refresh file
 		   attributes.  This is also needed, because the root
 		   node will at first have no permissions */
-		if (err == -EACCES) {
+		if (err == -EACCES && !refreshed) {
 		 	err = fuse_do_getattr(inode);
 			if (!err)
 				err = generic_permission(inode, mask, NULL);
@@ -814,17 +818,19 @@ static int fuse_permission(struct inode *inode, int mask, struct nameidata *nd)
 		   exist.  So if permissions are revoked this won't be
 		   noticed immediately, only after the attribute
 		   timeout has expired */
+	} else if (nd && (nd->flags & (LOOKUP_ACCESS | LOOKUP_CHDIR))) {
+		err = fuse_access(inode, mask);
+	} else if ((mask & MAY_EXEC) && S_ISREG(inode->i_mode)) {
+		if (!(inode->i_mode & S_IXUGO)) {
+			if (refreshed)
+				return -EACCES;
 
-		return err;
-	} else {
-		int mode = inode->i_mode;
-		if ((mask & MAY_EXEC) && !S_ISDIR(mode) && !(mode & S_IXUGO))
-			return -EACCES;
-
-		if (nd && (nd->flags & (LOOKUP_ACCESS | LOOKUP_CHDIR)))
-			return fuse_access(inode, mask);
-		return 0;
+			err = fuse_do_getattr(inode);
+			if (!err && !(inode->i_mode & S_IXUGO))
+				return -EACCES;
+		}
 	}
+	return err;
 }
 
 static int parse_dirfile(char *buf, size_t nbytes, struct file *file,
@@ -859,6 +865,7 @@ static int fuse_readdir(struct file *file, void *dstbuf, filldir_t filldir)
 	struct page *page;
 	struct inode *inode = file->f_path.dentry->d_inode;
 	struct fuse_conn *fc = get_fuse_conn(inode);
+	struct fuse_file *ff = file->private_data;
 	struct fuse_req *req;
 
 	if (is_bad_inode(inode))
@@ -875,7 +882,7 @@ static int fuse_readdir(struct file *file, void *dstbuf, filldir_t filldir)
 	}
 	req->num_pages = 1;
 	req->pages[0] = page;
-	fuse_read_fill(req, file, inode, file->f_pos, PAGE_SIZE, FUSE_READDIR);
+	fuse_read_fill(req, ff, inode, file->f_pos, PAGE_SIZE, FUSE_READDIR);
 	request_send(fc, req);
 	nbytes = req->out.args[0].size;
 	err = req->out.h.error;
@@ -980,23 +987,6 @@ static void iattr_to_fattr(struct iattr *iattr, struct fuse_setattr_in *arg)
 	}
 }
 
-static void fuse_vmtruncate(struct inode *inode, loff_t offset)
-{
-	struct fuse_conn *fc = get_fuse_conn(inode);
-	int need_trunc;
-
-	spin_lock(&fc->lock);
-	need_trunc = inode->i_size > offset;
-	i_size_write(inode, offset);
-	spin_unlock(&fc->lock);
-
-	if (need_trunc) {
-		struct address_space *mapping = inode->i_mapping;
-		unmap_mapping_range(mapping, offset + PAGE_SIZE - 1, 0, 1);
-		truncate_inode_pages(mapping, offset);
-	}
-}
-
 /*
  * Set attributes, and at the same time refresh them.
  *
@@ -1014,7 +1004,6 @@ static int fuse_setattr(struct dentry *entry, struct iattr *attr)
 	struct fuse_setattr_in inarg;
 	struct fuse_attr_out outarg;
 	int err;
-	int is_truncate = 0;
 
 	if (fc->flags & FUSE_DEFAULT_PERMISSIONS) {
 		err = inode_change_ok(inode, attr);
@@ -1024,7 +1013,6 @@ static int fuse_setattr(struct dentry *entry, struct iattr *attr)
 
 	if (attr->ia_valid & ATTR_SIZE) {
 		unsigned long limit;
-		is_truncate = 1;
 		if (IS_SWAPFILE(inode))
 			return -ETXTBSY;
 		limit = current->signal->rlim[RLIMIT_FSIZE].rlim_cur;
@@ -1051,30 +1039,38 @@ static int fuse_setattr(struct dentry *entry, struct iattr *attr)
 	request_send(fc, req);
 	err = req->out.h.error;
 	fuse_put_request(fc, req);
-	if (!err) {
-		if ((inode->i_mode ^ outarg.attr.mode) & S_IFMT) {
-			make_bad_inode(inode);
-			err = -EIO;
-		} else {
-			if (is_truncate)
-				fuse_vmtruncate(inode, outarg.attr.size);
-			fuse_change_attributes(inode, &outarg.attr);
-			fi->i_time = time_to_jiffies(outarg.attr_valid,
-						     outarg.attr_valid_nsec);
-		}
-	} else if (err == -EINTR)
-		fuse_invalidate_attr(inode);
+	if (err) {
+		if (err == -EINTR)
+			fuse_invalidate_attr(inode);
+		return err;
+	}
 
-	return err;
+	if ((inode->i_mode ^ outarg.attr.mode) & S_IFMT) {
+		make_bad_inode(inode);
+		return -EIO;
+	}
+
+	fuse_change_attributes(inode, &outarg.attr);
+	fi->i_time = time_to_jiffies(outarg.attr_valid, outarg.attr_valid_nsec);
+	return 0;
 }
 
 static int fuse_getattr(struct vfsmount *mnt, struct dentry *entry,
 			struct kstat *stat)
 {
 	struct inode *inode = entry->d_inode;
-	int err = fuse_revalidate(entry);
-	if (!err)
+	struct fuse_inode *fi = get_fuse_inode(inode);
+	struct fuse_conn *fc = get_fuse_conn(inode);
+	int err;
+
+	if (!fuse_allow_task(fc, current))
+		return -EACCES;
+
+	err = fuse_refresh_attributes(inode);
+	if (!err) {
 		generic_fillattr(inode, stat);
+		stat->mode = fi->orig_i_mode;
+	}
 
 	return err;
 }

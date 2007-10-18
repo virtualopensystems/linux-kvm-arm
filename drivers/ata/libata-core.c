@@ -1410,7 +1410,7 @@ static void ata_qc_complete_internal(struct ata_queued_cmd *qc)
  */
 unsigned ata_exec_internal_sg(struct ata_device *dev,
 			      struct ata_taskfile *tf, const u8 *cdb,
-			      int dma_dir, struct scatterlist *sg,
+			      int dma_dir, struct scatterlist *sgl,
 			      unsigned int n_elem, unsigned long timeout)
 {
 	struct ata_link *link = dev->link;
@@ -1472,11 +1472,12 @@ unsigned ata_exec_internal_sg(struct ata_device *dev,
 	qc->dma_dir = dma_dir;
 	if (dma_dir != DMA_NONE) {
 		unsigned int i, buflen = 0;
+		struct scatterlist *sg;
 
-		for (i = 0; i < n_elem; i++)
-			buflen += sg[i].length;
+		for_each_sg(sgl, sg, n_elem, i)
+			buflen += sg->length;
 
-		ata_sg_init(qc, sg, n_elem);
+		ata_sg_init(qc, sgl, n_elem);
 		qc->nbytes = buflen;
 	}
 
@@ -3984,6 +3985,7 @@ static const struct ata_blacklist_entry ata_device_blacklist [] = {
 	{ "ST9120822AS",	"3.CLF",	ATA_HORKAGE_NONCQ, },
 	{ "ST9160821AS",	"3.CLF",	ATA_HORKAGE_NONCQ, },
 	{ "ST9160821AS",	"3.ALD",	ATA_HORKAGE_NONCQ, },
+	{ "ST9160821AS",	"3.CCD",	ATA_HORKAGE_NONCQ, },
 	{ "ST3160812AS",	"3.ADJ",	ATA_HORKAGE_NONCQ, },
 	{ "ST980813AS",		"3.ADB",	ATA_HORKAGE_NONCQ, },
 	{ "SAMSUNG HD401LJ",	"ZZ100-15",	ATA_HORKAGE_NONCQ, },
@@ -4013,8 +4015,14 @@ int strn_pattern_cmp(const char *patt, const char *name, int wildchar)
 	p = strchr(patt, wildchar);
 	if (p && ((*(p + 1)) == 0))
 		len = p - patt;
-	else
+	else {
 		len = strlen(name);
+		if (!len) {
+			if (!*patt)
+				return 0;
+			return -1;
+		}
+	}
 
 	return strncmp(patt, name, len);
 }
@@ -4285,7 +4293,7 @@ void ata_sg_clean(struct ata_queued_cmd *qc)
 		if (qc->n_elem)
 			dma_unmap_sg(ap->dev, sg, qc->n_elem, dir);
 		/* restore last sg */
-		sg[qc->orig_n_elem - 1].length += qc->pad_len;
+		sg_last(sg, qc->orig_n_elem)->length += qc->pad_len;
 		if (pad_buf) {
 			struct scatterlist *psg = &qc->pad_sgent;
 			void *addr = kmap_atomic(psg->page, KM_IRQ0);
@@ -4540,6 +4548,7 @@ void ata_sg_init_one(struct ata_queued_cmd *qc, void *buf, unsigned int buflen)
 	qc->orig_n_elem = 1;
 	qc->buf_virt = buf;
 	qc->nbytes = buflen;
+	qc->cursg = qc->__sg;
 
 	sg_init_one(&qc->sgent, buf, buflen);
 }
@@ -4565,6 +4574,7 @@ void ata_sg_init(struct ata_queued_cmd *qc, struct scatterlist *sg,
 	qc->__sg = sg;
 	qc->n_elem = n_elem;
 	qc->orig_n_elem = n_elem;
+	qc->cursg = qc->__sg;
 }
 
 /**
@@ -4654,7 +4664,7 @@ static int ata_sg_setup(struct ata_queued_cmd *qc)
 {
 	struct ata_port *ap = qc->ap;
 	struct scatterlist *sg = qc->__sg;
-	struct scatterlist *lsg = &sg[qc->n_elem - 1];
+	struct scatterlist *lsg = sg_last(qc->__sg, qc->n_elem);
 	int n_elem, pre_n_elem, dir, trim_sg = 0;
 
 	VPRINTK("ENTER, ata%u\n", ap->print_id);
@@ -4818,7 +4828,6 @@ void ata_data_xfer_noirq(struct ata_device *adev, unsigned char *buf,
 static void ata_pio_sector(struct ata_queued_cmd *qc)
 {
 	int do_write = (qc->tf.flags & ATA_TFLAG_WRITE);
-	struct scatterlist *sg = qc->__sg;
 	struct ata_port *ap = qc->ap;
 	struct page *page;
 	unsigned int offset;
@@ -4827,8 +4836,8 @@ static void ata_pio_sector(struct ata_queued_cmd *qc)
 	if (qc->curbytes == qc->nbytes - qc->sect_size)
 		ap->hsm_task_state = HSM_ST_LAST;
 
-	page = sg[qc->cursg].page;
-	offset = sg[qc->cursg].offset + qc->cursg_ofs;
+	page = qc->cursg->page;
+	offset = qc->cursg->offset + qc->cursg_ofs;
 
 	/* get the current page and offset */
 	page = nth_page(page, (offset >> PAGE_SHIFT));
@@ -4856,8 +4865,8 @@ static void ata_pio_sector(struct ata_queued_cmd *qc)
 	qc->curbytes += qc->sect_size;
 	qc->cursg_ofs += qc->sect_size;
 
-	if (qc->cursg_ofs == (&sg[qc->cursg])->length) {
-		qc->cursg++;
+	if (qc->cursg_ofs == qc->cursg->length) {
+		qc->cursg = sg_next(qc->cursg);
 		qc->cursg_ofs = 0;
 	}
 }
@@ -4943,16 +4952,18 @@ static void __atapi_pio_bytes(struct ata_queued_cmd *qc, unsigned int bytes)
 {
 	int do_write = (qc->tf.flags & ATA_TFLAG_WRITE);
 	struct scatterlist *sg = qc->__sg;
+	struct scatterlist *lsg = sg_last(qc->__sg, qc->n_elem);
 	struct ata_port *ap = qc->ap;
 	struct page *page;
 	unsigned char *buf;
 	unsigned int offset, count;
+	int no_more_sg = 0;
 
 	if (qc->curbytes + bytes >= qc->nbytes)
 		ap->hsm_task_state = HSM_ST_LAST;
 
 next_sg:
-	if (unlikely(qc->cursg >= qc->n_elem)) {
+	if (unlikely(no_more_sg)) {
 		/*
 		 * The end of qc->sg is reached and the device expects
 		 * more data to transfer. In order not to overrun qc->sg
@@ -4975,7 +4986,7 @@ next_sg:
 		return;
 	}
 
-	sg = &qc->__sg[qc->cursg];
+	sg = qc->cursg;
 
 	page = sg->page;
 	offset = sg->offset + qc->cursg_ofs;
@@ -5014,7 +5025,10 @@ next_sg:
 	qc->cursg_ofs += count;
 
 	if (qc->cursg_ofs == sg->length) {
-		qc->cursg++;
+		if (qc->cursg == lsg)
+			no_more_sg = 1;
+
+		qc->cursg = sg_next(qc->cursg);
 		qc->cursg_ofs = 0;
 	}
 

@@ -35,6 +35,7 @@
 #include <linux/pci_ids.h>
 #include <linux/pci.h>
 #include <linux/delay.h>
+#include <linux/scatterlist.h>
 #include <asm/iommu.h>
 #include <asm/calgary.h>
 #include <asm/tce.h>
@@ -221,10 +222,10 @@ static inline unsigned int num_dma_pages(unsigned long dma, unsigned int dmalen)
 	return npages;
 }
 
-static inline int translate_phb(struct pci_dev* dev)
+static inline int translation_enabled(struct iommu_table *tbl)
 {
-	int disabled = bus_info[dev->bus->number].translation_disabled;
-	return !disabled;
+	/* only PHBs with translation enabled have an IOMMU table */
+	return (tbl != NULL);
 }
 
 static void iommu_range_reserve(struct iommu_table *tbl,
@@ -384,31 +385,32 @@ static void calgary_unmap_sg(struct device *dev,
 	struct scatterlist *sglist, int nelems, int direction)
 {
 	struct iommu_table *tbl = find_iommu_table(dev);
+	struct scatterlist *s;
+	int i;
 
-	if (!translate_phb(to_pci_dev(dev)))
+	if (!translation_enabled(tbl))
 		return;
 
-	while (nelems--) {
+	for_each_sg(sglist, s, nelems, i) {
 		unsigned int npages;
-		dma_addr_t dma = sglist->dma_address;
-		unsigned int dmalen = sglist->dma_length;
+		dma_addr_t dma = s->dma_address;
+		unsigned int dmalen = s->dma_length;
 
 		if (dmalen == 0)
 			break;
 
 		npages = num_dma_pages(dma, dmalen);
 		iommu_free(tbl, dma, npages);
-		sglist++;
 	}
 }
 
 static int calgary_nontranslate_map_sg(struct device* dev,
 	struct scatterlist *sg, int nelems, int direction)
 {
+	struct scatterlist *s;
 	int i;
 
-	for (i = 0; i < nelems; i++ ) {
-		struct scatterlist *s = &sg[i];
+	for_each_sg(sg, s, nelems, i) {
 		BUG_ON(!s->page);
 		s->dma_address = virt_to_bus(page_address(s->page) +s->offset);
 		s->dma_length = s->length;
@@ -420,16 +422,16 @@ static int calgary_map_sg(struct device *dev, struct scatterlist *sg,
 	int nelems, int direction)
 {
 	struct iommu_table *tbl = find_iommu_table(dev);
+	struct scatterlist *s;
 	unsigned long vaddr;
 	unsigned int npages;
 	unsigned long entry;
 	int i;
 
-	if (!translate_phb(to_pci_dev(dev)))
+	if (!translation_enabled(tbl))
 		return calgary_nontranslate_map_sg(dev, sg, nelems, direction);
 
-	for (i = 0; i < nelems; i++ ) {
-		struct scatterlist *s = &sg[i];
+	for_each_sg(sg, s, nelems, i) {
 		BUG_ON(!s->page);
 
 		vaddr = (unsigned long)page_address(s->page) + s->offset;
@@ -454,9 +456,9 @@ static int calgary_map_sg(struct device *dev, struct scatterlist *sg,
 	return nelems;
 error:
 	calgary_unmap_sg(dev, sg, nelems, direction);
-	for (i = 0; i < nelems; i++) {
-		sg[i].dma_address = bad_dma_address;
-		sg[i].dma_length = 0;
+	for_each_sg(sg, s, nelems, i) {
+		sg->dma_address = bad_dma_address;
+		sg->dma_length = 0;
 	}
 	return 0;
 }
@@ -472,7 +474,7 @@ static dma_addr_t calgary_map_single(struct device *dev, void *vaddr,
 	uaddr = (unsigned long)vaddr;
 	npages = num_dma_pages(uaddr, size);
 
-	if (translate_phb(to_pci_dev(dev)))
+	if (translation_enabled(tbl))
 		dma_handle = iommu_alloc(tbl, vaddr, npages, direction);
 	else
 		dma_handle = virt_to_bus(vaddr);
@@ -486,7 +488,7 @@ static void calgary_unmap_single(struct device *dev, dma_addr_t dma_handle,
 	struct iommu_table *tbl = find_iommu_table(dev);
 	unsigned int npages;
 
-	if (!translate_phb(to_pci_dev(dev)))
+	if (!translation_enabled(tbl))
 		return;
 
 	npages = num_dma_pages(dma_handle, size);
@@ -511,7 +513,7 @@ static void* calgary_alloc_coherent(struct device *dev, size_t size,
 		goto error;
 	memset(ret, 0, size);
 
-	if (translate_phb(to_pci_dev(dev))) {
+	if (translation_enabled(tbl)) {
 		/* set up tces to cover the allocated range */
 		mapping = iommu_alloc(tbl, ret, npages, DMA_BIDIRECTIONAL);
 		if (mapping == bad_dma_address)
@@ -1192,7 +1194,7 @@ static int __init calgary_init(void)
 {
 	int ret;
 	struct pci_dev *dev = NULL;
-	void *tce_space;
+	struct calgary_bus_info *info;
 
 	ret = calgary_locate_bbars();
 	if (ret)
@@ -1204,12 +1206,14 @@ static int __init calgary_init(void)
 			break;
 		if (!is_cal_pci_dev(dev->device))
 			continue;
-		if (!translate_phb(dev)) {
+
+		info = &bus_info[dev->bus->number];
+		if (info->translation_disabled) {
 			calgary_init_one_nontraslated(dev);
 			continue;
 		}
-		tce_space = bus_info[dev->bus->number].tce_space;
-		if (!tce_space && !translate_empty_slots)
+
+		if (!info->tce_space && !translate_empty_slots)
 			continue;
 
 		ret = calgary_init_one(dev);
@@ -1227,11 +1231,13 @@ error:
 			break;
 		if (!is_cal_pci_dev(dev->device))
 			continue;
-		if (!translate_phb(dev)) {
+
+		info = &bus_info[dev->bus->number];
+		if (info->translation_disabled) {
 			pci_dev_put(dev);
 			continue;
 		}
-		if (!bus_info[dev->bus->number].tce_space && !translate_empty_slots)
+		if (!info->tce_space && !translate_empty_slots)
 			continue;
 
 		calgary_disable_translation(dev);
@@ -1544,7 +1550,7 @@ static void __init calgary_fixup_one_tce_space(struct pci_dev *dev)
 static int __init calgary_fixup_tce_spaces(void)
 {
 	struct pci_dev *dev = NULL;
-	void *tce_space;
+	struct calgary_bus_info *info;
 
 	if (no_iommu || swiotlb || !calgary_detected)
 		return -ENODEV;
@@ -1557,11 +1563,12 @@ static int __init calgary_fixup_tce_spaces(void)
 			break;
 		if (!is_cal_pci_dev(dev->device))
 			continue;
-		if (!translate_phb(dev))
+
+		info = &bus_info[dev->bus->number];
+		if (info->translation_disabled)
 			continue;
 
-		tce_space = bus_info[dev->bus->number].tce_space;
-		if (!tce_space)
+		if (!info->tce_space)
 			continue;
 
 		calgary_fixup_one_tce_space(dev);

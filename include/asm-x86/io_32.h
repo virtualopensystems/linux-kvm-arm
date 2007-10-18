@@ -199,17 +199,22 @@ static inline void writel(unsigned int b, volatile void __iomem *addr)
 
 #define mmiowb()
 
-static inline void memset_io(volatile void __iomem *addr, unsigned char val, int count)
+static inline void
+memset_io(volatile void __iomem *addr, unsigned char val, int count)
 {
-	memset((void __force *) addr, val, count);
+	memset((void __force *)addr, val, count);
 }
-static inline void memcpy_fromio(void *dst, const volatile void __iomem *src, int count)
+
+static inline void
+memcpy_fromio(void *dst, const volatile void __iomem *src, int count)
 {
-	__memcpy(dst, (void __force *) src, count);
+	__memcpy(dst, (const void __force *)src, count);
 }
-static inline void memcpy_toio(volatile void __iomem *dst, const void *src, int count)
+
+static inline void
+memcpy_toio(volatile void __iomem *dst, const void *src, int count)
 {
-	__memcpy((void __force *) dst, src, count);
+	__memcpy((void __force *)dst, src, count);
 }
 
 /*
@@ -237,18 +242,9 @@ static inline void flush_write_buffers(void)
 	__asm__ __volatile__ ("lock; addl $0,0(%%esp)": : :"memory");
 }
 
-#define dma_cache_inv(_start,_size)		flush_write_buffers()
-#define dma_cache_wback(_start,_size)		flush_write_buffers()
-#define dma_cache_wback_inv(_start,_size)	flush_write_buffers()
-
 #else
 
-/* Nothing to do */
-
-#define dma_cache_inv(_start,_size)		do { } while (0)
-#define dma_cache_wback(_start,_size)		do { } while (0)
-#define dma_cache_wback_inv(_start,_size)	do { } while (0)
-#define flush_write_buffers()
+#define flush_write_buffers() do { } while (0)
 
 #endif
 

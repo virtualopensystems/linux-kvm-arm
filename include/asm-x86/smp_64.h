@@ -38,8 +38,15 @@ extern void unlock_ipi_call_lock(void);
 extern int smp_num_siblings;
 extern void smp_send_reschedule(int cpu);
 
-extern cpumask_t cpu_sibling_map[NR_CPUS];
-extern cpumask_t cpu_core_map[NR_CPUS];
+/*
+ * cpu_sibling_map and cpu_core_map now live
+ * in the per cpu area
+ *
+ * extern cpumask_t cpu_sibling_map[NR_CPUS];
+ * extern cpumask_t cpu_core_map[NR_CPUS];
+ */
+DECLARE_PER_CPU(cpumask_t, cpu_sibling_map);
+DECLARE_PER_CPU(cpumask_t, cpu_core_map);
 extern u8 cpu_llc_id[NR_CPUS];
 
 #define SMP_TRAMPOLINE_BASE 0x6000
@@ -78,7 +85,6 @@ static inline int hard_smp_processor_id(void)
  * the real APIC ID <-> CPU # mapping.
  */
 extern u8 x86_cpu_to_apicid[NR_CPUS];	/* physical ID */
-extern u8 x86_cpu_to_log_apicid[NR_CPUS];
 extern u8 bios_cpu_apicid[];
 
 static inline int cpu_present_to_apicid(int mps_cpu)

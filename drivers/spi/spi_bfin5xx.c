@@ -39,7 +39,6 @@
 #include <linux/dma-mapping.h>
 #include <linux/spi/spi.h>
 #include <linux/workqueue.h>
-#include <linux/errno.h>
 #include <linux/delay.h>
 
 #include <asm/io.h>
@@ -1107,7 +1106,7 @@ static inline int init_queue(struct driver_data *drv_data)
 	/* init messages workqueue */
 	INIT_WORK(&drv_data->pump_messages, pump_messages);
 	drv_data->workqueue =
-	    create_singlethread_workqueue(drv_data->master->cdev.dev->bus_id);
+	    create_singlethread_workqueue(drv_data->master->dev.parent->bus_id);
 	if (drv_data->workqueue == NULL)
 		return -EBUSY;
 

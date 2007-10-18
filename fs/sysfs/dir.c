@@ -24,9 +24,9 @@
 
 DEFINE_MUTEX(sysfs_mutex);
 DEFINE_MUTEX(sysfs_rename_mutex);
-spinlock_t sysfs_assoc_lock = SPIN_LOCK_UNLOCKED;
+DEFINE_SPINLOCK(sysfs_assoc_lock);
 
-static spinlock_t sysfs_ino_lock = SPIN_LOCK_UNLOCKED;
+static DEFINE_SPINLOCK(sysfs_ino_lock);
 static DEFINE_IDA(sysfs_ino_ida);
 
 /**
@@ -112,8 +112,7 @@ struct dentry *sysfs_get_dentry(struct sysfs_dirent *sd)
 		/* look it up */
 		parent = dentry;
 		mutex_lock(&parent->d_inode->i_mutex);
-		dentry = lookup_one_len_kern(cur->s_name, parent,
-					     strlen(cur->s_name));
+		dentry = lookup_one_noperm(cur->s_name, parent);
 		mutex_unlock(&parent->d_inode->i_mutex);
 		dput(parent);
 

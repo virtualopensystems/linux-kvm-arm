@@ -36,6 +36,23 @@ config VT
 	  If unsure, say Y, or else you won't be able to do much with your new
 	  shiny Linux system :-)
 
+config VT_UNICODE
+	bool "Virtual console is Unicode by default"
+	depends on VT
+	default n
+	---help---
+	  If you say Y here, the virtual terminal will be in UTF-8 by default,
+	  and the keyboard will run in unicode mode.
+
+	  If you say N here, the virtual terminal will not be in UTF-8 by
+	  default, and the keyboard will run in XLATE mode.
+
+	  This can also be changed by passing 'default_utf8=<0|1>' on the
+	  kernel command line.
+
+	  Historically, the kernel has defaulted to non-UTF8 and XLATE mode.
+	  If unsure, say N here.
+
 config VT_CONSOLE
 	bool "Support for console on virtual terminal" if EMBEDDED
 	depends on VT
@@ -568,8 +585,8 @@ config TIPAR
 config HVC_DRIVER
 	bool
 	help
-	  Users of pSeries machines that want to utilize the hvc console front-end
-	  module for their backend console driver should select this option.
+	  Generic "hypervisor virtual console" infrastructure for various
+	  hypervisors (pSeries, iSeries, Xen, lguest).
 	  It will automatically be selected if one of the back-end console drivers
 	  is selected.
 
@@ -895,10 +912,6 @@ config GPIO_TB0219
 	tristate "TANBAC TB0219 GPIO support"
 	depends on TANBAC_TB022X
 	select GPIO_VR41XX
-
-source "drivers/char/agp/Kconfig"
-
-source "drivers/char/drm/Kconfig"
 
 source "drivers/char/pcmcia/Kconfig"
 
