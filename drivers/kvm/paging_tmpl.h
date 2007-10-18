@@ -151,23 +151,19 @@ static int FNAME(walk_addr)(struct guest_walker *walker,
 		--walker->level;
 		kvm_release_page(page);
 	}
-	kvm_release_page(page);
 
 	if (write_fault && !is_dirty_pte(pte)) {
-		hpa_t hpa;
-
 		mark_page_dirty(vcpu->kvm, table_gfn);
 		pte |= PT_DIRTY_MASK;
 		table = kmap_atomic(page, KM_USER0);
 		table[index] = pte;
 		kunmap_atomic(table, KM_USER0);
-		hpa = gpa_to_hpa(vcpu->kvm, pte & PT64_BASE_ADDR_MASK);
-		pte_gpa = hpa + index * sizeof(pt_element_t);
+		pte_gpa = table_gfn << PAGE_SHIFT;
+		pte_gpa += index * sizeof(pt_element_t);
 		kvm_mmu_pte_write(vcpu, pte_gpa, (u8 *)&pte, sizeof(pte));
-		kvm_release_page(pfn_to_page((hpa & PT64_BASE_ADDR_MASK)
-					     >> PAGE_SHIFT));
 	}
 
+	kvm_release_page(page);
 	walker->pte = pte;
 	pgprintk("%s: pte %llx\n", __FUNCTION__, (u64)pte);
 	return 1;
