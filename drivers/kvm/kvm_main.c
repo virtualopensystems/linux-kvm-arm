@@ -320,19 +320,6 @@ static struct kvm *kvm_create_vm(void)
 	return kvm;
 }
 
-static void kvm_free_userspace_physmem(struct kvm_memory_slot *free)
-{
-	int i;
-
-	for (i = 0; i < free->npages; ++i) {
-		if (free->phys_mem[i]) {
-			if (!PageReserved(free->phys_mem[i]))
-				SetPageDirty(free->phys_mem[i]);
-			page_cache_release(free->phys_mem[i]);
-		}
-	}
-}
-
 static void kvm_free_kernel_physmem(struct kvm_memory_slot *free)
 {
 	int i;
@@ -350,9 +337,7 @@ static void kvm_free_physmem_slot(struct kvm_memory_slot *free,
 {
 	if (!dont || free->phys_mem != dont->phys_mem)
 		if (free->phys_mem) {
-			if (free->user_alloc)
-				kvm_free_userspace_physmem(free);
-			else
+			if (!free->user_alloc)
 				kvm_free_kernel_physmem(free);
 			vfree(free->phys_mem);
 		}
@@ -381,7 +366,7 @@ static void free_pio_guest_pages(struct kvm_vcpu *vcpu)
 
 	for (i = 0; i < ARRAY_SIZE(vcpu->pio.guest_pages); ++i)
 		if (vcpu->pio.guest_pages[i]) {
-			__free_page(vcpu->pio.guest_pages[i]);
+			kvm_release_page(vcpu->pio.guest_pages[i]);
 			vcpu->pio.guest_pages[i] = NULL;
 		}
 }
@@ -772,19 +757,8 @@ static int kvm_vm_ioctl_set_memory_region(struct kvm *kvm,
 		memset(new.phys_mem, 0, npages * sizeof(struct page *));
 		memset(new.rmap, 0, npages * sizeof(*new.rmap));
 		if (user_alloc) {
-			unsigned long pages_num;
-
 			new.user_alloc = 1;
-			down_read(&current->mm->mmap_sem);
-
-			pages_num = get_user_pages(current, current->mm,
-						   mem->userspace_addr,
-						   npages, 1, 0, new.phys_mem,
-						   NULL);
-
-			up_read(&current->mm->mmap_sem);
-			if (pages_num != npages)
-				goto out_unlock;
+			new.userspace_addr = mem->userspace_addr;
 		} else {
 			for (i = 0; i < npages; ++i) {
 				new.phys_mem[i] = alloc_page(GFP_HIGHUSER
@@ -1059,11 +1033,38 @@ struct page *gfn_to_page(struct kvm *kvm, gfn_t gfn)
 
 	gfn = unalias_gfn(kvm, gfn);
 	slot = __gfn_to_memslot(kvm, gfn);
-	if (!slot)
+	if (!slot) {
+		get_page(bad_page);
 		return bad_page;
+	}
+	if (slot->user_alloc) {
+		struct page *page[1];
+		int npages;
+
+		down_read(&current->mm->mmap_sem);
+		npages = get_user_pages(current, current->mm,
+					slot->userspace_addr
+					+ (gfn - slot->base_gfn) * PAGE_SIZE, 1,
+					1, 0, page, NULL);
+		up_read(&current->mm->mmap_sem);
+		if (npages != 1) {
+			get_page(bad_page);
+			return bad_page;
+		}
+		return page[0];
+	}
+	get_page(slot->phys_mem[gfn - slot->base_gfn]);
 	return slot->phys_mem[gfn - slot->base_gfn];
 }
 EXPORT_SYMBOL_GPL(gfn_to_page);
+
+void kvm_release_page(struct page *page)
+{
+	if (!PageReserved(page))
+		SetPageDirty(page);
+	put_page(page);
+}
+EXPORT_SYMBOL_GPL(kvm_release_page);
 
 static int next_segment(unsigned long len, int offset)
 {
@@ -1080,13 +1081,16 @@ int kvm_read_guest_page(struct kvm *kvm, gfn_t gfn, void *data, int offset,
 	struct page *page;
 
 	page = gfn_to_page(kvm, gfn);
-	if (is_error_page(page))
+	if (is_error_page(page)) {
+		kvm_release_page(page);
 		return -EFAULT;
+	}
 	page_virt = kmap_atomic(page, KM_USER0);
 
 	memcpy(data, page_virt + offset, len);
 
 	kunmap_atomic(page_virt, KM_USER0);
+	kvm_release_page(page);
 	return 0;
 }
 EXPORT_SYMBOL_GPL(kvm_read_guest_page);
@@ -1118,14 +1122,17 @@ int kvm_write_guest_page(struct kvm *kvm, gfn_t gfn, const void *data,
 	struct page *page;
 
 	page = gfn_to_page(kvm, gfn);
-	if (is_error_page(page))
+	if (is_error_page(page)) {
+		kvm_release_page(page);
 		return -EFAULT;
+	}
 	page_virt = kmap_atomic(page, KM_USER0);
 
 	memcpy(page_virt + offset, data, len);
 
 	kunmap_atomic(page_virt, KM_USER0);
 	mark_page_dirty(kvm, gfn);
+	kvm_release_page(page);
 	return 0;
 }
 EXPORT_SYMBOL_GPL(kvm_write_guest_page);
@@ -1156,13 +1163,16 @@ int kvm_clear_guest_page(struct kvm *kvm, gfn_t gfn, int offset, int len)
 	struct page *page;
 
 	page = gfn_to_page(kvm, gfn);
-	if (is_error_page(page))
+	if (is_error_page(page)) {
+		kvm_release_page(page);
 		return -EFAULT;
+	}
 	page_virt = kmap_atomic(page, KM_USER0);
 
 	memset(page_virt + offset, 0, len);
 
 	kunmap_atomic(page_virt, KM_USER0);
+	kvm_release_page(page);
 	return 0;
 }
 EXPORT_SYMBOL_GPL(kvm_clear_guest_page);
@@ -2091,8 +2101,6 @@ int kvm_emulate_pio_string(struct kvm_vcpu *vcpu, struct kvm_run *run, int in,
 	for (i = 0; i < nr_pages; ++i) {
 		mutex_lock(&vcpu->kvm->lock);
 		page = gva_to_page(vcpu, address + i * PAGE_SIZE);
-		if (page)
-			get_page(page);
 		vcpu->pio.guest_pages[i] = page;
 		mutex_unlock(&vcpu->kvm->lock);
 		if (!page) {
@@ -3093,9 +3101,10 @@ static struct page *kvm_vm_nopage(struct vm_area_struct *vma,
 
 	pgoff = ((address - vma->vm_start) >> PAGE_SHIFT) + vma->vm_pgoff;
 	page = gfn_to_page(kvm, pgoff);
-	if (is_error_page(page))
+	if (is_error_page(page)) {
+		kvm_release_page(page);
 		return NOPAGE_SIGBUS;
-	get_page(page);
+	}
 	if (type != NULL)
 		*type = VM_FAULT_MINOR;
 
