@@ -1431,7 +1431,6 @@ static int vmx_vcpu_setup(struct vcpu_vmx *vmx)
 	unsigned long a;
 	struct descriptor_table dt;
 	int i;
-	int ret = 0;
 	unsigned long kvm_vmx_return;
 	u32 exec_control;
 
