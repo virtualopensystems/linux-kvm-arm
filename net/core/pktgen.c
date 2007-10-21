@@ -6,7 +6,7 @@
  *
  * Alexey Kuznetsov  <kuznet@ms2.inr.ac.ru>
  * Ben Greear <greearb@candelatech.com>
- * Jens Låås <jens.laas@data.slu.se>
+ * Jens LÃ¥Ã¥s <jens.laas@data.slu.se>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -161,7 +161,7 @@
 #endif
 #include <asm/byteorder.h>
 #include <linux/rcupdate.h>
-#include <asm/bitops.h>
+#include <linux/bitops.h>
 #include <asm/io.h>
 #include <asm/dma.h>
 #include <asm/uaccess.h>
@@ -2454,7 +2454,7 @@ static int pktgen_output_ipsec(struct sk_buff *skb, struct pktgen_dev *pkt_dev)
 	spin_lock(&x->lock);
 	iph = ip_hdr(skb);
 
-	err = x->mode->output(x, skb);
+	err = x->outer_mode->output(x, skb);
 	if (err)
 		goto error;
 	err = x->type->output(x, skb);
@@ -3514,7 +3514,7 @@ static int pktgen_thread_worker(void *arg)
 
 	init_waitqueue_head(&t->queue);
 
-	pr_debug("pktgen: starting pktgen/%d:  pid=%d\n", cpu, current->pid);
+	pr_debug("pktgen: starting pktgen/%d:  pid=%d\n", cpu, task_pid_nr(current));
 
 	set_current_state(TASK_INTERRUPTIBLE);
 

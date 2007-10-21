@@ -56,6 +56,7 @@ static struct inode *fuse_alloc_inode(struct super_block *sb)
 	fi->i_time = 0;
 	fi->nodeid = 0;
 	fi->nlookup = 0;
+	INIT_LIST_HEAD(&fi->write_files);
 	fi->forget_req = fuse_request_alloc();
 	if (!fi->forget_req) {
 		kmem_cache_free(fuse_inode_cachep, inode);
@@ -68,6 +69,7 @@ static struct inode *fuse_alloc_inode(struct super_block *sb)
 static void fuse_destroy_inode(struct inode *inode)
 {
 	struct fuse_inode *fi = get_fuse_inode(inode);
+	BUG_ON(!list_empty(&fi->write_files));
 	if (fi->forget_req)
 		fuse_request_free(fi->forget_req);
 	kmem_cache_free(fuse_inode_cachep, inode);
@@ -117,11 +119,21 @@ static void fuse_truncate(struct address_space *mapping, loff_t offset)
 	unmap_mapping_range(mapping, offset + PAGE_SIZE - 1, 0, 1);
 }
 
-void fuse_change_attributes(struct inode *inode, struct fuse_attr *attr)
+
+void fuse_change_attributes(struct inode *inode, struct fuse_attr *attr,
+			    u64 attr_valid, u64 attr_version)
 {
 	struct fuse_conn *fc = get_fuse_conn(inode);
 	struct fuse_inode *fi = get_fuse_inode(inode);
 	loff_t oldsize;
+
+	spin_lock(&fc->lock);
+	if (attr_version != 0 && fi->attr_version > attr_version) {
+		spin_unlock(&fc->lock);
+		return;
+	}
+	fi->attr_version = ++fc->attr_version;
+	fi->i_time = attr_valid;
 
 	inode->i_ino     = attr->ino;
 	inode->i_mode    = (inode->i_mode & S_IFMT) | (attr->mode & 07777);
@@ -136,6 +148,11 @@ void fuse_change_attributes(struct inode *inode, struct fuse_attr *attr)
 	inode->i_ctime.tv_sec   = attr->ctime;
 	inode->i_ctime.tv_nsec  = attr->ctimensec;
 
+	if (attr->blksize != 0)
+		inode->i_blkbits = ilog2(attr->blksize);
+	else
+		inode->i_blkbits = inode->i_sb->s_blocksize_bits;
+
 	/*
 	 * Don't set the sticky bit in i_mode, unless we want the VFS
 	 * to check permissions.  This prevents failures due to the
@@ -145,7 +162,6 @@ void fuse_change_attributes(struct inode *inode, struct fuse_attr *attr)
 	if (!(fc->flags & FUSE_DEFAULT_PERMISSIONS))
 		inode->i_mode &= ~S_ISVTX;
 
-	spin_lock(&fc->lock);
 	oldsize = inode->i_size;
 	i_size_write(inode, attr->size);
 	spin_unlock(&fc->lock);
@@ -194,7 +210,8 @@ static int fuse_inode_set(struct inode *inode, void *_nodeidp)
 }
 
 struct inode *fuse_iget(struct super_block *sb, unsigned long nodeid,
-			int generation, struct fuse_attr *attr)
+			int generation, struct fuse_attr *attr,
+			u64 attr_valid, u64 attr_version)
 {
 	struct inode *inode;
 	struct fuse_inode *fi;
@@ -222,7 +239,8 @@ struct inode *fuse_iget(struct super_block *sb, unsigned long nodeid,
 	spin_lock(&fc->lock);
 	fi->nlookup ++;
 	spin_unlock(&fc->lock);
-	fuse_change_attributes(inode, attr);
+	fuse_change_attributes(inode, attr, attr_valid, attr_version);
+
 	return inode;
 }
 
@@ -286,6 +304,11 @@ static int fuse_statfs(struct dentry *dentry, struct kstatfs *buf)
 	struct fuse_req *req;
 	struct fuse_statfs_out outarg;
 	int err;
+
+	if (!fuse_allow_task(fc, current)) {
+		buf->f_type = FUSE_SUPER_MAGIC;
+		return 0;
+	}
 
 	req = fuse_get_req(fc);
 	if (IS_ERR(req))
@@ -452,6 +475,7 @@ static struct fuse_conn *new_conn(void)
 		}
 		fc->reqctr = 0;
 		fc->blocked = 1;
+		fc->attr_version = 1;
 		get_random_bytes(&fc->scramble_key, sizeof(fc->scramble_key));
 	}
 out:
@@ -483,7 +507,7 @@ static struct inode *get_root_inode(struct super_block *sb, unsigned mode)
 	attr.mode = mode;
 	attr.ino = FUSE_ROOT_ID;
 	attr.nlink = 1;
-	return fuse_iget(sb, 1, 0, &attr);
+	return fuse_iget(sb, 1, 0, &attr, 0, 0);
 }
 
 static const struct super_operations fuse_super_operations = {
@@ -514,6 +538,8 @@ static void process_init_reply(struct fuse_conn *fc, struct fuse_req *req)
 				fc->async_read = 1;
 			if (!(arg->flags & FUSE_POSIX_LOCKS))
 				fc->no_lock = 1;
+			if (arg->flags & FUSE_ATOMIC_O_TRUNC)
+				fc->atomic_o_trunc = 1;
 		} else {
 			ra_pages = fc->max_read / PAGE_CACHE_SIZE;
 			fc->no_lock = 1;
@@ -536,7 +562,8 @@ static void fuse_send_init(struct fuse_conn *fc, struct fuse_req *req)
 	arg->major = FUSE_KERNEL_VERSION;
 	arg->minor = FUSE_KERNEL_MINOR_VERSION;
 	arg->max_readahead = fc->bdi.ra_pages * PAGE_CACHE_SIZE;
-	arg->flags |= FUSE_ASYNC_READ | FUSE_POSIX_LOCKS;
+	arg->flags |= FUSE_ASYNC_READ | FUSE_POSIX_LOCKS | FUSE_FILE_OPS |
+		FUSE_ATOMIC_O_TRUNC;
 	req->in.h.opcode = FUSE_INIT;
 	req->in.numargs = 1;
 	req->in.args[0].size = sizeof(*arg);

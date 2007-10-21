@@ -26,19 +26,6 @@ static struct kmem_cache *nsproxy_cachep;
 
 struct nsproxy init_nsproxy = INIT_NSPROXY(init_nsproxy);
 
-static inline void get_nsproxy(struct nsproxy *ns)
-{
-	atomic_inc(&ns->count);
-}
-
-void get_task_namespaces(struct task_struct *tsk)
-{
-	struct nsproxy *ns = tsk->nsproxy;
-	if (ns) {
-		get_nsproxy(ns);
-	}
-}
-
 /*
  * creates a copy of "orig" with refcount 1.
  */
@@ -87,7 +74,7 @@ static struct nsproxy *create_new_namespaces(unsigned long flags,
 		goto out_ipc;
 	}
 
-	new_nsp->pid_ns = copy_pid_ns(flags, tsk->nsproxy->pid_ns);
+	new_nsp->pid_ns = copy_pid_ns(flags, task_active_pid_ns(tsk));
 	if (IS_ERR(new_nsp->pid_ns)) {
 		err = PTR_ERR(new_nsp->pid_ns);
 		goto out_pid;
@@ -142,7 +129,8 @@ int copy_namespaces(unsigned long flags, struct task_struct *tsk)
 
 	get_nsproxy(old_ns);
 
-	if (!(flags & (CLONE_NEWNS | CLONE_NEWUTS | CLONE_NEWIPC | CLONE_NEWUSER | CLONE_NEWNET)))
+	if (!(flags & (CLONE_NEWNS | CLONE_NEWUTS | CLONE_NEWIPC |
+				CLONE_NEWUSER | CLONE_NEWPID | CLONE_NEWNET)))
 		return 0;
 
 	if (!capable(CAP_SYS_ADMIN)) {
@@ -156,7 +144,14 @@ int copy_namespaces(unsigned long flags, struct task_struct *tsk)
 		goto out;
 	}
 
+	err = ns_cgroup_clone(tsk);
+	if (err) {
+		put_nsproxy(new_ns);
+		goto out;
+	}
+
 	tsk->nsproxy = new_ns;
+
 out:
 	put_nsproxy(old_ns);
 	return err;
@@ -196,9 +191,44 @@ int unshare_nsproxy_namespaces(unsigned long unshare_flags,
 
 	*new_nsp = create_new_namespaces(unshare_flags, current,
 				new_fs ? new_fs : current->fs);
-	if (IS_ERR(*new_nsp))
+	if (IS_ERR(*new_nsp)) {
 		err = PTR_ERR(*new_nsp);
+		goto out;
+	}
+
+	err = ns_cgroup_clone(current);
+	if (err)
+		put_nsproxy(*new_nsp);
+
+out:
 	return err;
+}
+
+void switch_task_namespaces(struct task_struct *p, struct nsproxy *new)
+{
+	struct nsproxy *ns;
+
+	might_sleep();
+
+	ns = p->nsproxy;
+
+	rcu_assign_pointer(p->nsproxy, new);
+
+	if (ns && atomic_dec_and_test(&ns->count)) {
+		/*
+		 * wait for others to get what they want from this nsproxy.
+		 *
+		 * cannot release this nsproxy via the call_rcu() since
+		 * put_mnt_ns() will want to sleep
+		 */
+		synchronize_rcu();
+		free_nsproxy(ns);
+	}
+}
+
+void exit_task_namespaces(struct task_struct *p)
+{
+	switch_task_namespaces(p, NULL);
 }
 
 static int __init nsproxy_cache_init(void)

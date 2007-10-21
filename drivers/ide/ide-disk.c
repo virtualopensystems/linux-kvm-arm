@@ -169,7 +169,7 @@ static ide_startstop_t __ide_do_rw_disk(ide_drive_t *drive, struct request *rq, 
 
 	nsectors.all		= (u16) rq->nr_sectors;
 
-	if (hwif->no_lba48_dma && lba48 && dma) {
+	if ((hwif->host_flags & IDE_HFLAG_NO_LBA48_DMA) && lba48 && dma) {
 		if (block + rq->nr_sectors > 1ULL << 28)
 			dma = 0;
 		else
@@ -593,28 +593,12 @@ static int smart_enable(ide_drive_t *drive)
 	return ide_raw_taskfile(drive, &args, NULL);
 }
 
-static int get_smart_values(ide_drive_t *drive, u8 *buf)
+static int get_smart_data(ide_drive_t *drive, u8 *buf, u8 sub_cmd)
 {
 	ide_task_t args;
 
 	memset(&args, 0, sizeof(ide_task_t));
-	args.tfRegister[IDE_FEATURE_OFFSET]	= SMART_READ_VALUES;
-	args.tfRegister[IDE_NSECTOR_OFFSET]	= 0x01;
-	args.tfRegister[IDE_LCYL_OFFSET]	= SMART_LCYL_PASS;
-	args.tfRegister[IDE_HCYL_OFFSET]	= SMART_HCYL_PASS;
-	args.tfRegister[IDE_COMMAND_OFFSET]	= WIN_SMART;
-	args.command_type			= IDE_DRIVE_TASK_IN;
-	args.data_phase				= TASKFILE_IN;
-	args.handler				= &task_in_intr;
-	(void) smart_enable(drive);
-	return ide_raw_taskfile(drive, &args, buf);
-}
-
-static int get_smart_thresholds(ide_drive_t *drive, u8 *buf)
-{
-	ide_task_t args;
-	memset(&args, 0, sizeof(ide_task_t));
-	args.tfRegister[IDE_FEATURE_OFFSET]	= SMART_READ_THRESHOLDS;
+	args.tfRegister[IDE_FEATURE_OFFSET]	= sub_cmd;
 	args.tfRegister[IDE_NSECTOR_OFFSET]	= 0x01;
 	args.tfRegister[IDE_LCYL_OFFSET]	= SMART_LCYL_PASS;
 	args.tfRegister[IDE_HCYL_OFFSET]	= SMART_HCYL_PASS;
@@ -656,7 +640,7 @@ static int proc_idedisk_read_smart_thresholds
 	ide_drive_t	*drive = (ide_drive_t *)data;
 	int		len = 0, i = 0;
 
-	if (!get_smart_thresholds(drive, page)) {
+	if (get_smart_data(drive, page, SMART_READ_THRESHOLDS) == 0) {
 		unsigned short *val = (unsigned short *) page;
 		char *out = ((char *)val) + (SECTOR_WORDS * 4);
 		page = out;
@@ -675,7 +659,7 @@ static int proc_idedisk_read_smart_values
 	ide_drive_t	*drive = (ide_drive_t *)data;
 	int		len = 0, i = 0;
 
-	if (!get_smart_values(drive, page)) {
+	if (get_smart_data(drive, page, SMART_READ_VALUES) == 0) {
 		unsigned short *val = (unsigned short *) page;
 		char *out = ((char *)val) + (SECTOR_WORDS * 4);
 		page = out;
@@ -856,7 +840,7 @@ static int set_lba_addressing(ide_drive_t *drive, int arg)
 
 	drive->addressing =  0;
 
-	if (HWIF(drive)->no_lba48)
+	if (drive->hwif->host_flags & IDE_HFLAG_NO_LBA48)
 		return 0;
 
 	if (!idedisk_supports_lba48(drive->id))
@@ -889,6 +873,7 @@ static inline void idedisk_add_settings(ide_drive_t *drive) { ; }
 
 static void idedisk_setup (ide_drive_t *drive)
 {
+	ide_hwif_t *hwif = drive->hwif;
 	struct hd_driveid *id = drive->id;
 	unsigned long long capacity;
 
@@ -909,7 +894,6 @@ static void idedisk_setup (ide_drive_t *drive)
 	(void)set_lba_addressing(drive, 1);
 
 	if (drive->addressing == 1) {
-		ide_hwif_t *hwif = HWIF(drive);
 		int max_s = 2048;
 
 		if (max_s > hwif->rqsize)
@@ -932,7 +916,7 @@ static void idedisk_setup (ide_drive_t *drive)
 		drive->capacity64 = 1ULL << 28;
 	}
 
-	if (drive->hwif->no_lba48_dma && drive->addressing) {
+	if ((hwif->host_flags & IDE_HFLAG_NO_LBA48_DMA) && drive->addressing) {
 		if (drive->capacity64 > 1ULL << 28) {
 			printk(KERN_INFO "%s: cannot use LBA48 DMA - PIO mode will"
 					 " be used for accessing sectors > %u\n",

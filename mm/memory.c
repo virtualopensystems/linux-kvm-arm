@@ -259,9 +259,6 @@ void free_pgd_range(struct mmu_gather **tlb,
 			continue;
 		free_pud_range(*tlb, pgd, addr, next, floor, ceiling);
 	} while (pgd++, addr = next, addr != end);
-
-	if (!(*tlb)->fullmm)
-		flush_tlb_pgtables((*tlb)->mm, start, end);
 }
 
 void free_pgtables(struct mmu_gather **tlb, struct vm_area_struct *vma,
@@ -2716,7 +2713,7 @@ int access_process_vm(struct task_struct *tsk, unsigned long addr, void *buf, in
 		return 0;
 
 	down_read(&mm->mmap_sem);
-	/* ignore errors, just check how much was sucessfully transfered */
+	/* ignore errors, just check how much was successfully transferred */
 	while (len) {
 		int bytes, ret, offset;
 		void *maddr;

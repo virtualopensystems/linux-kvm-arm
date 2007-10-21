@@ -156,7 +156,7 @@ void ata_tf_read(struct ata_port *ap, struct ata_taskfile *tf)
 {
 	struct ata_ioports *ioaddr = &ap->ioaddr;
 
-	tf->command = ata_check_status(ap);
+	tf->command = ata_chk_status(ap);
 	tf->feature = ioread8(ioaddr->error_addr);
 	tf->nsect = ioread8(ioaddr->nsect_addr);
 	tf->lbal = ioread8(ioaddr->lbal_addr);
@@ -856,7 +856,7 @@ err_out:
  *	@pdev: PCI device
  *
  *	Some PCI ATA devices report simplex mode but in fact can be told to
- *	enter non simplex mode. This implements the neccessary logic to
+ *	enter non simplex mode. This implements the necessary logic to
  *	perform the task on such devices. Calling it on other devices will
  *	have -undefined- behaviour.
  */
@@ -882,7 +882,7 @@ unsigned long ata_pci_default_filter(struct ata_device *adev, unsigned long xfer
 	/* Filter out DMA modes if the device has been configured by
 	   the BIOS as PIO only */
 
-	if (adev->link->ap->ioaddr.bmdma_addr == 0)
+	if (adev->link->ap->ioaddr.bmdma_addr == NULL)
 		xfer_mask &= ~(ATA_MASK_MWDMA | ATA_MASK_UDMA);
 	return xfer_mask;
 }

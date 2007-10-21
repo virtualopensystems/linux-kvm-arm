@@ -46,7 +46,7 @@
 #include <linux/vmalloc.h>
 #include <linux/wait.h>
 #include <linux/workqueue.h>
-#include <asm/bitops.h>
+#include <linux/bitops.h>
 #include <asm/pci-bridge.h>
 #include <net/checksum.h>
 
@@ -1639,7 +1639,7 @@ spider_net_handle_error_irq(struct spider_net_card *card, u32 status_reg)
 
 /**
  * spider_net_interrupt - interrupt handler for spider_net
- * @irq: interupt number
+ * @irq: interrupt number
  * @ptr: pointer to net_device
  * @regs: PU registers
  *

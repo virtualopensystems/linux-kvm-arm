@@ -125,7 +125,8 @@ extern struct proc_dir_entry *create_proc_entry(const char *name, mode_t mode,
 extern void remove_proc_entry(const char *name, struct proc_dir_entry *parent);
 
 extern struct vfsmount *proc_mnt;
-extern int proc_fill_super(struct super_block *,void *,int);
+struct pid_namespace;
+extern int proc_fill_super(struct super_block *);
 extern struct inode *proc_get_inode(struct super_block *, unsigned int, struct proc_dir_entry *);
 
 /*
@@ -141,6 +142,9 @@ extern struct dentry *proc_lookup(struct inode *, struct dentry *, struct nameid
 extern const struct file_operations proc_kcore_operations;
 extern const struct file_operations proc_kmsg_operations;
 extern const struct file_operations ppc_htab_operations;
+
+extern int pid_ns_prepare_proc(struct pid_namespace *ns);
+extern void pid_ns_release_proc(struct pid_namespace *ns);
 
 /*
  * proc_tty.c
@@ -207,7 +211,9 @@ extern void proc_net_remove(struct net *net, const char *name);
 #define proc_net_create(net, name, mode, info)	({ (void)(mode), NULL; })
 static inline void proc_net_remove(struct net *net, const char *name) {}
 
-static inline void proc_flush_task(struct task_struct *task) { }
+static inline void proc_flush_task(struct task_struct *task)
+{
+}
 
 static inline struct proc_dir_entry *create_proc_entry(const char *name,
 	mode_t mode, struct proc_dir_entry *parent) { return NULL; }
@@ -231,6 +237,15 @@ static inline void proc_tty_register_driver(struct tty_driver *driver) {};
 static inline void proc_tty_unregister_driver(struct tty_driver *driver) {};
 
 extern struct proc_dir_entry proc_root;
+
+static inline int pid_ns_prepare_proc(struct pid_namespace *ns)
+{
+	return 0;
+}
+
+static inline void pid_ns_release_proc(struct pid_namespace *ns)
+{
+}
 
 #endif /* CONFIG_PROC_FS */
 

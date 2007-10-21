@@ -212,7 +212,7 @@ static struct task_struct *select_bad_process(unsigned long *ppoints)
 		if (!p->mm)
 			continue;
 		/* skip the init task */
-		if (is_init(p))
+		if (is_global_init(p))
 			continue;
 
 		/*
@@ -265,7 +265,7 @@ static struct task_struct *select_bad_process(unsigned long *ppoints)
  */
 static void __oom_kill_task(struct task_struct *p, int verbose)
 {
-	if (is_init(p)) {
+	if (is_global_init(p)) {
 		WARN_ON(1);
 		printk(KERN_WARNING "tried to kill init!\n");
 		return;
@@ -278,7 +278,8 @@ static void __oom_kill_task(struct task_struct *p, int verbose)
 	}
 
 	if (verbose)
-		printk(KERN_ERR "Killed process %d (%s)\n", p->pid, p->comm);
+		printk(KERN_ERR "Killed process %d (%s)\n",
+				task_pid_nr(p), p->comm);
 
 	/*
 	 * We give our sacrificial lamb high priority and access to
@@ -326,7 +327,7 @@ static int oom_kill_task(struct task_struct *p)
 	 * to memory reserves though, otherwise we might deplete all memory.
 	 */
 	do_each_thread(g, q) {
-		if (q->mm == mm && q->tgid != p->tgid)
+		if (q->mm == mm && !same_thread_group(q, p))
 			force_sig(SIGKILL, q);
 	} while_each_thread(g, q);
 
@@ -337,7 +338,6 @@ static int oom_kill_process(struct task_struct *p, gfp_t gfp_mask, int order,
 			    unsigned long points, const char *message)
 {
 	struct task_struct *c;
-	struct list_head *tsk;
 
 	if (printk_ratelimit()) {
 		printk(KERN_WARNING "%s invoked oom-killer: "
@@ -357,11 +357,10 @@ static int oom_kill_process(struct task_struct *p, gfp_t gfp_mask, int order,
 	}
 
 	printk(KERN_ERR "%s: kill process %d (%s) score %li or a child\n",
-					message, p->pid, p->comm, points);
+					message, task_pid_nr(p), p->comm, points);
 
 	/* Try to kill a child first */
-	list_for_each(tsk, &p->children) {
-		c = list_entry(tsk, struct task_struct, sibling);
+	list_for_each_entry(c, &p->children, sibling) {
 		if (c->mm == p->mm)
 			continue;
 		if (!oom_kill_task(c))
@@ -497,7 +496,7 @@ retry:
 			panic("Out of memory and no killable processes...\n");
 		}
 
-		if (oom_kill_process(p, points, gfp_mask, order,
+		if (oom_kill_process(p, gfp_mask, order, points,
 				     "Out of memory"))
 			goto retry;
 

@@ -250,8 +250,6 @@ static void __devinit init_hwif_trm290(ide_hwif_t *hwif)
 	u8 reg = 0;
 	struct pci_dev *dev = hwif->pci_dev;
 
-	hwif->no_lba48 = 1;
-	hwif->chipset = ide_trm290;
 	cfgbase = pci_resource_start(dev, 4);
 	if ((dev->class & 5) && cfgbase) {
 		hwif->config_data = cfgbase;
@@ -321,14 +319,17 @@ static void __devinit init_hwif_trm290(ide_hwif_t *hwif)
 #endif
 }
 
-static ide_pci_device_t trm290_chipset __devinitdata = {
+static const struct ide_port_info trm290_chipset __devinitdata = {
 	.name		= "TRM290",
 	.init_hwif	= init_hwif_trm290,
-	.autodma	= NOAUTODMA,
-	.bootable	= ON_BOARD,
+	.chipset	= ide_trm290,
+	.host_flags	= IDE_HFLAG_NO_ATAPI_DMA |
 #if 0 /* play it safe for now */
-	.host_flags	= IDE_HFLAG_TRUST_BIOS_FOR_DMA,
+			  IDE_HFLAG_TRUST_BIOS_FOR_DMA |
 #endif
+			  IDE_HFLAG_NO_AUTODMA |
+			  IDE_HFLAG_BOOTABLE |
+			  IDE_HFLAG_NO_LBA48,
 };
 
 static int __devinit trm290_init_one(struct pci_dev *dev, const struct pci_device_id *id)

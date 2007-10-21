@@ -1027,7 +1027,7 @@ struct buffer_head *ext4_getblk(handle_t *handle, struct inode *inode,
 		}
 		if (buffer_new(&dummy)) {
 			J_ASSERT(create != 0);
-			J_ASSERT(handle != 0);
+			J_ASSERT(handle != NULL);
 
 			/*
 			 * Now that we do not always journal data, we should
@@ -2711,11 +2711,6 @@ void ext4_read_inode(struct inode * inode)
 	}
 	inode->i_blocks = le32_to_cpu(raw_inode->i_blocks);
 	ei->i_flags = le32_to_cpu(raw_inode->i_flags);
-#ifdef EXT4_FRAGMENTS
-	ei->i_faddr = le32_to_cpu(raw_inode->i_faddr);
-	ei->i_frag_no = raw_inode->i_frag;
-	ei->i_frag_size = raw_inode->i_fsize;
-#endif
 	ei->i_file_acl = le32_to_cpu(raw_inode->i_file_acl);
 	if (EXT4_SB(inode->i_sb)->s_es->s_creator_os !=
 	    cpu_to_le32(EXT4_OS_HURD))
@@ -2860,11 +2855,6 @@ static int ext4_do_update_inode(handle_t *handle,
 	raw_inode->i_blocks = cpu_to_le32(inode->i_blocks);
 	raw_inode->i_dtime = cpu_to_le32(ei->i_dtime);
 	raw_inode->i_flags = cpu_to_le32(ei->i_flags);
-#ifdef EXT4_FRAGMENTS
-	raw_inode->i_faddr = cpu_to_le32(ei->i_faddr);
-	raw_inode->i_frag = ei->i_frag_no;
-	raw_inode->i_fsize = ei->i_frag_size;
-#endif
 	if (EXT4_SB(inode->i_sb)->s_es->s_creator_os !=
 	    cpu_to_le32(EXT4_OS_HURD))
 		raw_inode->i_file_acl_high =
@@ -3243,12 +3233,14 @@ int ext4_mark_inode_dirty(handle_t *handle, struct inode *inode)
 						      iloc, handle);
 			if (ret) {
 				EXT4_I(inode)->i_state |= EXT4_STATE_NO_EXPAND;
-				if (mnt_count != sbi->s_es->s_mnt_count) {
+				if (mnt_count !=
+					le16_to_cpu(sbi->s_es->s_mnt_count)) {
 					ext4_warning(inode->i_sb, __FUNCTION__,
 					"Unable to expand inode %lu. Delete"
 					" some EAs or run e2fsck.",
 					inode->i_ino);
-					mnt_count = sbi->s_es->s_mnt_count;
+					mnt_count =
+					  le16_to_cpu(sbi->s_es->s_mnt_count);
 				}
 			}
 		}

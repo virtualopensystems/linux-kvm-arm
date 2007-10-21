@@ -83,7 +83,7 @@
  *
  * (18/Jun/2003) Ian Abbott
  *      Added Device ID of the USB relais from Rudolf Gugler (backported from
- *      Philipp Gühring's patch for 2.5.x kernel).
+ *      Philipp GÃ¼hring's patch for 2.5.x kernel).
  *      Moved read transfer buffer reallocation into startup function.
  *      Free existing write urb and transfer buffer in startup function.
  *      Only use urbs in write urb pool that were successfully allocated.
@@ -1071,7 +1071,7 @@ static ssize_t show_latency_timer(struct device *dev, struct device_attribute *a
 			     (char*) &latency, 1, WDR_TIMEOUT);
 
 	if (rv < 0) {
-		dev_err(dev, "Unable to read latency timer: %i", rv);
+		dev_err(dev, "Unable to read latency timer: %i\n", rv);
 		return -EIO;
 	}
 	return sprintf(buf, "%i\n", latency);
@@ -1098,7 +1098,7 @@ static ssize_t store_latency_timer(struct device *dev, struct device_attribute *
 			     buf, 0, WDR_TIMEOUT);
 
 	if (rv < 0) {
-		dev_err(dev, "Unable to write latency timer: %i", rv);
+		dev_err(dev, "Unable to write latency timer: %i\n", rv);
 		return -EIO;
 	}
 

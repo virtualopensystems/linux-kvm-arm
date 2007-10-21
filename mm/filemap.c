@@ -25,6 +25,7 @@
 #include <linux/uio.h>
 #include <linux/hash.h>
 #include <linux/writeback.h>
+#include <linux/backing-dev.h>
 #include <linux/pagevec.h>
 #include <linux/blkdev.h>
 #include <linux/security.h>
@@ -840,7 +841,7 @@ static void shrink_readahead_size_eio(struct file *filp,
 /**
  * do_generic_mapping_read - generic file read routine
  * @mapping:	address_space to be read
- * @_ra:	file's readahead state
+ * @ra:		file's readahead state
  * @filp:	the file to read
  * @ppos:	current file position
  * @desc:	read_descriptor

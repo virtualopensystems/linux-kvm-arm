@@ -392,7 +392,7 @@ config X86_MCE_NONFATAL
 	  will look at the machine check registers to see if anything happened.
 	  Non-fatal problems automatically get corrected (but still logged).
 	  Disable this if you don't want to see these messages.
-	  Seeing the messages this option prints out may be indicative of dying hardware,
+	  Seeing the messages this option prints out may be indicative of dying
 	  or out-of-spec (ie, overclocked) hardware.
 	  This option only does something on certain CPUs.
 	  (AMD Athlon/Duron and Intel Pentium 4)
@@ -631,7 +631,7 @@ config NUMA
 	default n if X86_PC
 	default y if (X86_NUMAQ || X86_SUMMIT)
 	help
-	  NUMA support for i386. This is currently high experimental
+	  NUMA support for i386. This is currently highly experimental
 	  and should be only used for kernel development. It might also
 	  cause boot failures.
 
@@ -1080,7 +1080,9 @@ config APM_REAL_MODE_POWER_OFF
 
 endif # APM
 
-source "arch/x86/kernel/cpu/cpufreq/Kconfig"
+source "arch/x86/kernel/cpu/cpufreq/Kconfig_32"
+
+source "drivers/cpuidle/Kconfig"
 
 endmenu
 
@@ -1255,31 +1257,6 @@ source "net/Kconfig"
 source "drivers/Kconfig"
 
 source "fs/Kconfig"
-
-menuconfig INSTRUMENTATION
-	bool "Instrumentation Support"
-	default y
-	---help---
-	  Say Y here to get to see options related to performance measurement,
-	  debugging, and testing. This option alone does not add any kernel code.
-
-	  If you say N, all options in this submenu will be skipped and disabled.
-
-if INSTRUMENTATION
-
-source "arch/x86/oprofile/Kconfig"
-
-config KPROBES
-	bool "Kprobes"
-	depends on KALLSYMS && MODULES
-	help
-	  Kprobes allows you to trap at almost any kernel address and
-	  execute a callback function.  register_kprobe() establishes
-	  a probepoint and specifies the callback.  Kprobes is useful
-	  for kernel debugging, non-intrusive instrumentation and testing.
-	  If in doubt, say "N".
-
-endif # INSTRUMENTATION
 
 source "arch/i386/Kconfig.debug"
 

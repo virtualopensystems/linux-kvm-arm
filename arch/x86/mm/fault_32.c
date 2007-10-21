@@ -354,7 +354,7 @@ fastcall void __kprobes do_page_fault(struct pt_regs *regs,
 
 	/* When running in the kernel we expect faults to occur only to
 	 * addresses in user space.  All other faults represent errors in the
-	 * kernel and should generate an OOPS.  Unfortunatly, in the case of an
+	 * kernel and should generate an OOPS.  Unfortunately, in the case of an
 	 * erroneous fault occurring in a code path which already holds mmap_sem
 	 * we will deadlock attempting to validate the fault against the
 	 * address space.  Luckily the kernel only validly references user
@@ -362,7 +362,7 @@ fastcall void __kprobes do_page_fault(struct pt_regs *regs,
 	 * exceptions table.
 	 *
 	 * As the vast majority of faults will be valid we will only perform
-	 * the source reference check when there is a possibilty of a deadlock.
+	 * the source reference check when there is a possibility of a deadlock.
 	 * Attempt to lock the address space, if we cannot we then validate the
 	 * source.  If this is invalid we can skip the address space check,
 	 * thus avoiding the deadlock.
@@ -471,8 +471,8 @@ bad_area_nosemaphore:
 		    printk_ratelimit()) {
 			printk("%s%s[%d]: segfault at %08lx eip %08lx "
 			    "esp %08lx error %lx\n",
-			    tsk->pid > 1 ? KERN_INFO : KERN_EMERG,
-			    tsk->comm, tsk->pid, address, regs->eip,
+			    task_pid_nr(tsk) > 1 ? KERN_INFO : KERN_EMERG,
+			    tsk->comm, task_pid_nr(tsk), address, regs->eip,
 			    regs->esp, error_code);
 		}
 		tsk->thread.cr2 = address;
@@ -564,7 +564,8 @@ no_context:
 		 * it's allocated already.
 		 */
 		if ((page >> PAGE_SHIFT) < max_low_pfn
-		    && (page & _PAGE_PRESENT)) {
+		    && (page & _PAGE_PRESENT)
+		    && !(page & _PAGE_PSE)) {
 			page &= PAGE_MASK;
 			page = ((__typeof__(page) *) __va(page))[(address >> PAGE_SHIFT)
 			                                         & (PTRS_PER_PTE - 1)];
@@ -587,7 +588,7 @@ no_context:
  */
 out_of_memory:
 	up_read(&mm->mmap_sem);
-	if (is_init(tsk)) {
+	if (is_global_init(tsk)) {
 		yield();
 		down_read(&mm->mmap_sem);
 		goto survive;

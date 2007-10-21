@@ -3367,7 +3367,7 @@ void submit_bio(int rw, struct bio *bio)
 		if (unlikely(block_dump)) {
 			char b[BDEVNAME_SIZE];
 			printk(KERN_DEBUG "%s(%d): %s block %Lu on %s\n",
-				current->comm, current->pid,
+			current->comm, task_pid_nr(current),
 				(rw & WRITE) ? "WRITE" : "READ",
 				(unsigned long long)bio->bi_sector,
 				bdevname(bio->bi_bdev,b));
@@ -3739,7 +3739,7 @@ EXPORT_SYMBOL(end_dequeued_request);
 
 /**
  * end_request - end I/O on the current segment of the request
- * @rq:		the request being processed
+ * @req:	the request being processed
  * @uptodate:	error value or 0/1 uptodate flag
  *
  * Description:

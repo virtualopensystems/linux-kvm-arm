@@ -148,7 +148,7 @@ static void *cramfs_read(struct super_block *sb, unsigned int offset, unsigned i
 {
 	struct address_space *mapping = sb->s_bdev->bd_inode->i_mapping;
 	struct page *pages[BLKS_PER_BUF];
-	unsigned i, blocknr, buffer, unread;
+	unsigned i, blocknr, buffer;
 	unsigned long devsize;
 	char *data;
 
@@ -175,7 +175,6 @@ static void *cramfs_read(struct super_block *sb, unsigned int offset, unsigned i
 	devsize = mapping->host->i_size >> PAGE_CACHE_SHIFT;
 
 	/* Ok, read in BLKS_PER_BUF pages completely first. */
-	unread = 0;
 	for (i = 0; i < BLKS_PER_BUF; i++) {
 		struct page *page = NULL;
 
@@ -362,7 +361,7 @@ static int cramfs_readdir(struct file *filp, void *dirent, filldir_t filldir)
 	if (offset & 3)
 		return -EINVAL;
 
-	buf = kmalloc(256, GFP_KERNEL);
+	buf = kmalloc(CRAMFS_MAXPATHLEN, GFP_KERNEL);
 	if (!buf)
 		return -ENOMEM;
 
@@ -376,7 +375,7 @@ static int cramfs_readdir(struct file *filp, void *dirent, filldir_t filldir)
 		int namelen, error;
 
 		mutex_lock(&read_mutex);
-		de = cramfs_read(sb, OFFSET(inode) + offset, sizeof(*de)+256);
+		de = cramfs_read(sb, OFFSET(inode) + offset, sizeof(*de)+CRAMFS_MAXPATHLEN);
 		name = (char *)(de+1);
 
 		/*
@@ -426,7 +425,7 @@ static struct dentry * cramfs_lookup(struct inode *dir, struct dentry *dentry, s
 		char *name;
 		int namelen, retval;
 
-		de = cramfs_read(dir->i_sb, OFFSET(dir) + offset, sizeof(*de)+256);
+		de = cramfs_read(dir->i_sb, OFFSET(dir) + offset, sizeof(*de)+CRAMFS_MAXPATHLEN);
 		name = (char *)(de+1);
 
 		/* Try to take advantage of sorted directories */

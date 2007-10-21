@@ -95,7 +95,7 @@ struct it821x_dev
 
 /*
  *	We allow users to force the card into non raid mode without
- *	flashing the alternative BIOS. This is also neccessary right now
+ *	flashing the alternative BIOS. This is also necessary right now
  *	for embedded platforms that cannot run a PC BIOS but are using this
  *	device.
  */
@@ -544,12 +544,10 @@ static void __devinit init_hwif_it821x(ide_hwif_t *hwif)
 
 	ide_set_hwifdata(hwif, idev);
 
-	hwif->atapi_dma = 1;
-
 	pci_read_config_byte(hwif->pci_dev, 0x50, &conf);
-	if(conf & 1) {
+	if (conf & 1) {
 		idev->smart = 1;
-		hwif->atapi_dma = 0;
+		hwif->host_flags |= IDE_HFLAG_NO_ATAPI_DMA;
 		/* Long I/O's although allowed in LBA48 space cause the
 		   onboard firmware to enter the twighlight zone */
 		hwif->rqsize = 256;
@@ -566,14 +564,14 @@ static void __devinit init_hwif_it821x(ide_hwif_t *hwif)
 
 	/*
 	 *	Not in the docs but according to the reference driver
-	 *	this is neccessary.
+	 *	this is necessary.
 	 */
 
 	pci_read_config_byte(hwif->pci_dev, 0x08, &conf);
-	if(conf == 0x10) {
+	if (conf == 0x10) {
 		idev->timing10 = 1;
-		hwif->atapi_dma = 0;
-		if(!idev->smart)
+		hwif->host_flags |= IDE_HFLAG_NO_ATAPI_DMA;
+		if (idev->smart == 0)
 			printk(KERN_WARNING "it821x: Revision 0x10, workarounds activated.\n");
 	}
 
@@ -587,14 +585,11 @@ static void __devinit init_hwif_it821x(ide_hwif_t *hwif)
 	} else
 		hwif->host_flags |= IDE_HFLAG_NO_SET_MODE;
 
-	hwif->drives[0].autotune = 1;
-	hwif->drives[1].autotune = 1;
-
 	if (hwif->dma_base == 0)
 		return;
 
-	hwif->ultra_mask = 0x7f;
-	hwif->mwdma_mask = 0x07;
+	hwif->ultra_mask = ATA_UDMA6;
+	hwif->mwdma_mask = ATA_MWDMA2;
 
 	if (hwif->cbl != ATA_CBL_PATA40_SHORT)
 		hwif->cbl = ata66_it821x(hwif);
@@ -638,13 +633,12 @@ static unsigned int __devinit init_chipset_it821x(struct pci_dev *dev, const cha
 		.name		= name_str,		\
 		.init_chipset	= init_chipset_it821x,	\
 		.init_hwif	= init_hwif_it821x,	\
-		.autodma	= AUTODMA,		\
-		.bootable	= ON_BOARD,		\
 		.fixup	 	= it821x_fixups,	\
+		.host_flags	= IDE_HFLAG_BOOTABLE,	\
 		.pio_mask	= ATA_PIO4,		\
 	}
 
-static ide_pci_device_t it821x_chipsets[] __devinitdata = {
+static const struct ide_port_info it821x_chipsets[] __devinitdata = {
 	/* 0 */ DECLARE_ITE_DEV("IT8212"),
 };
 

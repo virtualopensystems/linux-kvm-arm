@@ -96,13 +96,12 @@ static int start_this_handle(journal_t *journal, handle_t *handle)
 
 alloc_transaction:
 	if (!journal->j_running_transaction) {
-		new_transaction = jbd_kmalloc(sizeof(*new_transaction),
-						GFP_NOFS);
+		new_transaction = kzalloc(sizeof(*new_transaction),
+						GFP_NOFS|__GFP_NOFAIL);
 		if (!new_transaction) {
 			ret = -ENOMEM;
 			goto out;
 		}
-		memset(new_transaction, 0, sizeof(*new_transaction));
 	}
 
 	jbd_debug(3, "New handle %p going live.\n", handle);
@@ -675,7 +674,7 @@ repeat:
 				JBUFFER_TRACE(jh, "allocate memory for buffer");
 				jbd_unlock_bh_state(bh);
 				frozen_buffer =
-					jbd_slab_alloc(jh2bh(jh)->b_size,
+					jbd_alloc(jh2bh(jh)->b_size,
 							 GFP_NOFS);
 				if (!frozen_buffer) {
 					printk(KERN_EMERG
@@ -735,7 +734,7 @@ done:
 
 out:
 	if (unlikely(frozen_buffer))	/* It's usually NULL */
-		jbd_slab_free(frozen_buffer, bh->b_size);
+		jbd_free(frozen_buffer, bh->b_size);
 
 	JBUFFER_TRACE(jh, "exit");
 	return error;
@@ -888,7 +887,7 @@ int journal_get_undo_access(handle_t *handle, struct buffer_head *bh)
 
 repeat:
 	if (!jh->b_committed_data) {
-		committed_data = jbd_slab_alloc(jh2bh(jh)->b_size, GFP_NOFS);
+		committed_data = jbd_alloc(jh2bh(jh)->b_size, GFP_NOFS);
 		if (!committed_data) {
 			printk(KERN_EMERG "%s: No memory for committed data\n",
 				__FUNCTION__);
@@ -915,7 +914,7 @@ repeat:
 out:
 	journal_put_journal_head(jh);
 	if (unlikely(committed_data))
-		jbd_slab_free(committed_data, bh->b_size);
+		jbd_free(committed_data, bh->b_size);
 	return err;
 }
 
@@ -1172,7 +1171,7 @@ int journal_dirty_metadata(handle_t *handle, struct buffer_head *bh)
 	}
 
 	/* That test should have eliminated the following case: */
-	J_ASSERT_JH(jh, jh->b_frozen_data == 0);
+	J_ASSERT_JH(jh, jh->b_frozen_data == NULL);
 
 	JBUFFER_TRACE(jh, "file as BJ_Metadata");
 	spin_lock(&journal->j_list_lock);
@@ -1522,7 +1521,7 @@ static void __journal_temp_unlink_buffer(struct journal_head *jh)
 
 	J_ASSERT_JH(jh, jh->b_jlist < BJ_Types);
 	if (jh->b_jlist != BJ_None)
-		J_ASSERT_JH(jh, transaction != 0);
+		J_ASSERT_JH(jh, transaction != NULL);
 
 	switch (jh->b_jlist) {
 	case BJ_None:
@@ -1591,11 +1590,11 @@ __journal_try_to_free_buffer(journal_t *journal, struct buffer_head *bh)
 	if (buffer_locked(bh) || buffer_dirty(bh))
 		goto out;
 
-	if (jh->b_next_transaction != 0)
+	if (jh->b_next_transaction != NULL)
 		goto out;
 
 	spin_lock(&journal->j_list_lock);
-	if (jh->b_transaction != 0 && jh->b_cp_transaction == 0) {
+	if (jh->b_transaction != NULL && jh->b_cp_transaction == NULL) {
 		if (jh->b_jlist == BJ_SyncData || jh->b_jlist == BJ_Locked) {
 			/* A written-back ordered data buffer */
 			JBUFFER_TRACE(jh, "release data");
@@ -1603,7 +1602,7 @@ __journal_try_to_free_buffer(journal_t *journal, struct buffer_head *bh)
 			journal_remove_journal_head(bh);
 			__brelse(bh);
 		}
-	} else if (jh->b_cp_transaction != 0 && jh->b_transaction == 0) {
+	} else if (jh->b_cp_transaction != NULL && jh->b_transaction == NULL) {
 		/* written-back checkpointed metadata buffer */
 		if (jh->b_jlist == BJ_None) {
 			JBUFFER_TRACE(jh, "remove from checkpoint list");
@@ -1963,7 +1962,7 @@ void __journal_file_buffer(struct journal_head *jh,
 
 	J_ASSERT_JH(jh, jh->b_jlist < BJ_Types);
 	J_ASSERT_JH(jh, jh->b_transaction == transaction ||
-				jh->b_transaction == 0);
+				jh->b_transaction == NULL);
 
 	if (jh->b_transaction && jh->b_jlist == jlist)
 		return;

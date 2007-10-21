@@ -228,7 +228,8 @@ EXPORT_SYMBOL(tty_termios_input_baud_rate);
  *	and will all go away once this is done.
  */
 
-void tty_termios_encode_baud_rate(struct ktermios *termios, speed_t ibaud, speed_t obaud)
+void tty_termios_encode_baud_rate(struct ktermios *termios,
+				  speed_t ibaud, speed_t obaud)
 {
 	int i = 0;
 	int ifound = -1, ofound = -1;
@@ -263,11 +264,15 @@ void tty_termios_encode_baud_rate(struct ktermios *termios, speed_t ibaud, speed
 	 */
 
 	do {
-		if (obaud - oclose >= baud_table[i] && obaud + oclose <= baud_table[i]) {
+		if (obaud - oclose <= baud_table[i] &&
+		    obaud + oclose >= baud_table[i]) {
 			termios->c_cflag |= baud_bits[i];
 			ofound = i;
 		}
-		if (ibaud - iclose >= baud_table[i] && ibaud + iclose <= baud_table[i]) {
+		if (ibaud - iclose <= baud_table[i] &&
+		    ibaud + iclose >= baud_table[i]) {
+			/* For the case input == output don't set IBAUD bits
+			   if the user didn't do so */
 			if (ofound == i && !ibinput)
 				ifound  = i;
 #ifdef IBSHIFT
@@ -439,7 +444,7 @@ static void change_termios(struct tty_struct * tty, struct ktermios * new_termio
  *	@arg: user data
  *	@opt: option information
  *
- *	Helper function to prepare termios data and run neccessary other
+ *	Helper function to prepare termios data and run necessary other
  *	functions before using change_termios to do the actual changes.
  *
  *	Locking:

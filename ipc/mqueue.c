@@ -29,6 +29,8 @@
 #include <linux/audit.h>
 #include <linux/signal.h>
 #include <linux/mutex.h>
+#include <linux/nsproxy.h>
+#include <linux/pid.h>
 
 #include <net/sock.h>
 #include "util.h"
@@ -43,12 +45,6 @@
 #define STATE_NONE	0
 #define STATE_PENDING	1
 #define STATE_READY	2
-
-/* used by sysctl */
-#define FS_MQUEUE 	1
-#define CTL_QUEUESMAX 	2
-#define CTL_MSGMAX 	3
-#define CTL_MSGSIZEMAX 	4
 
 /* default values */
 #define DFLT_QUEUESMAX	256	/* max number of message queues */
@@ -336,7 +332,8 @@ static ssize_t mqueue_read_file(struct file *filp, char __user *u_data,
 			(info->notify_owner &&
 			 info->notify.sigev_notify == SIGEV_SIGNAL) ?
 				info->notify.sigev_signo : 0,
-			pid_nr(info->notify_owner));
+			pid_nr_ns(info->notify_owner,
+				current->nsproxy->pid_ns));
 	spin_unlock(&info->lock);
 	buffer[sizeof(buffer)-1] = '\0';
 	slen = strlen(buffer)+1;
@@ -513,7 +510,7 @@ static void __do_notify(struct mqueue_inode_info *info)
 			sig_i.si_errno = 0;
 			sig_i.si_code = SI_MESGQ;
 			sig_i.si_value = info->notify.sigev_value;
-			sig_i.si_pid = current->tgid;
+			sig_i.si_pid = task_pid_vnr(current);
 			sig_i.si_uid = current->uid;
 
 			kill_pid_info(info->notify.sigev_signo,
@@ -1196,7 +1193,6 @@ static int msg_maxsize_limit_max = INT_MAX;
 
 static ctl_table mq_sysctls[] = {
 	{
-		.ctl_name	= CTL_QUEUESMAX,
 		.procname	= "queues_max",
 		.data		= &queues_max,
 		.maxlen		= sizeof(int),
@@ -1204,7 +1200,6 @@ static ctl_table mq_sysctls[] = {
 		.proc_handler	= &proc_dointvec,
 	},
 	{
-		.ctl_name	= CTL_MSGMAX,
 		.procname	= "msg_max",
 		.data		= &msg_max,
 		.maxlen		= sizeof(int),
@@ -1214,7 +1209,6 @@ static ctl_table mq_sysctls[] = {
 		.extra2		= &msg_max_limit_max,
 	},
 	{
-		.ctl_name	= CTL_MSGSIZEMAX,
 		.procname	= "msgsize_max",
 		.data		= &msgsize_max,
 		.maxlen		= sizeof(int),
@@ -1228,7 +1222,6 @@ static ctl_table mq_sysctls[] = {
 
 static ctl_table mq_sysctl_dir[] = {
 	{
-		.ctl_name	= FS_MQUEUE,
 		.procname	= "mqueue",
 		.mode		= 0555,
 		.child		= mq_sysctls,

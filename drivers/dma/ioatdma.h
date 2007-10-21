@@ -28,6 +28,8 @@
 #include <linux/cache.h>
 #include <linux/pci_ids.h>
 
+#define IOAT_DMA_VERSION "1.26"
+
 enum ioat_interrupt {
 	none = 0,
 	msix_multi_vector = 1,
@@ -122,9 +124,9 @@ struct ioat_desc_sw {
 	struct ioat_dma_descriptor *hw;
 	struct list_head node;
 	int tx_cnt;
-	DECLARE_PCI_UNMAP_LEN(len)
-	DECLARE_PCI_UNMAP_ADDR(src)
-	DECLARE_PCI_UNMAP_ADDR(dst)
+	size_t len;
+	dma_addr_t src;
+	dma_addr_t dst;
 	struct dma_async_tx_descriptor async_tx;
 };
 

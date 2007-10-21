@@ -782,7 +782,7 @@ init_e100_ide (void)
 		                ide_offsets,
 		                0, 0, cris_ide_ack_intr,
 		                ide_default_irq(0));
-		ide_register_hw(&hw, 1, &hwif);
+		ide_register_hw(&hw, NULL, 1, &hwif);
 		hwif->mmio = 1;
 		hwif->chipset = ide_etrax100;
 		hwif->set_pio_mode = &cris_set_pio_mode;
@@ -805,6 +805,7 @@ init_e100_ide (void)
 		hwif->dma_host_on = &cris_dma_on;
 		hwif->dma_off_quietly = &cris_dma_off;
 		hwif->cbl = ATA_CBL_PATA40;
+		hwif->host_flags |= IDE_HFLAG_NO_ATAPI_DMA;
 		hwif->pio_mask = ATA_PIO4,
 		hwif->drives[0].autotune = 1;
 		hwif->drives[1].autotune = 1;

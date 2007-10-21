@@ -407,6 +407,24 @@ static inline void napi_enable(struct napi_struct *n)
 	clear_bit(NAPI_STATE_SCHED, &n->state);
 }
 
+#ifdef CONFIG_SMP
+/**
+ *	napi_synchronize - wait until NAPI is not running
+ *	@n: napi context
+ *
+ * Wait until NAPI is done being scheduled on this context.
+ * Waits till any outstanding processing completes but
+ * does not disable future activations.
+ */
+static inline void napi_synchronize(const struct napi_struct *n)
+{
+	while (test_bit(NAPI_STATE_SCHED, &n->state))
+		msleep(1);
+}
+#else
+# define napi_synchronize(n)	barrier()
+#endif
+
 /*
  *	The DEVICE structure.
  *	Actually, this whole structure is a big mistake.  It mixes I/O
@@ -827,7 +845,7 @@ static inline int dev_parse_header(const struct sk_buff *skb,
 {
 	const struct net_device *dev = skb->dev;
 
-	if (!dev->header_ops->parse)
+	if (!dev->header_ops || !dev->header_ops->parse)
 		return 0;
 	return dev->header_ops->parse(skb, haddr);
 }

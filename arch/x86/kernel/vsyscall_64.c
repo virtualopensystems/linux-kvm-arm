@@ -48,12 +48,12 @@
 	({unsigned long v;  		\
 	extern char __vsyscall_0; 	\
 	  asm("" : "=r" (v) : "0" (x)); \
-	  ((v - VSYSCALL_FIRST_PAGE) + __pa_symbol(&__vsyscall_0)); })
+	  ((v - VSYSCALL_START) + __pa_symbol(&__vsyscall_0)); })
 
 /*
  * vsyscall_gtod_data contains data that is :
  * - readonly from vsyscalls
- * - writen by timer interrupt or systcl (/proc/sys/kernel/vsyscall64)
+ * - written by timer interrupt or systcl (/proc/sys/kernel/vsyscall64)
  * Try to keep this structure as small as possible to avoid cache line ping pongs
  */
 int __vgetcpu_mode __section_vgetcpu_mode;
@@ -63,6 +63,16 @@ struct vsyscall_gtod_data __vsyscall_gtod_data __section_vsyscall_gtod_data =
 	.lock = SEQLOCK_UNLOCKED,
 	.sysctl_enabled = 1,
 };
+
+void update_vsyscall_tz(void)
+{
+	unsigned long flags;
+
+	write_seqlock_irqsave(&vsyscall_gtod_data.lock, flags);
+	/* sys_tz has changed */
+	vsyscall_gtod_data.sys_tz = sys_tz;
+	write_sequnlock_irqrestore(&vsyscall_gtod_data.lock, flags);
+}
 
 void update_vsyscall(struct timespec *wall_time, struct clocksource *clock)
 {
@@ -77,7 +87,6 @@ void update_vsyscall(struct timespec *wall_time, struct clocksource *clock)
 	vsyscall_gtod_data.clock.shift = clock->shift;
 	vsyscall_gtod_data.wall_time_sec = wall_time->tv_sec;
 	vsyscall_gtod_data.wall_time_nsec = wall_time->tv_nsec;
-	vsyscall_gtod_data.sys_tz = sys_tz;
 	vsyscall_gtod_data.wall_to_monotonic = wall_to_monotonic;
 	write_sequnlock_irqrestore(&vsyscall_gtod_data.lock, flags);
 }
@@ -163,7 +172,7 @@ time_t __vsyscall(1) vtime(time_t *t)
 	if (unlikely(!__vsyscall_gtod_data.sysctl_enabled))
 		return time_syscall(t);
 
-	vgettimeofday(&tv, 0);
+	vgettimeofday(&tv, NULL);
 	result = tv.tv_sec;
 	if (t)
 		*t = result;
@@ -257,18 +266,10 @@ out:
 	return ret;
 }
 
-static int vsyscall_sysctl_nostrat(ctl_table *t, int __user *name, int nlen,
-				void __user *oldval, size_t __user *oldlenp,
-				void __user *newval, size_t newlen)
-{
-	return -ENOSYS;
-}
-
 static ctl_table kernel_table2[] = {
-	{ .ctl_name = 99, .procname = "vsyscall64",
+	{ .procname = "vsyscall64",
 	  .data = &vsyscall_gtod_data.sysctl_enabled, .maxlen = sizeof(int),
 	  .mode = 0644,
-	  .strategy = vsyscall_sysctl_nostrat,
 	  .proc_handler = vsyscall_sysctl_change },
 	{}
 };
@@ -290,7 +291,7 @@ static void __cpuinit vsyscall_set_cpu(int cpu)
 #ifdef CONFIG_NUMA
 	node = cpu_to_node(cpu);
 #endif
-	if (cpu_has(&cpu_data[cpu], X86_FEATURE_RDTSCP))
+	if (cpu_has(&cpu_data(cpu), X86_FEATURE_RDTSCP))
 		write_rdtscp_aux((node << 12) | cpu);
 
 	/* Store cpu number in limit so that it can be loaded quickly

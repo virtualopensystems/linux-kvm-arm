@@ -191,6 +191,37 @@ static inline void copy_edd(void)
 }
 #endif
 
+#ifdef CONFIG_KEXEC
+static void __init reserve_crashkernel(void)
+{
+	unsigned long long free_mem;
+	unsigned long long crash_size, crash_base;
+	int ret;
+
+	free_mem = ((unsigned long long)max_low_pfn - min_low_pfn) << PAGE_SHIFT;
+
+	ret = parse_crashkernel(boot_command_line, free_mem,
+			&crash_size, &crash_base);
+	if (ret == 0 && crash_size) {
+		if (crash_base > 0) {
+			printk(KERN_INFO "Reserving %ldMB of memory at %ldMB "
+					"for crashkernel (System RAM: %ldMB)\n",
+					(unsigned long)(crash_size >> 20),
+					(unsigned long)(crash_base >> 20),
+					(unsigned long)(free_mem >> 20));
+			crashk_res.start = crash_base;
+			crashk_res.end   = crash_base + crash_size - 1;
+			reserve_bootmem(crash_base, crash_size);
+		} else
+			printk(KERN_INFO "crashkernel reservation failed - "
+					"you have to specify a base address\n");
+	}
+}
+#else
+static inline void __init reserve_crashkernel(void)
+{}
+#endif
+
 #define EBDA_ADDR_POINTER 0x40E
 
 unsigned __initdata ebda_addr;
@@ -270,6 +301,11 @@ void __init setup_arch(char **cmdline_p)
 	init_memory_mapping(0, (end_pfn_map << PAGE_SHIFT));
 
 	dmi_scan_machine();
+
+#ifdef CONFIG_SMP
+	/* setup to use the static apicid table during kernel startup */
+	x86_cpu_to_apicid_ptr = (void *)&x86_cpu_to_apicid_init;
+#endif
 
 #ifdef CONFIG_ACPI
 	/*
@@ -357,13 +393,7 @@ void __init setup_arch(char **cmdline_p)
 		}
 	}
 #endif
-#ifdef CONFIG_KEXEC
-	if (crashk_res.start != crashk_res.end) {
-		reserve_bootmem_generic(crashk_res.start,
-			crashk_res.end - crashk_res.start + 1);
-	}
-#endif
-
+	reserve_crashkernel();
 	paging_init();
 
 #ifdef CONFIG_PCI
@@ -529,7 +559,7 @@ static void __init amd_detect_cmp(struct cpuinfo_x86 *c)
  		   but in the same order as the HT nodeids.
  		   If that doesn't result in a usable node fall back to the
  		   path for the previous case.  */
- 		int ht_nodeid = apicid - (cpu_data[0].phys_proc_id << bits);
+		int ht_nodeid = apicid - (cpu_data(0).phys_proc_id << bits);
  		if (ht_nodeid >= 0 &&
  		    apicid_to_node[ht_nodeid] != NUMA_NO_NODE)
  			node = apicid_to_node[ht_nodeid];
@@ -853,6 +883,7 @@ void __cpuinit early_identify_cpu(struct cpuinfo_x86 *c)
 
 #ifdef CONFIG_SMP
 	c->phys_proc_id = (cpuid_ebx(1) >> 24) & 0xff;
+	c->cpu_index = 0;
 #endif
 }
 
@@ -959,6 +990,7 @@ void __cpuinit print_cpu_info(struct cpuinfo_x86 *c)
 static int show_cpuinfo(struct seq_file *m, void *v)
 {
 	struct cpuinfo_x86 *c = v;
+	int cpu = 0;
 
 	/* 
 	 * These flag bits must match the definitions in <asm/cpufeature.h>.
@@ -1037,8 +1069,9 @@ static int show_cpuinfo(struct seq_file *m, void *v)
 
 
 #ifdef CONFIG_SMP
-	if (!cpu_online(c-cpu_data))
+	if (!cpu_online(c->cpu_index))
 		return 0;
+	cpu = c->cpu_index;
 #endif
 
 	seq_printf(m,"processor\t: %u\n"
@@ -1046,7 +1079,7 @@ static int show_cpuinfo(struct seq_file *m, void *v)
 		     "cpu family\t: %d\n"
 		     "model\t\t: %d\n"
 		     "model name\t: %s\n",
-		     (unsigned)(c-cpu_data),
+		     (unsigned)cpu,
 		     c->x86_vendor_id[0] ? c->x86_vendor_id : "unknown",
 		     c->x86,
 		     (int)c->x86_model,
@@ -1058,7 +1091,7 @@ static int show_cpuinfo(struct seq_file *m, void *v)
 		seq_printf(m, "stepping\t: unknown\n");
 	
 	if (cpu_has(c,X86_FEATURE_TSC)) {
-		unsigned int freq = cpufreq_quick_get((unsigned)(c-cpu_data));
+		unsigned int freq = cpufreq_quick_get((unsigned)cpu);
 		if (!freq)
 			freq = cpu_khz;
 		seq_printf(m, "cpu MHz\t\t: %u.%03u\n",
@@ -1071,7 +1104,6 @@ static int show_cpuinfo(struct seq_file *m, void *v)
 	
 #ifdef CONFIG_SMP
 	if (smp_num_siblings * c->x86_max_cores > 1) {
-		int cpu = c - cpu_data;
 		seq_printf(m, "physical id\t: %d\n", c->phys_proc_id);
 		seq_printf(m, "siblings\t: %d\n",
 			       cpus_weight(per_cpu(cpu_core_map, cpu)));
@@ -1129,12 +1161,16 @@ static int show_cpuinfo(struct seq_file *m, void *v)
 
 static void *c_start(struct seq_file *m, loff_t *pos)
 {
-	return *pos < NR_CPUS ? cpu_data + *pos : NULL;
+	if (*pos == 0)	/* just in case, cpu 0 is not the first */
+		*pos = first_cpu(cpu_possible_map);
+	if ((*pos) < NR_CPUS && cpu_possible(*pos))
+		return &cpu_data(*pos);
+	return NULL;
 }
 
 static void *c_next(struct seq_file *m, void *v, loff_t *pos)
 {
-	++*pos;
+	*pos = next_cpu(*pos, cpu_possible_map);
 	return c_start(m, pos);
 }
 

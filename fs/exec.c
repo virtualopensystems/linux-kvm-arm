@@ -234,7 +234,7 @@ static int __bprm_mm_init(struct linux_binprm *bprm)
 	vma->vm_start = vma->vm_end - PAGE_SIZE;
 
 	vma->vm_flags = VM_STACK_FLAGS;
-	vma->vm_page_prot = protection_map[vma->vm_flags & 0x7];
+	vma->vm_page_prot = vm_get_page_prot(vma->vm_flags);
 	err = insert_vm_struct(mm, vma);
 	if (err) {
 		up_write(&mm->mmap_sem);
@@ -775,8 +775,8 @@ static int de_thread(struct task_struct *tsk)
 	 * Reparenting needs write_lock on tasklist_lock,
 	 * so it is safe to do it under read_lock.
 	 */
-	if (unlikely(tsk->group_leader == child_reaper(tsk)))
-		tsk->nsproxy->pid_ns->child_reaper = tsk;
+	if (unlikely(tsk->group_leader == task_child_reaper(tsk)))
+		task_active_pid_ns(tsk)->child_reaper = tsk;
 
 	zap_other_threads(tsk);
 	read_unlock(&tasklist_lock);
@@ -841,8 +841,8 @@ static int de_thread(struct task_struct *tsk)
 		 */
 		tsk->start_time = leader->start_time;
 
-		BUG_ON(leader->tgid != tsk->tgid);
-		BUG_ON(tsk->pid == tsk->tgid);
+		BUG_ON(!same_thread_group(leader, tsk));
+		BUG_ON(has_group_leader_pid(tsk));
 		/*
 		 * An exec() starts a new thread group with the
 		 * TGID of the previous thread group. Rehash the
@@ -857,7 +857,7 @@ static int de_thread(struct task_struct *tsk)
 		 */
 		detach_pid(tsk, PIDTYPE_PID);
 		tsk->pid = leader->pid;
-		attach_pid(tsk, PIDTYPE_PID,  find_pid(tsk->pid));
+		attach_pid(tsk, PIDTYPE_PID,  task_pid(leader));
 		transfer_pid(leader, tsk, PIDTYPE_PGID);
 		transfer_pid(leader, tsk, PIDTYPE_SID);
 		list_replace_rcu(&leader->tasks, &tsk->tasks);
@@ -1433,7 +1433,7 @@ static int format_corename(char *corename, const char *pattern, long signr)
 			case 'p':
 				pid_in_pattern = 1;
 				rc = snprintf(out_ptr, out_end - out_ptr,
-					      "%d", current->tgid);
+					      "%d", task_tgid_vnr(current));
 				if (rc > out_end - out_ptr)
 					goto out;
 				out_ptr += rc;
@@ -1513,7 +1513,7 @@ static int format_corename(char *corename, const char *pattern, long signr)
 	if (!ispipe && !pid_in_pattern
             && (core_uses_pid || atomic_read(&current->mm->mm_users) != 1)) {
 		rc = snprintf(out_ptr, out_end - out_ptr,
-			      ".%d", current->tgid);
+			      ".%d", task_tgid_vnr(current));
 		if (rc > out_end - out_ptr)
 			goto out;
 		out_ptr += rc;

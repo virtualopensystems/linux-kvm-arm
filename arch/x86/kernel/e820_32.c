@@ -288,7 +288,8 @@ legacy_init_iomem_resources(struct resource *code_resource, struct resource *dat
 			request_resource(res, code_resource);
 			request_resource(res, data_resource);
 #ifdef CONFIG_KEXEC
-			request_resource(res, &crashk_res);
+			if (crashk_res.start != crashk_res.end)
+				request_resource(res, &crashk_res);
 #endif
 		}
 	}
@@ -705,7 +706,7 @@ void __init e820_register_memory(void)
 	int i;
 
 	/*
-	 * Search for the bigest gap in the low 32 bits of the e820
+	 * Search for the biggest gap in the low 32 bits of the e820
 	 * memory space.
 	 */
 	last = 0x100000000ull;

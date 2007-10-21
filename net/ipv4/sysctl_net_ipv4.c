@@ -122,7 +122,7 @@ static int ipv4_local_port_range(ctl_table *table, int write, struct file *filp,
 	ret = proc_dointvec_minmax(&tmp, write, filp, buffer, lenp, ppos);
 
 	if (write && ret == 0) {
-		if (range[1] <= range[0])
+		if (range[1] < range[0])
 			ret = -EINVAL;
 		else
 			set_local_port_range(range);
@@ -150,7 +150,7 @@ static int ipv4_sysctl_local_port_range(ctl_table *table, int __user *name,
 
 	ret = sysctl_intvec(&tmp, name, nlen, oldval, oldlenp, newval, newlen);
 	if (ret == 0 && newval && newlen) {
-		if (range[1] <= range[0])
+		if (range[1] < range[0])
 			ret = -EINVAL;
 		else
 			set_local_port_range(range);
@@ -740,7 +740,6 @@ ctl_table ipv4_table[] = {
 		.strategy	= &sysctl_jiffies
 	},
 	{
-		.ctl_name	= NET_IPV4_IPFRAG_MAX_DIST,
 		.procname	= "ipfrag_max_dist",
 		.data		= &sysctl_ipfrag_max_dist,
 		.maxlen		= sizeof(int),
@@ -865,7 +864,6 @@ ctl_table ipv4_table[] = {
 	},
 #endif /* CONFIG_NETLABEL */
 	{
-		.ctl_name	= NET_TCP_AVAIL_CONG_CONTROL,
 		.procname	= "tcp_available_congestion_control",
 		.maxlen		= TCP_CA_BUF_MAX,
 		.mode		= 0444,

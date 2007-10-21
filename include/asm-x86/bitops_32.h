@@ -5,6 +5,10 @@
  * Copyright 1992, Linus Torvalds.
  */
 
+#ifndef _LINUX_BITOPS_H
+#error only <linux/bitops.h> can be included directly
+#endif
+
 #include <linux/compiler.h>
 #include <asm/alternative.h>
 
@@ -402,6 +406,7 @@ static inline int fls(int x)
 }
 
 #include <asm-generic/bitops/hweight.h>
+#include <asm-generic/bitops/lock.h>
 
 #endif /* __KERNEL__ */
 

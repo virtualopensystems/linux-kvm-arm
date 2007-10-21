@@ -37,12 +37,14 @@
 #include <linux/quotaops.h>
 #include <linux/seq_file.h>
 #include <linux/log2.h>
+#include <linux/crc16.h>
 
 #include <asm/uaccess.h>
 
 #include "xattr.h"
 #include "acl.h"
 #include "namei.h"
+#include "group.h"
 
 static int ext4_load_journal(struct super_block *, struct ext4_super_block *,
 			     unsigned long journal_devnum);
@@ -68,31 +70,31 @@ static void ext4_write_super_lockfs(struct super_block *sb);
 ext4_fsblk_t ext4_block_bitmap(struct super_block *sb,
 			       struct ext4_group_desc *bg)
 {
-	return le32_to_cpu(bg->bg_block_bitmap) |
+	return le32_to_cpu(bg->bg_block_bitmap_lo) |
 		(EXT4_DESC_SIZE(sb) >= EXT4_MIN_DESC_SIZE_64BIT ?
-		 (ext4_fsblk_t)le32_to_cpu(bg->bg_block_bitmap_hi) << 32 : 0);
+		(ext4_fsblk_t)le32_to_cpu(bg->bg_block_bitmap_hi) << 32 : 0);
 }
 
 ext4_fsblk_t ext4_inode_bitmap(struct super_block *sb,
 			       struct ext4_group_desc *bg)
 {
-	return le32_to_cpu(bg->bg_inode_bitmap) |
+	return le32_to_cpu(bg->bg_inode_bitmap_lo) |
 		(EXT4_DESC_SIZE(sb) >= EXT4_MIN_DESC_SIZE_64BIT ?
-		 (ext4_fsblk_t)le32_to_cpu(bg->bg_inode_bitmap_hi) << 32 : 0);
+		(ext4_fsblk_t)le32_to_cpu(bg->bg_inode_bitmap_hi) << 32 : 0);
 }
 
 ext4_fsblk_t ext4_inode_table(struct super_block *sb,
 			      struct ext4_group_desc *bg)
 {
-	return le32_to_cpu(bg->bg_inode_table) |
+	return le32_to_cpu(bg->bg_inode_table_lo) |
 		(EXT4_DESC_SIZE(sb) >= EXT4_MIN_DESC_SIZE_64BIT ?
-		 (ext4_fsblk_t)le32_to_cpu(bg->bg_inode_table_hi) << 32 : 0);
+		(ext4_fsblk_t)le32_to_cpu(bg->bg_inode_table_hi) << 32 : 0);
 }
 
 void ext4_block_bitmap_set(struct super_block *sb,
 			   struct ext4_group_desc *bg, ext4_fsblk_t blk)
 {
-	bg->bg_block_bitmap = cpu_to_le32((u32)blk);
+	bg->bg_block_bitmap_lo = cpu_to_le32((u32)blk);
 	if (EXT4_DESC_SIZE(sb) >= EXT4_MIN_DESC_SIZE_64BIT)
 		bg->bg_block_bitmap_hi = cpu_to_le32(blk >> 32);
 }
@@ -100,7 +102,7 @@ void ext4_block_bitmap_set(struct super_block *sb,
 void ext4_inode_bitmap_set(struct super_block *sb,
 			   struct ext4_group_desc *bg, ext4_fsblk_t blk)
 {
-	bg->bg_inode_bitmap  = cpu_to_le32((u32)blk);
+	bg->bg_inode_bitmap_lo  = cpu_to_le32((u32)blk);
 	if (EXT4_DESC_SIZE(sb) >= EXT4_MIN_DESC_SIZE_64BIT)
 		bg->bg_inode_bitmap_hi = cpu_to_le32(blk >> 32);
 }
@@ -108,7 +110,7 @@ void ext4_inode_bitmap_set(struct super_block *sb,
 void ext4_inode_table_set(struct super_block *sb,
 			  struct ext4_group_desc *bg, ext4_fsblk_t blk)
 {
-	bg->bg_inode_table = cpu_to_le32((u32)blk);
+	bg->bg_inode_table_lo = cpu_to_le32((u32)blk);
 	if (EXT4_DESC_SIZE(sb) >= EXT4_MIN_DESC_SIZE_64BIT)
 		bg->bg_inode_table_hi = cpu_to_le32(blk >> 32);
 }
@@ -1037,7 +1039,7 @@ static int parse_options (char *options, struct super_block *sb,
 			if (option < 0)
 				return 0;
 			if (option == 0)
-				option = JBD_DEFAULT_MAX_COMMIT_AGE;
+				option = JBD2_DEFAULT_MAX_COMMIT_AGE;
 			sbi->s_commit_interval = HZ * option;
 			break;
 		case Opt_data_journal:
@@ -1308,6 +1310,43 @@ static int ext4_setup_super(struct super_block *sb, struct ext4_super_block *es,
 	return res;
 }
 
+__le16 ext4_group_desc_csum(struct ext4_sb_info *sbi, __u32 block_group,
+			    struct ext4_group_desc *gdp)
+{
+	__u16 crc = 0;
+
+	if (sbi->s_es->s_feature_ro_compat &
+	    cpu_to_le32(EXT4_FEATURE_RO_COMPAT_GDT_CSUM)) {
+		int offset = offsetof(struct ext4_group_desc, bg_checksum);
+		__le32 le_group = cpu_to_le32(block_group);
+
+		crc = crc16(~0, sbi->s_es->s_uuid, sizeof(sbi->s_es->s_uuid));
+		crc = crc16(crc, (__u8 *)&le_group, sizeof(le_group));
+		crc = crc16(crc, (__u8 *)gdp, offset);
+		offset += sizeof(gdp->bg_checksum); /* skip checksum */
+		/* for checksum of struct ext4_group_desc do the rest...*/
+		if ((sbi->s_es->s_feature_incompat &
+		     cpu_to_le32(EXT4_FEATURE_INCOMPAT_64BIT)) &&
+		    offset < le16_to_cpu(sbi->s_es->s_desc_size))
+			crc = crc16(crc, (__u8 *)gdp + offset,
+				    le16_to_cpu(sbi->s_es->s_desc_size) -
+					offset);
+	}
+
+	return cpu_to_le16(crc);
+}
+
+int ext4_group_desc_csum_verify(struct ext4_sb_info *sbi, __u32 block_group,
+				struct ext4_group_desc *gdp)
+{
+	if ((sbi->s_es->s_feature_ro_compat &
+	     cpu_to_le32(EXT4_FEATURE_RO_COMPAT_GDT_CSUM)) &&
+	    (gdp->bg_checksum != ext4_group_desc_csum(sbi, block_group, gdp)))
+		return 0;
+
+	return 1;
+}
+
 /* Called at mount-time, super-block is locked */
 static int ext4_check_descriptors (struct super_block * sb)
 {
@@ -1319,13 +1358,17 @@ static int ext4_check_descriptors (struct super_block * sb)
 	ext4_fsblk_t inode_table;
 	struct ext4_group_desc * gdp = NULL;
 	int desc_block = 0;
+	int flexbg_flag = 0;
 	int i;
+
+	if (EXT4_HAS_INCOMPAT_FEATURE(sb, EXT4_FEATURE_INCOMPAT_FLEX_BG))
+		flexbg_flag = 1;
 
 	ext4_debug ("Checking group descriptors");
 
 	for (i = 0; i < sbi->s_groups_count; i++)
 	{
-		if (i == sbi->s_groups_count - 1)
+		if (i == sbi->s_groups_count - 1 || flexbg_flag)
 			last_block = ext4_blocks_count(sbi->s_es) - 1;
 		else
 			last_block = first_block +
@@ -1362,7 +1405,16 @@ static int ext4_check_descriptors (struct super_block * sb)
 				    i, inode_table);
 			return 0;
 		}
-		first_block += EXT4_BLOCKS_PER_GROUP(sb);
+		if (!ext4_group_desc_csum_verify(sbi, i, gdp)) {
+			ext4_error(sb, __FUNCTION__,
+				   "Checksum for group %d failed (%u!=%u)\n", i,
+				   le16_to_cpu(ext4_group_desc_csum(sbi, i,
+								    gdp)),
+				   le16_to_cpu(gdp->bg_checksum));
+			return 0;
+		}
+		if (!flexbg_flag)
+			first_block += EXT4_BLOCKS_PER_GROUP(sb);
 		gdp = (struct ext4_group_desc *)
 			((__u8 *)gdp + EXT4_DESC_SIZE(sb));
 	}
@@ -1726,14 +1778,6 @@ static int ext4_fill_super (struct super_block *sb, void *data, int silent)
 		if (sbi->s_inode_size > EXT4_GOOD_OLD_INODE_SIZE)
 			sb->s_time_gran = 1 << (EXT4_EPOCH_BITS - 2);
 	}
-	sbi->s_frag_size = EXT4_MIN_FRAG_SIZE <<
-				   le32_to_cpu(es->s_log_frag_size);
-	if (blocksize != sbi->s_frag_size) {
-		printk(KERN_ERR
-		       "EXT4-fs: fragsize %lu != blocksize %u (unsupported)\n",
-		       sbi->s_frag_size, blocksize);
-		goto failed_mount;
-	}
 	sbi->s_desc_size = le16_to_cpu(es->s_desc_size);
 	if (EXT4_HAS_INCOMPAT_FEATURE(sb, EXT4_FEATURE_INCOMPAT_64BIT)) {
 		if (sbi->s_desc_size < EXT4_MIN_DESC_SIZE_64BIT ||
@@ -1747,7 +1791,6 @@ static int ext4_fill_super (struct super_block *sb, void *data, int silent)
 	} else
 		sbi->s_desc_size = EXT4_MIN_DESC_SIZE;
 	sbi->s_blocks_per_group = le32_to_cpu(es->s_blocks_per_group);
-	sbi->s_frags_per_group = le32_to_cpu(es->s_frags_per_group);
 	sbi->s_inodes_per_group = le32_to_cpu(es->s_inodes_per_group);
 	if (EXT4_INODE_SIZE(sb) == 0)
 		goto cantfind_ext4;
@@ -1769,12 +1812,6 @@ static int ext4_fill_super (struct super_block *sb, void *data, int silent)
 		printk (KERN_ERR
 			"EXT4-fs: #blocks per group too big: %lu\n",
 			sbi->s_blocks_per_group);
-		goto failed_mount;
-	}
-	if (sbi->s_frags_per_group > blocksize * 8) {
-		printk (KERN_ERR
-			"EXT4-fs: #fragments per group too big: %lu\n",
-			sbi->s_frags_per_group);
 		goto failed_mount;
 	}
 	if (sbi->s_inodes_per_group > blocksize * 8) {
@@ -2630,7 +2667,7 @@ static int ext4_statfs (struct dentry * dentry, struct kstatfs * buf)
 
 	if (test_opt(sb, MINIX_DF)) {
 		sbi->s_overhead_last = 0;
-	} else if (sbi->s_blocks_last != le32_to_cpu(es->s_blocks_count)) {
+	} else if (sbi->s_blocks_last != ext4_blocks_count(es)) {
 		unsigned long ngroups = sbi->s_groups_count, i;
 		ext4_fsblk_t overhead = 0;
 		smp_rmb();
@@ -2665,14 +2702,14 @@ static int ext4_statfs (struct dentry * dentry, struct kstatfs * buf)
 		overhead += ngroups * (2 + sbi->s_itb_per_group);
 		sbi->s_overhead_last = overhead;
 		smp_wmb();
-		sbi->s_blocks_last = le32_to_cpu(es->s_blocks_count);
+		sbi->s_blocks_last = ext4_blocks_count(es);
 	}
 
 	buf->f_type = EXT4_SUPER_MAGIC;
 	buf->f_bsize = sb->s_blocksize;
 	buf->f_blocks = ext4_blocks_count(es) - sbi->s_overhead_last;
 	buf->f_bfree = percpu_counter_sum_positive(&sbi->s_freeblocks_counter);
-	es->s_free_blocks_count = cpu_to_le32(buf->f_bfree);
+	ext4_free_blocks_count_set(es, buf->f_bfree);
 	buf->f_bavail = buf->f_bfree - ext4_r_blocks_count(es);
 	if (buf->f_bfree < ext4_r_blocks_count(es))
 		buf->f_bavail = 0;

@@ -63,16 +63,19 @@
 #include <linux/mm.h>
 #include <linux/rcupdate.h>
 #include <linux/kallsyms.h>
+#include <linux/resource.h>
 #include <linux/module.h>
 #include <linux/mount.h>
 #include <linux/security.h>
 #include <linux/ptrace.h>
+#include <linux/cgroup.h>
 #include <linux/cpuset.h>
 #include <linux/audit.h>
 #include <linux/poll.h>
 #include <linux/nsproxy.h>
 #include <linux/oom.h>
 #include <linux/elf.h>
+#include <linux/pid_namespace.h>
 #include "internal.h"
 
 /* NOTE:
@@ -301,6 +304,78 @@ static int proc_oom_score(struct task_struct *task, char *buffer)
 	return sprintf(buffer, "%lu\n", points);
 }
 
+struct limit_names {
+	char *name;
+	char *unit;
+};
+
+static const struct limit_names lnames[RLIM_NLIMITS] = {
+	[RLIMIT_CPU] = {"Max cpu time", "ms"},
+	[RLIMIT_FSIZE] = {"Max file size", "bytes"},
+	[RLIMIT_DATA] = {"Max data size", "bytes"},
+	[RLIMIT_STACK] = {"Max stack size", "bytes"},
+	[RLIMIT_CORE] = {"Max core file size", "bytes"},
+	[RLIMIT_RSS] = {"Max resident set", "bytes"},
+	[RLIMIT_NPROC] = {"Max processes", "processes"},
+	[RLIMIT_NOFILE] = {"Max open files", "files"},
+	[RLIMIT_MEMLOCK] = {"Max locked memory", "bytes"},
+	[RLIMIT_AS] = {"Max address space", "bytes"},
+	[RLIMIT_LOCKS] = {"Max file locks", "locks"},
+	[RLIMIT_SIGPENDING] = {"Max pending signals", "signals"},
+	[RLIMIT_MSGQUEUE] = {"Max msgqueue size", "bytes"},
+	[RLIMIT_NICE] = {"Max nice priority", NULL},
+	[RLIMIT_RTPRIO] = {"Max realtime priority", NULL},
+};
+
+/* Display limits for a process */
+static int proc_pid_limits(struct task_struct *task, char *buffer)
+{
+	unsigned int i;
+	int count = 0;
+	unsigned long flags;
+	char *bufptr = buffer;
+
+	struct rlimit rlim[RLIM_NLIMITS];
+
+	rcu_read_lock();
+	if (!lock_task_sighand(task,&flags)) {
+		rcu_read_unlock();
+		return 0;
+	}
+	memcpy(rlim, task->signal->rlim, sizeof(struct rlimit) * RLIM_NLIMITS);
+	unlock_task_sighand(task, &flags);
+	rcu_read_unlock();
+
+	/*
+	 * print the file header
+	 */
+	count += sprintf(&bufptr[count], "%-25s %-20s %-20s %-10s\n",
+			"Limit", "Soft Limit", "Hard Limit", "Units");
+
+	for (i = 0; i < RLIM_NLIMITS; i++) {
+		if (rlim[i].rlim_cur == RLIM_INFINITY)
+			count += sprintf(&bufptr[count], "%-25s %-20s ",
+					 lnames[i].name, "unlimited");
+		else
+			count += sprintf(&bufptr[count], "%-25s %-20lu ",
+					 lnames[i].name, rlim[i].rlim_cur);
+
+		if (rlim[i].rlim_max == RLIM_INFINITY)
+			count += sprintf(&bufptr[count], "%-20s ", "unlimited");
+		else
+			count += sprintf(&bufptr[count], "%-20lu ",
+					 rlim[i].rlim_max);
+
+		if (lnames[i].unit)
+			count += sprintf(&bufptr[count], "%-10s\n",
+					 lnames[i].unit);
+		else
+			count += sprintf(&bufptr[count], "\n");
+	}
+
+	return count;
+}
+
 /************************************************************************/
 /*                       Here the fs part begins                        */
 /************************************************************************/
@@ -349,18 +424,21 @@ struct proc_mounts {
 static int mounts_open(struct inode *inode, struct file *file)
 {
 	struct task_struct *task = get_proc_task(inode);
+	struct nsproxy *nsp;
 	struct mnt_namespace *ns = NULL;
 	struct proc_mounts *p;
 	int ret = -EINVAL;
 
 	if (task) {
-		task_lock(task);
-		if (task->nsproxy) {
-			ns = task->nsproxy->mnt_ns;
+		rcu_read_lock();
+		nsp = task_nsproxy(task);
+		if (nsp) {
+			ns = nsp->mnt_ns;
 			if (ns)
 				get_mnt_ns(ns);
 		}
-		task_unlock(task);
+		rcu_read_unlock();
+
 		put_task_struct(task);
 	}
 
@@ -423,16 +501,20 @@ static int mountstats_open(struct inode *inode, struct file *file)
 
 	if (!ret) {
 		struct seq_file *m = file->private_data;
+		struct nsproxy *nsp;
 		struct mnt_namespace *mnt_ns = NULL;
 		struct task_struct *task = get_proc_task(inode);
 
 		if (task) {
-			task_lock(task);
-			if (task->nsproxy)
-				mnt_ns = task->nsproxy->mnt_ns;
-			if (mnt_ns)
-				get_mnt_ns(mnt_ns);
-			task_unlock(task);
+			rcu_read_lock();
+			nsp = task_nsproxy(task);
+			if (nsp) {
+				mnt_ns = nsp->mnt_ns;
+				if (mnt_ns)
+					get_mnt_ns(mnt_ns);
+			}
+			rcu_read_unlock();
+
 			put_task_struct(task);
 		}
 
@@ -1437,7 +1519,7 @@ static int proc_readfd_common(struct file * filp, void * dirent,
 	struct dentry *dentry = filp->f_path.dentry;
 	struct inode *inode = dentry->d_inode;
 	struct task_struct *p = get_proc_task(inode);
-	unsigned int fd, tid, ino;
+	unsigned int fd, ino;
 	int retval;
 	struct files_struct * files;
 	struct fdtable *fdt;
@@ -1446,7 +1528,6 @@ static int proc_readfd_common(struct file * filp, void * dirent,
 	if (!p)
 		goto out_no_task;
 	retval = 0;
-	tid = p->pid;
 
 	fd = filp->f_pos;
 	switch (fd) {
@@ -1681,7 +1762,6 @@ static int proc_pident_readdir(struct file *filp,
 		const struct pid_entry *ents, unsigned int nents)
 {
 	int i;
-	int pid;
 	struct dentry *dentry = filp->f_path.dentry;
 	struct inode *inode = dentry->d_inode;
 	struct task_struct *task = get_proc_task(inode);
@@ -1694,7 +1774,6 @@ static int proc_pident_readdir(struct file *filp,
 		goto out_no_task;
 
 	ret = 0;
-	pid = task->pid;
 	i = filp->f_pos;
 	switch (i) {
 	case 0:
@@ -1928,14 +2007,14 @@ static int proc_self_readlink(struct dentry *dentry, char __user *buffer,
 			      int buflen)
 {
 	char tmp[PROC_NUMBUF];
-	sprintf(tmp, "%d", current->tgid);
+	sprintf(tmp, "%d", task_tgid_vnr(current));
 	return vfs_readlink(dentry,buffer,buflen,tmp);
 }
 
 static void *proc_self_follow_link(struct dentry *dentry, struct nameidata *nd)
 {
 	char tmp[PROC_NUMBUF];
-	sprintf(tmp, "%d", current->tgid);
+	sprintf(tmp, "%d", task_tgid_vnr(current));
 	return ERR_PTR(vfs_follow_link(nd,tmp));
 }
 
@@ -2101,6 +2180,7 @@ static const struct pid_entry tgid_base_stuff[] = {
 	REG("environ",    S_IRUSR, environ),
 	INF("auxv",       S_IRUSR, pid_auxv),
 	INF("status",     S_IRUGO, pid_status),
+	INF("limits",	  S_IRUSR, pid_limits),
 #ifdef CONFIG_SCHED_DEBUG
 	REG("sched",      S_IRUGO|S_IWUSR, pid_sched),
 #endif
@@ -2130,8 +2210,11 @@ static const struct pid_entry tgid_base_stuff[] = {
 #ifdef CONFIG_SCHEDSTATS
 	INF("schedstat",  S_IRUGO, pid_schedstat),
 #endif
-#ifdef CONFIG_CPUSETS
+#ifdef CONFIG_PROC_PID_CPUSET
 	REG("cpuset",     S_IRUGO, cpuset),
+#endif
+#ifdef CONFIG_CGROUPS
+	REG("cgroup",  S_IRUGO, cgroup),
 #endif
 	INF("oom_score",  S_IRUGO, oom_score),
 	REG("oom_adj",    S_IRUGO|S_IWUSR, oom_adjust),
@@ -2193,27 +2276,27 @@ static const struct inode_operations proc_tgid_base_inode_operations = {
  *       that no dcache entries will exist at process exit time it
  *       just makes it very unlikely that any will persist.
  */
-void proc_flush_task(struct task_struct *task)
+static void proc_flush_task_mnt(struct vfsmount *mnt, pid_t pid, pid_t tgid)
 {
 	struct dentry *dentry, *leader, *dir;
 	char buf[PROC_NUMBUF];
 	struct qstr name;
 
 	name.name = buf;
-	name.len = snprintf(buf, sizeof(buf), "%d", task->pid);
-	dentry = d_hash_and_lookup(proc_mnt->mnt_root, &name);
+	name.len = snprintf(buf, sizeof(buf), "%d", pid);
+	dentry = d_hash_and_lookup(mnt->mnt_root, &name);
 	if (dentry) {
 		shrink_dcache_parent(dentry);
 		d_drop(dentry);
 		dput(dentry);
 	}
 
-	if (thread_group_leader(task))
+	if (tgid == 0)
 		goto out;
 
 	name.name = buf;
-	name.len = snprintf(buf, sizeof(buf), "%d", task->tgid);
-	leader = d_hash_and_lookup(proc_mnt->mnt_root, &name);
+	name.len = snprintf(buf, sizeof(buf), "%d", tgid);
+	leader = d_hash_and_lookup(mnt->mnt_root, &name);
 	if (!leader)
 		goto out;
 
@@ -2224,7 +2307,7 @@ void proc_flush_task(struct task_struct *task)
 		goto out_put_leader;
 
 	name.name = buf;
-	name.len = snprintf(buf, sizeof(buf), "%d", task->pid);
+	name.len = snprintf(buf, sizeof(buf), "%d", pid);
 	dentry = d_hash_and_lookup(dir, &name);
 	if (dentry) {
 		shrink_dcache_parent(dentry);
@@ -2237,6 +2320,36 @@ out_put_leader:
 	dput(leader);
 out:
 	return;
+}
+
+/*
+ * when flushing dentries from proc one need to flush them from global
+ * proc (proc_mnt) and from all the namespaces' procs this task was seen
+ * in. this call is supposed to make all this job.
+ */
+
+void proc_flush_task(struct task_struct *task)
+{
+	int i, leader;
+	struct pid *pid, *tgid;
+	struct upid *upid;
+
+	leader = thread_group_leader(task);
+	proc_flush_task_mnt(proc_mnt, task->pid, leader ? task->tgid : 0);
+	pid = task_pid(task);
+	if (pid->level == 0)
+		return;
+
+	tgid = task_tgid(task);
+	for (i = 1; i <= pid->level; i++) {
+		upid = &pid->numbers[i];
+		proc_flush_task_mnt(upid->ns->proc_mnt, upid->nr,
+				leader ? 0 : tgid->numbers[i].nr);
+	}
+
+	upid = &pid->numbers[pid->level];
+	if (upid->nr == 1)
+		pid_ns_release_proc(upid->ns);
 }
 
 static struct dentry *proc_pid_instantiate(struct inode *dir,
@@ -2274,6 +2387,7 @@ struct dentry *proc_pid_lookup(struct inode *dir, struct dentry * dentry, struct
 	struct dentry *result = ERR_PTR(-ENOENT);
 	struct task_struct *task;
 	unsigned tgid;
+	struct pid_namespace *ns;
 
 	result = proc_base_lookup(dir, dentry);
 	if (!IS_ERR(result) || PTR_ERR(result) != -ENOENT)
@@ -2283,8 +2397,9 @@ struct dentry *proc_pid_lookup(struct inode *dir, struct dentry * dentry, struct
 	if (tgid == ~0U)
 		goto out;
 
+	ns = dentry->d_sb->s_fs_info;
 	rcu_read_lock();
-	task = find_task_by_pid(tgid);
+	task = find_task_by_pid_ns(tgid, ns);
 	if (task)
 		get_task_struct(task);
 	rcu_read_unlock();
@@ -2301,7 +2416,8 @@ out:
  * Find the first task with tgid >= tgid
  *
  */
-static struct task_struct *next_tgid(unsigned int tgid)
+static struct task_struct *next_tgid(unsigned int tgid,
+		struct pid_namespace *ns)
 {
 	struct task_struct *task;
 	struct pid *pid;
@@ -2309,9 +2425,9 @@ static struct task_struct *next_tgid(unsigned int tgid)
 	rcu_read_lock();
 retry:
 	task = NULL;
-	pid = find_ge_pid(tgid);
+	pid = find_ge_pid(tgid, ns);
 	if (pid) {
-		tgid = pid->nr + 1;
+		tgid = pid_nr_ns(pid, ns) + 1;
 		task = pid_task(pid, PIDTYPE_PID);
 		/* What we to know is if the pid we have find is the
 		 * pid of a thread_group_leader.  Testing for task
@@ -2351,6 +2467,7 @@ int proc_pid_readdir(struct file * filp, void * dirent, filldir_t filldir)
 	struct task_struct *reaper = get_proc_task(filp->f_path.dentry->d_inode);
 	struct task_struct *task;
 	int tgid;
+	struct pid_namespace *ns;
 
 	if (!reaper)
 		goto out_no_task;
@@ -2361,11 +2478,12 @@ int proc_pid_readdir(struct file * filp, void * dirent, filldir_t filldir)
 			goto out;
 	}
 
+	ns = filp->f_dentry->d_sb->s_fs_info;
 	tgid = filp->f_pos - TGID_OFFSET;
-	for (task = next_tgid(tgid);
+	for (task = next_tgid(tgid, ns);
 	     task;
-	     put_task_struct(task), task = next_tgid(tgid + 1)) {
-		tgid = task->pid;
+	     put_task_struct(task), task = next_tgid(tgid + 1, ns)) {
+		tgid = task_pid_nr_ns(task, ns);
 		filp->f_pos = tgid + TGID_OFFSET;
 		if (proc_pid_fill_cache(filp, dirent, filldir, task, tgid) < 0) {
 			put_task_struct(task);
@@ -2388,6 +2506,7 @@ static const struct pid_entry tid_base_stuff[] = {
 	REG("environ",   S_IRUSR, environ),
 	INF("auxv",      S_IRUSR, pid_auxv),
 	INF("status",    S_IRUGO, pid_status),
+	INF("limits",	 S_IRUSR, pid_limits),
 #ifdef CONFIG_SCHED_DEBUG
 	REG("sched",     S_IRUGO|S_IWUSR, pid_sched),
 #endif
@@ -2416,8 +2535,11 @@ static const struct pid_entry tid_base_stuff[] = {
 #ifdef CONFIG_SCHEDSTATS
 	INF("schedstat", S_IRUGO, pid_schedstat),
 #endif
-#ifdef CONFIG_CPUSETS
+#ifdef CONFIG_PROC_PID_CPUSET
 	REG("cpuset",    S_IRUGO, cpuset),
+#endif
+#ifdef CONFIG_CGROUPS
+	REG("cgroup",  S_IRUGO, cgroup),
 #endif
 	INF("oom_score", S_IRUGO, oom_score),
 	REG("oom_adj",   S_IRUGO|S_IWUSR, oom_adjust),
@@ -2486,6 +2608,7 @@ static struct dentry *proc_task_lookup(struct inode *dir, struct dentry * dentry
 	struct task_struct *task;
 	struct task_struct *leader = get_proc_task(dir);
 	unsigned tid;
+	struct pid_namespace *ns;
 
 	if (!leader)
 		goto out_no_task;
@@ -2494,14 +2617,15 @@ static struct dentry *proc_task_lookup(struct inode *dir, struct dentry * dentry
 	if (tid == ~0U)
 		goto out;
 
+	ns = dentry->d_sb->s_fs_info;
 	rcu_read_lock();
-	task = find_task_by_pid(tid);
+	task = find_task_by_pid_ns(tid, ns);
 	if (task)
 		get_task_struct(task);
 	rcu_read_unlock();
 	if (!task)
 		goto out;
-	if (leader->tgid != task->tgid)
+	if (!same_thread_group(leader, task))
 		goto out_drop_task;
 
 	result = proc_task_instantiate(dir, dentry, task, NULL);
@@ -2526,14 +2650,14 @@ out_no_task:
  * threads past it.
  */
 static struct task_struct *first_tid(struct task_struct *leader,
-					int tid, int nr)
+		int tid, int nr, struct pid_namespace *ns)
 {
 	struct task_struct *pos;
 
 	rcu_read_lock();
 	/* Attempt to start with the pid of a thread */
 	if (tid && (nr > 0)) {
-		pos = find_task_by_pid(tid);
+		pos = find_task_by_pid_ns(tid, ns);
 		if (pos && (pos->group_leader == leader))
 			goto found;
 	}
@@ -2602,6 +2726,7 @@ static int proc_task_readdir(struct file * filp, void * dirent, filldir_t filldi
 	ino_t ino;
 	int tid;
 	unsigned long pos = filp->f_pos;  /* avoiding "long long" filp->f_pos */
+	struct pid_namespace *ns;
 
 	task = get_proc_task(inode);
 	if (!task)
@@ -2635,12 +2760,13 @@ static int proc_task_readdir(struct file * filp, void * dirent, filldir_t filldi
 	/* f_version caches the tgid value that the last readdir call couldn't
 	 * return. lseek aka telldir automagically resets f_version to 0.
 	 */
+	ns = filp->f_dentry->d_sb->s_fs_info;
 	tid = (int)filp->f_version;
 	filp->f_version = 0;
-	for (task = first_tid(leader, tid, pos - 2);
+	for (task = first_tid(leader, tid, pos - 2, ns);
 	     task;
 	     task = next_tid(task), pos++) {
-		tid = task->pid;
+		tid = task_pid_nr_ns(task, ns);
 		if (proc_task_fill_cache(filp, dirent, filldir, task, tid) < 0) {
 			/* returning this tgid failed, save it as the first
 			 * pid for the next readir call */

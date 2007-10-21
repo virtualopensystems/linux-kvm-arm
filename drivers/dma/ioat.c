@@ -34,7 +34,7 @@
 #include "ioatdma_registers.h"
 #include "ioatdma_hw.h"
 
-MODULE_VERSION("1.24");
+MODULE_VERSION(IOAT_DMA_VERSION);
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Intel Corporation");
 
@@ -55,9 +55,7 @@ struct ioat_device {
 
 static int __devinit ioat_probe(struct pci_dev *pdev,
 				const struct pci_device_id *id);
-#ifdef IOAT_DMA_REMOVE
 static void __devexit ioat_remove(struct pci_dev *pdev);
-#endif
 
 static int ioat_dca_enabled = 1;
 module_param(ioat_dca_enabled, int, 0644);
@@ -73,7 +71,7 @@ static int ioat_setup_functionality(struct pci_dev *pdev, void __iomem *iobase)
 	switch (version) {
 	case IOAT_VER_1_2:
 		device->dma = ioat_dma_probe(pdev, iobase);
-		if (ioat_dca_enabled)
+		if (device->dma && ioat_dca_enabled)
 			device->dca = ioat_dca_init(pdev, iobase);
 		break;
 	default:
@@ -87,27 +85,25 @@ static void ioat_shutdown_functionality(struct pci_dev *pdev)
 {
 	struct ioat_device *device = pci_get_drvdata(pdev);
 
-	if (device->dma) {
-		ioat_dma_remove(device->dma);
-		device->dma = NULL;
-	}
-
+	dev_err(&pdev->dev, "Removing dma and dca services\n");
 	if (device->dca) {
 		unregister_dca_provider(device->dca);
 		free_dca_provider(device->dca);
 		device->dca = NULL;
 	}
 
+	if (device->dma) {
+		ioat_dma_remove(device->dma);
+		device->dma = NULL;
+	}
 }
 
-static struct pci_driver ioat_pci_drv = {
+static struct pci_driver ioat_pci_driver = {
 	.name		= "ioatdma",
 	.id_table	= ioat_pci_tbl,
 	.probe		= ioat_probe,
 	.shutdown	= ioat_shutdown_functionality,
-#ifdef IOAT_DMA_REMOVE
 	.remove		= __devexit_p(ioat_remove),
-#endif
 };
 
 static int __devinit ioat_probe(struct pci_dev *pdev,
@@ -122,7 +118,7 @@ static int __devinit ioat_probe(struct pci_dev *pdev,
 	if (err)
 		goto err_enable_device;
 
-	err = pci_request_regions(pdev, ioat_pci_drv.name);
+	err = pci_request_regions(pdev, ioat_pci_driver.name);
 	if (err)
 		goto err_request_regions;
 
@@ -176,13 +172,11 @@ err_enable_device:
 	return err;
 }
 
-#ifdef IOAT_DMA_REMOVE
 /*
  * It is unsafe to remove this module: if removed while a requested
  * dma is outstanding, esp. from tcp, it is possible to hang while
- * waiting for something that will never finish, thus hanging at
- * least one cpu.  However, if you're feeling lucky and need to do
- * some testing, this usually works just fine.
+ * waiting for something that will never finish.  However, if you're
+ * feeling lucky, this usually works just fine.
  */
 static void __devexit ioat_remove(struct pci_dev *pdev)
 {
@@ -191,21 +185,16 @@ static void __devexit ioat_remove(struct pci_dev *pdev)
 	ioat_shutdown_functionality(pdev);
 
 	kfree(device);
-
-	iounmap(device->iobase);
-	pci_release_regions(pdev);
-	pci_disable_device(pdev);
 }
-#endif
 
 static int __init ioat_init_module(void)
 {
-	return pci_register_driver(&ioat_pci_drv);
+	return pci_register_driver(&ioat_pci_driver);
 }
 module_init(ioat_init_module);
 
 static void __exit ioat_exit_module(void)
 {
-	pci_unregister_driver(&ioat_pci_drv);
+	pci_unregister_driver(&ioat_pci_driver);
 }
 module_exit(ioat_exit_module);

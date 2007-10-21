@@ -85,7 +85,7 @@ void reiserfs_warning(struct super_block *s, const char *fmt, ...);
 if( !( cond ) ) 								\
   reiserfs_panic( NULL, "reiserfs[%i]: assertion " scond " failed at "	\
 		  __FILE__ ":%i:%s: " format "\n",		\
-		  in_interrupt() ? -1 : current -> pid, __LINE__ , __FUNCTION__ , ##args )
+		  in_interrupt() ? -1 : task_pid_nr(current), __LINE__ , __FUNCTION__ , ##args )
 
 #define RASSERT(cond, format, args...) __RASSERT(cond, #cond, format, ##args)
 
@@ -281,6 +281,18 @@ static inline struct reiserfs_inode_info *REISERFS_I(const struct inode *inode)
 static inline struct reiserfs_sb_info *REISERFS_SB(const struct super_block *sb)
 {
 	return sb->s_fs_info;
+}
+
+/* Don't trust REISERFS_SB(sb)->s_bmap_nr, it's a u16
+ * which overflows on large file systems. */
+static inline u32 reiserfs_bmap_count(struct super_block *sb)
+{
+	return (SB_BLOCK_COUNT(sb) - 1) / (sb->s_blocksize * 8) + 1;
+}
+
+static inline int bmap_would_wrap(unsigned bmap_nr)
+{
+	return bmap_nr > ((1LL << 16) - 1);
 }
 
 /** this says about version of key of all items (but stat data) the
@@ -1734,8 +1746,8 @@ int journal_end_sync(struct reiserfs_transaction_handle *, struct super_block *,
 int journal_mark_freed(struct reiserfs_transaction_handle *,
 		       struct super_block *, b_blocknr_t blocknr);
 int journal_transaction_should_end(struct reiserfs_transaction_handle *, int);
-int reiserfs_in_journal(struct super_block *p_s_sb, int bmap_nr, int bit_nr,
-			int searchall, b_blocknr_t * next);
+int reiserfs_in_journal(struct super_block *p_s_sb, unsigned int bmap_nr,
+			int bit_nr, int searchall, b_blocknr_t *next);
 int journal_begin(struct reiserfs_transaction_handle *,
 		  struct super_block *p_s_sb, unsigned long);
 int journal_join_abort(struct reiserfs_transaction_handle *,
@@ -1743,7 +1755,7 @@ int journal_join_abort(struct reiserfs_transaction_handle *,
 void reiserfs_journal_abort(struct super_block *sb, int errno);
 void reiserfs_abort(struct super_block *sb, int errno, const char *fmt, ...);
 int reiserfs_allocate_list_bitmaps(struct super_block *s,
-				   struct reiserfs_list_bitmap *, int);
+				   struct reiserfs_list_bitmap *, unsigned int);
 
 void add_save_link(struct reiserfs_transaction_handle *th,
 		   struct inode *inode, int truncate);
@@ -2041,7 +2053,7 @@ struct buffer_head *get_FEB(struct tree_balance *);
  * arguments, such as node, search path, transaction_handle, etc. */
 struct __reiserfs_blocknr_hint {
 	struct inode *inode;	/* inode passed to allocator, if we allocate unf. nodes */
-	long block;		/* file offset, in blocks */
+	sector_t block;		/* file offset, in blocks */
 	struct in_core_key key;
 	struct treepath *path;	/* search path, used by allocator to deternine search_start by
 				 * various ways */
@@ -2099,7 +2111,8 @@ static inline int reiserfs_new_form_blocknrs(struct tree_balance *tb,
 static inline int reiserfs_new_unf_blocknrs(struct reiserfs_transaction_handle
 					    *th, struct inode *inode,
 					    b_blocknr_t * new_blocknrs,
-					    struct treepath *path, long block)
+					    struct treepath *path,
+					    sector_t block)
 {
 	reiserfs_blocknr_hint_t hint = {
 		.th = th,
@@ -2116,7 +2129,8 @@ static inline int reiserfs_new_unf_blocknrs(struct reiserfs_transaction_handle
 static inline int reiserfs_new_unf_blocknrs2(struct reiserfs_transaction_handle
 					     *th, struct inode *inode,
 					     b_blocknr_t * new_blocknrs,
-					     struct treepath *path, long block)
+					     struct treepath *path,
+					     sector_t block)
 {
 	reiserfs_blocknr_hint_t hint = {
 		.th = th,

@@ -24,7 +24,7 @@
 #include <linux/slab.h>
 #include <linux/random.h>
 #include <linux/irq.h>
-#include <asm/bitops.h>
+#include <linux/bitops.h>
 #include <asm/bootinfo.h>
 #include <asm/io.h>
 #include <asm/irq.h>
@@ -42,9 +42,4 @@ void __init
 plat_mem_setup(void)
 {
 	toshiba_rbtx4938_setup();
-}
-
-void __init plat_timer_setup(struct irqaction *irq)
-{
-	setup_irq(TX4938_IRQ_CPU_TIMER, irq);
 }

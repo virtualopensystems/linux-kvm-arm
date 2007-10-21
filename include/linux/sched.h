@@ -25,6 +25,7 @@
 #define CLONE_NEWUTS		0x04000000	/* New utsname group? */
 #define CLONE_NEWIPC		0x08000000	/* New ipcs */
 #define CLONE_NEWUSER		0x10000000	/* New user namespace */
+#define CLONE_NEWPID		0x20000000	/* New pid namespace */
 #define CLONE_NEWNET		0x40000000	/* New network namespace */
 
 /*
@@ -428,7 +429,17 @@ struct signal_struct {
 	cputime_t it_prof_incr, it_virt_incr;
 
 	/* job control IDs */
-	pid_t pgrp;
+
+	/*
+	 * pgrp and session fields are deprecated.
+	 * use the task_session_Xnr and task_pgrp_Xnr routines below
+	 */
+
+	union {
+		pid_t pgrp __deprecated;
+		pid_t __pgrp;
+	};
+
 	struct pid *tty_old_pgrp;
 
 	union {
@@ -569,7 +580,7 @@ struct sched_info {
 			   last_queued;	/* when we were last queued to run */
 #ifdef CONFIG_SCHEDSTATS
 	/* BKL stats */
-	unsigned long bkl_count;
+	unsigned int bkl_count;
 #endif
 };
 #endif /* defined(CONFIG_SCHEDSTATS) || defined(CONFIG_TASK_DELAY_ACCT) */
@@ -705,36 +716,38 @@ struct sched_domain {
 
 #ifdef CONFIG_SCHEDSTATS
 	/* load_balance() stats */
-	unsigned long lb_count[CPU_MAX_IDLE_TYPES];
-	unsigned long lb_failed[CPU_MAX_IDLE_TYPES];
-	unsigned long lb_balanced[CPU_MAX_IDLE_TYPES];
-	unsigned long lb_imbalance[CPU_MAX_IDLE_TYPES];
-	unsigned long lb_gained[CPU_MAX_IDLE_TYPES];
-	unsigned long lb_hot_gained[CPU_MAX_IDLE_TYPES];
-	unsigned long lb_nobusyg[CPU_MAX_IDLE_TYPES];
-	unsigned long lb_nobusyq[CPU_MAX_IDLE_TYPES];
+	unsigned int lb_count[CPU_MAX_IDLE_TYPES];
+	unsigned int lb_failed[CPU_MAX_IDLE_TYPES];
+	unsigned int lb_balanced[CPU_MAX_IDLE_TYPES];
+	unsigned int lb_imbalance[CPU_MAX_IDLE_TYPES];
+	unsigned int lb_gained[CPU_MAX_IDLE_TYPES];
+	unsigned int lb_hot_gained[CPU_MAX_IDLE_TYPES];
+	unsigned int lb_nobusyg[CPU_MAX_IDLE_TYPES];
+	unsigned int lb_nobusyq[CPU_MAX_IDLE_TYPES];
 
 	/* Active load balancing */
-	unsigned long alb_count;
-	unsigned long alb_failed;
-	unsigned long alb_pushed;
+	unsigned int alb_count;
+	unsigned int alb_failed;
+	unsigned int alb_pushed;
 
 	/* SD_BALANCE_EXEC stats */
-	unsigned long sbe_count;
-	unsigned long sbe_balanced;
-	unsigned long sbe_pushed;
+	unsigned int sbe_count;
+	unsigned int sbe_balanced;
+	unsigned int sbe_pushed;
 
 	/* SD_BALANCE_FORK stats */
-	unsigned long sbf_count;
-	unsigned long sbf_balanced;
-	unsigned long sbf_pushed;
+	unsigned int sbf_count;
+	unsigned int sbf_balanced;
+	unsigned int sbf_pushed;
 
 	/* try_to_wake_up() stats */
-	unsigned long ttwu_wake_remote;
-	unsigned long ttwu_move_affine;
-	unsigned long ttwu_move_balance;
+	unsigned int ttwu_wake_remote;
+	unsigned int ttwu_move_affine;
+	unsigned int ttwu_move_balance;
 #endif
 };
+
+extern void partition_sched_domains(int ndoms_new, cpumask_t *doms_new);
 
 #endif	/* CONFIG_SMP */
 
@@ -756,8 +769,6 @@ static inline int above_background_load(void)
 }
 
 struct io_context;			/* See blkdev.h */
-struct cpuset;
-
 #define NGROUPS_SMALL		32
 #define NGROUPS_PER_BLOCK	((int)(PAGE_SIZE / sizeof(gid_t)))
 struct group_info {
@@ -991,7 +1002,7 @@ struct task_struct {
 	int __user *clear_child_tid;		/* CLONE_CHILD_CLEARTID */
 
 	unsigned int rt_priority;
-	cputime_t utime, stime;
+	cputime_t utime, stime, utimescaled, stimescaled;
 	cputime_t gtime;
 	unsigned long nvcsw, nivcsw; /* context switch counts */
 	struct timespec start_time; 		/* monotonic time */
@@ -1110,13 +1121,6 @@ struct task_struct {
 
 	unsigned long ptrace_message;
 	siginfo_t *last_siginfo; /* For ptrace use.  */
-/*
- * current io wait handle: wait queue entry to use for io waits
- * If this thread is processing aio, this points at the waitqueue
- * inside the currently handled kiocb. It may be NULL (i.e. default
- * to a stack based synchronous wait) if its doing sync IO.
- */
-	wait_queue_t *io_wait;
 #ifdef CONFIG_TASK_XACCT
 /* i/o counters(bytes read/written, #syscalls */
 	u64 rchar, wchar, syscr, syscw;
@@ -1132,10 +1136,15 @@ struct task_struct {
 	short il_next;
 #endif
 #ifdef CONFIG_CPUSETS
-	struct cpuset *cpuset;
 	nodemask_t mems_allowed;
 	int cpuset_mems_generation;
 	int cpuset_mem_spread_rotor;
+#endif
+#ifdef CONFIG_CGROUPS
+	/* Control Group info protected by css_set_lock */
+	struct css_set *cgroups;
+	/* cg_list protected by css_set_lock and tsk->alloc_lock */
+	struct list_head cg_list;
 #endif
 #ifdef CONFIG_FUTEX
 	struct robust_list_head __user *robust_list;
@@ -1192,24 +1201,14 @@ static inline int rt_task(struct task_struct *p)
 	return rt_prio(p->prio);
 }
 
-static inline pid_t process_group(struct task_struct *tsk)
+static inline void set_task_session(struct task_struct *tsk, pid_t session)
 {
-	return tsk->signal->pgrp;
+	tsk->signal->__session = session;
 }
 
-static inline pid_t signal_session(struct signal_struct *sig)
+static inline void set_task_pgrp(struct task_struct *tsk, pid_t pgrp)
 {
-	return sig->__session;
-}
-
-static inline pid_t process_session(struct task_struct *tsk)
-{
-	return signal_session(tsk->signal);
-}
-
-static inline void set_signal_session(struct signal_struct *sig, pid_t session)
-{
-	sig->__session = session;
+	tsk->signal->__pgrp = pgrp;
 }
 
 static inline struct pid *task_pid(struct task_struct *task)
@@ -1232,6 +1231,88 @@ static inline struct pid *task_session(struct task_struct *task)
 	return task->group_leader->pids[PIDTYPE_SID].pid;
 }
 
+struct pid_namespace;
+
+/*
+ * the helpers to get the task's different pids as they are seen
+ * from various namespaces
+ *
+ * task_xid_nr()     : global id, i.e. the id seen from the init namespace;
+ * task_xid_vnr()    : virtual id, i.e. the id seen from the namespace the task
+ *                     belongs to. this only makes sence when called in the
+ *                     context of the task that belongs to the same namespace;
+ * task_xid_nr_ns()  : id seen from the ns specified;
+ *
+ * set_task_vxid()   : assigns a virtual id to a task;
+ *
+ * task_ppid_nr_ns() : the parent's id as seen from the namespace specified.
+ *                     the result depends on the namespace and whether the
+ *                     task in question is the namespace's init. e.g. for the
+ *                     namespace's init this will return 0 when called from
+ *                     the namespace of this init, or appropriate id otherwise.
+ *
+ *
+ * see also pid_nr() etc in include/linux/pid.h
+ */
+
+static inline pid_t task_pid_nr(struct task_struct *tsk)
+{
+	return tsk->pid;
+}
+
+pid_t task_pid_nr_ns(struct task_struct *tsk, struct pid_namespace *ns);
+
+static inline pid_t task_pid_vnr(struct task_struct *tsk)
+{
+	return pid_vnr(task_pid(tsk));
+}
+
+
+static inline pid_t task_tgid_nr(struct task_struct *tsk)
+{
+	return tsk->tgid;
+}
+
+pid_t task_tgid_nr_ns(struct task_struct *tsk, struct pid_namespace *ns);
+
+static inline pid_t task_tgid_vnr(struct task_struct *tsk)
+{
+	return pid_vnr(task_tgid(tsk));
+}
+
+
+static inline pid_t task_pgrp_nr(struct task_struct *tsk)
+{
+	return tsk->signal->__pgrp;
+}
+
+pid_t task_pgrp_nr_ns(struct task_struct *tsk, struct pid_namespace *ns);
+
+static inline pid_t task_pgrp_vnr(struct task_struct *tsk)
+{
+	return pid_vnr(task_pgrp(tsk));
+}
+
+
+static inline pid_t task_session_nr(struct task_struct *tsk)
+{
+	return tsk->signal->__session;
+}
+
+pid_t task_session_nr_ns(struct task_struct *tsk, struct pid_namespace *ns);
+
+static inline pid_t task_session_vnr(struct task_struct *tsk)
+{
+	return pid_vnr(task_session(tsk));
+}
+
+
+static inline pid_t task_ppid_nr_ns(struct task_struct *tsk,
+		struct pid_namespace *ns)
+{
+	return pid_nr_ns(task_pid(rcu_dereference(tsk->real_parent)), ns);
+}
+
 /**
  * pid_alive - check that a task structure is not stale
  * @p: Task structure to be checked.
@@ -1246,15 +1327,21 @@ static inline int pid_alive(struct task_struct *p)
 }
 
 /**
- * is_init - check if a task structure is init
+ * is_global_init - check if a task structure is init
  * @tsk: Task structure to be checked.
  *
  * Check if a task structure is the first user space task the kernel created.
  */
-static inline int is_init(struct task_struct *tsk)
+static inline int is_global_init(struct task_struct *tsk)
 {
 	return tsk->pid == 1;
 }
+
+/*
+ * is_container_init:
+ * check whether in the task is init in its own pid namespace.
+ */
+extern int is_container_init(struct task_struct *tsk);
 
 extern struct pid *cad_pid;
 
@@ -1427,8 +1514,32 @@ extern struct task_struct init_task;
 
 extern struct   mm_struct init_mm;
 
-#define find_task_by_pid(nr)	find_task_by_pid_type(PIDTYPE_PID, nr)
-extern struct task_struct *find_task_by_pid_type(int type, int pid);
+extern struct pid_namespace init_pid_ns;
+
+/*
+ * find a task by one of its numerical ids
+ *
+ * find_task_by_pid_type_ns():
+ *      it is the most generic call - it finds a task by all id,
+ *      type and namespace specified
+ * find_task_by_pid_ns():
+ *      finds a task by its pid in the specified namespace
+ * find_task_by_vpid():
+ *      finds a task by its virtual pid
+ * find_task_by_pid():
+ *      finds a task by its global pid
+ *
+ * see also find_pid() etc in include/linux/pid.h
+ */
+
+extern struct task_struct *find_task_by_pid_type_ns(int type, int pid,
+		struct pid_namespace *ns);
+
+extern struct task_struct *find_task_by_pid(pid_t nr);
+extern struct task_struct *find_task_by_vpid(pid_t nr);
+extern struct task_struct *find_task_by_pid_ns(pid_t nr,
+		struct pid_namespace *ns);
+
 extern void __set_special_pids(pid_t session, pid_t pgrp);
 
 /* per-UID process charging. */
@@ -1615,6 +1726,12 @@ static inline int has_group_leader_pid(struct task_struct *p)
 	return p->pid == p->tgid;
 }
 
+static inline
+int same_thread_group(struct task_struct *p1, struct task_struct *p2)
+{
+	return p1->tgid == p2->tgid;
+}
+
 static inline struct task_struct *next_thread(const struct task_struct *p)
 {
 	return list_entry(rcu_dereference(p->thread_group.next),
@@ -1632,7 +1749,8 @@ static inline int thread_group_empty(struct task_struct *p)
 /*
  * Protects ->fs, ->files, ->mm, ->group_info, ->comm, keyring
  * subscriptions and synchronises with wait4().  Also used in procfs.  Also
- * pins the final release of task.io_context.  Also protects ->cpuset.
+ * pins the final release of task.io_context.  Also protects ->cpuset and
+ * ->cgroup.subsys[].
  *
  * Nests both inside and outside of read_lock(&tasklist_lock).
  * It must not be nested with write_lock_irq(&tasklist_lock),

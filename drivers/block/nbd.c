@@ -188,7 +188,7 @@ static int sock_xmit(struct nbd_device *lo, int send, void *buf, int size,
 		if (signal_pending(current)) {
 			siginfo_t info;
 			printk(KERN_WARNING "nbd (pid %d: %s) got signal %d\n",
-				current->pid, current->comm,
+				task_pid_nr(current), current->comm,
 				dequeue_signal_lock(current, &current->blocked, &info));
 			result = -EINTR;
 			sock_shutdown(lo, !send);
@@ -508,7 +508,6 @@ error_out:
 		nbd_end_request(req);
 		spin_lock(q->queue_lock);
 	}
-	return;
 }
 
 static int nbd_ioctl(struct inode *inode, struct file *file,

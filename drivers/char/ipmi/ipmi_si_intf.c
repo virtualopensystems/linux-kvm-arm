@@ -675,7 +675,8 @@ static void handle_transaction_done(struct smi_info *smi_info)
 }
 
 /* Called on timeouts and events.  Timeouts should pass the elapsed
-   time, interrupts should pass in zero. */
+   time, interrupts should pass in zero.  Must be called with
+   si_lock held and interrupts disabled. */
 static enum si_sm_result smi_event_handler(struct smi_info *smi_info,
 					   int time)
 {
@@ -892,13 +893,16 @@ static int ipmi_thread(void *data)
 static void poll(void *send_info)
 {
 	struct smi_info *smi_info = send_info;
+	unsigned long flags;
 
 	/*
 	 * Make sure there is some delay in the poll loop so we can
 	 * drive time forward and timeout things.
 	 */
 	udelay(10);
+	spin_lock_irqsave(&smi_info->si_lock, flags);
 	smi_event_handler(smi_info, 10);
+	spin_unlock_irqrestore(&smi_info->si_lock, flags);
 }
 
 static void request_events(void *send_info)
@@ -1005,6 +1009,10 @@ static int smi_start_processing(void       *send_info,
 	int             enable = 0;
 
 	new_smi->intf = intf;
+
+	/* Try to claim any interrupts. */
+	if (new_smi->irq_setup)
+		new_smi->irq_setup(new_smi);
 
 	/* Set up the timer that drives the interface. */
 	setup_timer(&new_smi->si_timer, smi_timeout, (long)new_smi);
@@ -2372,20 +2380,9 @@ static int try_get_dev_id(struct smi_info *smi_info)
 	/* Otherwise, we got some data. */
 	resp_len = smi_info->handlers->get_result(smi_info->si_sm,
 						  resp, IPMI_MAX_MSG_LENGTH);
-	if (resp_len < 14) {
-		/* That's odd, it should be longer. */
-		rv = -EINVAL;
-		goto out;
-	}
 
-	if ((resp[1] != IPMI_GET_DEVICE_ID_CMD) || (resp[2] != 0)) {
-		/* That's odd, it shouldn't be able to fail. */
-		rv = -EINVAL;
-		goto out;
-	}
-
-	/* Record info from the get device id, in case we need it. */
-	ipmi_demangle_device_id(resp+3, resp_len-3, &smi_info->device_id);
+	/* Check and record info from the get device id, in case we need it. */
+	rv = ipmi_demangle_device_id(resp, resp_len, &smi_info->device_id);
 
  out:
 	kfree(resp);
@@ -2764,10 +2761,6 @@ static int try_smi_init(struct smi_info *new_smi)
 
 	setup_oem_data_handler(new_smi);
 	setup_xaction_handlers(new_smi);
-
-	/* Try to claim any interrupts. */
-	if (new_smi->irq_setup)
-		new_smi->irq_setup(new_smi);
 
 	INIT_LIST_HEAD(&(new_smi->xmit_msgs));
 	INIT_LIST_HEAD(&(new_smi->hp_xmit_msgs));

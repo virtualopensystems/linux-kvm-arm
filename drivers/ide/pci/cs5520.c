@@ -106,18 +106,6 @@ static void cs5520_set_dma_mode(ide_drive_t *drive, const u8 speed)
 }
 
 /*
- *	We provide a callback for our nonstandard DMA location
- */
-
-static void __devinit cs5520_init_setup_dma(struct pci_dev *dev, ide_pci_device_t *d, ide_hwif_t *hwif)
-{
-	unsigned long bmide = pci_resource_start(dev, 2);	/* Not the usual 4 */
-	if(hwif->mate && hwif->mate->dma_base)	/* Second channel at primary + 8 */
-		bmide += 8;
-	ide_setup_dma(hwif, bmide, 8);
-}
-
-/*
  *	We wrap the DMA activate to set the vdma flag. This is needed
  *	so that the IDE DMA layer issues PIO not DMA commands over the
  *	DMA channel
@@ -125,6 +113,7 @@ static void __devinit cs5520_init_setup_dma(struct pci_dev *dev, ide_pci_device_
  
 static int cs5520_dma_on(ide_drive_t *drive)
 {
+	/* ATAPI is harder so leave it for now */
 	drive->vdma = 1;
 	return 0;
 }
@@ -134,33 +123,25 @@ static void __devinit init_hwif_cs5520(ide_hwif_t *hwif)
 	hwif->set_pio_mode = &cs5520_set_pio_mode;
 	hwif->set_dma_mode = &cs5520_set_dma_mode;
 
-	if (hwif->dma_base == 0) {
-		hwif->drives[1].autotune = hwif->drives[0].autotune = 1;
+	if (hwif->dma_base == 0)
 		return;
-	}
 
 	hwif->ide_dma_on = &cs5520_dma_on;
-
-	/* ATAPI is harder so leave it for now */
-	hwif->atapi_dma = 0;
-	hwif->ultra_mask = 0;
-	hwif->swdma_mask = 0;
-	hwif->mwdma_mask = 0;
 }
 
 #define DECLARE_CS_DEV(name_str)				\
 	{							\
 		.name		= name_str,			\
-		.init_setup_dma = cs5520_init_setup_dma,	\
 		.init_hwif	= init_hwif_cs5520,		\
-		.autodma	= AUTODMA,			\
-		.bootable	= ON_BOARD,			\
 		.host_flags	= IDE_HFLAG_ISA_PORTS |		\
-				  IDE_HFLAG_VDMA,		\
+				  IDE_HFLAG_CS5520 |		\
+				  IDE_HFLAG_VDMA |		\
+				  IDE_HFLAG_NO_ATAPI_DMA |	\
+				  IDE_HFLAG_BOOTABLE,		\
 		.pio_mask	= ATA_PIO4,			\
 	}
 
-static ide_pci_device_t cyrix_chipsets[] __devinitdata = {
+static const struct ide_port_info cyrix_chipsets[] __devinitdata = {
 	/* 0 */ DECLARE_CS_DEV("Cyrix 5510"),
 	/* 1 */ DECLARE_CS_DEV("Cyrix 5520")
 };
@@ -173,9 +154,8 @@ static ide_pci_device_t cyrix_chipsets[] __devinitdata = {
  
 static int __devinit cs5520_init_one(struct pci_dev *dev, const struct pci_device_id *id)
 {
-	ide_hwif_t *hwif = NULL, *mate = NULL;
-	ata_index_t index;
-	ide_pci_device_t *d = &cyrix_chipsets[id->driver_data];
+	const struct ide_port_info *d = &cyrix_chipsets[id->driver_data];
+	u8 idx[4] = { 0xff, 0xff, 0xff, 0xff };
 
 	ide_setup_pci_noise(dev, d);
 
@@ -191,29 +171,14 @@ static int __devinit cs5520_init_one(struct pci_dev *dev, const struct pci_devic
 		return -ENODEV;
 	}
 
-	index.all = 0xf0f0;
-
 	/*
 	 *	Now the chipset is configured we can let the core
 	 *	do all the device setup for us
 	 */
 
-	ide_pci_setup_ports(dev, d, 14, &index);
+	ide_pci_setup_ports(dev, d, 14, &idx[0]);
 
-	if ((index.b.low & 0xf0) != 0xf0)
-		hwif = &ide_hwifs[index.b.low];
-	if ((index.b.high & 0xf0) != 0xf0)
-		mate = &ide_hwifs[index.b.high];
-
-	if (hwif)
-		probe_hwif_init(hwif);
-	if (mate)
-		probe_hwif_init(mate);
-
-	if (hwif)
-		ide_proc_register_port(hwif);
-	if (mate)
-		ide_proc_register_port(mate);
+	ide_device_add(idx);
 
 	return 0;
 }

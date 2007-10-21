@@ -472,7 +472,7 @@ static u8 scc_udma_filter(ide_drive_t *drive)
 	if ((drive->media != ide_disk) && (mask & 0xE0)) {
 		printk(KERN_INFO "%s: limit %s to UDMA4\n",
 		       SCC_PATA_NAME, drive->name);
-		mask = 0x1F;
+		mask = ATA_UDMA4;
 	}
 
 	return mask;
@@ -538,12 +538,13 @@ static int setup_mmio_scc (struct pci_dev *dev, const char *name)
 /**
  *	init_setup_scc	-	set up an SCC PATA Controller
  *	@dev: PCI device
- *	@d: IDE PCI device
+ *	@d: IDE port info
  *
  *	Perform the initial set up for this device.
  */
 
-static int __devinit init_setup_scc(struct pci_dev *dev, ide_pci_device_t *d)
+static int __devinit init_setup_scc(struct pci_dev *dev,
+				    const struct ide_port_info *d)
 {
 	unsigned long ctl_base;
 	unsigned long dma_base;
@@ -683,17 +684,10 @@ static void __devinit init_hwif_scc(ide_hwif_t *hwif)
 	hwif->ide_dma_test_irq = scc_dma_test_irq;
 	hwif->udma_filter = scc_udma_filter;
 
-	hwif->drives[0].autotune = IDE_TUNE_AUTO;
-	hwif->drives[1].autotune = IDE_TUNE_AUTO;
-
-	if (in_be32((void __iomem *)(hwif->config_data + 0xff0)) & CCKCTRL_ATACLKOEN) {
-		hwif->ultra_mask = 0x7f; /* 133MHz */
-	} else {
-		hwif->ultra_mask = 0x3f; /* 100MHz */
-	}
-	hwif->mwdma_mask = 0x00;
-	hwif->swdma_mask = 0x00;
-	hwif->atapi_dma = 1;
+	if (in_be32((void __iomem *)(hwif->config_data + 0xff0)) & CCKCTRL_ATACLKOEN)
+		hwif->ultra_mask = ATA_UDMA6; /* 133MHz */
+	else
+		hwif->ultra_mask = ATA_UDMA5; /* 100MHz */
 
 	/* we support 80c cable only. */
 	hwif->cbl = ATA_CBL_PATA80;
@@ -702,16 +696,14 @@ static void __devinit init_hwif_scc(ide_hwif_t *hwif)
 #define DECLARE_SCC_DEV(name_str)			\
   {							\
       .name		= name_str,			\
-      .init_setup	= init_setup_scc,		\
       .init_iops	= init_iops_scc,		\
       .init_hwif	= init_hwif_scc,		\
-      .autodma	= AUTODMA,				\
-      .bootable	= ON_BOARD,				\
-      .host_flags	= IDE_HFLAG_SINGLE,		\
+      .host_flags	= IDE_HFLAG_SINGLE |		\
+			  IDE_HFLAG_BOOTABLE,		\
       .pio_mask		= ATA_PIO4,			\
   }
 
-static ide_pci_device_t scc_chipsets[] __devinitdata = {
+static const struct ide_port_info scc_chipsets[] __devinitdata = {
 	/* 0 */ DECLARE_SCC_DEV("sccIDE"),
 };
 
@@ -726,8 +718,7 @@ static ide_pci_device_t scc_chipsets[] __devinitdata = {
 
 static int __devinit scc_init_one(struct pci_dev *dev, const struct pci_device_id *id)
 {
-	ide_pci_device_t *d = &scc_chipsets[id->driver_data];
-	return d->init_setup(dev, d);
+	return init_setup_scc(dev, &scc_chipsets[id->driver_data]);
 }
 
 /**

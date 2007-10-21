@@ -19,6 +19,7 @@
 #include <linux/security.h>
 #include <linux/signal.h>
 #include <linux/audit.h>
+#include <linux/pid_namespace.h>
 
 #include <asm/pgtable.h>
 #include <asm/uaccess.h>
@@ -168,7 +169,7 @@ int ptrace_attach(struct task_struct *task)
 	retval = -EPERM;
 	if (task->pid <= 1)
 		goto out;
-	if (task->tgid == current->tgid)
+	if (same_thread_group(task, current))
 		goto out;
 
 repeat:
@@ -443,7 +444,7 @@ struct task_struct *ptrace_get_task_struct(pid_t pid)
 		return ERR_PTR(-EPERM);
 
 	read_lock(&tasklist_lock);
-	child = find_task_by_pid(pid);
+	child = find_task_by_vpid(pid);
 	if (child)
 		get_task_struct(child);
 

@@ -12,7 +12,6 @@
  */
 
 /* TODO:
- * BSS table: use <BSSID,SSID> as the key to support multi-SSID APs
  * order BSS list by RSSI(?) ("quality of AP")
  * scan result table filtering (by capability (privacy, IBSS/BSS, WPA/RSN IE,
  *    SSID)
@@ -61,7 +60,8 @@
 static void ieee80211_send_probe_req(struct net_device *dev, u8 *dst,
 				     u8 *ssid, size_t ssid_len);
 static struct ieee80211_sta_bss *
-ieee80211_rx_bss_get(struct net_device *dev, u8 *bssid);
+ieee80211_rx_bss_get(struct net_device *dev, u8 *bssid, int channel,
+		     u8 *ssid, u8 ssid_len);
 static void ieee80211_rx_bss_put(struct net_device *dev,
 				 struct ieee80211_sta_bss *bss);
 static int ieee80211_sta_find_ibss(struct net_device *dev,
@@ -108,14 +108,11 @@ struct ieee802_11_elems {
 	u8 wmm_param_len;
 };
 
-enum ParseRes { ParseOK = 0, ParseUnknown = 1, ParseFailed = -1 };
-
-static enum ParseRes ieee802_11_parse_elems(u8 *start, size_t len,
-					    struct ieee802_11_elems *elems)
+static void ieee802_11_parse_elems(u8 *start, size_t len,
+				   struct ieee802_11_elems *elems)
 {
 	size_t left = len;
 	u8 *pos = start;
-	int unknown = 0;
 
 	memset(elems, 0, sizeof(*elems));
 
@@ -126,15 +123,8 @@ static enum ParseRes ieee802_11_parse_elems(u8 *start, size_t len,
 		elen = *pos++;
 		left -= 2;
 
-		if (elen > left) {
-#if 0
-			if (net_ratelimit())
-				printk(KERN_DEBUG "IEEE 802.11 element parse "
-				       "failed (id=%d elen=%d left=%d)\n",
-				       id, elen, left);
-#endif
-			return ParseFailed;
-		}
+		if (elen > left)
+			return;
 
 		switch (id) {
 		case WLAN_EID_SSID:
@@ -201,26 +191,13 @@ static enum ParseRes ieee802_11_parse_elems(u8 *start, size_t len,
 			elems->ext_supp_rates_len = elen;
 			break;
 		default:
-#if 0
-			printk(KERN_DEBUG "IEEE 802.11 element parse ignored "
-				      "unknown element (id=%d elen=%d)\n",
-				      id, elen);
-#endif
-			unknown++;
 			break;
 		}
 
 		left -= elen;
 		pos += elen;
 	}
-
-	/* Do not trigger error if left == 1 as Apple Airport base stations
-	 * send AssocResps that are one spurious byte too long. */
-
-	return unknown ? ParseUnknown : ParseOK;
 }
-
-
 
 
 static int ecw2cw(int ecw)
@@ -427,7 +404,9 @@ static void ieee80211_set_associated(struct net_device *dev,
 		if (sdata->type != IEEE80211_IF_TYPE_STA)
 			return;
 
-		bss = ieee80211_rx_bss_get(dev, ifsta->bssid);
+		bss = ieee80211_rx_bss_get(dev, ifsta->bssid,
+					   local->hw.conf.channel,
+					   ifsta->ssid, ifsta->ssid_len);
 		if (bss) {
 			if (bss->has_erp_value)
 				ieee80211_handle_erp_ie(dev, bss->erp_value);
@@ -574,7 +553,8 @@ static void ieee80211_send_assoc(struct net_device *dev,
 		capab |= WLAN_CAPABILITY_SHORT_SLOT_TIME |
 			WLAN_CAPABILITY_SHORT_PREAMBLE;
 	}
-	bss = ieee80211_rx_bss_get(dev, ifsta->bssid);
+	bss = ieee80211_rx_bss_get(dev, ifsta->bssid, local->hw.conf.channel,
+				   ifsta->ssid, ifsta->ssid_len);
 	if (bss) {
 		if (bss->capability & WLAN_CAPABILITY_PRIVACY)
 			capab |= WLAN_CAPABILITY_PRIVACY;
@@ -722,6 +702,7 @@ static void ieee80211_send_disassoc(struct net_device *dev,
 static int ieee80211_privacy_mismatch(struct net_device *dev,
 				      struct ieee80211_if_sta *ifsta)
 {
+	struct ieee80211_local *local = wdev_priv(dev->ieee80211_ptr);
 	struct ieee80211_sta_bss *bss;
 	int res = 0;
 
@@ -729,7 +710,8 @@ static int ieee80211_privacy_mismatch(struct net_device *dev,
 	    ifsta->key_management_enabled)
 		return 0;
 
-	bss = ieee80211_rx_bss_get(dev, ifsta->bssid);
+	bss = ieee80211_rx_bss_get(dev, ifsta->bssid, local->hw.conf.channel,
+				   ifsta->ssid, ifsta->ssid_len);
 	if (!bss)
 		return 0;
 
@@ -926,12 +908,7 @@ static void ieee80211_auth_challenge(struct net_device *dev,
 
 	printk(KERN_DEBUG "%s: replying to auth challenge\n", dev->name);
 	pos = mgmt->u.auth.variable;
-	if (ieee802_11_parse_elems(pos, len - (pos - (u8 *) mgmt), &elems)
-	    == ParseFailed) {
-		printk(KERN_DEBUG "%s: failed to parse Auth(challenge)\n",
-		       dev->name);
-		return;
-	}
+	ieee802_11_parse_elems(pos, len - (pos - (u8 *) mgmt), &elems);
 	if (!elems.challenge) {
 		printk(KERN_DEBUG "%s: no challenge IE in shared key auth "
 		       "frame\n", dev->name);
@@ -1203,15 +1180,11 @@ static void ieee80211_rx_mgmt_assoc_resp(struct net_device *dev,
 	capab_info = le16_to_cpu(mgmt->u.assoc_resp.capab_info);
 	status_code = le16_to_cpu(mgmt->u.assoc_resp.status_code);
 	aid = le16_to_cpu(mgmt->u.assoc_resp.aid);
-	if ((aid & (BIT(15) | BIT(14))) != (BIT(15) | BIT(14)))
-		printk(KERN_DEBUG "%s: invalid aid value %d; bits 15:14 not "
-		       "set\n", dev->name, aid);
-	aid &= ~(BIT(15) | BIT(14));
 
 	printk(KERN_DEBUG "%s: RX %sssocResp from %s (capab=0x%x "
 	       "status=%d aid=%d)\n",
 	       dev->name, reassoc ? "Rea" : "A", print_mac(mac, mgmt->sa),
-	       capab_info, status_code, aid);
+	       capab_info, status_code, aid & ~(BIT(15) | BIT(14)));
 
 	if (status_code != WLAN_STATUS_SUCCESS) {
 		printk(KERN_DEBUG "%s: AP denied association (code=%d)\n",
@@ -1223,13 +1196,13 @@ static void ieee80211_rx_mgmt_assoc_resp(struct net_device *dev,
 		return;
 	}
 
+	if ((aid & (BIT(15) | BIT(14))) != (BIT(15) | BIT(14)))
+		printk(KERN_DEBUG "%s: invalid aid value %d; bits 15:14 not "
+		       "set\n", dev->name, aid);
+	aid &= ~(BIT(15) | BIT(14));
+
 	pos = mgmt->u.assoc_resp.variable;
-	if (ieee802_11_parse_elems(pos, len - (pos - (u8 *) mgmt), &elems)
-	    == ParseFailed) {
-		printk(KERN_DEBUG "%s: failed to parse AssocResp\n",
-		       dev->name);
-		return;
-	}
+	ieee802_11_parse_elems(pos, len - (pos - (u8 *) mgmt), &elems);
 
 	if (!elems.supp_rates) {
 		printk(KERN_DEBUG "%s: no SuppRates element in AssocResp\n",
@@ -1241,7 +1214,9 @@ static void ieee80211_rx_mgmt_assoc_resp(struct net_device *dev,
 	 * update our stored copy */
 	if (elems.erp_info && elems.erp_info_len >= 1) {
 		struct ieee80211_sta_bss *bss
-			= ieee80211_rx_bss_get(dev, ifsta->bssid);
+			= ieee80211_rx_bss_get(dev, ifsta->bssid,
+					       local->hw.conf.channel,
+					       ifsta->ssid, ifsta->ssid_len);
 		if (bss) {
 			bss->erp_value = elems.erp_info[0];
 			bss->has_erp_value = 1;
@@ -1271,7 +1246,9 @@ static void ieee80211_rx_mgmt_assoc_resp(struct net_device *dev,
 			       " AP\n", dev->name);
 			return;
 		}
-		bss = ieee80211_rx_bss_get(dev, ifsta->bssid);
+		bss = ieee80211_rx_bss_get(dev, ifsta->bssid,
+					   local->hw.conf.channel,
+					   ifsta->ssid, ifsta->ssid_len);
 		if (bss) {
 			sta->last_rssi = bss->rssi;
 			sta->last_signal = bss->signal;
@@ -1347,7 +1324,8 @@ static void __ieee80211_rx_bss_hash_del(struct net_device *dev,
 
 
 static struct ieee80211_sta_bss *
-ieee80211_rx_bss_add(struct net_device *dev, u8 *bssid)
+ieee80211_rx_bss_add(struct net_device *dev, u8 *bssid, int channel,
+		     u8 *ssid, u8 ssid_len)
 {
 	struct ieee80211_local *local = wdev_priv(dev->ieee80211_ptr);
 	struct ieee80211_sta_bss *bss;
@@ -1358,6 +1336,11 @@ ieee80211_rx_bss_add(struct net_device *dev, u8 *bssid)
 	atomic_inc(&bss->users);
 	atomic_inc(&bss->users);
 	memcpy(bss->bssid, bssid, ETH_ALEN);
+	bss->channel = channel;
+	if (ssid && ssid_len <= IEEE80211_MAX_SSID_LEN) {
+		memcpy(bss->ssid, ssid, ssid_len);
+		bss->ssid_len = ssid_len;
+	}
 
 	spin_lock_bh(&local->sta_bss_lock);
 	/* TODO: order by RSSI? */
@@ -1369,7 +1352,8 @@ ieee80211_rx_bss_add(struct net_device *dev, u8 *bssid)
 
 
 static struct ieee80211_sta_bss *
-ieee80211_rx_bss_get(struct net_device *dev, u8 *bssid)
+ieee80211_rx_bss_get(struct net_device *dev, u8 *bssid, int channel,
+		     u8 *ssid, u8 ssid_len)
 {
 	struct ieee80211_local *local = wdev_priv(dev->ieee80211_ptr);
 	struct ieee80211_sta_bss *bss;
@@ -1377,7 +1361,10 @@ ieee80211_rx_bss_get(struct net_device *dev, u8 *bssid)
 	spin_lock_bh(&local->sta_bss_lock);
 	bss = local->sta_bss_hash[STA_HASH(bssid)];
 	while (bss) {
-		if (memcmp(bss->bssid, bssid, ETH_ALEN) == 0) {
+		if (!memcmp(bss->bssid, bssid, ETH_ALEN) &&
+		    bss->channel == channel &&
+		    bss->ssid_len == ssid_len &&
+		    (ssid_len == 0 || !memcmp(bss->ssid, ssid, ssid_len))) {
 			atomic_inc(&bss->users);
 			break;
 		}
@@ -1439,7 +1426,7 @@ static void ieee80211_rx_bss_info(struct net_device *dev,
 	struct ieee80211_local *local = wdev_priv(dev->ieee80211_ptr);
 	struct ieee802_11_elems elems;
 	size_t baselen;
-	int channel, invalid = 0, clen;
+	int channel, clen;
 	struct ieee80211_sta_bss *bss;
 	struct sta_info *sta;
 	struct ieee80211_sub_if_data *sdata = IEEE80211_DEV_TO_SUB_IF(dev);
@@ -1485,9 +1472,7 @@ static void ieee80211_rx_bss_info(struct net_device *dev,
 #endif /* CONFIG_MAC80211_IBSS_DEBUG */
 	}
 
-	if (ieee802_11_parse_elems(mgmt->u.beacon.variable, len - baselen,
-				   &elems) == ParseFailed)
-		invalid = 1;
+	ieee802_11_parse_elems(mgmt->u.beacon.variable, len - baselen, &elems);
 
 	if (sdata->type == IEEE80211_IF_TYPE_IBSS && elems.supp_rates &&
 	    memcmp(mgmt->bssid, sdata->u.sta.bssid, ETH_ALEN) == 0 &&
@@ -1545,9 +1530,11 @@ static void ieee80211_rx_bss_info(struct net_device *dev,
 	else
 		channel = rx_status->channel;
 
-	bss = ieee80211_rx_bss_get(dev, mgmt->bssid);
+	bss = ieee80211_rx_bss_get(dev, mgmt->bssid, channel,
+				   elems.ssid, elems.ssid_len);
 	if (!bss) {
-		bss = ieee80211_rx_bss_add(dev, mgmt->bssid);
+		bss = ieee80211_rx_bss_add(dev, mgmt->bssid, channel,
+					   elems.ssid, elems.ssid_len);
 		if (!bss)
 			return;
 	} else {
@@ -1573,10 +1560,6 @@ static void ieee80211_rx_bss_info(struct net_device *dev,
 
 	bss->beacon_int = le16_to_cpu(mgmt->u.beacon.beacon_int);
 	bss->capability = le16_to_cpu(mgmt->u.beacon.capab_info);
-	if (elems.ssid && elems.ssid_len <= IEEE80211_MAX_SSID_LEN) {
-		memcpy(bss->ssid, elems.ssid, elems.ssid_len);
-		bss->ssid_len = elems.ssid_len;
-	}
 
 	bss->supp_rates_len = 0;
 	if (elems.supp_rates) {
@@ -1647,7 +1630,6 @@ static void ieee80211_rx_bss_info(struct net_device *dev,
 
 
 	bss->hw_mode = rx_status->phymode;
-	bss->channel = channel;
 	bss->freq = rx_status->freq;
 	if (channel != rx_status->channel &&
 	    (bss->hw_mode == MODE_IEEE80211G ||
@@ -1707,9 +1689,7 @@ static void ieee80211_rx_mgmt_beacon(struct net_device *dev,
 	if (baselen > len)
 		return;
 
-	if (ieee802_11_parse_elems(mgmt->u.beacon.variable, len - baselen,
-				   &elems) == ParseFailed)
-		return;
+	ieee802_11_parse_elems(mgmt->u.beacon.variable, len - baselen, &elems);
 
 	if (elems.erp_info && elems.erp_info_len >= 1)
 		ieee80211_handle_erp_ie(dev, elems.erp_info[0]);
@@ -2375,7 +2355,7 @@ static int ieee80211_sta_create_ibss(struct net_device *dev,
 {
 	struct ieee80211_local *local = wdev_priv(dev->ieee80211_ptr);
 	struct ieee80211_sta_bss *bss;
-	struct ieee80211_sub_if_data *sdata;
+	struct ieee80211_sub_if_data *sdata = IEEE80211_DEV_TO_SUB_IF(dev);
 	struct ieee80211_hw_mode *mode;
 	u8 bssid[ETH_ALEN], *pos;
 	int i;
@@ -2398,18 +2378,17 @@ static int ieee80211_sta_create_ibss(struct net_device *dev,
 	printk(KERN_DEBUG "%s: Creating new IBSS network, BSSID %s\n",
 	       dev->name, print_mac(mac, bssid));
 
-	bss = ieee80211_rx_bss_add(dev, bssid);
+	bss = ieee80211_rx_bss_add(dev, bssid, local->hw.conf.channel,
+				   sdata->u.sta.ssid, sdata->u.sta.ssid_len);
 	if (!bss)
 		return -ENOMEM;
 
-	sdata = IEEE80211_DEV_TO_SUB_IF(dev);
 	mode = local->oper_hw_mode;
 
 	if (local->hw.conf.beacon_int == 0)
 		local->hw.conf.beacon_int = 100;
 	bss->beacon_int = local->hw.conf.beacon_int;
 	bss->hw_mode = local->hw.conf.phymode;
-	bss->channel = local->hw.conf.channel;
 	bss->freq = local->hw.conf.freq;
 	bss->last_update = jiffies;
 	bss->capability = WLAN_CAPABILITY_IBSS;
@@ -2469,7 +2448,8 @@ static int ieee80211_sta_find_ibss(struct net_device *dev,
 	       "%s\n", print_mac(mac, bssid), print_mac(mac2, ifsta->bssid));
 #endif /* CONFIG_MAC80211_IBSS_DEBUG */
 	if (found && memcmp(ifsta->bssid, bssid, ETH_ALEN) != 0 &&
-	    (bss = ieee80211_rx_bss_get(dev, bssid))) {
+	    (bss = ieee80211_rx_bss_get(dev, bssid, local->hw.conf.channel,
+					ifsta->ssid, ifsta->ssid_len))) {
 		printk(KERN_DEBUG "%s: Selected IBSS BSSID %s"
 		       " based on configured SSID\n",
 		       dev->name, print_mac(mac, bssid));

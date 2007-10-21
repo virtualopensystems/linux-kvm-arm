@@ -114,11 +114,12 @@ struct paca_struct {
 	u64 user_time;			/* accumulated usermode TB ticks */
 	u64 system_time;		/* accumulated system TB ticks */
 	u64 startpurr;			/* PURR/TB value snapshot */
+	u64 startspurr;			/* SPURR value snapshot */
+	u64 purrdelta;			/* FIXME: document */
+	u64 spurrdelta;			/* FIXME: document */
 };
 
 extern struct paca_struct paca[];
-
-void setup_boot_paca(void);
 
 #endif /* __KERNEL__ */
 #endif /* _ASM_POWERPC_PACA_H */

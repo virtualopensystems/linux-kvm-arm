@@ -404,7 +404,7 @@ static struct task_struct * good_sigevent(sigevent_t * event)
 
 	if ((event->sigev_notify & SIGEV_THREAD_ID ) &&
 		(!(rtn = find_task_by_pid(event->sigev_notify_thread_id)) ||
-		 rtn->tgid != current->tgid ||
+		 !same_thread_group(rtn, current) ||
 		 (event->sigev_notify & ~SIGEV_THREAD_ID) != SIGEV_SIGNAL))
 		return NULL;
 
@@ -608,7 +608,7 @@ static struct k_itimer * lock_timer(timer_t timer_id, unsigned long *flags)
 		spin_lock(&timr->it_lock);
 
 		if ((timr->it_id != timer_id) || !(timr->it_process) ||
-				timr->it_process->tgid != current->tgid) {
+				!same_thread_group(timr->it_process, current)) {
 			spin_unlock(&timr->it_lock);
 			spin_unlock_irqrestore(&idr_lock, *flags);
 			timr = NULL;
@@ -981,9 +981,20 @@ sys_clock_getres(const clockid_t which_clock, struct timespec __user *tp)
 static int common_nsleep(const clockid_t which_clock, int flags,
 			 struct timespec *tsave, struct timespec __user *rmtp)
 {
-	return hrtimer_nanosleep(tsave, rmtp, flags & TIMER_ABSTIME ?
-				 HRTIMER_MODE_ABS : HRTIMER_MODE_REL,
-				 which_clock);
+	struct timespec rmt;
+	int ret;
+
+	ret = hrtimer_nanosleep(tsave, rmtp ? &rmt : NULL,
+				flags & TIMER_ABSTIME ?
+				HRTIMER_MODE_ABS : HRTIMER_MODE_REL,
+				which_clock);
+
+	if (ret && rmtp) {
+		if (copy_to_user(rmtp, &rmt, sizeof(*rmtp)))
+			return -EFAULT;
+	}
+
+	return ret;
 }
 
 asmlinkage long
