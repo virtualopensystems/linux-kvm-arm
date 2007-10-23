@@ -2365,7 +2365,7 @@ static void vmx_vcpu_run(struct kvm_vcpu *vcpu, struct kvm_run *kvm_run)
 
 	/* We need to handle NMIs before interrupts are enabled */
 	if ((intr_info & INTR_INFO_INTR_TYPE_MASK) == 0x200) /* nmi */
-		asm ("int $2");
+		asm("int $2");
 }
 
 static void vmx_inject_page_fault(struct kvm_vcpu *vcpu,
