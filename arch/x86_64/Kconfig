@@ -750,6 +750,38 @@ config PCI_DOMAINS
 	depends on PCI
 	default y
 
+config DMAR
+	bool "Support for DMA Remapping Devices (EXPERIMENTAL)"
+	depends on PCI_MSI && ACPI && EXPERIMENTAL
+	default y
+	help
+	  DMA remapping (DMAR) devices support enables independent address
+	  translations for Direct Memory Access (DMA) from devices.
+	  These DMA remapping devices are reported via ACPI tables
+	  and include PCI device scope covered by these DMA
+	  remapping devices.
+
+config DMAR_GFX_WA
+	bool "Support for Graphics workaround"
+	depends on DMAR
+	default y
+	help
+	 Current Graphics drivers tend to use physical address
+	 for DMA and avoid using DMA APIs. Setting this config
+	 option permits the IOMMU driver to set a unity map for
+	 all the OS-visible memory. Hence the driver can continue
+	 to use physical addresses for DMA.
+
+config DMAR_FLOPPY_WA
+	bool
+	depends on DMAR
+	default y
+	help
+	 Floppy disk drivers are know to bypass DMA API calls
+	 thereby failing to work when IOMMU is enabled. This
+	 workaround will setup a 1:1 mapping for the first
+	 16M to make floppy (an ISA device) work.
+
 source "drivers/pci/pcie/Kconfig"
 
 source "drivers/pci/Kconfig"
