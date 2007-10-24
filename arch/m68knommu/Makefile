@@ -48,6 +48,7 @@ board-$(CONFIG_SNEHA) 	        := SNEHA
 board-$(CONFIG_M5208EVB)	:= M5208EVB
 board-$(CONFIG_MOD5272)		:= MOD5272
 board-$(CONFIG_AVNET)           := AVNET
+board-$(CONFIG_SAVANT)		:= SAVANT
 BOARD := $(board-y)
 
 model-$(CONFIG_RAMKERNEL)	:= ram
@@ -117,4 +118,4 @@ core-y	+= arch/m68knommu/kernel/ \
 libs-y	+= arch/m68knommu/lib/
 
 archclean:
-	$(Q)$(MAKE) $(clean)=arch/m68knommu/boot
+

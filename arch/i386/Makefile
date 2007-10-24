@@ -20,6 +20,12 @@
 # Fill in SRCARCH
 SRCARCH	:= x86
 
+# BITS is used as extension for files which are available in a 32 bit
+# and a 64 bit version to simplify shared Makefiles.
+# e.g.: obj-y += foo_$(BITS).o
+BITS := 32
+export BITS
+
 HAS_BIARCH      := $(call cc-option-yn, -m32)
 ifeq ($(HAS_BIARCH),y)
 AS              := $(AS) --32
@@ -98,6 +104,9 @@ core-$(CONFIG_X86_ES7000)	:= arch/x86/mach-es7000/
 
 # Xen paravirtualization support
 core-$(CONFIG_XEN)		+= arch/x86/xen/
+
+# lguest paravirtualization support
+core-$(CONFIG_LGUEST_GUEST)	+= arch/x86/lguest/
 
 # default subarch .h files
 mflags-y += -Iinclude/asm-x86/mach-default
