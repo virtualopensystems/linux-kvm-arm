@@ -1273,11 +1273,6 @@ x86_emulate_insn(struct x86_emulate_ctxt *ctxt, struct x86_emulate_ops *ops)
 			goto cannot_emulate;
 		c->dst.val = (s32) c->src.val;
 		break;
-	case 0x6a: /* push imm8 */
-		c->src.val = 0L;
-		c->src.val = insn_fetch(s8, 1, c->eip);
-		emulate_push(ctxt);
-		break;
 	case 0x80 ... 0x83:	/* Grp1 */
 		switch (c->modrm_reg) {
 		case 0:
@@ -1428,6 +1423,11 @@ special_insn:
 		register_address_increment(c->regs[VCPU_REGS_RSP],
 					   c->op_bytes);
 		c->dst.type = OP_NONE;	/* Disable writeback. */
+		break;
+	case 0x6a: /* push imm8 */
+		c->src.val = 0L;
+		c->src.val = insn_fetch(s8, 1, c->eip);
+		emulate_push(ctxt);
 		break;
 	case 0x6c:		/* insb */
 	case 0x6d:		/* insw/insd */
