@@ -172,7 +172,7 @@ static u8 opcode_table[256] = {
 static u16 twobyte_table[256] = {
 	/* 0x00 - 0x0F */
 	0, SrcMem | ModRM | DstReg, 0, 0, 0, 0, ImplicitOps, 0,
-	0, ImplicitOps, 0, 0, 0, ImplicitOps | ModRM, 0, 0,
+	ImplicitOps, ImplicitOps, 0, 0, 0, ImplicitOps | ModRM, 0, 0,
 	/* 0x10 - 0x1F */
 	0, 0, 0, 0, 0, 0, 0, 0, ImplicitOps | ModRM, 0, 0, 0, 0, 0, 0, 0,
 	/* 0x20 - 0x2F */
@@ -1748,6 +1748,8 @@ twobyte_special_insn:
 	switch (c->b) {
 	case 0x06:
 		emulate_clts(ctxt->vcpu);
+		break;
+	case 0x08:		/* invd */
 		break;
 	case 0x09:		/* wbinvd */
 		break;
