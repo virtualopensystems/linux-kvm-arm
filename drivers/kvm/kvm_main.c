@@ -888,14 +888,21 @@ static int emulator_read_emulated(unsigned long addr,
 		memcpy(val, vcpu->mmio_data, bytes);
 		vcpu->mmio_read_completed = 0;
 		return X86EMUL_CONTINUE;
-	} else if (emulator_read_std(addr, val, bytes, vcpu)
-		   == X86EMUL_CONTINUE)
-		return X86EMUL_CONTINUE;
+	}
 
 	gpa = vcpu->mmu.gva_to_gpa(vcpu, addr);
+
+	/* For APIC access vmexit */
+	if ((gpa & PAGE_MASK) == APIC_DEFAULT_PHYS_BASE)
+		goto mmio;
+
+	if (emulator_read_std(addr, val, bytes, vcpu)
+			== X86EMUL_CONTINUE)
+		return X86EMUL_CONTINUE;
 	if (gpa == UNMAPPED_GVA)
 		return X86EMUL_PROPAGATE_FAULT;
 
+mmio:
 	/*
 	 * Is this MMIO handled locally?
 	 */
@@ -938,9 +945,14 @@ static int emulator_write_emulated_onepage(unsigned long addr,
 		return X86EMUL_PROPAGATE_FAULT;
 	}
 
+	/* For APIC access vmexit */
+	if ((gpa & PAGE_MASK) == APIC_DEFAULT_PHYS_BASE)
+		goto mmio;
+
 	if (emulator_write_phys(vcpu, gpa, val, bytes))
 		return X86EMUL_CONTINUE;
 
+mmio:
 	/*
 	 * Is this MMIO handled locally?
 	 */

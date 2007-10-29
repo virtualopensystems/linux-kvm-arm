@@ -384,6 +384,7 @@ struct kvm {
 	struct kvm_ioapic *vioapic;
 	int round_robin_prev_vcpu;
 	unsigned int tss_addr;
+	struct page *apic_access_page;
 };
 
 static inline struct kvm_pic *pic_irqchip(struct kvm *kvm)
