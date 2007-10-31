@@ -99,17 +99,13 @@ static u16 opcode_table[256] = {
 	ByteOp | DstReg | SrcMem | ModRM, DstReg | SrcMem | ModRM,
 	0, 0, 0, 0,
 	/* 0x40 - 0x47 */
-	ImplicitOps, ImplicitOps, ImplicitOps, ImplicitOps,
-	ImplicitOps, ImplicitOps, ImplicitOps, ImplicitOps,
+	DstReg, DstReg, DstReg, DstReg, DstReg, DstReg, DstReg, DstReg,
 	/* 0x48 - 0x4F */
-	ImplicitOps, ImplicitOps, ImplicitOps, ImplicitOps,
-	ImplicitOps, ImplicitOps, ImplicitOps, ImplicitOps,
+	DstReg, DstReg, DstReg, DstReg,	DstReg, DstReg, DstReg, DstReg,
 	/* 0x50 - 0x57 */
-	ImplicitOps, ImplicitOps, ImplicitOps, ImplicitOps,
-	ImplicitOps, ImplicitOps, ImplicitOps, ImplicitOps,
+	SrcReg, SrcReg, SrcReg, SrcReg, SrcReg, SrcReg, SrcReg, SrcReg,
 	/* 0x58 - 0x5F */
-	ImplicitOps, ImplicitOps, ImplicitOps, ImplicitOps,
-	ImplicitOps, ImplicitOps, ImplicitOps, ImplicitOps,
+	DstReg, DstReg, DstReg, DstReg,	DstReg, DstReg, DstReg, DstReg,
 	/* 0x60 - 0x67 */
 	0, 0, 0, DstReg | SrcMem32 | ModRM | Mov /* movsxd (x86/64) */ ,
 	0, 0, 0, 0,
@@ -527,13 +523,17 @@ static void decode_register_operand(struct operand *op,
 				    int highbyte_regs,
 				    int inhibit_bytereg)
 {
+	unsigned reg = c->modrm_reg;
+
+	if (!(c->d & ModRM))
+		reg = (c->b & 7) | ((c->rex_prefix & 1) << 3);
 	op->type = OP_REG;
 	if ((c->d & ByteOp) && !inhibit_bytereg) {
-		op->ptr = decode_register(c->modrm_reg, c->regs, highbyte_regs);
+		op->ptr = decode_register(reg, c->regs, highbyte_regs);
 		op->val = *(u8 *)op->ptr;
 		op->bytes = 1;
 	} else {
-		op->ptr = decode_register(c->modrm_reg, c->regs, 0);
+		op->ptr = decode_register(reg, c->regs, 0);
 		op->bytes = c->op_bytes;
 		switch (op->bytes) {
 		case 2:
@@ -554,7 +554,7 @@ int
 x86_decode_insn(struct x86_emulate_ctxt *ctxt, struct x86_emulate_ops *ops)
 {
 	struct decode_cache *c = &ctxt->decode;
-	u8 sib, rex_prefix = 0;
+	u8 sib;
 	int rc = 0;
 	int mode = ctxt->mode;
 	int index_reg = 0, base_reg = 0, scale, rip_relative = 0;
@@ -618,7 +618,7 @@ x86_decode_insn(struct x86_emulate_ctxt *ctxt, struct x86_emulate_ops *ops)
 		case 0x40 ... 0x4f: /* REX */
 			if (mode != X86EMUL_MODE_PROT64)
 				goto done_prefixes;
-			rex_prefix = c->b;
+			c->rex_prefix = c->b;
 			continue;
 		case 0xf0:	/* LOCK */
 			c->lock_prefix = 1;
@@ -633,18 +633,18 @@ x86_decode_insn(struct x86_emulate_ctxt *ctxt, struct x86_emulate_ops *ops)
 
 		/* Any legacy prefix after a REX prefix nullifies its effect. */
 
-		rex_prefix = 0;
+		c->rex_prefix = 0;
 	}
 
 done_prefixes:
 
 	/* REX prefix. */
-	if (rex_prefix) {
-		if (rex_prefix & 8)
+	if (c->rex_prefix) {
+		if (c->rex_prefix & 8)
 			c->op_bytes = 8;	/* REX.W */
-		c->modrm_reg = (rex_prefix & 4) << 1;	/* REX.R */
-		index_reg = (rex_prefix & 2) << 2; /* REX.X */
-		c->modrm_rm = base_reg = (rex_prefix & 1) << 3; /* REG.B */
+		c->modrm_reg = (c->rex_prefix & 4) << 1;	/* REX.R */
+		index_reg = (c->rex_prefix & 2) << 2; /* REX.X */
+		c->modrm_rm = base_reg = (c->rex_prefix & 1) << 3; /* REG.B */
 	}
 
 	/* Opcode byte(s). */
@@ -839,7 +839,7 @@ modrm_done:
 	case SrcNone:
 		break;
 	case SrcReg:
-		decode_register_operand(&c->src, c, rex_prefix == 0, 0);
+		decode_register_operand(&c->src, c, c->rex_prefix == 0, 0);
 		break;
 	case SrcMem16:
 		c->src.bytes = 2;
@@ -898,7 +898,7 @@ modrm_done:
 		/* Special instructions do their own operand decoding. */
 		return 0;
 	case DstReg:
-		decode_register_operand(&c->dst, c, rex_prefix == 0,
+		decode_register_operand(&c->dst, c, c->rex_prefix == 0,
 			 c->twobyte && (c->b == 0xb6 || c->b == 0xb7));
 		break;
 	case DstMem:
@@ -1380,22 +1380,12 @@ special_insn:
 		goto twobyte_special_insn;
 	switch (c->b) {
 	case 0x40 ... 0x47: /* inc r16/r32 */
-		c->dst.bytes = c->op_bytes;
-		c->dst.ptr = (unsigned long *)&c->regs[c->b & 0x7];
-		c->dst.val = *c->dst.ptr;
 		emulate_1op("inc", c->dst, ctxt->eflags);
 		break;
 	case 0x48 ... 0x4f: /* dec r16/r32 */
-		c->dst.bytes = c->op_bytes;
-		c->dst.ptr = (unsigned long *)&c->regs[c->b & 0x7];
-		c->dst.val = *c->dst.ptr;
 		emulate_1op("dec", c->dst, ctxt->eflags);
 		break;
 	case 0x50 ... 0x57:  /* push reg */
-		if (c->op_bytes == 2)
-			c->src.val = (u16) c->regs[c->b & 0x7];
-		else
-			c->src.val = (u32) c->regs[c->b & 0x7];
 		c->dst.type  = OP_MEM;
 		c->dst.bytes = c->op_bytes;
 		c->dst.val = c->src.val;
@@ -1405,7 +1395,6 @@ special_insn:
 			ctxt->ss_base, c->regs[VCPU_REGS_RSP]);
 		break;
 	case 0x58 ... 0x5f: /* pop reg */
-		c->dst.ptr = (unsigned long *)&c->regs[c->b & 0x7];
 	pop_instruction:
 		if ((rc = ops->read_std(register_address(ctxt->ss_base,
 			c->regs[VCPU_REGS_RSP]), c->dst.ptr,
