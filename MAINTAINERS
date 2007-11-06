@@ -216,7 +216,7 @@ P:	Len Brown
 M:	len.brown@intel.com
 M:	lenb@kernel.org
 L:	linux-acpi@vger.kernel.org
-W:	http://acpi.sourceforge.net/
+W:	http://www.lesswatts.org/projects/acpi/
 T:	git kernel.org:/pub/scm/linux/kernel/git/lenb/linux-acpi-2.6.git
 S:	Supported
 
@@ -235,8 +235,8 @@ W:	http://acpi.sourceforge.net/
 S:	Supported
 
 ACPI FAN DRIVER
-P:	Konstantin A. Karasyov
-M:	konstantin.a.karasyov@intel.com
+P:	Len Brown
+M:	len.brown@intel.com
 L:	linux-acpi@vger.kernel.org
 W:	http://acpi.sourceforge.net/
 S:	Supported
@@ -248,15 +248,15 @@ L:	pcihpd-discuss@lists.sourceforge.net
 S:	Supported
 
 ACPI THERMAL DRIVER
-P:	Konstantin A. Karasyov
-M:	konstantin.a.karasyov@intel.com
+P:	Len Brown
+M:	len.brown@intel.com
 L:	linux-acpi@vger.kernel.org
 W:	http://acpi.sourceforge.net/
 S:	Supported
 
 ACPI VIDEO DRIVER
-P:	Luming Yu
-M:	luming.yu@intel.com
+P:	Rui Zhang
+M:	rui.zhang@intel.com
 L:	linux-acpi@vger.kernel.org
 W:	http://acpi.sourceforge.net/
 S:	Supported
@@ -396,6 +396,12 @@ S:	Maintained
 APPLETALK NETWORK LAYER
 P:	Arnaldo Carvalho de Melo
 M:	acme@ghostprotocols.net
+S:	Maintained
+
+APPLETOUCH TOUCHPAD DRIVER
+P:	Johannes Berg
+M:	johannes@sipsolutions.net
+L:	linux-input@vger.kernel.org
 S:	Maintained
 
 ARC FRAMEBUFFER DRIVER
@@ -1701,7 +1707,7 @@ S:	Maintained
 HID CORE LAYER
 P:	Jiri Kosina
 M:	jkosina@suse.cz
-L:	linux-input@atrey.karlin.mff.cuni.cz
+L:	linux-input@vger.kernel.org
 T:	git kernel.org:/pub/scm/linux/kernel/git/jikos/hid.git
 S:	Maintained
 
@@ -1927,8 +1933,7 @@ INPUT (KEYBOARD, MOUSE, JOYSTICK, TOUCHSCREEN) DRIVERS
 P:	Dmitry Torokhov
 M:	dmitry.torokhov@gmail.com
 M:	dtor@mail.ru
-L:	linux-input@atrey.karlin.mff.cuni.cz
-L:	linux-joystick@atrey.karlin.mff.cuni.cz
+L:	linux-input@vger.kernel.org
 T:	git kernel.org:/pub/scm/linux/kernel/git/dtor/input.git
 S:	Maintained
 
@@ -2129,8 +2134,8 @@ S:	Maintained
 JOURNALLING FLASH FILE SYSTEM V2 (JFFS2)
 P:	David Woodhouse
 M:	dwmw2@infradead.org
-L:	jffs-dev@axis.com
-W:	http://sources.redhat.com/jffs2/
+L:	linux-mtd@lists.infradead.org
+W:	http://www.linux-mtd.infradead.org/doc/jffs2.html
 S:	Maintained
 
 JFS FILESYSTEM
@@ -2257,6 +2262,13 @@ P:	Juergen Stuber
 M:	starblue@users.sourceforge.net
 L:	legousb-devel@lists.sourceforge.net
 W:	http://legousb.sourceforge.net/
+S:	Maintained
+
+LGUEST
+P:	Rusty Russell
+M:	rusty@rustcorp.com.au
+L:	lguest@ozlabs.org
+W:	http://lguest.ozlabs.org/
 S:	Maintained
 
 LINUX FOR IBM pSERIES (RS/6000)
@@ -2442,13 +2454,15 @@ W:	http://www.tazenda.demon.co.uk/phil/linux-hp
 S:	Maintained
 
 MAC80211
-P:	Jiri Benc
-M:	jbenc@suse.cz
 P:	Michael Wu
 M:	flamingice@sourmilk.net
+P:	Johannes Berg
+M:	johannes@sipsolutions.net
+P:	Jiri Benc
+M:	jbenc@suse.cz
 L:	linux-wireless@vger.kernel.org
 W:	http://linuxwireless.org/
-T:	git kernel.org:/pub/scm/linux/kernel/git/jbenc/mac80211.git
+T:	git kernel.org:/pub/scm/linux/kernel/git/linville/wireless-2.6.git
 S:	Maintained
 
 MACVLAN DRIVER
@@ -2535,7 +2549,7 @@ S:	Supported
 
 MISCELLANEOUS MCA-SUPPORT
 P:	James Bottomley
-M:	jejb@steeleye.com
+M:	James.Bottomley@HansenPartnership.com
 L:	linux-kernel@vger.kernel.org
 S:	Maintained
 
@@ -3287,9 +3301,11 @@ S:	Maintained
 
 SCSI SUBSYSTEM
 P:	James E.J. Bottomley
-M:	James.Bottomley@SteelEye.com
+M:	James.Bottomley@HansenPartnership.com
 L:	linux-scsi@vger.kernel.org
 T:	git kernel.org:/pub/scm/linux/kernel/git/jejb/scsi-misc-2.6.git
+T:	git kernel.org:/pub/scm/linux/kernel/git/jejb/scsi-rc-fixes-2.6.git
+T:	git kernel.org:/pub/scm/linux/kernel/git/jejb/scsi-pending-2.6.git
 S:	Maintained
 
 SCSI TAPE DRIVER
@@ -3463,12 +3479,14 @@ L:	linux-pm@lists.linux-foundation.org
 S:	Supported
 
 SUSPEND TO RAM:
+P:	Len Brown
+M:	len.brown@intel.com
 P:	Pavel Machek
 M:	pavel@suse.cz
 P:	Rafael J. Wysocki
 M:	rjw@sisk.pl
 L:	linux-pm@lists.linux-foundation.org
-S:	Maintained
+S:	Supported
 
 SONIC NETWORK DRIVER
 P:	Thomas Bogendoerfer
@@ -4139,6 +4157,12 @@ M:	v4l-dvb-maintainer@linuxtv.org
 L:	video4linux-list@redhat.com
 W:	http://linuxtv.org
 T:	git kernel.org:/pub/scm/linux/kernel/git/mchehab/v4l-dvb.git
+S:	Maintained
+
+VLAN (802.1Q)
+P:	Patrick McHardy
+M:	kaber@trash.net
+L:	netdev@vger.kernel.org
 S:	Maintained
 
 VT1211 HARDWARE MONITOR DRIVER

@@ -110,6 +110,74 @@ static struct scsi_transport_template ata_scsi_transport_template = {
 };
 
 
+static const struct {
+	enum link_pm	value;
+	const char	*name;
+} link_pm_policy[] = {
+	{ NOT_AVAILABLE, "max_performance" },
+	{ MIN_POWER, "min_power" },
+	{ MAX_PERFORMANCE, "max_performance" },
+	{ MEDIUM_POWER, "medium_power" },
+};
+
+static const char *ata_scsi_lpm_get(enum link_pm policy)
+{
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(link_pm_policy); i++)
+		if (link_pm_policy[i].value == policy)
+			return link_pm_policy[i].name;
+
+	return NULL;
+}
+
+static ssize_t ata_scsi_lpm_put(struct class_device *class_dev,
+	const char *buf, size_t count)
+{
+	struct Scsi_Host *shost = class_to_shost(class_dev);
+	struct ata_port *ap = ata_shost_to_port(shost);
+	enum link_pm policy = 0;
+	int i;
+
+	/*
+	 * we are skipping array location 0 on purpose - this
+	 * is because a value of NOT_AVAILABLE is displayed
+	 * to the user as max_performance, but when the user
+	 * writes "max_performance", they actually want the
+	 * value to match MAX_PERFORMANCE.
+	 */
+	for (i = 1; i < ARRAY_SIZE(link_pm_policy); i++) {
+		const int len = strlen(link_pm_policy[i].name);
+		if (strncmp(link_pm_policy[i].name, buf, len) == 0 &&
+		   buf[len] == '\n') {
+			policy = link_pm_policy[i].value;
+			break;
+		}
+	}
+	if (!policy)
+		return -EINVAL;
+
+	ata_lpm_schedule(ap, policy);
+	return count;
+}
+
+static ssize_t
+ata_scsi_lpm_show(struct class_device *class_dev, char *buf)
+{
+	struct Scsi_Host *shost = class_to_shost(class_dev);
+	struct ata_port *ap = ata_shost_to_port(shost);
+	const char *policy =
+		ata_scsi_lpm_get(ap->pm_policy);
+
+	if (!policy)
+		return -EINVAL;
+
+	return snprintf(buf, 23, "%s\n", policy);
+}
+CLASS_DEVICE_ATTR(link_power_management_policy, S_IRUGO | S_IWUSR,
+		ata_scsi_lpm_show, ata_scsi_lpm_put);
+EXPORT_SYMBOL_GPL(class_device_attr_link_power_management_policy);
+
 static void ata_scsi_invalid_field(struct scsi_cmnd *cmd,
 				   void (*done)(struct scsi_cmnd *))
 {
@@ -773,6 +841,9 @@ static void ata_scsi_dev_config(struct scsi_device *sdev,
 		blk_queue_max_hw_segments(q, q->max_hw_segments - 1);
 	}
 
+	if (dev->flags & ATA_DFLAG_AN)
+		set_bit(SDEV_EVT_MEDIA_CHANGE, sdev->supported_events);
+
 	if (dev->flags & ATA_DFLAG_NCQ) {
 		int depth;
 
@@ -1039,6 +1110,9 @@ static unsigned int ata_scsi_flush_xlat(struct ata_queued_cmd *qc)
 		tf->command = ATA_CMD_FLUSH_EXT;
 	else
 		tf->command = ATA_CMD_FLUSH;
+
+	/* flush is critical for IO integrity, consider it an IO command */
+	qc->flags |= ATA_QCFLAG_IO;
 
 	return 0;
 }
@@ -1361,32 +1435,9 @@ nothing_to_do:
 static void ata_scsi_qc_complete(struct ata_queued_cmd *qc)
 {
 	struct ata_port *ap = qc->ap;
-	struct ata_eh_info *ehi = &qc->dev->link->eh_info;
 	struct scsi_cmnd *cmd = qc->scsicmd;
 	u8 *cdb = cmd->cmnd;
 	int need_sense = (qc->err_mask != 0);
-
-	/* We snoop the SET_FEATURES - Write Cache ON/OFF command, and
-	 * schedule EH_REVALIDATE operation to update the IDENTIFY DEVICE
-	 * cache
-	 */
-	if (ap->ops->error_handler && !need_sense) {
-		switch (qc->tf.command) {
-		case ATA_CMD_SET_FEATURES:
-			if ((qc->tf.feature == SETFEATURES_WC_ON) ||
-			    (qc->tf.feature == SETFEATURES_WC_OFF)) {
-				ehi->action |= ATA_EH_REVALIDATE;
-				ata_port_schedule_eh(ap);
-			}
-			break;
-
-		case ATA_CMD_INIT_DEV_PARAMS: /* CHS translation changed */
-		case ATA_CMD_SET_MULTI: /* multi_count changed */
-			ehi->action |= ATA_EH_REVALIDATE;
-			ata_port_schedule_eh(ap);
-			break;
-		}
-	}
 
 	/* For ATA pass thru (SAT) commands, generate a sense block if
 	 * user mandated it or if there's an error.  Note that if we
@@ -2719,8 +2770,8 @@ static unsigned int ata_scsi_pass_thru(struct ata_queued_cmd *qc)
 	 */
 	qc->nbytes = scsi_bufflen(scmd);
 
-	/* request result TF */
-	qc->flags |= ATA_QCFLAG_RESULT_TF;
+	/* request result TF and be quiet about device error */
+	qc->flags |= ATA_QCFLAG_RESULT_TF | ATA_QCFLAG_QUIET;
 
 	return 0;
 
@@ -3248,10 +3299,9 @@ static void ata_scsi_handle_link_detach(struct ata_link *link)
  */
 void ata_scsi_media_change_notify(struct ata_device *dev)
 {
-#ifdef OTHER_AN_PATCHES_HAVE_BEEN_APPLIED
 	if (dev->sdev)
-		scsi_device_event_notify(dev->sdev, SDEV_MEDIA_CHANGE);
-#endif
+		sdev_evt_send_simple(dev->sdev, SDEV_EVT_MEDIA_CHANGE,
+				     GFP_ATOMIC);
 }
 
 /**

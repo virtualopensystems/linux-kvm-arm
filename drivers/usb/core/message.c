@@ -434,7 +434,7 @@ int usb_sg_init (
 		if (dma) {
 			io->urbs [i]->transfer_dma = sg_dma_address (sg + i);
 			len = sg_dma_len (sg + i);
-#if defined(CONFIG_HIGHMEM) || defined(CONFIG_IOMMU)
+#if defined(CONFIG_HIGHMEM) || defined(CONFIG_GART_IOMMU)
 			io->urbs[i]->transfer_buffer = NULL;
 #else
 			io->urbs[i]->transfer_buffer = sg_virt(&sg[i]);
@@ -1641,7 +1641,13 @@ free_interfaces:
 				intf->dev.bus_id, ret);
 			continue;
 		}
-		usb_create_sysfs_intf_files (intf);
+
+		/* The driver's probe method can call usb_set_interface(),
+		 * which would mean the interface's sysfs files are already
+		 * created.  Just in case, we'll remove them first.
+		 */
+		usb_remove_sysfs_intf_files(intf);
+		usb_create_sysfs_intf_files(intf);
 	}
 
 	usb_autosuspend_device(dev);
