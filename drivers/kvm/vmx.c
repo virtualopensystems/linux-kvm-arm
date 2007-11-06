@@ -1463,18 +1463,22 @@ static void seg_setup(int seg)
 static int alloc_apic_access_page(struct kvm *kvm)
 {
 	struct kvm_userspace_memory_region kvm_userspace_mem;
-	int r;
+	int r = 0;
 
-	r = -EFAULT;
+	mutex_lock(&kvm->lock);
+	if (kvm->apic_access_page)
+		goto out;
 	kvm_userspace_mem.slot = APIC_ACCESS_PAGE_PRIVATE_MEMSLOT;
 	kvm_userspace_mem.flags = 0;
 	kvm_userspace_mem.guest_phys_addr = 0xfee00000ULL;
 	kvm_userspace_mem.memory_size = PAGE_SIZE;
-	r = kvm_set_memory_region(kvm, &kvm_userspace_mem, 0);
+	r = __kvm_set_memory_region(kvm, &kvm_userspace_mem, 0);
 	if (r)
-		return r;
+		goto out;
 	kvm->apic_access_page = gfn_to_page(kvm, 0xfee00);
-	return 0;
+out:
+	mutex_unlock(&kvm->lock);
+	return r;
 }
 
 /*
