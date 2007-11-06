@@ -1281,6 +1281,32 @@ x86_emulate_insn(struct x86_emulate_ctxt *ctxt, struct x86_emulate_ops *ops)
 	      cmp:		/* cmp */
 		emulate_2op_SrcV("cmp", c->src, c->dst, ctxt->eflags);
 		break;
+	case 0x40 ... 0x47: /* inc r16/r32 */
+		emulate_1op("inc", c->dst, ctxt->eflags);
+		break;
+	case 0x48 ... 0x4f: /* dec r16/r32 */
+		emulate_1op("dec", c->dst, ctxt->eflags);
+		break;
+	case 0x50 ... 0x57:  /* push reg */
+		c->dst.type  = OP_MEM;
+		c->dst.bytes = c->op_bytes;
+		c->dst.val = c->src.val;
+		register_address_increment(c->regs[VCPU_REGS_RSP],
+					   -c->op_bytes);
+		c->dst.ptr = (void *) register_address(
+			ctxt->ss_base, c->regs[VCPU_REGS_RSP]);
+		break;
+	case 0x58 ... 0x5f: /* pop reg */
+	pop_instruction:
+		if ((rc = ops->read_std(register_address(ctxt->ss_base,
+			c->regs[VCPU_REGS_RSP]), c->dst.ptr,
+			c->op_bytes, ctxt->vcpu)) != 0)
+			goto done;
+
+		register_address_increment(c->regs[VCPU_REGS_RSP],
+					   c->op_bytes);
+		c->dst.type = OP_NONE;	/* Disable writeback. */
+		break;
 	case 0x63:		/* movsxd */
 		if (ctxt->mode != X86EMUL_MODE_PROT64)
 			goto cannot_emulate;
@@ -1396,32 +1422,6 @@ special_insn:
 	if (c->twobyte)
 		goto twobyte_special_insn;
 	switch (c->b) {
-	case 0x40 ... 0x47: /* inc r16/r32 */
-		emulate_1op("inc", c->dst, ctxt->eflags);
-		break;
-	case 0x48 ... 0x4f: /* dec r16/r32 */
-		emulate_1op("dec", c->dst, ctxt->eflags);
-		break;
-	case 0x50 ... 0x57:  /* push reg */
-		c->dst.type  = OP_MEM;
-		c->dst.bytes = c->op_bytes;
-		c->dst.val = c->src.val;
-		register_address_increment(c->regs[VCPU_REGS_RSP],
-					   -c->op_bytes);
-		c->dst.ptr = (void *) register_address(
-			ctxt->ss_base, c->regs[VCPU_REGS_RSP]);
-		break;
-	case 0x58 ... 0x5f: /* pop reg */
-	pop_instruction:
-		if ((rc = ops->read_std(register_address(ctxt->ss_base,
-			c->regs[VCPU_REGS_RSP]), c->dst.ptr,
-			c->op_bytes, ctxt->vcpu)) != 0)
-			goto done;
-
-		register_address_increment(c->regs[VCPU_REGS_RSP],
-					   c->op_bytes);
-		c->dst.type = OP_NONE;	/* Disable writeback. */
-		break;
 	case 0x6a: /* push imm8 */
 		c->src.val = 0L;
 		c->src.val = insn_fetch(s8, 1, c->eip);
