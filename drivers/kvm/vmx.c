@@ -370,6 +370,8 @@ static void load_transition_efer(struct vcpu_vmx *vmx)
 	u64 guest_efer = vmx->guest_msrs[efer_offset].data;
 	u64 ignore_bits;
 
+	if (efer_offset < 0)
+		return;
 	/*
 	 * NX is emulated; LMA and LME handled by hardware; SCE meaninless
 	 * outside long mode
