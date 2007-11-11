@@ -84,12 +84,6 @@ void kvm_vcpu_kick(struct kvm_vcpu *vcpu)
 		smp_call_function_single(ipi_pcpu, vcpu_kick_intr, vcpu, 0, 0);
 }
 
-void kvm_vcpu_kick_request(struct kvm_vcpu *vcpu, int request)
-{
-	set_bit(request, &vcpu->requests);
-	kvm_vcpu_kick(vcpu);
-}
-
 void kvm_inject_pending_timer_irqs(struct kvm_vcpu *vcpu)
 {
 	kvm_inject_apic_timer_irqs(vcpu);

@@ -420,7 +420,7 @@ static void pic_irq_request(void *opaque, int level)
 
 	pic_irqchip(kvm)->output = level;
 	if (vcpu)
-		kvm_vcpu_kick_request(vcpu, KVM_REQ_INTR);
+		kvm_vcpu_kick(vcpu);
 }
 
 struct kvm_pic *kvm_create_pic(struct kvm *kvm)

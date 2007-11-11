@@ -134,7 +134,6 @@ do {									\
 #endif
 
 void kvm_vcpu_kick(struct kvm_vcpu *vcpu);
-void kvm_vcpu_kick_request(struct kvm_vcpu *vcpu, int request);
 int kvm_apic_has_interrupt(struct kvm_vcpu *vcpu);
 int kvm_apic_accept_pic_intr(struct kvm_vcpu *vcpu);
 int kvm_get_apic_interrupt(struct kvm_vcpu *vcpu);
