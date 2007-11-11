@@ -1573,6 +1573,12 @@ special_insn:
 		}
 		c->src.val = (unsigned long) c->eip;
 		JMP_REL(rel);
+		/*
+		 * emulate_push() save value in size of c->op_bytes, therefore
+		 * we are setting it now to be the size of eip so all the value
+		 * of eip will be saved
+		 */ 
+		c->op_bytes = c->ad_bytes;
 		emulate_push(ctxt);
 		break;
 	}
