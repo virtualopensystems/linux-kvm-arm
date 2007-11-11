@@ -443,9 +443,7 @@ static u16 twobyte_table[256] = {
 
 #define JMP_REL(rel) 							\
 	do {								\
-		c->eip += (int)(rel);					\
-		c->eip = ((c->op_bytes == 2) ?				\
-			  (uint16_t)c->eip : (uint32_t)c->eip);		\
+		register_address_increment(c->eip, rel);		\
 	} while (0)
 
 /*
