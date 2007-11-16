@@ -1090,13 +1090,13 @@ static inline int emulate_grp45(struct x86_emulate_ctxt *ctxt,
 
 static inline int emulate_grp9(struct x86_emulate_ctxt *ctxt,
 			       struct x86_emulate_ops *ops,
-			       unsigned long cr2)
+			       unsigned long memop)
 {
 	struct decode_cache *c = &ctxt->decode;
 	u64 old, new;
 	int rc;
 
-	rc = ops->read_emulated(cr2, &old, 8, ctxt->vcpu);
+	rc = ops->read_emulated(memop, &old, 8, ctxt->vcpu);
 	if (rc != 0)
 		return rc;
 
@@ -1111,7 +1111,7 @@ static inline int emulate_grp9(struct x86_emulate_ctxt *ctxt,
 		new = ((u64)c->regs[VCPU_REGS_RCX] << 32) |
 		       (u32) c->regs[VCPU_REGS_RBX];
 
-		rc = ops->cmpxchg_emulated(cr2, &old, &new, 8, ctxt->vcpu);
+		rc = ops->cmpxchg_emulated(memop, &old, &new, 8, ctxt->vcpu);
 		if (rc != 0)
 			return rc;
 		ctxt->eflags |= EFLG_ZF;
@@ -1174,7 +1174,7 @@ static inline int writeback(struct x86_emulate_ctxt *ctxt,
 int
 x86_emulate_insn(struct x86_emulate_ctxt *ctxt, struct x86_emulate_ops *ops)
 {
-	unsigned long cr2 = ctxt->cr2;
+	unsigned long memop = 0;
 	u64 msr_data;
 	unsigned long saved_eip;
 	struct decode_cache *c = &ctxt->decode;
@@ -1189,10 +1189,10 @@ x86_emulate_insn(struct x86_emulate_ctxt *ctxt, struct x86_emulate_ops *ops)
 	saved_eip = c->eip;
 
 	if (((c->d & ModRM) && (c->modrm_mod != 3)) || (c->d & MemAbs))
-		cr2 = c->modrm_ea;
+		memop = c->modrm_ea;
 
 	if (c->src.type == OP_MEM) {
-		c->src.ptr = (unsigned long *)cr2;
+		c->src.ptr = (unsigned long *)memop;
 		c->src.val = 0;
 		rc = ops->read_emulated((unsigned long)c->src.ptr,
 					&c->src.val,
@@ -1208,7 +1208,7 @@ x86_emulate_insn(struct x86_emulate_ctxt *ctxt, struct x86_emulate_ops *ops)
 
 
 	if (c->dst.type == OP_MEM) {
-		c->dst.ptr = (unsigned long *)cr2;
+		c->dst.ptr = (unsigned long *)memop;
 		c->dst.bytes = (c->d & ByteOp) ? 1 : c->op_bytes;
 		c->dst.val = 0;
 		if (c->d & BitOp) {
@@ -1647,7 +1647,7 @@ twobyte_insn:
 						  &ctxt->eflags);
 			break;
 		case 7: /* invlpg*/
-			emulate_invlpg(ctxt->vcpu, cr2);
+			emulate_invlpg(ctxt->vcpu, memop);
 			break;
 		default:
 			goto cannot_emulate;
@@ -1818,7 +1818,7 @@ twobyte_special_insn:
 		break;
 	}
 	case 0xc7:		/* Grp9 (cmpxchg8b) */
-		rc = emulate_grp9(ctxt, ops, cr2);
+		rc = emulate_grp9(ctxt, ops, memop);
 		if (rc != 0)
 			goto done;
 		break;
