@@ -1074,9 +1074,10 @@ static inline int emulate_grp45(struct x86_emulate_ctxt *ctxt,
 		}
 		register_address_increment(c->regs[VCPU_REGS_RSP],
 					   -c->dst.bytes);
-		rc = ops->write_std(register_address(ctxt->ss_base,
-				    c->regs[VCPU_REGS_RSP]), &c->dst.val,
-				    c->dst.bytes, ctxt->vcpu);
+		rc = ops->write_emulated(register_address(ctxt->ss_base,
+						  c->regs[VCPU_REGS_RSP]),
+					 &c->dst.val,
+					 c->dst.bytes, ctxt->vcpu);
 		if (rc != 0)
 			return rc;
 		c->dst.type = OP_NONE;
