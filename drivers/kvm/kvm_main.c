@@ -46,6 +46,7 @@
 #include <asm/io.h>
 #include <asm/uaccess.h>
 #include <asm/desc.h>
+#include <asm/pgtable.h>
 
 MODULE_AUTHOR("Qumranet");
 MODULE_LICENSE("GPL");
