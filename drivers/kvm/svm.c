@@ -1601,13 +1601,11 @@ static void svm_set_cr3(struct kvm_vcpu *vcpu, unsigned long root)
 	svm->vmcb->save.cr3 = root;
 	force_new_asid(vcpu);
 
-#if 0   /* lazy fpu is broken on AMD for now */
 	if (vcpu->fpu_active) {
 		svm->vmcb->control.intercept_exceptions |= (1 << NM_VECTOR);
 		svm->vmcb->save.cr0 |= X86_CR0_TS;
 		vcpu->fpu_active = 0;
 	}
-#endif
 }
 
 static void svm_inject_page_fault(struct kvm_vcpu *vcpu,
