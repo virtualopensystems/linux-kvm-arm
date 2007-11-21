@@ -357,7 +357,7 @@ static void reload_tss(void)
 	struct desc_struct *descs;
 
 	get_gdt(&gdt);
-	descs = (void *)gdt.base;
+	descs = (void *)gdt.address;
 	descs[GDT_ENTRY_TSS].type = 9; /* available TSS */
 	load_TR_desc();
 #endif
