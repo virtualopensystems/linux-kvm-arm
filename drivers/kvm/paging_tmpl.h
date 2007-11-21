@@ -491,7 +491,7 @@ static void FNAME(prefetch_page)(struct kvm_vcpu *vcpu,
 	struct page *page;
 
 	if (sp->role.metaphysical
-	    || PTTYPE == 32 && sp->role.level > PT_PAGE_TABLE_LEVEL) {
+	    || (PTTYPE == 32 && sp->role.level > PT_PAGE_TABLE_LEVEL)) {
 		nonpaging_prefetch_page(vcpu, sp);
 		return;
 	}
