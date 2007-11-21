@@ -271,6 +271,11 @@ EXPORT_SYMBOL_GPL(set_cr4);
 
 void set_cr3(struct kvm_vcpu *vcpu, unsigned long cr3)
 {
+	if (cr3 == vcpu->cr3) {
+		kvm_mmu_flush_tlb(vcpu);
+		return;
+	}
+
 	if (is_long_mode(vcpu)) {
 		if (cr3 & CR3_L_MODE_RESERVED_BITS) {
 			printk(KERN_DEBUG "set_cr3: #GP, reserved bits\n");
