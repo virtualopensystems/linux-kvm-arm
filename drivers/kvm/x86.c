@@ -27,7 +27,6 @@
 
 #include <asm/uaccess.h>
 #include <asm/msr.h>
-#include <asm/desc_defs.h>
 
 #define MAX_IO_MSRS 256
 #define CR0_RESERVED_BITS						\
@@ -80,7 +79,7 @@ struct kvm_stats_debugfs_item debugfs_entries[] = {
 
 unsigned long segment_base(u16 selector)
 {
-	struct descriptor_table gdt;
+	struct desc_ptr gdt;
 	struct desc_struct *d;
 	unsigned long table_base;
 	unsigned long v;
@@ -89,7 +88,7 @@ unsigned long segment_base(u16 selector)
 		return 0;
 
 	asm("sgdt %0" : "=m"(gdt));
-	table_base = gdt.base;
+	table_base = gdt.address;
 
 	if (selector & 4) {           /* from ldt */
 		u16 ldt_selector;
@@ -2104,14 +2103,14 @@ static u64 mk_cr_64(u64 curr_cr, u32 new_val)
 
 void realmode_lgdt(struct kvm_vcpu *vcpu, u16 limit, unsigned long base)
 {
-	struct descriptor_table dt = { limit, base };
+	struct desc_ptr dt = { limit, base };
 
 	kvm_x86_ops->set_gdt(vcpu, &dt);
 }
 
 void realmode_lidt(struct kvm_vcpu *vcpu, u16 limit, unsigned long base)
 {
-	struct descriptor_table dt = { limit, base };
+	struct desc_ptr dt = { limit, base };
 
 	kvm_x86_ops->set_idt(vcpu, &dt);
 }
@@ -2516,7 +2515,7 @@ EXPORT_SYMBOL_GPL(kvm_get_cs_db_l_bits);
 int kvm_arch_vcpu_ioctl_get_sregs(struct kvm_vcpu *vcpu,
 				  struct kvm_sregs *sregs)
 {
-	struct descriptor_table dt;
+	struct desc_ptr dt;
 	int pending_vec;
 
 	vcpu_load(vcpu);
@@ -2532,11 +2531,11 @@ int kvm_arch_vcpu_ioctl_get_sregs(struct kvm_vcpu *vcpu,
 	get_segment(vcpu, &sregs->ldt, VCPU_SREG_LDTR);
 
 	kvm_x86_ops->get_idt(vcpu, &dt);
-	sregs->idt.limit = dt.limit;
-	sregs->idt.base = dt.base;
+	sregs->idt.limit = dt.size;
+	sregs->idt.base = dt.address;
 	kvm_x86_ops->get_gdt(vcpu, &dt);
-	sregs->gdt.limit = dt.limit;
-	sregs->gdt.base = dt.base;
+	sregs->gdt.limit = dt.size;
+	sregs->gdt.base = dt.address;
 
 	kvm_x86_ops->decache_cr4_guest_bits(vcpu);
 	sregs->cr0 = vcpu->cr0;
@@ -2574,15 +2573,15 @@ int kvm_arch_vcpu_ioctl_set_sregs(struct kvm_vcpu *vcpu,
 {
 	int mmu_reset_needed = 0;
 	int i, pending_vec, max_bits;
-	struct descriptor_table dt;
+	struct desc_ptr dt;
 
 	vcpu_load(vcpu);
 
-	dt.limit = sregs->idt.limit;
-	dt.base = sregs->idt.base;
+	dt.size = sregs->idt.limit;
+	dt.address = sregs->idt.base;
 	kvm_x86_ops->set_idt(vcpu, &dt);
-	dt.limit = sregs->gdt.limit;
-	dt.base = sregs->gdt.base;
+	dt.size = sregs->gdt.limit;
+	dt.address = sregs->gdt.base;
 	kvm_x86_ops->set_gdt(vcpu, &dt);
 
 	vcpu->cr2 = sregs->cr2;

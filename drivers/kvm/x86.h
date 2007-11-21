@@ -19,6 +19,8 @@
 #include <linux/kvm.h>
 #include <linux/kvm_para.h>
 
+#include <asm/desc_defs.h>
+
 #define CR3_PAE_RESERVED_BITS ((X86_CR3_PWT | X86_CR3_PCD) - 1)
 #define CR3_NONPAE_RESERVED_BITS ((PAGE_SIZE-1) & ~(X86_CR3_PWT | X86_CR3_PCD))
 #define CR3_L_MODE_RESERVED_BITS (CR3_NONPAE_RESERVED_BITS|0xFFFFFF0000000000ULL)
@@ -191,10 +193,10 @@ struct kvm_x86_ops {
 	void (*set_cr3)(struct kvm_vcpu *vcpu, unsigned long cr3);
 	void (*set_cr4)(struct kvm_vcpu *vcpu, unsigned long cr4);
 	void (*set_efer)(struct kvm_vcpu *vcpu, u64 efer);
-	void (*get_idt)(struct kvm_vcpu *vcpu, struct descriptor_table *dt);
-	void (*set_idt)(struct kvm_vcpu *vcpu, struct descriptor_table *dt);
-	void (*get_gdt)(struct kvm_vcpu *vcpu, struct descriptor_table *dt);
-	void (*set_gdt)(struct kvm_vcpu *vcpu, struct descriptor_table *dt);
+	void (*get_idt)(struct kvm_vcpu *vcpu, struct desc_ptr *dt);
+	void (*set_idt)(struct kvm_vcpu *vcpu, struct desc_ptr *dt);
+	void (*get_gdt)(struct kvm_vcpu *vcpu, struct desc_ptr *dt);
+	void (*set_gdt)(struct kvm_vcpu *vcpu, struct desc_ptr *dt);
 	unsigned long (*get_dr)(struct kvm_vcpu *vcpu, int dr);
 	void (*set_dr)(struct kvm_vcpu *vcpu, int dr, unsigned long value,
 		       int *exception);
@@ -399,12 +401,12 @@ static inline void load_ldt(u16 sel)
 }
 #endif
 
-static inline void get_idt(struct descriptor_table *table)
+static inline void get_idt(struct desc_ptr *table)
 {
 	asm("sidt %0" : "=m"(*table));
 }
 
-static inline void get_gdt(struct descriptor_table *table)
+static inline void get_gdt(struct desc_ptr *table)
 {
 	asm("sgdt %0" : "=m"(*table));
 }
