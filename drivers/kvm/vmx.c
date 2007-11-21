@@ -20,7 +20,6 @@
 #include "x86_emulate.h"
 #include "irq.h"
 #include "vmx.h"
-#include "segment_descriptor.h"
 
 #include <linux/module.h>
 #include <linux/kernel.h>
