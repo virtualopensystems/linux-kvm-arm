@@ -453,7 +453,7 @@ static int do_fetch_insn_byte(struct x86_emulate_ctxt *ctxt,
 	int rc;
 	int size;
 
-	if (linear < fc->start || linear > fc->end) {
+	if (linear < fc->start || linear >= fc->end) {
 		size = min(15UL, PAGE_SIZE - offset_in_page(linear));
 		rc = ops->read_std(linear, fc->data, size, ctxt->vcpu);
 		if (rc)
