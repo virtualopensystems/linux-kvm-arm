@@ -347,6 +347,11 @@ static inline int irqchip_in_kernel(struct kvm *kvm)
 	return pic_irqchip(kvm) != NULL;
 }
 
+struct descriptor_table {
+	u16 limit;
+	unsigned long base;
+} __attribute__((packed));
+
 /* The guest did something we don't support. */
 #define pr_unimpl(vcpu, fmt, ...)					\
  do {									\

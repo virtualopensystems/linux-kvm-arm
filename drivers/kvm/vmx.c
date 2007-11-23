@@ -20,6 +20,7 @@
 #include "x86_emulate.h"
 #include "irq.h"
 #include "vmx.h"
+#include "segment_descriptor.h"
 
 #include <linux/module.h>
 #include <linux/kernel.h>
@@ -30,7 +31,6 @@
 
 #include <asm/io.h>
 #include <asm/desc.h>
-#include <asm/desc_defs.h>
 
 MODULE_AUTHOR("Qumranet");
 MODULE_LICENSE("GPL");
@@ -355,11 +355,11 @@ static void reload_tss(void)
 	/*
 	 * VT restores TR but not its size.  Useless.
 	 */
-	struct desc_ptr gdt;
-	struct desc_struct *descs;
+	struct descriptor_table gdt;
+	struct segment_descriptor *descs;
 
 	get_gdt(&gdt);
-	descs = (void *)gdt.address;
+	descs = (void *)gdt.base;
 	descs[GDT_ENTRY_TSS].type = 9; /* available TSS */
 	load_TR_desc();
 #endif
@@ -509,7 +509,7 @@ static void vmx_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
 	}
 
 	if (vcpu->cpu != cpu) {
-		struct desc_ptr dt;
+		struct descriptor_table dt;
 		unsigned long sysenter_esp;
 
 		vcpu->cpu = cpu;
@@ -519,7 +519,7 @@ static void vmx_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
 		 */
 		vmcs_writel(HOST_TR_BASE, read_tr_base()); /* 22.2.4 */
 		get_gdt(&dt);
-		vmcs_writel(HOST_GDTR_BASE, dt.address);   /* 22.2.4 */
+		vmcs_writel(HOST_GDTR_BASE, dt.base);   /* 22.2.4 */
 
 		rdmsrl(MSR_IA32_SYSENTER_ESP, sysenter_esp);
 		vmcs_writel(HOST_IA32_SYSENTER_ESP, sysenter_esp); /* 22.2.3 */
@@ -1406,28 +1406,28 @@ static void vmx_get_cs_db_l_bits(struct kvm_vcpu *vcpu, int *db, int *l)
 	*l = (ar >> 13) & 1;
 }
 
-static void vmx_get_idt(struct kvm_vcpu *vcpu, struct desc_ptr *dt)
+static void vmx_get_idt(struct kvm_vcpu *vcpu, struct descriptor_table *dt)
 {
-	dt->size = vmcs_read32(GUEST_IDTR_LIMIT);
-	dt->address = vmcs_readl(GUEST_IDTR_BASE);
+	dt->limit = vmcs_read32(GUEST_IDTR_LIMIT);
+	dt->base = vmcs_readl(GUEST_IDTR_BASE);
 }
 
-static void vmx_set_idt(struct kvm_vcpu *vcpu, struct desc_ptr *dt)
+static void vmx_set_idt(struct kvm_vcpu *vcpu, struct descriptor_table *dt)
 {
-	vmcs_write32(GUEST_IDTR_LIMIT, dt->size);
-	vmcs_writel(GUEST_IDTR_BASE, dt->address);
+	vmcs_write32(GUEST_IDTR_LIMIT, dt->limit);
+	vmcs_writel(GUEST_IDTR_BASE, dt->base);
 }
 
-static void vmx_get_gdt(struct kvm_vcpu *vcpu, struct desc_ptr *dt)
+static void vmx_get_gdt(struct kvm_vcpu *vcpu, struct descriptor_table *dt)
 {
-	dt->size = vmcs_read32(GUEST_GDTR_LIMIT);
-	dt->address = vmcs_readl(GUEST_GDTR_BASE);
+	dt->limit = vmcs_read32(GUEST_GDTR_LIMIT);
+	dt->base = vmcs_readl(GUEST_GDTR_BASE);
 }
 
-static void vmx_set_gdt(struct kvm_vcpu *vcpu, struct desc_ptr *dt)
+static void vmx_set_gdt(struct kvm_vcpu *vcpu, struct descriptor_table *dt)
 {
-	vmcs_write32(GUEST_GDTR_LIMIT, dt->size);
-	vmcs_writel(GUEST_GDTR_BASE, dt->address);
+	vmcs_write32(GUEST_GDTR_LIMIT, dt->limit);
+	vmcs_writel(GUEST_GDTR_BASE, dt->base);
 }
 
 static int init_rmode_tss(struct kvm *kvm)
@@ -1496,7 +1496,7 @@ static int vmx_vcpu_setup(struct vcpu_vmx *vmx)
 	u32 host_sysenter_cs;
 	u32 junk;
 	unsigned long a;
-	struct desc_ptr dt;
+	struct descriptor_table dt;
 	int i;
 	unsigned long kvm_vmx_return;
 	u32 exec_control;
@@ -1556,7 +1556,7 @@ static int vmx_vcpu_setup(struct vcpu_vmx *vmx)
 	vmcs_write16(HOST_TR_SELECTOR, GDT_ENTRY_TSS*8);  /* 22.2.4 */
 
 	get_idt(&dt);
-	vmcs_writel(HOST_IDTR_BASE, dt.address);   /* 22.2.4 */
+	vmcs_writel(HOST_IDTR_BASE, dt.base);   /* 22.2.4 */
 
 	asm("mov $.Lkvm_vmx_return, %0" : "=r"(kvm_vmx_return));
 	vmcs_writel(HOST_RIP, kvm_vmx_return); /* 22.2.5 */

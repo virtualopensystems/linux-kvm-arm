@@ -17,6 +17,7 @@
 #include "kvm.h"
 #include "x86.h"
 #include "x86_emulate.h"
+#include "segment_descriptor.h"
 #include "irq.h"
 
 #include <linux/kvm.h>
@@ -79,8 +80,8 @@ struct kvm_stats_debugfs_item debugfs_entries[] = {
 
 unsigned long segment_base(u16 selector)
 {
-	struct desc_ptr gdt;
-	struct desc_struct *d;
+	struct descriptor_table gdt;
+	struct segment_descriptor *d;
 	unsigned long table_base;
 	unsigned long v;
 
@@ -88,7 +89,7 @@ unsigned long segment_base(u16 selector)
 		return 0;
 
 	asm("sgdt %0" : "=m"(gdt));
-	table_base = gdt.address;
+	table_base = gdt.base;
 
 	if (selector & 4) {           /* from ldt */
 		u16 ldt_selector;
@@ -96,11 +97,13 @@ unsigned long segment_base(u16 selector)
 		asm("sldt %0" : "=g"(ldt_selector));
 		table_base = segment_base(ldt_selector);
 	}
-	d = (struct desc_struct *)(table_base + (selector & ~7));
-	v = d->base0 | (d->base1 << 16) | (d->base2 << 24);
+	d = (struct segment_descriptor *)(table_base + (selector & ~7));
+	v = d->base_low | ((unsigned long)d->base_mid << 16) |
+		((unsigned long)d->base_high << 24);
 #ifdef CONFIG_X86_64
-	if (d->s == 0 && (d->type == 2 || d->type == 9 || d->type == 11))
-		v |= (unsigned long)((struct ldttss_desc *)d)->base3 << 32;
+	if (d->system == 0 && (d->type == 2 || d->type == 9 || d->type == 11))
+		v |= ((unsigned long) \
+		      ((struct segment_descriptor_64 *)d)->base_higher) << 32;
 #endif
 	return v;
 }
@@ -2117,14 +2120,14 @@ static u64 mk_cr_64(u64 curr_cr, u32 new_val)
 
 void realmode_lgdt(struct kvm_vcpu *vcpu, u16 limit, unsigned long base)
 {
-	struct desc_ptr dt = { limit, base };
+	struct descriptor_table dt = { limit, base };
 
 	kvm_x86_ops->set_gdt(vcpu, &dt);
 }
 
 void realmode_lidt(struct kvm_vcpu *vcpu, u16 limit, unsigned long base)
 {
-	struct desc_ptr dt = { limit, base };
+	struct descriptor_table dt = { limit, base };
 
 	kvm_x86_ops->set_idt(vcpu, &dt);
 }
@@ -2529,7 +2532,7 @@ EXPORT_SYMBOL_GPL(kvm_get_cs_db_l_bits);
 int kvm_arch_vcpu_ioctl_get_sregs(struct kvm_vcpu *vcpu,
 				  struct kvm_sregs *sregs)
 {
-	struct desc_ptr dt;
+	struct descriptor_table dt;
 	int pending_vec;
 
 	vcpu_load(vcpu);
@@ -2545,11 +2548,11 @@ int kvm_arch_vcpu_ioctl_get_sregs(struct kvm_vcpu *vcpu,
 	get_segment(vcpu, &sregs->ldt, VCPU_SREG_LDTR);
 
 	kvm_x86_ops->get_idt(vcpu, &dt);
-	sregs->idt.limit = dt.size;
-	sregs->idt.base = dt.address;
+	sregs->idt.limit = dt.limit;
+	sregs->idt.base = dt.base;
 	kvm_x86_ops->get_gdt(vcpu, &dt);
-	sregs->gdt.limit = dt.size;
-	sregs->gdt.base = dt.address;
+	sregs->gdt.limit = dt.limit;
+	sregs->gdt.base = dt.base;
 
 	kvm_x86_ops->decache_cr4_guest_bits(vcpu);
 	sregs->cr0 = vcpu->cr0;
@@ -2587,15 +2590,15 @@ int kvm_arch_vcpu_ioctl_set_sregs(struct kvm_vcpu *vcpu,
 {
 	int mmu_reset_needed = 0;
 	int i, pending_vec, max_bits;
-	struct desc_ptr dt;
+	struct descriptor_table dt;
 
 	vcpu_load(vcpu);
 
-	dt.size = sregs->idt.limit;
-	dt.address = sregs->idt.base;
+	dt.limit = sregs->idt.limit;
+	dt.base = sregs->idt.base;
 	kvm_x86_ops->set_idt(vcpu, &dt);
-	dt.size = sregs->gdt.limit;
-	dt.address = sregs->gdt.base;
+	dt.limit = sregs->gdt.limit;
+	dt.base = sregs->gdt.base;
 	kvm_x86_ops->set_gdt(vcpu, &dt);
 
 	vcpu->cr2 = sregs->cr2;
