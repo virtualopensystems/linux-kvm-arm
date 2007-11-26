@@ -748,6 +748,7 @@ static int kvm_vcpu_ioctl_set_cpuid(struct kvm_vcpu *vcpu,
 		vcpu->cpuid_entries[i].padding[2] = 0;
 	}
 	vcpu->cpuid_nent = cpuid->nent;
+	cpuid_fix_nx_cap(vcpu);
 	r = 0;
 
 out_free:
@@ -770,7 +771,6 @@ static int kvm_vcpu_ioctl_set_cpuid2(struct kvm_vcpu *vcpu,
 			   cpuid->nent * sizeof(struct kvm_cpuid_entry2)))
 		goto out;
 	vcpu->cpuid_nent = cpuid->nent;
-	cpuid_fix_nx_cap(vcpu);
 	return 0;
 
 out:
