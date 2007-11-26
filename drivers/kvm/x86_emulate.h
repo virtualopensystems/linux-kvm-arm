@@ -162,8 +162,8 @@ struct x86_emulate_ctxt {
 };
 
 /* Repeat String Operation Prefix */
-#define REP_REPE_REPZ  1
-#define REPNE_REPNZ    2
+#define REPE_PREFIX  1
+#define REPNE_PREFIX    2
 
 /* Execution mode, passed to the emulator. */
 #define X86EMUL_MODE_REAL     0	/* Real mode.             */
