@@ -112,11 +112,13 @@ config GENERIC_TIME_VSYSCALL
 	bool
 	default X86_64
 
-config ARCH_SUPPORTS_KVM
+config ARCH_SUPPORTS_OPROFILE
 	bool
 	default y
 
-
+config ARCH_SUPPORTS_KVM
+	bool
+	default y
 
 
 config ZONE_DMA32
