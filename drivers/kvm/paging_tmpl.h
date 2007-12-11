@@ -95,7 +95,7 @@ static bool FNAME(cmpxchg_gpte)(struct kvm *kvm,
 
 	ret = CMPXCHG(&table[index], orig_pte, new_pte);
 
-	kunmap_atomic(page, KM_USER0);
+	kunmap_atomic(table, KM_USER0);
 
 	kvm_release_page_dirty(page);
 
