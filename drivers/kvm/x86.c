@@ -1674,6 +1674,33 @@ static int emulator_cmpxchg_emulated(unsigned long addr,
 		reported = 1;
 		printk(KERN_WARNING "kvm: emulating exchange as write\n");
 	}
+#ifndef CONFIG_X86_64
+	/* guests cmpxchg8b have to be emulated atomically */
+	if (bytes == 8) {
+		gpa_t gpa = vcpu->mmu.gva_to_gpa(vcpu, addr);
+		struct page *page;
+		char *addr;
+		u64 *val;
+
+		if (gpa == UNMAPPED_GVA ||
+		   (gpa & PAGE_MASK) == APIC_DEFAULT_PHYS_BASE)
+			goto emul_write;
+
+		if (((addr + bytes - 1) & PAGE_MASK) != (addr & PAGE_MASK))
+			goto emul_write;
+
+		val = (u64 *)new;
+		page = gfn_to_page(page, gpa >> PAGE_SHIFT);
+		addr = kmap_atomic(page, KM_USER0);
+		addr += offset_in_page(gpa);
+
+		set_64bit((unsigned long long *)addr, val);
+		kunmap_atomic(page, KM_USER0);
+		kvm_release_page_dirty(page);
+	}
+emul_write:
+#endif
+
 	return emulator_write_emulated(addr, new, bytes, vcpu);
 }
 
