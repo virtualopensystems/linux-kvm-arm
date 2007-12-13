@@ -1686,7 +1686,7 @@ static int emulator_cmpxchg_emulated(unsigned long addr,
 		   (gpa & PAGE_MASK) == APIC_DEFAULT_PHYS_BASE)
 			goto emul_write;
 
-		if (((addr + bytes - 1) & PAGE_MASK) != (addr & PAGE_MASK))
+		if (((gpa + bytes - 1) & PAGE_MASK) != (gpa & PAGE_MASK))
 			goto emul_write;
 
 		val = (u64 *)new;
