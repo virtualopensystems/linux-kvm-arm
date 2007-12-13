@@ -25,6 +25,7 @@
 #include <linux/vmalloc.h>
 #include <linux/module.h>
 #include <linux/mman.h>
+#include <linux/highmem.h>
 
 #include <asm/uaccess.h>
 #include <asm/msr.h>
