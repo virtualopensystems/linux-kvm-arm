@@ -1690,7 +1690,7 @@ static int emulator_cmpxchg_emulated(unsigned long addr,
 			goto emul_write;
 
 		val = (u64 *)new;
-		page = gfn_to_page(page, gpa >> PAGE_SHIFT);
+		page = gfn_to_page(vcpu->kvm, gpa >> PAGE_SHIFT);
 		addr = kmap_atomic(page, KM_USER0);
 		set_64bit((u64 *)(addr + offset_in_page(gpa), val);
 		kunmap_atomic(addr, KM_USER0);
