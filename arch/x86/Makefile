@@ -17,3 +17,5 @@ else
         UTS_MACHINE := x86_64
         include $(srctree)/arch/x86/Makefile_64
 endif
+
+core-$(CONFIG_KVM) += arch/x86/kvm/
