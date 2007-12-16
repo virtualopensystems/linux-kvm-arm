@@ -16,10 +16,9 @@
 
 #include <linux/kvm.h>
 #include <linux/kvm_para.h>
+#include <linux/kvm_types.h>
 
 #include <asm/desc.h>
-
-#include "types.h"
 
 #define CR3_PAE_RESERVED_BITS ((X86_CR3_PWT | X86_CR3_PCD) - 1)
 #define CR3_NONPAE_RESERVED_BITS ((PAGE_SIZE-1) & ~(X86_CR3_PWT | X86_CR3_PCD))
