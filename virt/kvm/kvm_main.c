@@ -470,7 +470,7 @@ static struct page *__gfn_to_page(struct kvm *kvm, gfn_t gfn)
 		return bad_page;
 	}
 
-	npages = get_user_pages(current, current->mm, addr, 1, 1, 0, page,
+	npages = get_user_pages(current, current->mm, addr, 1, 1, 1, page,
 				NULL);
 
 	if (npages != 1) {
