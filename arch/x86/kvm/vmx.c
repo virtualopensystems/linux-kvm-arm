@@ -1476,7 +1476,6 @@ static int alloc_apic_access_page(struct kvm *kvm)
 	struct kvm_userspace_memory_region kvm_userspace_mem;
 	int r = 0;
 
-	mutex_lock(&kvm->lock);
 	down_write(&current->mm->mmap_sem);
 	if (kvm->arch.apic_access_page)
 		goto out;
@@ -1490,7 +1489,6 @@ static int alloc_apic_access_page(struct kvm *kvm)
 	kvm->arch.apic_access_page = gfn_to_page(kvm, 0xfee00);
 out:
 	up_write(&current->mm->mmap_sem);
-	mutex_unlock(&kvm->lock);
 	return r;
 }
 
