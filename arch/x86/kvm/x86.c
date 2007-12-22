@@ -1681,7 +1681,7 @@ static int emulator_cmpxchg_emulated(unsigned long addr,
 		gpa_t gpa = vcpu->arch.mmu.gva_to_gpa(vcpu, addr);
 		struct page *page;
 		char *addr;
-		u64 *val;
+		u64 val;
 
 		if (gpa == UNMAPPED_GVA ||
 		   (gpa & PAGE_MASK) == APIC_DEFAULT_PHYS_BASE)
@@ -1690,7 +1690,7 @@ static int emulator_cmpxchg_emulated(unsigned long addr,
 		if (((gpa + bytes - 1) & PAGE_MASK) != (gpa & PAGE_MASK))
 			goto emul_write;
 
-		val = (u64 *)new;
+		val = *(u64 *)new;
 		page = gfn_to_page(vcpu->kvm, gpa >> PAGE_SHIFT);
 		addr = kmap_atomic(page, KM_USER0);
 		set_64bit((u64 *)(addr + offset_in_page(gpa)), val);
