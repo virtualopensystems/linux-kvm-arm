@@ -915,10 +915,9 @@ done_prefixes:
 		c->src.bytes = (c->d & ByteOp) ? 1 :
 							   c->op_bytes;
 		/* Don't fetch the address for invlpg: it could be unmapped. */
-		if (c->twobyte && c->b == 0x01
-				    && c->modrm_reg == 7)
+		if (c->twobyte && c->b == 0x01 && c->modrm_reg == 7)
 			break;
-	      srcmem_common:
+	srcmem_common:
 		/*
 		 * For instructions with a ModR/M byte, switch to register
 		 * access if Mod = 3.
@@ -966,14 +965,11 @@ done_prefixes:
 			 c->twobyte && (c->b == 0xb6 || c->b == 0xb7));
 		break;
 	case DstMem:
-		/*
-		 * For instructions with a ModR/M byte, switch to register
-		 * access if Mod = 3.
-		 */
-		if ((c->d & ModRM) && c->modrm_mod == 3)
+		if ((c->d & ModRM) && c->modrm_mod == 3) {
 			c->dst.type = OP_REG;
-		else
-			c->dst.type = OP_MEM;
+			break;
+		}
+		c->dst.type = OP_MEM;
 		break;
 	}
 
@@ -1119,9 +1115,8 @@ static inline int emulate_grp45(struct x86_emulate_ctxt *ctxt,
 		register_address_increment(c->regs[VCPU_REGS_RSP],
 					   -c->dst.bytes);
 		rc = ops->write_emulated(register_address(ctxt->ss_base,
-						  c->regs[VCPU_REGS_RSP]),
-					 &c->dst.val,
-					 c->dst.bytes, ctxt->vcpu);
+				    c->regs[VCPU_REGS_RSP]), &c->dst.val,
+				    c->dst.bytes, ctxt->vcpu);
 		if (rc != 0)
 			return rc;
 		c->dst.type = OP_NONE;
@@ -1221,7 +1216,7 @@ x86_emulate_insn(struct x86_emulate_ctxt *ctxt, struct x86_emulate_ops *ops)
 {
 	unsigned long memop = 0;
 	u64 msr_data;
-	unsigned long saved_eip;
+	unsigned long saved_eip = 0;
 	struct decode_cache *c = &ctxt->decode;
 	int rc = 0;
 
@@ -1516,7 +1511,6 @@ special_insn:
 					&c->dst.val,
 					c->dst.bytes, ctxt->vcpu)) != 0)
 			goto done;
-
 		register_address_increment(c->regs[VCPU_REGS_RSI],
 				       (ctxt->eflags & EFLG_DF) ? -c->dst.bytes
 							   : c->dst.bytes);
@@ -1583,7 +1577,6 @@ special_insn:
 						 c->dst.bytes,
 						 ctxt->vcpu)) != 0)
 			goto done;
-
 		register_address_increment(c->regs[VCPU_REGS_RSI],
 				       (ctxt->eflags & EFLG_DF) ? -c->dst.bytes
 							   : c->dst.bytes);
@@ -1624,11 +1617,6 @@ special_insn:
 		}
 		c->src.val = (unsigned long) c->eip;
 		JMP_REL(rel);
-		/*
-		 * emulate_push() save value in size of c->op_bytes, therefore
-		 * we are setting it now to be the size of eip so all the value
-		 * of eip will be saved
-		 */
 		c->op_bytes = c->ad_bytes;
 		emulate_push(ctxt);
 		break;
