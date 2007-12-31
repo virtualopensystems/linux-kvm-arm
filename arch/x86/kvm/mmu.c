@@ -1018,12 +1018,14 @@ static int nonpaging_map(struct kvm_vcpu *vcpu, gva_t v, int write, gfn_t gfn)
 
 	down_read(&current->mm->mmap_sem);
 	page = gfn_to_page(vcpu->kvm, gfn);
-	up_read(&current->mm->mmap_sem);
 
 	spin_lock(&vcpu->kvm->mmu_lock);
 	kvm_mmu_free_some_pages(vcpu);
 	r = __nonpaging_map(vcpu, v, write, gfn, page);
 	spin_unlock(&vcpu->kvm->mmu_lock);
+
+	up_read(&current->mm->mmap_sem);
+
 	return r;
 }
 
