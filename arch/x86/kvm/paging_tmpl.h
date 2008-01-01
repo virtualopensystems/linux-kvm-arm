@@ -399,9 +399,7 @@ static int FNAME(page_fault)(struct kvm_vcpu *vcpu, gva_t addr,
 		return 0;
 	}
 
-	down_read(&current->mm->mmap_sem);
 	page = gfn_to_page(vcpu->kvm, walker.gfn);
-	up_read(&current->mm->mmap_sem);
 
 	spin_lock(&vcpu->kvm->mmu_lock);
 	kvm_mmu_free_some_pages(vcpu);
