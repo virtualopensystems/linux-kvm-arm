@@ -1758,9 +1758,9 @@ static int emulator_cmpxchg_emulated(unsigned long addr,
 		set_64bit((u64 *)(addr + offset_in_page(gpa)), val);
 		kunmap_atomic(addr, KM_USER0);
 		kvm_release_page_dirty(page);
+	emul_write:
+		up_read(&current->mm->mmap_sem);
 	}
-emul_write:
-	up_read(&current->mm->mmap_sem);
 #endif
 
 	return emulator_write_emulated(addr, new, bytes, vcpu);
