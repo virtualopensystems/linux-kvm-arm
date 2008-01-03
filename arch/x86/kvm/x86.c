@@ -2481,6 +2481,7 @@ static void vapic_exit(struct kvm_vcpu *vcpu)
 		return;
 
 	kvm_release_page_dirty(apic->vapic_page);
+	mark_page_dirty(vcpu->kvm, apic->vapic_addr >> PAGE_SHIFT);
 }
 
 static int __vcpu_run(struct kvm_vcpu *vcpu, struct kvm_run *kvm_run)
