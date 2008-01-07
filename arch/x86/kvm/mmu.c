@@ -1309,8 +1309,7 @@ static void mmu_pte_write_zap_pte(struct kvm_vcpu *vcpu,
 static void mmu_pte_write_new_pte(struct kvm_vcpu *vcpu,
 				  struct kvm_mmu_page *sp,
 				  u64 *spte,
-				  const void *new, int bytes,
-				  int offset_in_pte)
+				  const void *new)
 {
 	if (sp->role.level != PT_PAGE_TABLE_LEVEL) {
 		++vcpu->kvm->stat.mmu_pde_zapped;
@@ -1319,9 +1318,9 @@ static void mmu_pte_write_new_pte(struct kvm_vcpu *vcpu,
 
 	++vcpu->kvm->stat.mmu_pte_updated;
 	if (sp->role.glevels == PT32_ROOT_LEVEL)
-		paging32_update_pte(vcpu, sp, spte, new, bytes, offset_in_pte);
+		paging32_update_pte(vcpu, sp, spte, new);
 	else
-		paging64_update_pte(vcpu, sp, spte, new, bytes, offset_in_pte);
+		paging64_update_pte(vcpu, sp, spte, new);
 }
 
 static bool need_remote_flush(u64 old, u64 new)
@@ -1397,7 +1396,7 @@ void kvm_mmu_pte_write(struct kvm_vcpu *vcpu, gpa_t gpa,
 	struct hlist_node *node, *n;
 	struct hlist_head *bucket;
 	unsigned index;
-	u64 entry;
+	u64 entry, gentry;
 	u64 *spte;
 	unsigned offset = offset_in_page(gpa);
 	unsigned pte_size;
@@ -1407,6 +1406,7 @@ void kvm_mmu_pte_write(struct kvm_vcpu *vcpu, gpa_t gpa,
 	int level;
 	int flooded = 0;
 	int npte;
+	int r;
 
 	pgprintk("%s: gpa %llx bytes %d\n", __FUNCTION__, gpa, bytes);
 	mmu_guess_page_from_pte_write(vcpu, gpa, new, bytes);
@@ -1470,11 +1470,20 @@ void kvm_mmu_pte_write(struct kvm_vcpu *vcpu, gpa_t gpa,
 				continue;
 		}
 		spte = &sp->spt[page_offset / sizeof(*spte)];
+		if ((gpa & (pte_size - 1)) || (bytes < pte_size)) {
+			gentry = 0;
+			r = kvm_read_guest_atomic(vcpu->kvm,
+						  gpa & ~(pte_size - 1),
+						  &gentry, pte_size);
+			new = (const void *)&gentry;
+			if (r < 0)
+				new = NULL;
+		}
 		while (npte--) {
 			entry = *spte;
 			mmu_pte_write_zap_pte(vcpu, sp, spte);
-			mmu_pte_write_new_pte(vcpu, sp, spte, new, bytes,
-					      page_offset & (pte_size - 1));
+			if (new)
+				mmu_pte_write_new_pte(vcpu, sp, spte, new);
 			mmu_pte_write_flush_tlb(vcpu, entry, *spte);
 			++spte;
 		}
