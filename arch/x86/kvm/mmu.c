@@ -1477,7 +1477,7 @@ void kvm_mmu_pte_write(struct kvm_vcpu *vcpu, gpa_t gpa,
 		if ((gpa & (pte_size - 1)) || (bytes < pte_size)) {
 			gentry = 0;
 			r = kvm_read_guest_atomic(vcpu->kvm,
-						  gpa & ~(pte_size - 1),
+						  gpa & ~(u64)(pte_size - 1),
 						  &gentry, pte_size);
 			new = (const void *)&gentry;
 			if (r < 0)
