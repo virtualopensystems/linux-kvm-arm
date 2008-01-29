@@ -238,7 +238,7 @@ static inline void __invvpid(int ext, u16 vpid, gva_t gva)
     asm volatile (ASM_VMX_INVVPID
 		  /* CF==1 or ZF==1 --> rc = -1 */
 		  "; ja 1f ; ud2 ; 1:"
-		  : : "a"(&operand), "c"(ext) : "cc");
+		  : : "a"(&operand), "c"(ext) : "cc", "memory");
 }
 
 static struct kvm_msr_entry *find_msr_entry(struct vcpu_vmx *vmx, u32 msr)
