@@ -1336,8 +1336,6 @@ static void vmx_set_cr4(struct kvm_vcpu *vcpu, unsigned long cr4)
 	vcpu->arch.cr4 = cr4;
 }
 
-#ifdef CONFIG_X86_64
-
 static void vmx_set_efer(struct kvm_vcpu *vcpu, u64 efer)
 {
 	struct vcpu_vmx *vmx = to_vmx(vcpu);
@@ -1359,8 +1357,6 @@ static void vmx_set_efer(struct kvm_vcpu *vcpu, u64 efer)
 	}
 	setup_msrs(vmx);
 }
-
-#endif
 
 static u64 vmx_get_segment_base(struct kvm_vcpu *vcpu, int seg)
 {
@@ -1776,9 +1772,7 @@ static int vmx_vcpu_reset(struct kvm_vcpu *vcpu)
 	vmx->vcpu.arch.cr0 = 0x60000010;
 	vmx_set_cr0(&vmx->vcpu, vmx->vcpu.arch.cr0); /* enter rmode */
 	vmx_set_cr4(&vmx->vcpu, 0);
-#ifdef CONFIG_X86_64
 	vmx_set_efer(&vmx->vcpu, 0);
-#endif
 	vmx_fpu_activate(&vmx->vcpu);
 	update_exception_bitmap(&vmx->vcpu);
 
@@ -2666,9 +2660,7 @@ static struct kvm_x86_ops vmx_x86_ops = {
 	.set_cr0 = vmx_set_cr0,
 	.set_cr3 = vmx_set_cr3,
 	.set_cr4 = vmx_set_cr4,
-#ifdef CONFIG_X86_64
 	.set_efer = vmx_set_efer,
-#endif
 	.get_idt = vmx_get_idt,
 	.set_idt = vmx_set_idt,
 	.get_gdt = vmx_get_gdt,
