@@ -256,6 +256,7 @@ void slb_initialize(void)
 	static int slb_encoding_inited;
 	extern unsigned int *slb_miss_kernel_load_linear;
 	extern unsigned int *slb_miss_kernel_load_io;
+	extern unsigned int *slb_compare_rr_to_size;
 
 	/* Prepare our SLB miss handler based on our page size */
 	linear_llp = mmu_psize_defs[mmu_linear_psize].sllp;
@@ -269,6 +270,8 @@ void slb_initialize(void)
 				   SLB_VSID_KERNEL | linear_llp);
 		patch_slb_encoding(slb_miss_kernel_load_io,
 				   SLB_VSID_KERNEL | io_llp);
+		patch_slb_encoding(slb_compare_rr_to_size,
+				   mmu_slb_size);
 
 		DBG("SLB: linear  LLP = %04x\n", linear_llp);
 		DBG("SLB: io      LLP = %04x\n", io_llp);
@@ -291,6 +294,8 @@ void slb_initialize(void)
 	create_shadowed_slbe(PAGE_OFFSET, mmu_kernel_ssize, lflags, 0);
 
 	create_shadowed_slbe(VMALLOC_START, mmu_kernel_ssize, vflags, 1);
+
+	slb_shadow_clear(2);
 
 	/* We don't bolt the stack for the time being - we're in boot,
 	 * so the stack is in the bolted segment.  By the time it goes

@@ -362,8 +362,6 @@ omap_i2c_xfer(struct i2c_adapter *adap, struct i2c_msg msgs[], int num)
 
 	omap_i2c_enable_clocks(dev);
 
-	/* REVISIT: initialize and use adap->retries. This is an optional
-	 * feature */
 	if ((r = omap_i2c_wait_for_bb(dev)) < 0)
 		goto out;
 
@@ -619,13 +617,13 @@ omap_i2c_probe(struct platform_device *pdev)
 err_free_irq:
 	free_irq(dev->irq, dev);
 err_unuse_clocks:
+	omap_i2c_write_reg(dev, OMAP_I2C_CON_REG, 0);
 	omap_i2c_disable_clocks(dev);
 	omap_i2c_put_clocks(dev);
 err_free_mem:
 	platform_set_drvdata(pdev, NULL);
 	kfree(dev);
 err_release_region:
-	omap_i2c_write_reg(dev, OMAP_I2C_CON_REG, 0);
 	release_mem_region(mem->start, (mem->end - mem->start) + 1);
 
 	return r;

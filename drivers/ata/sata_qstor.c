@@ -270,7 +270,7 @@ static int qs_scr_read(struct ata_port *ap, unsigned int sc_reg, u32 *val)
 static void qs_error_handler(struct ata_port *ap)
 {
 	qs_enter_reg_mode(ap);
-	ata_do_eh(ap, qs_prereset, ata_std_softreset, NULL,
+	ata_do_eh(ap, qs_prereset, NULL, sata_std_hardreset,
 		  ata_std_postreset);
 }
 
@@ -287,14 +287,10 @@ static unsigned int qs_fill_sg(struct ata_queued_cmd *qc)
 	struct scatterlist *sg;
 	struct ata_port *ap = qc->ap;
 	struct qs_port_priv *pp = ap->private_data;
-	unsigned int nelem;
 	u8 *prd = pp->pkt + QS_CPB_BYTES;
+	unsigned int si;
 
-	WARN_ON(qc->__sg == NULL);
-	WARN_ON(qc->n_elem == 0 && qc->pad_len == 0);
-
-	nelem = 0;
-	ata_for_each_sg(sg, qc) {
+	for_each_sg(qc->sg, sg, qc->n_elem, si) {
 		u64 addr;
 		u32 len;
 
@@ -306,12 +302,11 @@ static unsigned int qs_fill_sg(struct ata_queued_cmd *qc)
 		*(__le32 *)prd = cpu_to_le32(len);
 		prd += sizeof(u64);
 
-		VPRINTK("PRD[%u] = (0x%llX, 0x%X)\n", nelem,
+		VPRINTK("PRD[%u] = (0x%llX, 0x%X)\n", si,
 					(unsigned long long)addr, len);
-		nelem++;
 	}
 
-	return nelem;
+	return si;
 }
 
 static void qs_qc_prep(struct ata_queued_cmd *qc)
@@ -376,7 +371,7 @@ static unsigned int qs_qc_issue(struct ata_queued_cmd *qc)
 		qs_packet_start(qc);
 		return 0;
 
-	case ATA_PROT_ATAPI_DMA:
+	case ATAPI_PROT_DMA:
 		BUG();
 		break;
 

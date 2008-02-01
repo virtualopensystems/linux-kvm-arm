@@ -137,7 +137,7 @@ config CYCLADES
 	  your Linux box, for instance in order to become a dial-in server.
 
 	  For information about the Cyclades-Z card, read
-	  <file:drivers/char/README.cycladesZ>.
+	  <file:Documentation/README.cycladesZ>.
 
 	  To compile this driver as a module, choose M here: the
 	  module will be called cyclades.
@@ -372,6 +372,16 @@ config ISTALLION
 
 	  To compile this driver as a module, choose M here: the
 	  module will be called istallion.
+
+config NOZOMI
+	tristate "HSDPA Broadband Wireless Data Card - Globe Trotter"
+	depends on PCI && EXPERIMENTAL
+	help
+	  If you have a HSDPA driver Broadband Wireless Data Card -
+	  Globe Trotter PCMCIA card, say Y here.
+
+	  To compile this driver as a module, choose M here, the module
+	  will be called nozomi.
 
 config A2232
 	tristate "Commodore A2232 serial support (EXPERIMENTAL)"

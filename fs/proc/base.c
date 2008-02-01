@@ -199,8 +199,28 @@ static int proc_root_link(struct inode *inode, struct dentry **dentry, struct vf
 	(task == current || \
 	(task->parent == current && \
 	(task->ptrace & PT_PTRACED) && \
-	 (task->state == TASK_STOPPED || task->state == TASK_TRACED) && \
+	 (task_is_stopped_or_traced(task)) && \
 	 security_ptrace(current,task) == 0))
+
+struct mm_struct *mm_for_maps(struct task_struct *task)
+{
+	struct mm_struct *mm = get_task_mm(task);
+	if (!mm)
+		return NULL;
+	down_read(&mm->mmap_sem);
+	task_lock(task);
+	if (task->mm != mm)
+		goto out;
+	if (task->mm != current->mm && __ptrace_may_attach(task) < 0)
+		goto out;
+	task_unlock(task);
+	return mm;
+out:
+	task_unlock(task);
+	up_read(&mm->mmap_sem);
+	mmput(mm);
+	return NULL;
+}
 
 static int proc_pid_cmdline(struct task_struct *task, char * buffer)
 {
@@ -288,6 +308,77 @@ static int proc_pid_schedstat(struct task_struct *task, char *buffer)
 			task->sched_info.run_delay,
 			task->sched_info.pcount);
 }
+#endif
+
+#ifdef CONFIG_LATENCYTOP
+static int lstats_show_proc(struct seq_file *m, void *v)
+{
+	int i;
+	struct task_struct *task = m->private;
+	seq_puts(m, "Latency Top version : v0.1\n");
+
+	for (i = 0; i < 32; i++) {
+		if (task->latency_record[i].backtrace[0]) {
+			int q;
+			seq_printf(m, "%i %li %li ",
+				task->latency_record[i].count,
+				task->latency_record[i].time,
+				task->latency_record[i].max);
+			for (q = 0; q < LT_BACKTRACEDEPTH; q++) {
+				char sym[KSYM_NAME_LEN];
+				char *c;
+				if (!task->latency_record[i].backtrace[q])
+					break;
+				if (task->latency_record[i].backtrace[q] == ULONG_MAX)
+					break;
+				sprint_symbol(sym, task->latency_record[i].backtrace[q]);
+				c = strchr(sym, '+');
+				if (c)
+					*c = 0;
+				seq_printf(m, "%s ", sym);
+			}
+			seq_printf(m, "\n");
+		}
+
+	}
+	return 0;
+}
+
+static int lstats_open(struct inode *inode, struct file *file)
+{
+	int ret;
+	struct seq_file *m;
+	struct task_struct *task = get_proc_task(inode);
+
+	ret = single_open(file, lstats_show_proc, NULL);
+	if (!ret) {
+		m = file->private_data;
+		m->private = task;
+	}
+	return ret;
+}
+
+static ssize_t lstats_write(struct file *file, const char __user *buf,
+			    size_t count, loff_t *offs)
+{
+	struct seq_file *m;
+	struct task_struct *task;
+
+	m = file->private_data;
+	task = m->private;
+	clear_all_latency_tracing(task);
+
+	return count;
+}
+
+static const struct file_operations proc_lstats_operations = {
+	.open		= lstats_open,
+	.read		= seq_read,
+	.write		= lstats_write,
+	.llseek		= seq_lseek,
+	.release	= single_release,
+};
+
 #endif
 
 /* The badness from the OOM killer */
@@ -999,6 +1090,7 @@ static const struct file_operations proc_fault_inject_operations = {
 	.write		= proc_fault_inject_write,
 };
 #endif
+
 
 #ifdef CONFIG_SCHED_DEBUG
 /*
@@ -2210,6 +2302,9 @@ static const struct pid_entry tgid_base_stuff[] = {
 #ifdef CONFIG_SCHEDSTATS
 	INF("schedstat",  S_IRUGO, pid_schedstat),
 #endif
+#ifdef CONFIG_LATENCYTOP
+	REG("latency",  S_IRUGO, lstats),
+#endif
 #ifdef CONFIG_PROC_PID_CPUSET
 	REG("cpuset",     S_IRUGO, cpuset),
 #endif
@@ -2534,6 +2629,9 @@ static const struct pid_entry tid_base_stuff[] = {
 #endif
 #ifdef CONFIG_SCHEDSTATS
 	INF("schedstat", S_IRUGO, pid_schedstat),
+#endif
+#ifdef CONFIG_LATENCYTOP
+	REG("latency",  S_IRUGO, lstats),
 #endif
 #ifdef CONFIG_PROC_PID_CPUSET
 	REG("cpuset",    S_IRUGO, cpuset),

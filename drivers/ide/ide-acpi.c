@@ -16,6 +16,7 @@
 #include <acpi/acpi.h>
 #include <linux/ide.h>
 #include <linux/pci.h>
+#include <linux/dmi.h>
 
 #include <acpi/acpi_bus.h>
 #include <acpi/acnames.h>
@@ -64,6 +65,39 @@ struct ide_acpi_hwif_link {
 extern int ide_noacpi;
 extern int ide_noacpitfs;
 extern int ide_noacpionboot;
+
+static bool ide_noacpi_psx;
+static int no_acpi_psx(const struct dmi_system_id *id)
+{
+	ide_noacpi_psx = true;
+	printk(KERN_NOTICE"%s detected - disable ACPI _PSx.\n", id->ident);
+	return 0;
+}
+
+static const struct dmi_system_id ide_acpi_dmi_table[] = {
+	/* Bug 9673. */
+	/* We should check if this is because ACPI NVS isn't save/restored. */
+	{
+		.callback = no_acpi_psx,
+		.ident    = "HP nx9005",
+		.matches  = {
+			DMI_MATCH(DMI_BIOS_VENDOR, "Phoenix Technologies Ltd."),
+			DMI_MATCH(DMI_BIOS_VERSION, "KAM1.60")
+		},
+	},
+
+	{ }	/* terminate list */
+};
+
+static int ide_acpi_blacklist(void)
+{
+	static int done;
+	if (done)
+		return 0;
+	done = 1;
+	dmi_check_system(ide_acpi_dmi_table);
+	return 0;
+}
 
 /**
  * ide_get_dev_handle - finds acpi_handle and PCI device.function
@@ -349,27 +383,19 @@ static int taskfile_load_raw(ide_drive_t *drive,
 	       gtf->tfa[3], gtf->tfa[4], gtf->tfa[5], gtf->tfa[6]);
 
 	memset(&args, 0, sizeof(ide_task_t));
-	args.command_type = IDE_DRIVE_TASK_NO_DATA;
-	args.data_phase   = TASKFILE_NO_DATA;
-	args.handler      = &task_no_data_intr;
 
 	/* convert gtf to IDE Taskfile */
-	args.tfRegister[1] = gtf->tfa[0];	/* 0x1f1 */
-	args.tfRegister[2] = gtf->tfa[1];	/* 0x1f2 */
-	args.tfRegister[3] = gtf->tfa[2];	/* 0x1f3 */
-	args.tfRegister[4] = gtf->tfa[3];	/* 0x1f4 */
-	args.tfRegister[5] = gtf->tfa[4];	/* 0x1f5 */
-	args.tfRegister[6] = gtf->tfa[5];	/* 0x1f6 */
-	args.tfRegister[7] = gtf->tfa[6];	/* 0x1f7 */
+	memcpy(&args.tf_array[7], &gtf->tfa, 7);
+	args.tf_flags = IDE_TFLAG_TF | IDE_TFLAG_DEVICE;
 
 	if (ide_noacpitfs) {
 		DEBPRINT("_GTF execution disabled\n");
 		return err;
 	}
 
-	err = ide_raw_taskfile(drive, &args, NULL);
+	err = ide_no_data_taskfile(drive, &args);
 	if (err)
-		printk(KERN_ERR "%s: ide_raw_taskfile failed: %u\n",
+		printk(KERN_ERR "%s: ide_no_data_taskfile failed: %u\n",
 		       __FUNCTION__, err);
 
 	return err;
@@ -623,7 +649,7 @@ void ide_acpi_set_state(ide_hwif_t *hwif, int on)
 {
 	int unit;
 
-	if (ide_noacpi)
+	if (ide_noacpi || ide_noacpi_psx)
 		return;
 
 	DEBPRINT("ENTER:\n");
@@ -667,6 +693,8 @@ void ide_acpi_init(ide_hwif_t *hwif)
 	int			err;
 	struct ide_acpi_drive_link	*master;
 	struct ide_acpi_drive_link	*slave;
+
+	ide_acpi_blacklist();
 
 	hwif->acpidata = kzalloc(sizeof(struct ide_acpi_hwif_link), GFP_KERNEL);
 	if (!hwif->acpidata)

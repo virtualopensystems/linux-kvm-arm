@@ -655,9 +655,9 @@ static void cdrom_end_request (ide_drive_t *drive, int uptodate)
 					BUG();
 			} else {
 				spin_lock_irqsave(&ide_lock, flags);
-				end_that_request_chunk(failed, 0,
-							failed->data_len);
-				end_that_request_last(failed, 0);
+				if (__blk_end_request(failed, -EIO,
+						      failed->data_len))
+					BUG();
 				spin_unlock_irqrestore(&ide_lock, flags);
 			}
 		} else
@@ -917,19 +917,13 @@ static ide_startstop_t cdrom_start_packet_command(ide_drive_t *drive,
 	if (ide_wait_stat(&startstop, drive, 0, BUSY_STAT, WAIT_READY))
 		return startstop;
 
+	/* FIXME: for Virtual DMA we must check harder */
 	if (info->dma)
 		info->dma = !hwif->dma_setup(drive);
 
 	/* Set up the controller registers. */
-	/* FIXME: for Virtual DMA we must check harder */
-	HWIF(drive)->OUTB(info->dma, IDE_FEATURE_REG);
-	HWIF(drive)->OUTB(0, IDE_IREASON_REG);
-	HWIF(drive)->OUTB(0, IDE_SECTOR_REG);
-
-	HWIF(drive)->OUTB(xferlen & 0xff, IDE_BCOUNTL_REG);
-	HWIF(drive)->OUTB(xferlen >> 8  , IDE_BCOUNTH_REG);
-	if (IDE_CONTROL_REG)
-		HWIF(drive)->OUTB(drive->ctl, IDE_CONTROL_REG);
+	ide_pktcmd_tf_load(drive, IDE_TFLAG_OUT_NSECT | IDE_TFLAG_OUT_LBAL |
+			   IDE_TFLAG_NO_SELECT_MASK, xferlen, info->dma);
  
 	if (CDROM_CONFIG_FLAGS (drive)->drq_interrupt) {
 		/* waiting for CDB interrupt, not DMA yet. */
@@ -1068,8 +1062,8 @@ int cdrom_read_check_ireason (ide_drive_t *drive, int len, int ireason)
 		return 0;
 	else if (ireason == 0) {
 		/* Whoops... The drive is expecting to receive data from us! */
-		printk(KERN_ERR "%s: read_intr: Drive wants to transfer data the "
-						"wrong way!\n", drive->name);
+		printk(KERN_ERR "%s: %s: wrong transfer direction!\n",
+				drive->name, __FUNCTION__);
 
 		/* Throw some data at the drive so it doesn't hang
 		   and quit this request. */
@@ -1086,8 +1080,8 @@ int cdrom_read_check_ireason (ide_drive_t *drive, int len, int ireason)
 		return 0;
 	} else {
 		/* Drive wants a command packet, or invalid ireason... */
-		printk(KERN_ERR "%s: read_intr: bad interrupt reason %x\n", drive->name,
-								ireason);
+		printk(KERN_ERR "%s: %s: bad interrupt reason 0x%02x\n",
+				drive->name, __FUNCTION__, ireason);
 	}
 
 	cdrom_end_request(drive, 0);
@@ -1112,8 +1106,11 @@ static ide_startstop_t cdrom_read_intr (ide_drive_t *drive)
 	 */
 	if (dma) {
 		info->dma = 0;
-		if ((dma_error = HWIF(drive)->ide_dma_end(drive)))
+		dma_error = HWIF(drive)->ide_dma_end(drive);
+		if (dma_error) {
+			printk(KERN_ERR "%s: DMA read error\n", drive->name);
 			ide_dma_off(drive);
+		}
 	}
 
 	if (cdrom_decode_status(drive, 0, &stat))
@@ -1443,7 +1440,7 @@ static ide_startstop_t cdrom_pc_intr (ide_drive_t *drive)
 		return ide_stopped;
 
 	/* Read the interrupt reason and the transfer length. */
-	ireason = HWIF(drive)->INB(IDE_IREASON_REG);
+	ireason = HWIF(drive)->INB(IDE_IREASON_REG) & 0x3;
 	lowcyl  = HWIF(drive)->INB(IDE_BCOUNTL_REG);
 	highcyl = HWIF(drive)->INB(IDE_BCOUNTH_REG);
 
@@ -1484,7 +1481,7 @@ static ide_startstop_t cdrom_pc_intr (ide_drive_t *drive)
 	if (thislen > len) thislen = len;
 
 	/* The drive wants to be written to. */
-	if ((ireason & 3) == 0) {
+	if (ireason == 0) {
 		if (!rq->data) {
 			blk_dump_rq_flags(rq, "cdrom_pc_intr, write");
 			goto confused;
@@ -1506,9 +1503,9 @@ static ide_startstop_t cdrom_pc_intr (ide_drive_t *drive)
 	}
 
 	/* Same drill for reading. */
-	else if ((ireason & 3) == 2) {
+	else if (ireason == 2) {
 		if (!rq->data) {
-			blk_dump_rq_flags(rq, "cdrom_pc_intr, write");
+			blk_dump_rq_flags(rq, "cdrom_pc_intr, read");
 			goto confused;
 		}
 		/* Transfer the data. */
@@ -1632,8 +1629,8 @@ static int cdrom_write_check_ireason(ide_drive_t *drive, int len, int ireason)
 		return 0;
 	else if (ireason == 2) {
 		/* Whoops... The drive wants to send data. */
-		printk(KERN_ERR "%s: write_intr: wrong transfer direction!\n",
-							drive->name);
+		printk(KERN_ERR "%s: %s: wrong transfer direction!\n",
+				drive->name, __FUNCTION__);
 
 		while (len > 0) {
 			int dum = 0;
@@ -1642,11 +1639,22 @@ static int cdrom_write_check_ireason(ide_drive_t *drive, int len, int ireason)
 		}
 	} else {
 		/* Drive wants a command packet, or invalid ireason... */
-		printk(KERN_ERR "%s: write_intr: bad interrupt reason %x\n",
-							drive->name, ireason);
+		printk(KERN_ERR "%s: %s: bad interrupt reason 0x%02x\n",
+				drive->name, __FUNCTION__, ireason);
 	}
 
 	cdrom_end_request(drive, 0);
+	return 1;
+}
+
+/*
+ * Called from blk_end_request_callback() after the data of the request
+ * is completed and before the request is completed.
+ * By returning value '1', blk_end_request_callback() returns immediately
+ * without completing the request.
+ */
+static int cdrom_newpc_intr_dummy_cb(struct request *rq)
+{
 	return 1;
 }
 
@@ -1688,9 +1696,13 @@ static ide_startstop_t cdrom_newpc_intr(ide_drive_t *drive)
 			return ide_error(drive, "dma error", stat);
 		}
 
-		end_that_request_chunk(rq, 1, rq->data_len);
-		rq->data_len = 0;
-		goto end_request;
+		spin_lock_irqsave(&ide_lock, flags);
+		if (__blk_end_request(rq, 0, rq->data_len))
+			BUG();
+		HWGROUP(drive)->rq = NULL;
+		spin_unlock_irqrestore(&ide_lock, flags);
+
+		return ide_stopped;
 	}
 
 	/*
@@ -1708,8 +1720,15 @@ static ide_startstop_t cdrom_newpc_intr(ide_drive_t *drive)
 	/*
 	 * If DRQ is clear, the command has completed.
 	 */
-	if ((stat & DRQ_STAT) == 0)
-		goto end_request;
+	if ((stat & DRQ_STAT) == 0) {
+		spin_lock_irqsave(&ide_lock, flags);
+		if (__blk_end_request(rq, 0, rq->data_len))
+			BUG();
+		HWGROUP(drive)->rq = NULL;
+		spin_unlock_irqrestore(&ide_lock, flags);
+
+		return ide_stopped;
+	}
 
 	/*
 	 * check which way to transfer data
@@ -1762,7 +1781,14 @@ static ide_startstop_t cdrom_newpc_intr(ide_drive_t *drive)
 		rq->data_len -= blen;
 
 		if (rq->bio)
-			end_that_request_chunk(rq, 1, blen);
+			/*
+			 * The request can't be completed until DRQ is cleared.
+			 * So complete the data, but don't complete the request
+			 * using the dummy function for the callback feature
+			 * of blk_end_request_callback().
+			 */
+			blk_end_request_callback(rq, 0, blen,
+						 cdrom_newpc_intr_dummy_cb);
 		else
 			rq->data += blen;
 	}
@@ -1783,14 +1809,6 @@ static ide_startstop_t cdrom_newpc_intr(ide_drive_t *drive)
 
 	ide_set_handler(drive, cdrom_newpc_intr, rq->timeout, NULL);
 	return ide_started;
-
-end_request:
-	spin_lock_irqsave(&ide_lock, flags);
-	blkdev_dequeue_request(rq);
-	end_that_request_last(rq, 1);
-	HWGROUP(drive)->rq = NULL;
-	spin_unlock_irqrestore(&ide_lock, flags);
-	return ide_stopped;
 }
 
 static ide_startstop_t cdrom_write_intr(ide_drive_t *drive)
@@ -1805,8 +1823,9 @@ static ide_startstop_t cdrom_write_intr(ide_drive_t *drive)
 	/* Check for errors. */
 	if (dma) {
 		info->dma = 0;
-		if ((dma_error = HWIF(drive)->ide_dma_end(drive))) {
-			printk(KERN_ERR "ide-cd: write dma error\n");
+		dma_error = HWIF(drive)->ide_dma_end(drive);
+		if (dma_error) {
+			printk(KERN_ERR "%s: DMA write error\n", drive->name);
 			ide_dma_off(drive);
 		}
 	}
@@ -1826,7 +1845,7 @@ static ide_startstop_t cdrom_write_intr(ide_drive_t *drive)
 	}
 
 	/* Read the interrupt reason and the transfer length. */
-	ireason = HWIF(drive)->INB(IDE_IREASON_REG);
+	ireason = HWIF(drive)->INB(IDE_IREASON_REG) & 0x3;
 	lowcyl  = HWIF(drive)->INB(IDE_BCOUNTL_REG);
 	highcyl = HWIF(drive)->INB(IDE_BCOUNTH_REG);
 
@@ -1839,8 +1858,9 @@ static ide_startstop_t cdrom_write_intr(ide_drive_t *drive)
 		 */
 		uptodate = 1;
 		if (rq->current_nr_sectors > 0) {
-			printk(KERN_ERR "%s: write_intr: data underrun (%d blocks)\n",
-			drive->name, rq->current_nr_sectors);
+			printk(KERN_ERR "%s: %s: data underrun (%d blocks)\n",
+					drive->name, __FUNCTION__,
+					rq->current_nr_sectors);
 			uptodate = 0;
 		}
 		cdrom_end_request(drive, uptodate);
@@ -1860,7 +1880,8 @@ static ide_startstop_t cdrom_write_intr(ide_drive_t *drive)
 		int this_transfer;
 
 		if (!rq->current_nr_sectors) {
-			printk(KERN_ERR "ide-cd: write_intr: oops\n");
+			printk(KERN_ERR "%s: %s: confused, missing data\n",
+					drive->name, __FUNCTION__);
 			break;
 		}
 
@@ -2688,14 +2709,14 @@ void ide_cdrom_update_speed (ide_drive_t *drive, struct atapi_capabilities_page 
 	if (!drive->id->model[0] &&
 	    !strncmp(drive->id->fw_rev, "241N", 4)) {
 		CDROM_STATE_FLAGS(drive)->current_speed  =
-			(((unsigned int)cap->curspeed) + (176/2)) / 176;
+			(le16_to_cpu(cap->curspeed) + (176/2)) / 176;
 		CDROM_CONFIG_FLAGS(drive)->max_speed =
-			(((unsigned int)cap->maxspeed) + (176/2)) / 176;
+			(le16_to_cpu(cap->maxspeed) + (176/2)) / 176;
 	} else {
 		CDROM_STATE_FLAGS(drive)->current_speed  =
-			(ntohs(cap->curspeed) + (176/2)) / 176;
+			(be16_to_cpu(cap->curspeed) + (176/2)) / 176;
 		CDROM_CONFIG_FLAGS(drive)->max_speed =
-			(ntohs(cap->maxspeed) + (176/2)) / 176;
+			(be16_to_cpu(cap->maxspeed) + (176/2)) / 176;
 	}
 }
 
@@ -2908,6 +2929,9 @@ static int ide_cdrom_register (ide_drive_t *drive, int nslots)
 		devinfo->mask |= CDC_MO_DRIVE;
 	if (!CDROM_CONFIG_FLAGS(drive)->ram)
 		devinfo->mask |= CDC_RAM;
+
+	if (CDROM_CONFIG_FLAGS(drive)->no_speed_select)
+		devinfo->mask |= CDC_SELECT_SPEED;
 
 	devinfo->disk = info->disk;
 	return register_cdrom(devinfo);
@@ -3161,7 +3185,7 @@ int ide_cdrom_setup (ide_drive_t *drive)
 		CDROM_CONFIG_FLAGS(drive)->limit_nframes = 1;
 	/* the 3231 model does not support the SET_CD_SPEED command */
 	else if (!strcmp(drive->id->model, "SAMSUNG CD-ROM SCR-3231"))
-		cdi->mask |= CDC_SELECT_SPEED;
+		CDROM_CONFIG_FLAGS(drive)->no_speed_select = 1;
 
 #if ! STANDARD_ATAPI
 	/* by default Sanyo 3 CD changer support is turned off and
@@ -3504,15 +3528,8 @@ static int ide_cd_probe(ide_drive_t *drive)
 	g->driverfs_dev = &drive->gendev;
 	g->flags = GENHD_FL_CD | GENHD_FL_REMOVABLE;
 	if (ide_cdrom_setup(drive)) {
-		struct cdrom_device_info *devinfo = &info->devinfo;
 		ide_proc_unregister_driver(drive, &ide_cdrom_driver);
-		kfree(info->buffer);
-		kfree(info->toc);
-		kfree(info->changer_info);
-		if (devinfo->handle == drive && unregister_cdrom(devinfo))
-			printk (KERN_ERR "%s: ide_cdrom_cleanup failed to unregister device from the cdrom driver.\n", drive->name);
-		kfree(info);
-		drive->driver_data = NULL;
+		ide_cd_release(&info->kref);
 		goto failed;
 	}
 

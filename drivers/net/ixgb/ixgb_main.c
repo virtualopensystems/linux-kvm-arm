@@ -36,7 +36,7 @@ static char ixgb_driver_string[] = "Intel(R) PRO/10GbE Network Driver";
 #else
 #define DRIVERNAPI "-NAPI"
 #endif
-#define DRV_VERSION		"1.0.126-k2"DRIVERNAPI
+#define DRV_VERSION		"1.0.126-k4"DRIVERNAPI
 const char ixgb_driver_version[] = DRV_VERSION;
 static const char ixgb_copyright[] = "Copyright (c) 1999-2006 Intel Corporation.";
 
@@ -212,9 +212,11 @@ static void
 ixgb_irq_enable(struct ixgb_adapter *adapter)
 {
 	if(atomic_dec_and_test(&adapter->irq_sem)) {
-		IXGB_WRITE_REG(&adapter->hw, IMS,
-			       IXGB_INT_RXT0 | IXGB_INT_RXDMT0 | IXGB_INT_TXDW |
-			       IXGB_INT_LSC);
+		u32 val = IXGB_INT_RXT0 | IXGB_INT_RXDMT0 |
+			  IXGB_INT_TXDW | IXGB_INT_LSC;
+		if (adapter->hw.subsystem_vendor_id == SUN_SUBVENDOR_ID)
+			val |= IXGB_INT_GPI0;
+		IXGB_WRITE_REG(&adapter->hw, IMS, val);
 		IXGB_WRITE_FLUSH(&adapter->hw);
 	}
 }
@@ -296,6 +298,11 @@ ixgb_down(struct ixgb_adapter *adapter, boolean_t kill_watchdog)
 {
 	struct net_device *netdev = adapter->netdev;
 
+#ifdef CONFIG_IXGB_NAPI
+	napi_disable(&adapter->napi);
+	atomic_set(&adapter->irq_sem, 0);
+#endif
+
 	ixgb_irq_disable(adapter);
 	free_irq(adapter->pdev->irq, netdev);
 
@@ -304,9 +311,7 @@ ixgb_down(struct ixgb_adapter *adapter, boolean_t kill_watchdog)
 
 	if(kill_watchdog)
 		del_timer_sync(&adapter->watchdog_timer);
-#ifdef CONFIG_IXGB_NAPI
-	napi_disable(&adapter->napi);
-#endif
+
 	adapter->link_speed = 0;
 	adapter->link_duplex = 0;
 	netif_carrier_off(netdev);
@@ -1787,14 +1792,13 @@ ixgb_clean(struct napi_struct *napi, int budget)
 {
 	struct ixgb_adapter *adapter = container_of(napi, struct ixgb_adapter, napi);
 	struct net_device *netdev = adapter->netdev;
-	int tx_cleaned;
 	int work_done = 0;
 
-	tx_cleaned = ixgb_clean_tx_irq(adapter);
+	ixgb_clean_tx_irq(adapter);
 	ixgb_clean_rx_irq(adapter, &work_done, budget);
 
-	/* if no Tx and not enough Rx work done, exit the polling mode */
-	if((!tx_cleaned && (work_done == 0)) || !netif_running(netdev)) {
+	/* If budget not fully consumed, exit the polling mode */
+	if (work_done < budget) {
 		netif_rx_complete(netdev, napi);
 		ixgb_irq_enable(adapter);
 	}

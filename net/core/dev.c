@@ -150,8 +150,11 @@
  *		86DD	IPv6
  */
 
+#define PTYPE_HASH_SIZE	(16)
+#define PTYPE_HASH_MASK	(PTYPE_HASH_SIZE - 1)
+
 static DEFINE_SPINLOCK(ptype_lock);
-static struct list_head ptype_base[16] __read_mostly;	/* 16 way hashed list */
+static struct list_head ptype_base[PTYPE_HASH_SIZE] __read_mostly;
 static struct list_head ptype_all __read_mostly;	/* Taps */
 
 #ifdef CONFIG_NET_DMA
@@ -362,7 +365,7 @@ void dev_add_pack(struct packet_type *pt)
 	if (pt->type == htons(ETH_P_ALL))
 		list_add_rcu(&pt->list, &ptype_all);
 	else {
-		hash = ntohs(pt->type) & 15;
+		hash = ntohs(pt->type) & PTYPE_HASH_MASK;
 		list_add_rcu(&pt->list, &ptype_base[hash]);
 	}
 	spin_unlock_bh(&ptype_lock);
@@ -391,7 +394,7 @@ void __dev_remove_pack(struct packet_type *pt)
 	if (pt->type == htons(ETH_P_ALL))
 		head = &ptype_all;
 	else
-		head = &ptype_base[ntohs(pt->type) & 15];
+		head = &ptype_base[ntohs(pt->type) & PTYPE_HASH_MASK];
 
 	list_for_each_entry(pt1, head, list) {
 		if (pt == pt1) {
@@ -672,7 +675,7 @@ struct net_device *dev_getbyhwaddr(struct net *net, unsigned short type, char *h
 
 	ASSERT_RTNL();
 
-	for_each_netdev(&init_net, dev)
+	for_each_netdev(net, dev)
 		if (dev->type == type &&
 		    !memcmp(dev->dev_addr, ha, dev->addr_len))
 			return dev;
@@ -1420,7 +1423,8 @@ struct sk_buff *skb_gso_segment(struct sk_buff *skb, int features)
 	}
 
 	rcu_read_lock();
-	list_for_each_entry_rcu(ptype, &ptype_base[ntohs(type) & 15], list) {
+	list_for_each_entry_rcu(ptype,
+			&ptype_base[ntohs(type) & PTYPE_HASH_MASK], list) {
 		if (ptype->type == type && !ptype->dev && ptype->gso_segment) {
 			if (unlikely(skb->ip_summed != CHECKSUM_PARTIAL)) {
 				err = ptype->gso_send_check(skb);
@@ -2077,7 +2081,8 @@ ncls:
 		goto out;
 
 	type = skb->protocol;
-	list_for_each_entry_rcu(ptype, &ptype_base[ntohs(type)&15], list) {
+	list_for_each_entry_rcu(ptype,
+			&ptype_base[ntohs(type) & PTYPE_HASH_MASK], list) {
 		if (ptype->type == type &&
 		    (!ptype->dev || ptype->dev == skb->dev)) {
 			if (pt_prev)
@@ -2207,8 +2212,12 @@ static void net_rx_action(struct softirq_action *h)
 		 * still "owns" the NAPI instance and therefore can
 		 * move the instance around on the list at-will.
 		 */
-		if (unlikely(work == weight))
-			list_move_tail(&n->poll_list, list);
+		if (unlikely(work == weight)) {
+			if (unlikely(napi_disable_pending(n)))
+				__napi_complete(n);
+			else
+				list_move_tail(&n->poll_list, list);
+		}
 
 		netpoll_poll_unlock(have);
 	}
@@ -2359,8 +2368,9 @@ static int dev_ifconf(struct net *net, char __user *arg)
  *	in detail.
  */
 void *dev_seq_start(struct seq_file *seq, loff_t *pos)
+	__acquires(dev_base_lock)
 {
-	struct net *net = seq->private;
+	struct net *net = seq_file_net(seq);
 	loff_t off;
 	struct net_device *dev;
 
@@ -2378,13 +2388,14 @@ void *dev_seq_start(struct seq_file *seq, loff_t *pos)
 
 void *dev_seq_next(struct seq_file *seq, void *v, loff_t *pos)
 {
-	struct net *net = seq->private;
+	struct net *net = seq_file_net(seq);
 	++*pos;
 	return v == SEQ_START_TOKEN ?
 		first_net_device(net) : next_net_device((struct net_device *)v);
 }
 
 void dev_seq_stop(struct seq_file *seq, void *v)
+	__releases(dev_base_lock)
 {
 	read_unlock(&dev_base_lock);
 }
@@ -2477,26 +2488,8 @@ static const struct seq_operations dev_seq_ops = {
 
 static int dev_seq_open(struct inode *inode, struct file *file)
 {
-	struct seq_file *seq;
-	int res;
-	res =  seq_open(file, &dev_seq_ops);
-	if (!res) {
-		seq = file->private_data;
-		seq->private = get_proc_net(inode);
-		if (!seq->private) {
-			seq_release(inode, file);
-			res = -ENXIO;
-		}
-	}
-	return res;
-}
-
-static int dev_seq_release(struct inode *inode, struct file *file)
-{
-	struct seq_file *seq = file->private_data;
-	struct net *net = seq->private;
-	put_net(net);
-	return seq_release(inode, file);
+	return seq_open_net(inode, file, &dev_seq_ops,
+			    sizeof(struct seq_net_private));
 }
 
 static const struct file_operations dev_seq_fops = {
@@ -2504,7 +2497,7 @@ static const struct file_operations dev_seq_fops = {
 	.open    = dev_seq_open,
 	.read    = seq_read,
 	.llseek  = seq_lseek,
-	.release = dev_seq_release,
+	.release = seq_release_net,
 };
 
 static const struct seq_operations softnet_seq_ops = {
@@ -2539,7 +2532,7 @@ static void *ptype_get_idx(loff_t pos)
 		++i;
 	}
 
-	for (t = 0; t < 16; t++) {
+	for (t = 0; t < PTYPE_HASH_SIZE; t++) {
 		list_for_each_entry_rcu(pt, &ptype_base[t], list) {
 			if (i == pos)
 				return pt;
@@ -2550,6 +2543,7 @@ static void *ptype_get_idx(loff_t pos)
 }
 
 static void *ptype_seq_start(struct seq_file *seq, loff_t *pos)
+	__acquires(RCU)
 {
 	rcu_read_lock();
 	return *pos ? ptype_get_idx(*pos - 1) : SEQ_START_TOKEN;
@@ -2573,10 +2567,10 @@ static void *ptype_seq_next(struct seq_file *seq, void *v, loff_t *pos)
 		hash = 0;
 		nxt = ptype_base[0].next;
 	} else
-		hash = ntohs(pt->type) & 15;
+		hash = ntohs(pt->type) & PTYPE_HASH_MASK;
 
 	while (nxt == &ptype_base[hash]) {
-		if (++hash >= 16)
+		if (++hash >= PTYPE_HASH_SIZE)
 			return NULL;
 		nxt = ptype_base[hash].next;
 	}
@@ -2585,6 +2579,7 @@ found:
 }
 
 static void ptype_seq_stop(struct seq_file *seq, void *v)
+	__releases(RCU)
 {
 	rcu_read_unlock();
 }
@@ -2966,6 +2961,102 @@ int dev_unicast_add(struct net_device *dev, void *addr, int alen)
 	return err;
 }
 EXPORT_SYMBOL(dev_unicast_add);
+
+int __dev_addr_sync(struct dev_addr_list **to, int *to_count,
+		    struct dev_addr_list **from, int *from_count)
+{
+	struct dev_addr_list *da, *next;
+	int err = 0;
+
+	da = *from;
+	while (da != NULL) {
+		next = da->next;
+		if (!da->da_synced) {
+			err = __dev_addr_add(to, to_count,
+					     da->da_addr, da->da_addrlen, 0);
+			if (err < 0)
+				break;
+			da->da_synced = 1;
+			da->da_users++;
+		} else if (da->da_users == 1) {
+			__dev_addr_delete(to, to_count,
+					  da->da_addr, da->da_addrlen, 0);
+			__dev_addr_delete(from, from_count,
+					  da->da_addr, da->da_addrlen, 0);
+		}
+		da = next;
+	}
+	return err;
+}
+
+void __dev_addr_unsync(struct dev_addr_list **to, int *to_count,
+		       struct dev_addr_list **from, int *from_count)
+{
+	struct dev_addr_list *da, *next;
+
+	da = *from;
+	while (da != NULL) {
+		next = da->next;
+		if (da->da_synced) {
+			__dev_addr_delete(to, to_count,
+					  da->da_addr, da->da_addrlen, 0);
+			da->da_synced = 0;
+			__dev_addr_delete(from, from_count,
+					  da->da_addr, da->da_addrlen, 0);
+		}
+		da = next;
+	}
+}
+
+/**
+ *	dev_unicast_sync - Synchronize device's unicast list to another device
+ *	@to: destination device
+ *	@from: source device
+ *
+ *	Add newly added addresses to the destination device and release
+ *	addresses that have no users left. The source device must be
+ *	locked by netif_tx_lock_bh.
+ *
+ *	This function is intended to be called from the dev->set_rx_mode
+ *	function of layered software devices.
+ */
+int dev_unicast_sync(struct net_device *to, struct net_device *from)
+{
+	int err = 0;
+
+	netif_tx_lock_bh(to);
+	err = __dev_addr_sync(&to->uc_list, &to->uc_count,
+			      &from->uc_list, &from->uc_count);
+	if (!err)
+		__dev_set_rx_mode(to);
+	netif_tx_unlock_bh(to);
+	return err;
+}
+EXPORT_SYMBOL(dev_unicast_sync);
+
+/**
+ *	dev_unicast_unsync - Remove synchronized addresses from the destination
+ *			     device
+ *	@to: destination device
+ *	@from: source device
+ *
+ *	Remove all addresses that were added to the destination device by
+ *	dev_unicast_sync(). This function is intended to be called from the
+ *	dev->stop function of layered software devices.
+ */
+void dev_unicast_unsync(struct net_device *to, struct net_device *from)
+{
+	netif_tx_lock_bh(from);
+	netif_tx_lock_bh(to);
+
+	__dev_addr_unsync(&to->uc_list, &to->uc_count,
+			  &from->uc_list, &from->uc_count);
+	__dev_set_rx_mode(to);
+
+	netif_tx_unlock_bh(to);
+	netif_tx_unlock_bh(from);
+}
+EXPORT_SYMBOL(dev_unicast_unsync);
 
 static void __dev_addr_discard(struct dev_addr_list **list)
 {
@@ -3501,7 +3592,7 @@ static int dev_new_index(struct net *net)
 
 /* Delayed registration/unregisteration */
 static DEFINE_SPINLOCK(net_todo_list_lock);
-static struct list_head net_todo_list = LIST_HEAD_INIT(net_todo_list);
+static LIST_HEAD(net_todo_list);
 
 static void net_set_todo(struct net_device *dev)
 {
@@ -3980,6 +4071,8 @@ void synchronize_net(void)
 
 void unregister_netdevice(struct net_device *dev)
 {
+	ASSERT_RTNL();
+
 	rollback_registered(dev);
 	/* Finish processing unregister after unlock */
 	net_set_todo(dev);
@@ -4412,7 +4505,7 @@ static int __init net_dev_init(void)
 		goto out;
 
 	INIT_LIST_HEAD(&ptype_all);
-	for (i = 0; i < 16; i++)
+	for (i = 0; i < PTYPE_HASH_SIZE; i++)
 		INIT_LIST_HEAD(&ptype_base[i]);
 
 	if (register_pernet_subsys(&netdev_net_ops))

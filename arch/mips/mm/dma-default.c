@@ -45,7 +45,7 @@ static gfp_t massage_gfp_flags(const struct device *dev, gfp_t gfp)
 	/* ignore region specifiers */
 	gfp &= ~(__GFP_DMA | __GFP_DMA32 | __GFP_HIGHMEM);
 
-#ifdef CONFIG_ZONE_DMA32
+#ifdef CONFIG_ZONE_DMA
 	if (dev == NULL)
 		gfp |= __GFP_DMA;
 	else if (dev->coherent_dma_mask < DMA_BIT_MASK(24))
@@ -383,7 +383,7 @@ void dma_cache_sync(struct device *dev, void *vaddr, size_t size,
 	BUG_ON(direction == DMA_NONE);
 
 	if (!plat_device_is_coherent(dev))
-		dma_cache_wback_inv((unsigned long)vaddr, size);
+		__dma_sync((unsigned long)vaddr, size, direction);
 }
 
 EXPORT_SYMBOL(dma_cache_sync);

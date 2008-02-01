@@ -141,12 +141,7 @@ static const char *task_state_array[] = {
 
 static inline const char *get_task_state(struct task_struct *tsk)
 {
-	unsigned int state = (tsk->state & (TASK_RUNNING |
-					    TASK_INTERRUPTIBLE |
-					    TASK_UNINTERRUPTIBLE |
-					    TASK_STOPPED |
-					    TASK_TRACED)) |
-					   tsk->exit_state;
+	unsigned int state = (tsk->state & TASK_REPORT) | tsk->exit_state;
 	const char **p = &task_state_array[0];
 
 	while (state) {
@@ -169,7 +164,7 @@ static inline char *task_state(struct task_struct *p, char *buffer)
 	ppid = pid_alive(p) ?
 		task_tgid_nr_ns(rcu_dereference(p->real_parent), ns) : 0;
 	tpid = pid_alive(p) && p->ptrace ?
-		task_ppid_nr_ns(rcu_dereference(p->parent), ns) : 0;
+		task_pid_nr_ns(rcu_dereference(p->parent), ns) : 0;
 	buffer += sprintf(buffer,
 		"State:\t%s\n"
 		"Tgid:\t%d\n"
@@ -464,8 +459,8 @@ static int do_task_stat(struct task_struct *task, char *buffer, int whole)
 		}
 
 		sid = task_session_nr_ns(task, ns);
+		ppid = task_tgid_nr_ns(task->real_parent, ns);
 		pgid = task_pgrp_nr_ns(task, ns);
-		ppid = task_ppid_nr_ns(task, ns);
 
 		unlock_task_sighand(task, &flags);
 	}

@@ -301,7 +301,7 @@ static struct sil24_cerr_info {
 	[PORT_CERR_PKT_PROT]	= { AC_ERR_HSM, ATA_EH_SOFTRESET,
 				    "invalid data directon for ATAPI CDB" },
 	[PORT_CERR_SGT_BOUNDARY] = { AC_ERR_SYSTEM, ATA_EH_SOFTRESET,
-				     "SGT no on qword boundary" },
+				     "SGT not on qword boundary" },
 	[PORT_CERR_SGT_TGTABRT]	= { AC_ERR_HOST_BUS, ATA_EH_SOFTRESET,
 				    "PCI target abort while fetching SGT" },
 	[PORT_CERR_SGT_MSTABRT]	= { AC_ERR_HOST_BUS, ATA_EH_SOFTRESET,
@@ -813,8 +813,9 @@ static inline void sil24_fill_sg(struct ata_queued_cmd *qc,
 {
 	struct scatterlist *sg;
 	struct sil24_sge *last_sge = NULL;
+	unsigned int si;
 
-	ata_for_each_sg(sg, qc) {
+	for_each_sg(qc->sg, sg, qc->n_elem, si) {
 		sge->addr = cpu_to_le64(sg_dma_address(sg));
 		sge->cnt = cpu_to_le32(sg_dma_len(sg));
 		sge->flags = 0;
@@ -823,8 +824,7 @@ static inline void sil24_fill_sg(struct ata_queued_cmd *qc,
 		sge++;
 	}
 
-	if (likely(last_sge))
-		last_sge->flags = cpu_to_le32(SGE_TRM);
+	last_sge->flags = cpu_to_le32(SGE_TRM);
 }
 
 static int sil24_qc_defer(struct ata_queued_cmd *qc)
@@ -832,16 +832,29 @@ static int sil24_qc_defer(struct ata_queued_cmd *qc)
 	struct ata_link *link = qc->dev->link;
 	struct ata_port *ap = link->ap;
 	u8 prot = qc->tf.protocol;
-	int is_atapi = (prot == ATA_PROT_ATAPI ||
-			prot == ATA_PROT_ATAPI_NODATA ||
-			prot == ATA_PROT_ATAPI_DMA);
 
-	/* ATAPI commands completing with CHECK_SENSE cause various
-	 * weird problems if other commands are active.  PMP DMA CS
-	 * errata doesn't cover all and HSM violation occurs even with
-	 * only one other device active.  Always run an ATAPI command
-	 * by itself.
-	 */
+	/*
+	 * There is a bug in the chip:
+	 * Port LRAM Causes the PRB/SGT Data to be Corrupted
+	 * If the host issues a read request for LRAM and SActive registers
+	 * while active commands are available in the port, PRB/SGT data in
+	 * the LRAM can become corrupted. This issue applies only when
+	 * reading from, but not writing to, the LRAM.
+	 *
+	 * Therefore, reading LRAM when there is no particular error [and
+	 * other commands may be outstanding] is prohibited.
+	 *
+	 * To avoid this bug there are two situations where a command must run
+	 * exclusive of any other commands on the port:
+	 *
+	 * - ATAPI commands which check the sense data
+	 * - Passthrough ATA commands which always have ATA_QCFLAG_RESULT_TF
+	 *   set.
+	 *
+ 	 */
+	int is_excl = (ata_is_atapi(prot) ||
+		       (qc->flags & ATA_QCFLAG_RESULT_TF));
+
 	if (unlikely(ap->excl_link)) {
 		if (link == ap->excl_link) {
 			if (ap->nr_active_links)
@@ -849,7 +862,7 @@ static int sil24_qc_defer(struct ata_queued_cmd *qc)
 			qc->flags |= ATA_QCFLAG_CLEAR_EXCL;
 		} else
 			return ATA_DEFER_PORT;
-	} else if (unlikely(is_atapi)) {
+	} else if (unlikely(is_excl)) {
 		ap->excl_link = link;
 		if (ap->nr_active_links)
 			return ATA_DEFER_PORT;
@@ -870,35 +883,21 @@ static void sil24_qc_prep(struct ata_queued_cmd *qc)
 
 	cb = &pp->cmd_block[sil24_tag(qc->tag)];
 
-	switch (qc->tf.protocol) {
-	case ATA_PROT_PIO:
-	case ATA_PROT_DMA:
-	case ATA_PROT_NCQ:
-	case ATA_PROT_NODATA:
+	if (!ata_is_atapi(qc->tf.protocol)) {
 		prb = &cb->ata.prb;
 		sge = cb->ata.sge;
-		break;
-
-	case ATA_PROT_ATAPI:
-	case ATA_PROT_ATAPI_DMA:
-	case ATA_PROT_ATAPI_NODATA:
+	} else {
 		prb = &cb->atapi.prb;
 		sge = cb->atapi.sge;
 		memset(cb->atapi.cdb, 0, 32);
 		memcpy(cb->atapi.cdb, qc->cdb, qc->dev->cdb_len);
 
-		if (qc->tf.protocol != ATA_PROT_ATAPI_NODATA) {
+		if (ata_is_data(qc->tf.protocol)) {
 			if (qc->tf.flags & ATA_TFLAG_WRITE)
 				ctrl = PRB_CTRL_PACKET_WRITE;
 			else
 				ctrl = PRB_CTRL_PACKET_READ;
 		}
-		break;
-
-	default:
-		prb = NULL;	/* shut up, gcc */
-		sge = NULL;
-		BUG();
 	}
 
 	prb->ctrl = cpu_to_le16(ctrl);
@@ -1079,10 +1078,13 @@ static void sil24_error_intr(struct ata_port *ap)
 		if (ci && ci->desc) {
 			err_mask |= ci->err_mask;
 			action |= ci->action;
+			if (action & ATA_EH_RESET_MASK)
+				freeze = 1;
 			ata_ehi_push_desc(ehi, "%s", ci->desc);
 		} else {
 			err_mask |= AC_ERR_OTHER;
 			action |= ATA_EH_SOFTRESET;
+			freeze = 1;
 			ata_ehi_push_desc(ehi, "unknown command error %d",
 					  cerr);
 		}

@@ -50,8 +50,6 @@ int update_persistent_clock(struct timespec now)
 	return rtc_mips_set_mmss(now.tv_sec);
 }
 
-int (*mips_timer_state)(void);
-
 int null_perf_irq(void)
 {
 	return 0;
@@ -147,9 +145,9 @@ static __init int cpu_has_mfc0_count_bug(void)
 			return 1;
 
 		/*
-		 * I don't have erratas for newer R4400 so be paranoid.
+		 * we assume newer revisions are ok
 		 */
-		return 1;
+		return 0;
 	}
 
 	return 0;

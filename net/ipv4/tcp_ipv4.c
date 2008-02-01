@@ -99,7 +99,7 @@ static struct tcp_md5sig_key *tcp_v4_md5_do_lookup(struct sock *sk,
 static int tcp_v4_do_calc_md5_hash(char *md5_hash, struct tcp_md5sig_key *key,
 				   __be32 saddr, __be32 daddr,
 				   struct tcphdr *th, int protocol,
-				   int tcplen);
+				   unsigned int tcplen);
 #endif
 
 struct inet_hashinfo __cacheline_aligned tcp_hashinfo = {
@@ -369,8 +369,8 @@ void tcp_v4_err(struct sk_buff *skb, u32 info)
 		return;
 	}
 
-	sk = inet_lookup(&tcp_hashinfo, iph->daddr, th->dest, iph->saddr,
-			 th->source, inet_iif(skb));
+	sk = inet_lookup(skb->dev->nd_net, &tcp_hashinfo, iph->daddr, th->dest,
+			iph->saddr, th->source, inet_iif(skb));
 	if (!sk) {
 		ICMP_INC_STATS_BH(ICMP_MIB_INERRORS);
 		return;
@@ -1020,7 +1020,7 @@ static int tcp_v4_parse_md5_keys(struct sock *sk, char __user *optval,
 static int tcp_v4_do_calc_md5_hash(char *md5_hash, struct tcp_md5sig_key *key,
 				   __be32 saddr, __be32 daddr,
 				   struct tcphdr *th, int protocol,
-				   int tcplen)
+				   unsigned int tcplen)
 {
 	struct scatterlist sg[4];
 	__u16 data_len;
@@ -1113,7 +1113,7 @@ int tcp_v4_calc_md5_hash(char *md5_hash, struct tcp_md5sig_key *key,
 			 struct dst_entry *dst,
 			 struct request_sock *req,
 			 struct tcphdr *th, int protocol,
-			 int tcplen)
+			 unsigned int tcplen)
 {
 	__be32 saddr, daddr;
 
@@ -1478,7 +1478,7 @@ struct sock *tcp_v4_syn_recv_sock(struct sock *sk, struct sk_buff *skb,
 	}
 #endif
 
-	__inet_hash(&tcp_hashinfo, newsk, 0);
+	__inet_hash_nolisten(&tcp_hashinfo, newsk);
 	__inet_inherit_port(&tcp_hashinfo, sk, newsk);
 
 	return newsk;
@@ -1503,8 +1503,8 @@ static struct sock *tcp_v4_hnd_req(struct sock *sk, struct sk_buff *skb)
 	if (req)
 		return tcp_check_req(sk, skb, req, prev);
 
-	nsk = inet_lookup_established(&tcp_hashinfo, iph->saddr, th->source,
-				      iph->daddr, th->dest, inet_iif(skb));
+	nsk = inet_lookup_established(sk->sk_net, &tcp_hashinfo, iph->saddr,
+			th->source, iph->daddr, th->dest, inet_iif(skb));
 
 	if (nsk) {
 		if (nsk->sk_state != TCP_TIME_WAIT) {
@@ -1661,8 +1661,8 @@ int tcp_v4_rcv(struct sk_buff *skb)
 	TCP_SKB_CB(skb)->flags	 = iph->tos;
 	TCP_SKB_CB(skb)->sacked	 = 0;
 
-	sk = __inet_lookup(&tcp_hashinfo, iph->saddr, th->source,
-			   iph->daddr, th->dest, inet_iif(skb));
+	sk = __inet_lookup(skb->dev->nd_net, &tcp_hashinfo, iph->saddr,
+			th->source, iph->daddr, th->dest, inet_iif(skb));
 	if (!sk)
 		goto no_tcp_socket;
 
@@ -1735,7 +1735,8 @@ do_time_wait:
 	}
 	switch (tcp_timewait_state_process(inet_twsk(sk), skb, th)) {
 	case TCP_TW_SYN: {
-		struct sock *sk2 = inet_lookup_listener(&tcp_hashinfo,
+		struct sock *sk2 = inet_lookup_listener(skb->dev->nd_net,
+							&tcp_hashinfo,
 							iph->daddr, th->dest,
 							inet_iif(skb));
 		if (sk2) {

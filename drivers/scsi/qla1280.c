@@ -528,7 +528,7 @@ __setup("qla1280=", qla1280_setup);
 #define	CMD_CDBLEN(Cmnd)	Cmnd->cmd_len
 #define	CMD_CDBP(Cmnd)		Cmnd->cmnd
 #define	CMD_SNSP(Cmnd)		Cmnd->sense_buffer
-#define	CMD_SNSLEN(Cmnd)	sizeof(Cmnd->sense_buffer)
+#define	CMD_SNSLEN(Cmnd)	SCSI_SENSE_BUFFERSIZE
 #define	CMD_RESULT(Cmnd)	Cmnd->result
 #define	CMD_HANDLE(Cmnd)	Cmnd->host_scribble
 #define CMD_REQUEST(Cmnd)	Cmnd->request->cmd
@@ -3041,7 +3041,6 @@ qla1280_32bit_start_scsi(struct scsi_qla_host *ha, struct srb * sp)
 	int cnt;
 	int req_cnt;
 	int seg_cnt;
-	dma_addr_t dma_handle;
 	u8 dir;
 
 	ENTER("qla1280_32bit_start_scsi");
@@ -3050,6 +3049,7 @@ qla1280_32bit_start_scsi(struct scsi_qla_host *ha, struct srb * sp)
 		cmd->cmnd[0]);
 
 	/* Calculate number of entries and segments required. */
+	req_cnt = 1;
 	seg_cnt = scsi_dma_map(cmd);
 	if (seg_cnt) {
 		/*
@@ -3715,7 +3715,7 @@ qla1280_status_entry(struct scsi_qla_host *ha, struct response *pkt,
 			} else
 				sense_sz = 0;
 			memset(cmd->sense_buffer + sense_sz, 0,
-			       sizeof(cmd->sense_buffer) - sense_sz);
+			       SCSI_SENSE_BUFFERSIZE - sense_sz);
 
 			dprintk(2, "qla1280_status_entry: Check "
 				"condition Sense data, b %i, t %i, "
@@ -4204,7 +4204,6 @@ static struct scsi_host_template qla1280_driver_template = {
 	.sg_tablesize		= SG_ALL,
 	.cmd_per_lun		= 1,
 	.use_clustering		= ENABLE_CLUSTERING,
-	.use_sg_chaining	= ENABLE_SG_CHAINING,
 };
 
 

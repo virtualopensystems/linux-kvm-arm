@@ -126,6 +126,9 @@ static ssize_t rfkill_type_show(struct device *dev,
 	case RFKILL_TYPE_UWB:
 		type = "ultrawideband";
 		break;
+	case RFKILL_TYPE_WIMAX:
+		type = "wimax";
+		break;
 	default:
 		BUG();
 	}
@@ -392,11 +395,14 @@ int rfkill_register(struct rfkill *rfkill)
 	rfkill_led_trigger_register(rfkill);
 
 	error = rfkill_add_switch(rfkill);
-	if (error)
+	if (error) {
+		rfkill_led_trigger_unregister(rfkill);
 		return error;
+	}
 
 	error = device_add(dev);
 	if (error) {
+		rfkill_led_trigger_unregister(rfkill);
 		rfkill_remove_switch(rfkill);
 		return error;
 	}
