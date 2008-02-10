@@ -1138,7 +1138,7 @@ static inline int emulate_grp45(struct x86_emulate_ctxt *ctxt,
 		emulate_1op("dec", c->dst, ctxt->eflags);
 		break;
 	case 4: /* jmp abs */
-		c->eip = c->dst.val;
+		c->eip = c->src.val;
 		break;
 	case 6:	/* push */
 		emulate_push(ctxt);
