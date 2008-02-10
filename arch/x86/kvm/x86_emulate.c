@@ -272,7 +272,7 @@ static u16 group_table[] = {
 	0, 0, 0, 0, 0, 0,
 	[Group5*8] =
 	DstMem | SrcNone | ModRM, DstMem | SrcNone | ModRM, 0, 0,
-	SrcMem, 0, SrcMem | Stack, 0,
+	SrcMem | ModRM, 0, SrcMem | ModRM | Stack, 0,
 	[Group7*8] =
 	0, 0, ModRM | SrcMem, ModRM | SrcMem,
 	SrcNone | ModRM | DstMem, 0, SrcMem | ModRM, SrcMem | ModRM | ByteOp,
