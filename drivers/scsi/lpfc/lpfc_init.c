@@ -1894,7 +1894,7 @@ lpfc_pci_probe_one(struct pci_dev *pdev, const struct pci_device_id *pid)
 	uint16_t iotag;
 	int bars = pci_select_bars(pdev, IORESOURCE_MEM);
 
-	if (pci_enable_device_bars(pdev, bars))
+	if (pci_enable_device_mem(pdev))
 		goto out;
 	if (pci_request_selected_regions(pdev, bars, LPFC_DRIVER_NAME))
 		goto out_disable_device;
@@ -2296,10 +2296,9 @@ static pci_ers_result_t lpfc_io_slot_reset(struct pci_dev *pdev)
 	struct Scsi_Host *shost = pci_get_drvdata(pdev);
 	struct lpfc_hba *phba = ((struct lpfc_vport *)shost->hostdata)->phba;
 	struct lpfc_sli *psli = &phba->sli;
-	int bars = pci_select_bars(pdev, IORESOURCE_MEM);
 
 	dev_printk(KERN_INFO, &pdev->dev, "recovering from a slot reset.\n");
-	if (pci_enable_device_bars(pdev, bars)) {
+	if (pci_enable_device_mem(pdev)) {
 		printk(KERN_ERR "lpfc: Cannot re-enable "
 			"PCI device after reset.\n");
 		return PCI_ERS_RESULT_DISCONNECT;

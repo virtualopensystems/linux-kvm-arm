@@ -12,6 +12,7 @@
 #include <linux/module.h>
 #include <linux/sort.h>
 #include <asm/uaccess.h>
+#include <asm/asm.h>
 
 extern int rodata_test_data;
 
@@ -89,16 +90,7 @@ static noinline int test_address(void *address)
 		"2:	mov %[zero], %[rslt]\n"
 		"	ret\n"
 		".previous\n"
-		".section __ex_table,\"a\"\n"
-		"       .align 8\n"
-#ifdef CONFIG_X86_32
-		"	.long 0b\n"
-		"	.long 2b\n"
-#else
-		"	.quad 0b\n"
-		"	.quad 2b\n"
-#endif
-		".previous\n"
+		_ASM_EXTABLE(0b,2b)
 		: [rslt] "=r" (result)
 		: [fake_code] "r" (address), [zero] "r" (0UL), "0" (result)
 	);
@@ -147,7 +139,6 @@ static int test_NX(void)
 	 * Until then, don't run them to avoid too many people getting scared
 	 * by the error message
 	 */
-#if 0
 
 #ifdef CONFIG_DEBUG_RODATA
 	/* Test 3: Check if the .rodata section is executable */
@@ -160,6 +151,7 @@ static int test_NX(void)
 	}
 #endif
 
+#if 0
 	/* Test 4: Check if the .data section of a module is executable */
 	if (test_address(&test_data)) {
 		printk(KERN_ERR "test_nx: .data section is executable\n");

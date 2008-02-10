@@ -1905,11 +1905,12 @@ int security_set_bools(int len, int *values)
 		if (!!values[i] != policydb.bool_val_to_struct[i]->state) {
 			audit_log(current->audit_context, GFP_ATOMIC,
 				AUDIT_MAC_CONFIG_CHANGE,
-				"bool=%s val=%d old_val=%d auid=%u",
+				"bool=%s val=%d old_val=%d auid=%u ses=%u",
 				policydb.p_bool_val_to_name[i],
 				!!values[i],
 				policydb.bool_val_to_struct[i]->state,
-				audit_get_loginuid(current->audit_context));
+				audit_get_loginuid(current),
+				audit_get_sessionid(current));
 		}
 		if (values[i]) {
 			policydb.bool_val_to_struct[i]->state = 1;
@@ -2242,39 +2243,6 @@ int security_get_reject_unknown(void)
 int security_get_allow_unknown(void)
 {
 	return policydb.allow_unknown;
-}
-
-/**
- * security_get_policycaps - Query the loaded policy for its capabilities
- * @len: the number of capability bits
- * @values: the capability bit array
- *
- * Description:
- * Get an array of the policy capabilities in @values where each entry in
- * @values is either true (1) or false (0) depending the policy's support of
- * that feature.  The policy capabilities are defined by the
- * POLICYDB_CAPABILITY_* enums.  The size of the array is stored in @len and it
- * is up to the caller to free the array in @values.  Returns zero on success,
- * negative values on failure.
- *
- */
-int security_get_policycaps(int *len, int **values)
-{
-	int rc = -ENOMEM;
-	unsigned int iter;
-
-	POLICY_RDLOCK;
-
-	*values = kcalloc(POLICYDB_CAPABILITY_MAX, sizeof(int), GFP_ATOMIC);
-	if (*values == NULL)
-		goto out;
-	for (iter = 0; iter < POLICYDB_CAPABILITY_MAX; iter++)
-		(*values)[iter] = ebitmap_get_bit(&policydb.policycaps, iter);
-	*len = POLICYDB_CAPABILITY_MAX;
-
-out:
-	POLICY_RDUNLOCK;
-	return rc;
 }
 
 /**

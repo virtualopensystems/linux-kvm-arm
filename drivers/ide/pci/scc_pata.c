@@ -594,7 +594,7 @@ static int __devinit init_setup_scc(struct pci_dev *dev,
 
 static void __devinit init_mmio_iops_scc(ide_hwif_t *hwif)
 {
-	struct pci_dev *dev = hwif->pci_dev;
+	struct pci_dev *dev = to_pci_dev(hwif->dev);
 	struct scc_ports *ports = pci_get_drvdata(dev);
 	unsigned long dma_base = ports->dma;
 
@@ -620,7 +620,7 @@ static void __devinit init_mmio_iops_scc(ide_hwif_t *hwif)
 	hwif->io_ports[IDE_STATUS_OFFSET] = dma_base + 0x3c;
 	hwif->io_ports[IDE_CONTROL_OFFSET] = dma_base + 0x40;
 
-	hwif->irq = hwif->pci_dev->irq;
+	hwif->irq = dev->irq;
 	hwif->dma_base = dma_base;
 	hwif->config_data = ports->ctl;
 	hwif->mmio = 1;
@@ -636,11 +636,17 @@ static void __devinit init_mmio_iops_scc(ide_hwif_t *hwif)
 
 static void __devinit init_iops_scc(ide_hwif_t *hwif)
 {
-	struct pci_dev *dev =  hwif->pci_dev;
+	struct pci_dev *dev = to_pci_dev(hwif->dev);
+
 	hwif->hwif_data = NULL;
 	if (pci_get_drvdata(dev) == NULL)
 		return;
 	init_mmio_iops_scc(hwif);
+}
+
+static u8 __devinit scc_cable_detect(ide_hwif_t *hwif)
+{
+	return ATA_CBL_PATA80;
 }
 
 /**
@@ -677,8 +683,7 @@ static void __devinit init_hwif_scc(ide_hwif_t *hwif)
 	else
 		hwif->ultra_mask = ATA_UDMA5; /* 100MHz */
 
-	/* we support 80c cable only. */
-	hwif->cbl = ATA_CBL_PATA80;
+	hwif->cable_detect = scc_cable_detect;
 }
 
 #define DECLARE_SCC_DEV(name_str)			\
@@ -726,14 +731,12 @@ static void __devexit scc_remove(struct pci_dev *dev)
 	unsigned long dma_size = pci_resource_len(dev, 1);
 
 	if (hwif->dmatable_cpu) {
-		pci_free_consistent(hwif->pci_dev,
-				    PRD_ENTRIES * PRD_BYTES,
-				    hwif->dmatable_cpu,
-				    hwif->dmatable_dma);
+		pci_free_consistent(dev, PRD_ENTRIES * PRD_BYTES,
+				    hwif->dmatable_cpu, hwif->dmatable_dma);
 		hwif->dmatable_cpu = NULL;
 	}
 
-	ide_unregister(hwif->index);
+	ide_unregister(hwif->index, 0, 0);
 
 	hwif->chipset = ide_unknown;
 	iounmap((void*)ports->dma);

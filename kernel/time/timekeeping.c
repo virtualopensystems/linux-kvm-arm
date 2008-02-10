@@ -47,7 +47,7 @@ struct timespec wall_to_monotonic __attribute__ ((aligned (16)));
 static unsigned long total_sleep_time;		/* seconds */
 
 static struct timespec xtime_cache __attribute__ ((aligned (16)));
-static inline void update_xtime_cache(u64 nsec)
+void update_xtime_cache(u64 nsec)
 {
 	xtime_cache = xtime;
 	timespec_add_ns(&xtime_cache, nsec);
@@ -145,6 +145,7 @@ int do_settimeofday(struct timespec *tv)
 
 	set_normalized_timespec(&xtime, sec, nsec);
 	set_normalized_timespec(&wall_to_monotonic, wtm_sec, wtm_nsec);
+	update_xtime_cache(0);
 
 	clock->error = 0;
 	ntp_clear();
@@ -200,9 +201,9 @@ static inline s64 __get_nsec_offset(void) { return 0; }
 #endif
 
 /**
- * timekeeping_is_continuous - check to see if timekeeping is free running
+ * timekeeping_valid_for_hres - Check if timekeeping is suitable for hres
  */
-int timekeeping_is_continuous(void)
+int timekeeping_valid_for_hres(void)
 {
 	unsigned long seq;
 	int ret;
@@ -252,8 +253,8 @@ void __init timekeeping_init(void)
 	xtime.tv_nsec = 0;
 	set_normalized_timespec(&wall_to_monotonic,
 		-xtime.tv_sec, -xtime.tv_nsec);
+	update_xtime_cache(0);
 	total_sleep_time = 0;
-
 	write_sequnlock_irqrestore(&xtime_lock, flags);
 }
 
@@ -290,6 +291,7 @@ static int timekeeping_resume(struct sys_device *dev)
 	}
 	/* Make sure that we have the correct xtime reference */
 	timespec_add_ns(&xtime, timekeeping_suspend_nsecs);
+	update_xtime_cache(0);
 	/* re-base the last cycle value */
 	clock->cycle_last = clocksource_read(clock);
 	clock->error = 0;
@@ -362,7 +364,7 @@ static __always_inline int clocksource_bigadjust(s64 error, s64 *interval,
 	 * with losing too many ticks, otherwise we would overadjust and
 	 * produce an even larger error.  The smaller the adjustment the
 	 * faster we try to adjust for it, as lost ticks can do less harm
-	 * here.  This is tuned so that an error of about 1 msec is adusted
+	 * here.  This is tuned so that an error of about 1 msec is adjusted
 	 * within about 1 sec (or 2^20 nsec in 2^SHIFT_HZ ticks).
 	 */
 	error2 = clock->error >> (TICK_LENGTH_SHIFT + 22 - 2 * SHIFT_HZ);

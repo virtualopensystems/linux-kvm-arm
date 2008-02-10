@@ -1,6 +1,4 @@
 /*
- *  linux/drivers/ide/ppc/ide-m8xx.c
- *
  *  Copyright (C) 2000, 2001 Wolfgang Denk, wd@denx.de
  *  Modified for direct IDE interface
  *	by Thomas Lange, thomas@corelatus.com
@@ -19,7 +17,6 @@
 #include <linux/ptrace.h>
 #include <linux/slab.h>
 #include <linux/user.h>
-#include <linux/a.out.h>
 #include <linux/tty.h>
 #include <linux/major.h>
 #include <linux/interrupt.h>
@@ -850,7 +847,7 @@ static int __init mpc8xx_ide_probe(void)
 #endif
 #endif
 
-	ide_device_add(idx);
+	ide_device_add(idx, NULL);
 
 	return 0;
 }

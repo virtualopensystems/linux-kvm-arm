@@ -240,7 +240,8 @@ void dump_pagetable(unsigned long address)
 	pud = pud_offset(pgd, address);
 	if (bad_address(pud)) goto bad;
 	printk("PUD %lx ", pud_val(*pud));
-	if (!pud_present(*pud))	goto ret;
+	if (!pud_present(*pud) || pud_large(*pud))
+		goto ret;
 
 	pmd = pmd_offset(pud, address);
 	if (bad_address(pmd)) goto bad;
@@ -382,7 +383,7 @@ static void show_fault_oops(struct pt_regs *regs, unsigned long error_code,
 
 #ifdef CONFIG_X86_PAE
 	if (error_code & PF_INSTR) {
-		int level;
+		unsigned int level;
 		pte_t *pte = lookup_address(address, &level);
 
 		if (pte && pte_present(*pte) && !pte_exec(*pte))
@@ -427,6 +428,16 @@ static noinline void pgtable_bad(unsigned long address, struct pt_regs *regs,
 }
 #endif
 
+static int spurious_fault_check(unsigned long error_code, pte_t *pte)
+{
+	if ((error_code & PF_WRITE) && !pte_write(*pte))
+		return 0;
+	if ((error_code & PF_INSTR) && !pte_exec(*pte))
+		return 0;
+
+	return 1;
+}
+
 /*
  * Handle a spurious fault caused by a stale TLB entry.  This allows
  * us to lazily refresh the TLB when increasing the permissions of a
@@ -456,20 +467,21 @@ static int spurious_fault(unsigned long address,
 	if (!pud_present(*pud))
 		return 0;
 
+	if (pud_large(*pud))
+		return spurious_fault_check(error_code, (pte_t *) pud);
+
 	pmd = pmd_offset(pud, address);
 	if (!pmd_present(*pmd))
 		return 0;
+
+	if (pmd_large(*pmd))
+		return spurious_fault_check(error_code, (pte_t *) pmd);
 
 	pte = pte_offset_kernel(pmd, address);
 	if (!pte_present(*pte))
 		return 0;
 
-	if ((error_code & PF_WRITE) && !pte_write(*pte))
-		return 0;
-	if ((error_code & PF_INSTR) && !pte_exec(*pte))
-		return 0;
-
-	return 1;
+	return spurious_fault_check(error_code, pte);
 }
 
 /*
@@ -507,6 +519,10 @@ static int vmalloc_fault(unsigned long address)
 	pud_t *pud, *pud_ref;
 	pmd_t *pmd, *pmd_ref;
 	pte_t *pte, *pte_ref;
+
+	/* Make sure we are in vmalloc area */
+	if (!(address >= VMALLOC_START && address < VMALLOC_END))
+		return -1;
 
 	/* Copy kernel mappings over when needed. This can also
 	   happen within a race in page table update. In the later
@@ -603,6 +619,9 @@ void __kprobes do_page_fault(struct pt_regs *regs, unsigned long error_code)
 	 */
 #ifdef CONFIG_X86_32
 	if (unlikely(address >= TASK_SIZE)) {
+#else
+	if (unlikely(address >= TASK_SIZE64)) {
+#endif
 		if (!(error_code & (PF_RSVD|PF_USER|PF_PROT)) &&
 		    vmalloc_fault(address) >= 0)
 			return;
@@ -618,6 +637,8 @@ void __kprobes do_page_fault(struct pt_regs *regs, unsigned long error_code)
 		goto bad_area_nosemaphore;
 	}
 
+
+#ifdef CONFIG_X86_32
 	/* It's safe to allow irq's after cr2 has been saved and the vmalloc
 	   fault has been handled. */
 	if (regs->flags & (X86_EFLAGS_IF|VM_MASK))
@@ -630,28 +651,6 @@ void __kprobes do_page_fault(struct pt_regs *regs, unsigned long error_code)
 	if (in_atomic() || !mm)
 		goto bad_area_nosemaphore;
 #else /* CONFIG_X86_64 */
-	if (unlikely(address >= TASK_SIZE64)) {
-		/*
-		 * Don't check for the module range here: its PML4
-		 * is always initialized because it's shared with the main
-		 * kernel text. Only vmalloc may need PML4 syncups.
-		 */
-		if (!(error_code & (PF_RSVD|PF_USER|PF_PROT)) &&
-		      ((address >= VMALLOC_START && address < VMALLOC_END))) {
-			if (vmalloc_fault(address) >= 0)
-				return;
-		}
-
-		/* Can handle a stale RO->RW TLB */
-		if (spurious_fault(address, error_code))
-			return;
-
-		/*
-		 * Don't take the mm semaphore here. If we fixup a prefetch
-		 * fault we could otherwise deadlock.
-		 */
-		goto bad_area_nosemaphore;
-	}
 	if (likely(regs->flags & X86_EFLAGS_IF))
 		local_irq_enable();
 
@@ -959,11 +958,12 @@ void vmalloc_sync_all(void)
 	for (address = start; address <= VMALLOC_END; address += PGDIR_SIZE) {
 		if (!test_bit(pgd_index(address), insync)) {
 			const pgd_t *pgd_ref = pgd_offset_k(address);
+			unsigned long flags;
 			struct page *page;
 
 			if (pgd_none(*pgd_ref))
 				continue;
-			spin_lock(&pgd_lock);
+			spin_lock_irqsave(&pgd_lock, flags);
 			list_for_each_entry(page, &pgd_list, lru) {
 				pgd_t *pgd;
 				pgd = (pgd_t *)page_address(page) + pgd_index(address);
@@ -972,7 +972,7 @@ void vmalloc_sync_all(void)
 				else
 					BUG_ON(pgd_page_vaddr(*pgd) != pgd_page_vaddr(*pgd_ref));
 			}
-			spin_unlock(&pgd_lock);
+			spin_unlock_irqrestore(&pgd_lock, flags);
 			set_bit(pgd_index(address), insync);
 		}
 		if (address == start)

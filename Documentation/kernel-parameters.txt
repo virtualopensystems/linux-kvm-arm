@@ -147,8 +147,10 @@ and is between 256 and 4096 characters. It is defined in the file
 			default: 0
 
 	acpi_sleep=	[HW,ACPI] Sleep options
-			Format: { s3_bios, s3_mode }
-			See Documentation/power/video.txt
+			Format: { s3_bios, s3_mode, s3_beep }
+			See Documentation/power/video.txt for s3_bios and s3_mode.
+			s3_beep is for debugging; it makes the PC's speaker beep
+			as soon as the kernel's real-mode entry point is called.
 
 	acpi_sci=	[HW,ACPI] ACPI System Control Interrupt trigger mode
 			Format: { level | edge | high | low }
@@ -168,7 +170,15 @@ and is between 256 and 4096 characters. It is defined in the file
 	acpi_irq_isa=	[HW,ACPI] If irq_balance, mark listed IRQs used by ISA
 			Format: <irq>,<irq>...
 
+	acpi_new_pts_ordering [HW,ACPI]
+			Enforce the ACPI 2.0 ordering of the _PTS control
+			method wrt putting devices into low power states
+			default: pre ACPI 2.0 ordering of _PTS
+
 	acpi_no_auto_ssdt	[HW,ACPI] Disable automatic loading of SSDT
+
+	acpi_no_initrd_override	[KNL,ACPI]
+			Disable loading custom ACPI tables from the initramfs
 
 	acpi_os_name=	[HW,ACPI] Tell ACPI BIOS the name of the OS
 			Format: To spoof as Windows 98: ="Microsoft Windows"
@@ -544,7 +554,7 @@ and is between 256 and 4096 characters. It is defined in the file
 			1 will print _a lot_ more information - normally
 			only useful to kernel developers.
 
-	decnet=		[HW,NET]
+	decnet.addr=	[HW,NET]
 			Format: <area>[,<node>]
 			See also Documentation/networking/decnet.txt.
 
@@ -774,6 +784,9 @@ and is between 256 and 4096 characters. It is defined in the file
 			to not use it because it doesn't save as much power as a normal idle
 			loop use the MONITOR/MWAIT idle loop anyways. Performance should be the same
 			as idle=poll.
+
+	ide-pci-generic.all-generic-ide [HW] (E)IDE subsystem
+			Claim all unknown PCI IDE storage controllers.
 
 	ignore_loglevel	[KNL]
 			Ignore loglevel setting - this will print /all/
@@ -1556,14 +1569,17 @@ and is between 256 and 4096 characters. It is defined in the file
 	ramdisk_size=	[RAM] Sizes of RAM disks in kilobytes
 			See Documentation/ramdisk.txt.
 
-	rcu.blimit=	[KNL,BOOT] Set maximum number of finished
-			RCU callbacks to process in one batch.
+	rcupdate.blimit=	[KNL,BOOT]
+			Set maximum number of finished RCU callbacks to process
+			in one batch.
 
-	rcu.qhimark=	[KNL,BOOT] Set threshold of queued
+	rcupdate.qhimark=	[KNL,BOOT]
+			Set threshold of queued
 			RCU callbacks over which batch limiting is disabled.
 
-	rcu.qlowmark=	[KNL,BOOT] Set threshold of queued
-			RCU callbacks below which batch limiting is re-enabled.
+	rcupdate.qlowmark=	[KNL,BOOT]
+			Set threshold of queued RCU callbacks below which
+			batch limiting is re-enabled.
 
 	rdinit=		[KNL]
 			Format: <full_path>
@@ -1883,9 +1899,6 @@ and is between 256 and 4096 characters. It is defined in the file
 	st=		[HW,SCSI] SCSI tape parameters (buffers, etc.)
 			See Documentation/scsi/st.txt.
 
-	st0x=		[HW,SCSI]
-			See header of drivers/scsi/seagate.c.
-
 	sti=		[PARISC,HW]
 			Format: <num>
 			Set the STI (builtin display/keyboard on the HP-PARISC
@@ -1960,18 +1973,12 @@ and is between 256 and 4096 characters. It is defined in the file
 			<deci-seconds>: poll all this frequency
 			0: no polling (default)
 
-	time		Show timing data prefixed to each printk message line
-			[deprecated, see 'printk.time']
-
 	tipar.timeout=	[HW,PPT]
 			Set communications timeout in tenths of a second
 			(default 15).
 
 	tipar.delay=	[HW,PPT]
 			Set inter-bit delay in microseconds (default 10).
-
-	tmc8xx=		[HW,SCSI]
-			See header of drivers/scsi/seagate.c.
 
 	tmscsim=	[HW,SCSI]
 			See comment before function dc390_setup() in

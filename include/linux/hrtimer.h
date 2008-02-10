@@ -78,7 +78,7 @@ enum hrtimer_cb_mode {
  * as otherwise the timer could be removed before the softirq code finishes the
  * the handling of the timer.
  *
- * The HRTIMER_STATE_ENQUEUE bit is always or'ed to the current state to
+ * The HRTIMER_STATE_ENQUEUED bit is always or'ed to the current state to
  * preserve the HRTIMER_STATE_CALLBACK bit in the above scenario.
  *
  * All state transitions are protected by cpu_base->lock.
@@ -147,7 +147,6 @@ struct hrtimer_sleeper {
  * @get_time:		function to retrieve the current time of the clock
  * @get_softirq_time:	function to retrieve the current time from the softirq
  * @softirq_time:	the time when running the hrtimer queue in the softirq
- * @cb_pending:		list of timers where the callback is pending
  * @offset:		offset of this clock to the monotonic base
  * @reprogram:		function to reprogram the timer event
  */
@@ -226,11 +225,14 @@ static inline int hrtimer_is_hres_active(struct hrtimer *timer)
  * idea of the (in)accuracy of timers. Timer values are rounded up to
  * this resolution values.
  */
-# define KTIME_HIGH_RES		(ktime_t) { .tv64 = 1 }
+# define HIGH_RES_NSEC		1
+# define KTIME_HIGH_RES		(ktime_t) { .tv64 = HIGH_RES_NSEC }
+# define MONOTONIC_RES_NSEC	HIGH_RES_NSEC
 # define KTIME_MONOTONIC_RES	KTIME_HIGH_RES
 
 #else
 
+# define MONOTONIC_RES_NSEC	LOW_RES_NSEC
 # define KTIME_MONOTONIC_RES	KTIME_LOW_RES
 
 /*
@@ -302,8 +304,15 @@ static inline int hrtimer_is_queued(struct hrtimer *timer)
 }
 
 /* Forward a hrtimer so it expires after now: */
-extern unsigned long
+extern u64
 hrtimer_forward(struct hrtimer *timer, ktime_t now, ktime_t interval);
+
+/* Forward a hrtimer so it expires after the hrtimer's current now */
+static inline u64 hrtimer_forward_now(struct hrtimer *timer,
+				      ktime_t interval)
+{
+	return hrtimer_forward(timer, timer->base->get_time(), interval);
+}
 
 /* Precise sleep: */
 extern long hrtimer_nanosleep(struct timespec *rqtp,
@@ -323,9 +332,9 @@ extern void hrtimer_run_pending(void);
 extern void __init hrtimers_init(void);
 
 #if BITS_PER_LONG < 64
-extern unsigned long ktime_divns(const ktime_t kt, s64 div);
+extern u64 ktime_divns(const ktime_t kt, s64 div);
 #else /* BITS_PER_LONG < 64 */
-# define ktime_divns(kt, div)		(unsigned long)((kt).tv64 / (div))
+# define ktime_divns(kt, div)		(u64)((kt).tv64 / (div))
 #endif
 
 /* Show pending timers: */

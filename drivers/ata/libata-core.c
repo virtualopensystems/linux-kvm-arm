@@ -3097,7 +3097,7 @@ static int ata_dev_set_mode(struct ata_device *dev)
 /**
  *	ata_do_set_mode - Program timings and issue SET FEATURES - XFER
  *	@link: link on which timings will be programmed
- *	@r_failed_dev: out paramter for failed device
+ *	@r_failed_dev: out parameter for failed device
  *
  *	Standard implementation of the function used to tune and set
  *	ATA device disk transfer mode (PIO3, UDMA6, etc.).  If
@@ -4154,8 +4154,6 @@ static const struct ata_blacklist_entry ata_device_blacklist [] = {
 	/* NCQ is broken */
 	{ "Maxtor *",		"BANC*",	ATA_HORKAGE_NONCQ },
 	{ "Maxtor 7V300F0",	"VA111630",	ATA_HORKAGE_NONCQ },
-	{ "HITACHI HDS7250SASUN500G*", NULL,    ATA_HORKAGE_NONCQ },
-	{ "HITACHI HDS7225SBSUN250G*", NULL,    ATA_HORKAGE_NONCQ },
 	{ "ST380817AS",		"3.42",		ATA_HORKAGE_NONCQ },
 	{ "ST3160023AS",	"3.42",		ATA_HORKAGE_NONCQ },
 

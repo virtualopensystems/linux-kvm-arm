@@ -1,5 +1,4 @@
-/* $Id: cris-ide-driver.patch,v 1.1 2005/06/29 21:39:07 akpm Exp $
- *
+/*
  * Etrax specific IDE functions, like init and PIO-mode setting etc.
  * Almost the entire ide.c is used for the rest of the Etrax ATA driver.
  * Copyright (c) 2000-2005 Axis Communications AB
@@ -754,34 +753,53 @@ static void cris_set_dma_mode(ide_drive_t *drive, const u8 speed)
 		cris_ide_set_speed(TYPE_DMA, 0, strobe, hold);
 }
 
+static void __init cris_setup_ports(hw_regs_t *hw, unsigned long base)
+{
+	int i;
+
+	memset(hw, 0, sizeof(*hw));
+
+	for (i = 0; i <= 7; i++)
+		hw->io_ports[i] = base + cris_ide_reg_addr(i, 0, 1);
+
+	/*
+	 * the IDE control register is at ATA address 6,
+	 * with CS1 active instead of CS0
+	 */
+	hw->io_ports[IDE_CONTROL_OFFSET] = base + cris_ide_reg_addr(6, 1, 0);
+
+	hw->irq = ide_default_irq(0);
+	hw->ack_intr = cris_ide_ack_intr;
+}
+
+static const struct ide_port_info cris_port_info __initdata = {
+	.chipset		= ide_etrax100,
+	.host_flags		= IDE_HFLAG_NO_ATAPI_DMA |
+				  IDE_HFLAG_NO_DMA, /* no SFF-style DMA */
+	.pio_mask		= ATA_PIO4,
+	.udma_mask		= cris_ultra_mask,
+	.mwdma_mask		= ATA_MWDMA2,
+};
+
 static int __init init_e100_ide(void)
 {
 	hw_regs_t hw;
-	int ide_offsets[IDE_NR_PORTS], h, i;
+	int h;
 	u8 idx[4] = { 0xff, 0xff, 0xff, 0xff };
 
 	printk("ide: ETRAX FS built-in ATA DMA controller\n");
 
-	for (i = IDE_DATA_OFFSET; i <= IDE_STATUS_OFFSET; i++)
-		ide_offsets[i] = cris_ide_reg_addr(i, 0, 1);
-
-	/* the IDE control register is at ATA address 6, with CS1 active instead of CS0 */
-	ide_offsets[IDE_CONTROL_OFFSET] = cris_ide_reg_addr(6, 1, 0);
-
 	for (h = 0; h < 4; h++) {
 		ide_hwif_t *hwif = NULL;
 
-		ide_setup_ports(&hw, cris_ide_base_address(h),
-		                ide_offsets,
-		                0, 0, cris_ide_ack_intr,
-		                ide_default_irq(0));
+		cris_setup_ports(&hw, cris_ide_base_address(h));
+
 		hwif = ide_find_port(hw.io_ports[IDE_DATA_OFFSET]);
 		if (hwif == NULL)
 			continue;
 		ide_init_port_data(hwif, hwif->index);
 		ide_init_port_hw(hwif, &hw);
 		hwif->mmio = 1;
-		hwif->chipset = ide_etrax100;
 		hwif->set_pio_mode = &cris_set_pio_mode;
 		hwif->set_dma_mode = &cris_set_dma_mode;
 		hwif->ata_input_data = &cris_ide_input_data;
@@ -800,12 +818,6 @@ static int __init init_e100_ide(void)
 		hwif->INB = &cris_ide_inb;
 		hwif->INW = &cris_ide_inw;
 		hwif->cbl = ATA_CBL_PATA40;
-		hwif->host_flags |= IDE_HFLAG_NO_ATAPI_DMA;
-		hwif->pio_mask = ATA_PIO4,
-		hwif->drives[0].autotune = 1;
-		hwif->drives[1].autotune = 1;
-		hwif->ultra_mask = cris_ultra_mask;
-		hwif->mwdma_mask = 0x07; /* Multiword DMA 0-2 */
 
 		idx[h] = hwif->index;
 	}
@@ -821,7 +833,7 @@ static int __init init_e100_ide(void)
 	cris_ide_set_speed(TYPE_DMA, 0, ATA_DMA2_STROBE, ATA_DMA2_HOLD);
 	cris_ide_set_speed(TYPE_UDMA, ATA_UDMA2_CYC, ATA_UDMA2_DVS, 0);
 
-	ide_device_add(idx);
+	ide_device_add(idx, &cris_port_info);
 
 	return 0;
 }
@@ -1033,11 +1045,7 @@ static int cris_dma_setup(ide_drive_t *drive)
 
 static void cris_dma_exec_cmd(ide_drive_t *drive, u8 command)
 {
-	/* set the irq handler which will finish the request when DMA is done */
-	ide_set_handler(drive, &cris_dma_intr, WAIT_CMD, NULL);
-
-	/* issue cmd to drive */
-	cris_ide_outb(command, IDE_COMMAND_REG);
+	ide_execute_command(drive, command, &cris_dma_intr, WAIT_CMD, NULL);
 }
 
 static void cris_dma_start(ide_drive_t *drive)

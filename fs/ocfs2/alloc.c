@@ -3338,7 +3338,7 @@ static int ocfs2_insert_path(struct inode *inode,
 	if (insert->ins_split != SPLIT_NONE) {
 		/*
 		 * We could call ocfs2_insert_at_leaf() for some types
-		 * of splits, but it's easier to just let one seperate
+		 * of splits, but it's easier to just let one separate
 		 * function sort it all out.
 		 */
 		ocfs2_split_record(inode, left_path, right_path,
@@ -5670,7 +5670,7 @@ static void ocfs2_map_and_dirty_page(struct inode *inode, handle_t *handle,
 		mlog_errno(ret);
 
 	if (zero)
-		zero_user_page(page, from, to - from, KM_USER0);
+		zero_user_segment(page, from, to);
 
 	/*
 	 * Need to set the buffers we zero'd into uptodate

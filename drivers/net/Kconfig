@@ -814,8 +814,8 @@ config ULTRA32
 	  will be called smc-ultra32.
 
 config BFIN_MAC
-	tristate "Blackfin 536/537 on-chip mac support"
-	depends on NET_ETHERNET && (BF537 || BF536) && (!BF537_PORT_H)
+	tristate "Blackfin 527/536/537 on-chip mac support"
+	depends on NET_ETHERNET && (BF527 || BF537 || BF536) && (!BF537_PORT_H)
 	select CRC32
 	select MII
 	select PHYLIB
@@ -828,7 +828,7 @@ config BFIN_MAC
 
 config BFIN_MAC_USE_L1
 	bool "Use L1 memory for rx/tx packets"
-	depends on BFIN_MAC && BF537
+	depends on BFIN_MAC && (BF527 || BF537)
 	default y
 	help
 	  To get maximum network performance, you should use L1 memory as rx/tx buffers.
@@ -855,7 +855,8 @@ config BFIN_RX_DESC_NUM
 config BFIN_MAC_RMII
 	bool "RMII PHY Interface (EXPERIMENTAL)"
 	depends on BFIN_MAC && EXPERIMENTAL
-	default n
+	default y if BFIN527_EZKIT
+	default n if BFIN537_STAMP
 	help
 	  Use Reduced PHY MII Interface
 
@@ -878,7 +879,8 @@ config SMC91X
 	tristate "SMC 91C9x/91C1xxx support"
 	select CRC32
 	select MII
-	depends on ARM || REDWOOD_5 || REDWOOD_6 || M32R || SUPERH || SOC_AU1X00 || BLACKFIN
+	depends on ARM || REDWOOD_5 || REDWOOD_6 || M32R || SUPERH || \
+		SOC_AU1X00 || BLACKFIN || MN10300
 	help
 	  This is a driver for SMC's 91x series of Ethernet chipsets,
 	  including the SMC91C94 and the SMC91C111. Say Y if you want it
@@ -919,8 +921,7 @@ config ENC28J60
 	---help---
 	  Support for the Microchip EN28J60 ethernet chip.
 
-	  To compile this driver as a module, choose M here and read
-	  <file:Documentation/networking/net-modules.txt>.  The module will be
+	  To compile this driver as a module, choose M here. The module will be
 	  called enc28j60.
 
 config ENC28J60_WRITEVERIFY
@@ -1199,7 +1200,7 @@ config NE2_MCA
 
 config IBMLANA
 	tristate "IBM LAN Adapter/A support"
-	depends on MCA && MCA_LEGACY
+	depends on MCA
 	---help---
 	  This is a Micro Channel Ethernet adapter.  You need to set
 	  CONFIG_MCA to use this driver.  It is both available as an in-kernel
@@ -1737,10 +1738,8 @@ config SC92031
 
 config CPMAC
 	tristate "TI AR7 CPMAC Ethernet support (EXPERIMENTAL)"
-	depends on NET_ETHERNET && EXPERIMENTAL && AR7
+	depends on NET_ETHERNET && EXPERIMENTAL && AR7 && BROKEN
 	select PHYLIB
-	select FIXED_PHY
-	select FIXED_MII_100_FDX
 	help
 	  TI AR7 CPMAC Ethernet support
 
@@ -2040,8 +2039,7 @@ config IGB
          More specific information on configuring the driver is in
          <file:Documentation/networking/e1000.txt>.
 
-         To compile this driver as a module, choose M here and read
-         <file:Documentation/networking/net-modules.txt>.  The module
+         To compile this driver as a module, choose M here. The module
          will be called igb.
 
 source "drivers/net/ixp2000/Kconfig"
@@ -3113,6 +3111,7 @@ config VIRTIO_NET
 	tristate "Virtio network driver (EXPERIMENTAL)"
 	depends on EXPERIMENTAL && VIRTIO
 	---help---
-	  This is the virtual network driver for lguest.  Say Y or M.
+	  This is the virtual network driver for virtio.  It can be used with
+          lguest or QEMU based VMMs (like KVM or Xen).  Say Y or M.
 
 endif # NETDEVICES

@@ -258,10 +258,10 @@ static int __cpuinit have_cpuid_p(void)
 void __init cpu_detect(struct cpuinfo_x86 *c)
 {
 	/* Get vendor name */
-	cpuid(0x00000000, &c->cpuid_level,
-	      (int *)&c->x86_vendor_id[0],
-	      (int *)&c->x86_vendor_id[8],
-	      (int *)&c->x86_vendor_id[4]);
+	cpuid(0x00000000, (unsigned int *)&c->cpuid_level,
+	      (unsigned int *)&c->x86_vendor_id[0],
+	      (unsigned int *)&c->x86_vendor_id[8],
+	      (unsigned int *)&c->x86_vendor_id[4]);
 
 	c->x86 = 4;
 	if (c->cpuid_level >= 0x00000001) {
@@ -283,7 +283,7 @@ void __init cpu_detect(struct cpuinfo_x86 *c)
 static void __cpuinit early_get_cap(struct cpuinfo_x86 *c)
 {
 	u32 tfms, xlvl;
-	int ebx;
+	unsigned int ebx;
 
 	memset(&c->x86_capability, 0, sizeof c->x86_capability);
 	if (have_cpuid_p()) {
@@ -343,14 +343,14 @@ static void __init early_cpu_detect(void)
 static void __cpuinit generic_identify(struct cpuinfo_x86 * c)
 {
 	u32 tfms, xlvl;
-	int ebx;
+	unsigned int ebx;
 
 	if (have_cpuid_p()) {
 		/* Get vendor name */
-		cpuid(0x00000000, &c->cpuid_level,
-		      (int *)&c->x86_vendor_id[0],
-		      (int *)&c->x86_vendor_id[8],
-		      (int *)&c->x86_vendor_id[4]);
+		cpuid(0x00000000, (unsigned int *)&c->cpuid_level,
+		      (unsigned int *)&c->x86_vendor_id[0],
+		      (unsigned int *)&c->x86_vendor_id[8],
+		      (unsigned int *)&c->x86_vendor_id[4]);
 		
 		get_cpu_vendor(c, 0);
 		/* Initialize the standard set of capabilities */
@@ -623,16 +623,6 @@ cpumask_t cpu_initialized __cpuinitdata = CPU_MASK_NONE;
  * They will insert themselves into the cpu_devs structure.
  * Then, when cpu_init() is called, we can just iterate over that array.
  */
-
-extern int intel_cpu_init(void);
-extern int cyrix_init_cpu(void);
-extern int nsc_init_cpu(void);
-extern int amd_init_cpu(void);
-extern int centaur_init_cpu(void);
-extern int transmeta_init_cpu(void);
-extern int nexgen_init_cpu(void);
-extern int umc_init_cpu(void);
-
 void __init early_cpu_init(void)
 {
 	intel_cpu_init();
@@ -647,7 +637,7 @@ void __init early_cpu_init(void)
 }
 
 /* Make sure %fs is initialized properly in idle threads */
-struct pt_regs * __devinit idle_regs(struct pt_regs *regs)
+struct pt_regs * __cpuinit idle_regs(struct pt_regs *regs)
 {
 	memset(regs, 0, sizeof(struct pt_regs));
 	regs->fs = __KERNEL_PERCPU;

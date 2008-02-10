@@ -358,8 +358,10 @@ void ide_toggle_bounce(ide_drive_t *drive, int on)
 	if (!PCI_DMA_BUS_IS_PHYS) {
 		addr = BLK_BOUNCE_ANY;
 	} else if (on && drive->media == ide_disk) {
-		if (HWIF(drive)->pci_dev)
-			addr = HWIF(drive)->pci_dev->dma_mask;
+		struct device *dev = drive->hwif->dev;
+
+		if (dev && dev->dma_mask)
+			addr = *dev->dma_mask;
 	}
 
 	if (drive->queue)
@@ -576,7 +578,7 @@ u8 ide_dump_status(ide_drive_t *drive, const char *msg, u8 stat)
 	}
 	printk("}\n");
 	if ((stat & (BUSY_STAT|ERR_STAT)) == ERR_STAT) {
-		err = drive->hwif->INB(IDE_ERROR_REG);
+		err = ide_read_error(drive);
 		printk("%s: %s: error=0x%02x ", drive->name, msg, err);
 		if (drive->media == ide_disk)
 			ide_dump_ata_error(drive, err);

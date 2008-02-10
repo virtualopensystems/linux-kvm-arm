@@ -1,7 +1,6 @@
 /*
- *  linux/drivers/ide/ide.c		Version 7.00beta2	Mar 05 2003
- *
- *  Copyright (C) 1994-1998  Linus Torvalds & authors (see below)
+ *  Copyright (C) 1994-1998	    Linus Torvalds & authors (see below)
+ *  Copyrifht (C) 2003-2005, 2007   Bartlomiej Zolnierkiewicz
  */
 
 /*
@@ -46,7 +45,6 @@
  */
 
 #define	REVISION	"Revision: 7.00alpha2"
-#define	VERSION		"Id: ide.c 7.00a2 20020906"
 
 #define _IDE_C			/* Tell ide.h it's really us */
 
@@ -242,22 +240,12 @@ static int ide_system_bus_speed(void)
 #define pci_default 0
 #endif /* CONFIG_PCI */
 
-	if (!system_bus_speed) {
-		if (idebus_parameter) {
-			/* user supplied value */
-			system_bus_speed = idebus_parameter;
-		} else if (pci_dev_present(pci_default)) {
-			/* safe default value for PCI */
-			system_bus_speed = 33;
-		} else {
-			/* safe default value for VESA and PCI */
-			system_bus_speed = 50;
-		}
-		printk(KERN_INFO "ide: Assuming %dMHz system bus speed "
-			"for PIO modes%s\n", system_bus_speed,
-			idebus_parameter ? "" : "; override with idebus=xx");
-	}
-	return system_bus_speed;
+	/* user supplied value */
+	if (idebus_parameter)
+		return idebus_parameter;
+
+	/* safe default value for PCI or VESA and PCI*/
+	return pci_dev_present(pci_default) ? 33 : 50;
 }
 
 ide_hwif_t * ide_find_port(unsigned long base)
@@ -405,8 +393,9 @@ static void ide_hwif_restore(ide_hwif_t *hwif, ide_hwif_t *tmp_hwif)
 	hwif->chipset			= tmp_hwif->chipset;
 	hwif->hold			= tmp_hwif->hold;
 
+	hwif->dev			= tmp_hwif->dev;
+
 #ifdef CONFIG_BLK_DEV_IDEPCI
-	hwif->pci_dev			= tmp_hwif->pci_dev;
 	hwif->cds			= tmp_hwif->cds;
 #endif
 
@@ -472,9 +461,46 @@ static void ide_hwif_restore(ide_hwif_t *hwif, ide_hwif_t *tmp_hwif)
 	hwif->hwif_data			= tmp_hwif->hwif_data;
 }
 
+void ide_remove_port_from_hwgroup(ide_hwif_t *hwif)
+{
+	ide_hwgroup_t *hwgroup = hwif->hwgroup;
+
+	spin_lock_irq(&ide_lock);
+	/*
+	 * Remove us from the hwgroup, and free
+	 * the hwgroup if we were the only member
+	 */
+	if (hwif->next == hwif) {
+		BUG_ON(hwgroup->hwif != hwif);
+		kfree(hwgroup);
+	} else {
+		/* There is another interface in hwgroup.
+		 * Unlink us, and set hwgroup->drive and ->hwif to
+		 * something sane.
+		 */
+		ide_hwif_t *g = hwgroup->hwif;
+
+		while (g->next != hwif)
+			g = g->next;
+		g->next = hwif->next;
+		if (hwgroup->hwif == hwif) {
+			/* Chose a random hwif for hwgroup->hwif.
+			 * It's guaranteed that there are no drives
+			 * left in the hwgroup.
+			 */
+			BUG_ON(hwgroup->drive != NULL);
+			hwgroup->hwif = g;
+		}
+		BUG_ON(hwgroup->hwif == hwif);
+	}
+	spin_unlock_irq(&ide_lock);
+}
+
 /**
  *	ide_unregister		-	free an IDE interface
  *	@index: index of interface (will change soon to a pointer)
+ *	@init_default: init default hwif flag
+ *	@restore: restore hwif flag
  *
  *	Perform the final unregister of an IDE interface. At the moment
  *	we don't refcount interfaces so this will also get split up.
@@ -494,7 +520,7 @@ static void ide_hwif_restore(ide_hwif_t *hwif, ide_hwif_t *tmp_hwif)
  *	This is raving bonkers.
  */
 
-void ide_unregister(unsigned int index)
+void ide_unregister(unsigned int index, int init_default, int restore)
 {
 	ide_drive_t *drive;
 	ide_hwif_t *hwif, *g;
@@ -539,43 +565,8 @@ void ide_unregister(unsigned int index)
 	if (irq_count == 1)
 		free_irq(hwif->irq, hwgroup);
 
-	spin_lock_irq(&ide_lock);
-	/*
-	 * Note that we only release the standard ports,
-	 * and do not even try to handle any extra ports
-	 * allocated for weird IDE interface chipsets.
-	 */
-	ide_hwif_release_regions(hwif);
+	ide_remove_port_from_hwgroup(hwif);
 
-	/*
-	 * Remove us from the hwgroup, and free
-	 * the hwgroup if we were the only member
-	 */
-	if (hwif->next == hwif) {
-		BUG_ON(hwgroup->hwif != hwif);
-		kfree(hwgroup);
-	} else {
-		/* There is another interface in hwgroup.
-		 * Unlink us, and set hwgroup->drive and ->hwif to
-		 * something sane.
-		 */
-		g = hwgroup->hwif;
-		while (g->next != hwif)
-			g = g->next;
-		g->next = hwif->next;
-		if (hwgroup->hwif == hwif) {
-			/* Chose a random hwif for hwgroup->hwif.
-			 * It's guaranteed that there are no drives
-			 * left in the hwgroup.
-			 */
-			BUG_ON(hwgroup->drive != NULL);
-			hwgroup->hwif = g;
-		}
-		BUG_ON(hwgroup->hwif == hwif);
-	}
-
-	/* More messed up locking ... */
-	spin_unlock_irq(&ide_lock);
 	device_unregister(&hwif->gendev);
 	wait_for_completion(&hwif->gendev_rel_comp);
 
@@ -601,14 +592,24 @@ void ide_unregister(unsigned int index)
 		hwif->extra_ports = 0;
 	}
 
+	/*
+	 * Note that we only release the standard ports,
+	 * and do not even try to handle any extra ports
+	 * allocated for weird IDE interface chipsets.
+	 */
+	ide_hwif_release_regions(hwif);
+
 	/* copy original settings */
 	tmp_hwif = *hwif;
 
 	/* restore hwif data to pristine status */
 	ide_init_port_data(hwif, index);
-	init_hwif_default(hwif, index);
 
-	ide_hwif_restore(hwif, &tmp_hwif);
+	if (init_default)
+		init_hwif_default(hwif, index);
+
+	if (restore)
+		ide_hwif_restore(hwif, &tmp_hwif);
 
 abort:
 	spin_unlock_irq(&ide_lock);
@@ -616,60 +617,6 @@ abort:
 }
 
 EXPORT_SYMBOL(ide_unregister);
-
-
-/**
- *	ide_setup_ports 	-	set up IDE interface ports
- *	@hw: register descriptions
- *	@base: base register
- *	@offsets: table of register offsets
- *	@ctrl: control register
- *	@ack_irq: IRQ ack
- *	@irq: interrupt lie
- *
- *	Setup hw_regs_t structure described by parameters.  You
- *	may set up the hw structure yourself OR use this routine to
- *	do it for you. This is basically a helper
- *
- */
- 
-void ide_setup_ports (	hw_regs_t *hw,
-			unsigned long base, int *offsets,
-			unsigned long ctrl, unsigned long intr,
-			ide_ack_intr_t *ack_intr,
-/*
- *			ide_io_ops_t *iops,
- */
-			int irq)
-{
-	int i;
-
-	memset(hw, 0, sizeof(hw_regs_t));
-	for (i = 0; i < IDE_NR_PORTS; i++) {
-		if (offsets[i] == -1) {
-			switch(i) {
-				case IDE_CONTROL_OFFSET:
-					hw->io_ports[i] = ctrl;
-					break;
-#if defined(CONFIG_AMIGA) || defined(CONFIG_MAC)
-				case IDE_IRQ_OFFSET:
-					hw->io_ports[i] = intr;
-					break;
-#endif /* (CONFIG_AMIGA) || (CONFIG_MAC) */
-				default:
-					hw->io_ports[i] = 0;
-					break;
-			}
-		} else {
-			hw->io_ports[i] = base + offsets[i];
-		}
-	}
-	hw->irq = irq;
-	hw->ack_intr = ack_intr;
-/*
- *	hw->iops = iops;
- */
-}
 
 void ide_init_port_hw(ide_hwif_t *hwif, hw_regs_t *hw)
 {
@@ -681,6 +628,31 @@ void ide_init_port_hw(ide_hwif_t *hwif, hw_regs_t *hw)
 	hwif->ack_intr = hw->ack_intr;
 }
 EXPORT_SYMBOL_GPL(ide_init_port_hw);
+
+ide_hwif_t *ide_deprecated_find_port(unsigned long base)
+{
+	ide_hwif_t *hwif;
+	int i;
+
+	for (i = 0; i < MAX_HWIFS; i++) {
+		hwif = &ide_hwifs[i];
+		if (hwif->io_ports[IDE_DATA_OFFSET] == base)
+			goto found;
+	}
+
+	for (i = 0; i < MAX_HWIFS; i++) {
+		hwif = &ide_hwifs[i];
+		if (hwif->hold)
+			continue;
+		if (!hwif->present && hwif->mate == NULL)
+			goto found;
+	}
+
+	hwif = NULL;
+found:
+	return hwif;
+}
+EXPORT_SYMBOL_GPL(ide_deprecated_find_port);
 
 /**
  *	ide_register_hw		-	register IDE interface
@@ -701,38 +673,26 @@ int ide_register_hw(hw_regs_t *hw, void (*quirkproc)(ide_drive_t *),
 	u8 idx[4] = { 0xff, 0xff, 0xff, 0xff };
 
 	do {
-		for (index = 0; index < MAX_HWIFS; ++index) {
-			hwif = &ide_hwifs[index];
-			if (hwif->io_ports[IDE_DATA_OFFSET] == hw->io_ports[IDE_DATA_OFFSET])
-				goto found;
-		}
-		for (index = 0; index < MAX_HWIFS; ++index) {
-			hwif = &ide_hwifs[index];
-			if (hwif->hold)
-				continue;
-			if (!hwif->present && hwif->mate == NULL)
-				goto found;
-		}
+		hwif = ide_deprecated_find_port(hw->io_ports[IDE_DATA_OFFSET]);
+		index = hwif->index;
+		if (hwif)
+			goto found;
 		for (index = 0; index < MAX_HWIFS; index++)
-			ide_unregister(index);
+			ide_unregister(index, 1, 1);
 	} while (retry--);
 	return -1;
 found:
 	if (hwif->present)
-		ide_unregister(index);
-	else if (!hwif->hold) {
+		ide_unregister(index, 0, 1);
+	else if (!hwif->hold)
 		ide_init_port_data(hwif, index);
-		init_hwif_default(hwif, index);
-	}
-	if (hwif->present)
-		return -1;
 
 	ide_init_port_hw(hwif, hw);
 	hwif->quirkproc = quirkproc;
 
 	idx[0] = index;
 
-	ide_device_add(idx);
+	ide_device_add(idx, NULL);
 
 	if (hwifp)
 		*hwifp = hwif;
@@ -795,10 +755,6 @@ int set_io_32bit(ide_drive_t *drive, int arg)
 		return -EBUSY;
 
 	drive->io_32bit = arg;
-#ifdef CONFIG_BLK_DEV_DTC2278
-	if (HWIF(drive)->chipset == ide_dtc2278)
-		HWIF(drive)->drives[!drive->select.b.unit].io_32bit = arg;
-#endif /* CONFIG_BLK_DEV_DTC2278 */
 
 	spin_unlock_irq(&ide_lock);
 
@@ -913,7 +869,7 @@ static int set_unmaskirq(ide_drive_t *drive, int arg)
 
 int system_bus_clock (void)
 {
-	return((int) ((!system_bus_speed) ? ide_system_bus_speed() : system_bus_speed ));
+	return system_bus_speed;
 }
 
 EXPORT_SYMBOL(system_bus_clock);
@@ -1025,11 +981,8 @@ int generic_ide_ioctl(ide_drive_t *drive, struct file *file, struct block_device
 		case HDIO_GET_NICE:
 			return put_user(drive->dsc_overlap	<<	IDE_NICE_DSC_OVERLAP	|
 					drive->atapi_overlap	<<	IDE_NICE_ATAPI_OVERLAP	|
-					drive->nice0		<< 	IDE_NICE_0		|
-					drive->nice1		<<	IDE_NICE_1		|
-					drive->nice2		<<	IDE_NICE_2,
+					drive->nice1 << IDE_NICE_1,
 					(long __user *) arg);
-
 #ifdef CONFIG_IDE_TASK_IOCTL
 		case HDIO_DRIVE_TASKFILE:
 		        if (!capable(CAP_SYS_ADMIN) || !capable(CAP_SYS_RAWIO))
@@ -1070,7 +1023,7 @@ int generic_ide_ioctl(ide_drive_t *drive, struct file *file, struct block_device
 	        case HDIO_UNREGISTER_HWIF:
 			if (!capable(CAP_SYS_RAWIO)) return -EACCES;
 			/* (arg > MAX_HWIFS) checked in function */
-			ide_unregister(arg);
+			ide_unregister(arg, 1, 1);
 			return 0;
 		case HDIO_SET_NICE:
 			if (!capable(CAP_SYS_ADMIN)) return -EACCES;
@@ -1668,6 +1621,10 @@ static int __init ide_init(void)
 	printk(KERN_INFO "Uniform Multi-Platform E-IDE driver " REVISION "\n");
 	system_bus_speed = ide_system_bus_speed();
 
+	printk(KERN_INFO "ide: Assuming %dMHz system bus speed "
+			 "for PIO modes%s\n", system_bus_speed,
+			idebus_parameter ? "" : "; override with idebus=xx");
+
 	ret = bus_register(&ide_bus_type);
 	if (ret < 0) {
 		printk(KERN_WARNING "IDE: bus_register error: %d\n", ret);
@@ -1711,7 +1668,7 @@ void __exit cleanup_module (void)
 	int index;
 
 	for (index = 0; index < MAX_HWIFS; ++index)
-		ide_unregister(index);
+		ide_unregister(index, 0, 0);
 
 	proc_ide_destroy();
 

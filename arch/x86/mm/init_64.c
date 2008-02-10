@@ -273,7 +273,6 @@ phys_pmd_init(pmd_t *pmd_page, unsigned long address, unsigned long end)
 	int i = pmd_index(address);
 
 	for (; i < PTRS_PER_PMD; i++, address += PMD_SIZE) {
-		unsigned long entry;
 		pmd_t *pmd = pmd_page + pmd_index(address);
 
 		if (address >= end) {
@@ -287,9 +286,8 @@ phys_pmd_init(pmd_t *pmd_page, unsigned long address, unsigned long end)
 		if (pmd_val(*pmd))
 			continue;
 
-		entry = __PAGE_KERNEL_LARGE|_PAGE_GLOBAL|address;
-		entry &= __supported_pte_mask;
-		set_pmd(pmd, __pmd(entry));
+		set_pte((pte_t *)pmd,
+			pfn_pte(address >> PAGE_SHIFT, PAGE_KERNEL_LARGE));
 	}
 }
 
@@ -354,17 +352,10 @@ static void __init find_early_table_space(unsigned long end)
 	 * need roughly 0.5KB per GB.
 	 */
 	start = 0x8000;
-	table_start = find_e820_area(start, end, tables);
+	table_start = find_e820_area(start, end, tables, PAGE_SIZE);
 	if (table_start == -1UL)
 		panic("Cannot find space for the kernel page tables");
 
-	/*
-	 * When you have a lot of RAM like 256GB, early_table will not fit
-	 * into 0x8000 range, find_e820_area() will find area after kernel
-	 * bss but the table_start is not page aligned, so need to round it
-	 * up to avoid overlap with bss:
-	 */
-	table_start = round_up(table_start, PAGE_SIZE);
 	table_start >>= PAGE_SHIFT;
 	table_end = table_start;
 
@@ -420,7 +411,9 @@ void __init_refok init_memory_mapping(unsigned long start, unsigned long end)
 		mmu_cr4_features = read_cr4();
 	__flush_tlb_all();
 
-	reserve_early(table_start << PAGE_SHIFT, table_end << PAGE_SHIFT);
+	if (!after_bootmem)
+		reserve_early(table_start << PAGE_SHIFT,
+				 table_end << PAGE_SHIFT, "PGTABLE");
 }
 
 #ifndef CONFIG_NUMA
@@ -438,49 +431,6 @@ void __init paging_init(void)
 	free_area_init_nodes(max_zone_pfns);
 }
 #endif
-
-/*
- * Unmap a kernel mapping if it exists. This is useful to avoid
- * prefetches from the CPU leading to inconsistent cache lines.
- * address and size must be aligned to 2MB boundaries.
- * Does nothing when the mapping doesn't exist.
- */
-void __init clear_kernel_mapping(unsigned long address, unsigned long size)
-{
-	unsigned long end = address + size;
-
-	BUG_ON(address & ~LARGE_PAGE_MASK);
-	BUG_ON(size & ~LARGE_PAGE_MASK);
-
-	for (; address < end; address += LARGE_PAGE_SIZE) {
-		pgd_t *pgd = pgd_offset_k(address);
-		pud_t *pud;
-		pmd_t *pmd;
-
-		if (pgd_none(*pgd))
-			continue;
-
-		pud = pud_offset(pgd, address);
-		if (pud_none(*pud))
-			continue;
-
-		pmd = pmd_offset(pud, address);
-		if (!pmd || pmd_none(*pmd))
-			continue;
-
-		if (!(pmd_val(*pmd) & _PAGE_PSE)) {
-			/*
-			 * Could handle this, but it should not happen
-			 * currently:
-			 */
-			printk(KERN_ERR "clear_kernel_mapping: "
-				"mapping has been split. will leak memory\n");
-			pmd_ERROR(*pmd);
-		}
-		set_pmd(pmd, __pmd(0));
-	}
-	__flush_tlb_all();
-}
 
 /*
  * Memory hotplug specific functions
@@ -578,13 +528,15 @@ void __init mem_init(void)
 		reservedpages << (PAGE_SHIFT-10),
 		datasize >> 10,
 		initsize >> 10);
+
+	cpa_init();
 }
 
 void free_init_pages(char *what, unsigned long begin, unsigned long end)
 {
-	unsigned long addr;
+	unsigned long addr = begin;
 
-	if (begin >= end)
+	if (addr >= end)
 		return;
 
 	/*
@@ -599,7 +551,7 @@ void free_init_pages(char *what, unsigned long begin, unsigned long end)
 #else
 	printk(KERN_INFO "Freeing %s: %luk freed\n", what, (end - begin) >> 10);
 
-	for (addr = begin; addr < end; addr += PAGE_SIZE) {
+	for (; addr < end; addr += PAGE_SIZE) {
 		ClearPageReserved(virt_to_page(addr));
 		init_page_count(virt_to_page(addr));
 		memset((void *)(addr & ~(PAGE_SIZE-1)),
@@ -641,10 +593,17 @@ void mark_rodata_ro(void)
 	if (end <= start)
 		return;
 
-	set_memory_ro(start, (end - start) >> PAGE_SHIFT);
 
 	printk(KERN_INFO "Write protecting the kernel read-only data: %luk\n",
 	       (end - start) >> 10);
+	set_memory_ro(start, (end - start) >> PAGE_SHIFT);
+
+	/*
+	 * The rodata section (but not the kernel text!) should also be
+	 * not-executable.
+	 */
+	start = ((unsigned long)__start_rodata + PAGE_SIZE - 1) & PAGE_MASK;
+	set_memory_nx(start, (end - start) >> PAGE_SHIFT);
 
 	rodata_test();
 
@@ -687,9 +646,9 @@ void __init reserve_bootmem_generic(unsigned long phys, unsigned len)
 
 	/* Should check here against the e820 map to avoid double free */
 #ifdef CONFIG_NUMA
-	reserve_bootmem_node(NODE_DATA(nid), phys, len);
+	reserve_bootmem_node(NODE_DATA(nid), phys, len, BOOTMEM_DEFAULT);
 #else
-	reserve_bootmem(phys, len);
+	reserve_bootmem(phys, len, BOOTMEM_DEFAULT);
 #endif
 	if (phys+len <= MAX_DMA_PFN*PAGE_SIZE) {
 		dma_reserve += len / PAGE_SIZE;

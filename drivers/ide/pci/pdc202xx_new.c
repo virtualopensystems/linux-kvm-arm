@@ -19,18 +19,12 @@
 #include <linux/types.h>
 #include <linux/kernel.h>
 #include <linux/delay.h>
-#include <linux/timer.h>
-#include <linux/mm.h>
-#include <linux/ioport.h>
-#include <linux/blkdev.h>
 #include <linux/hdreg.h>
-#include <linux/interrupt.h>
 #include <linux/pci.h>
 #include <linux/init.h>
 #include <linux/ide.h>
 
 #include <asm/io.h>
-#include <asm/irq.h>
 
 #ifdef CONFIG_PPC_PMAC
 #include <asm/prom.h>
@@ -149,6 +143,7 @@ static struct udma_timing {
 static void pdcnew_set_dma_mode(ide_drive_t *drive, const u8 speed)
 {
 	ide_hwif_t *hwif	= HWIF(drive);
+	struct pci_dev *dev	= to_pci_dev(hwif->dev);
 	u8 adj			= (drive->dn & 1) ? 0x08 : 0x00;
 
 	/*
@@ -159,7 +154,7 @@ static void pdcnew_set_dma_mode(ide_drive_t *drive, const u8 speed)
 	 * As we set up the PLL to output 133 MHz for UltraDMA/133 capable
 	 * chips, we must override the default register settings...
 	 */
-	if (max_dma_rate(hwif->pci_dev) == 4) {
+	if (max_dma_rate(dev) == 4) {
 		u8 mode = speed & 0x07;
 
 		if (speed >= XFER_UDMA_0) {
@@ -186,16 +181,17 @@ static void pdcnew_set_dma_mode(ide_drive_t *drive, const u8 speed)
 static void pdcnew_set_pio_mode(ide_drive_t *drive, const u8 pio)
 {
 	ide_hwif_t *hwif = drive->hwif;
+	struct pci_dev *dev = to_pci_dev(hwif->dev);
 	u8 adj = (drive->dn & 1) ? 0x08 : 0x00;
 
-	if (max_dma_rate(hwif->pci_dev) == 4) {
+	if (max_dma_rate(dev) == 4) {
 		set_indexed_reg(hwif, 0x0c + adj, pio_timings[pio].reg0c);
 		set_indexed_reg(hwif, 0x0d + adj, pio_timings[pio].reg0d);
 		set_indexed_reg(hwif, 0x13 + adj, pio_timings[pio].reg13);
 	}
 }
 
-static u8 pdcnew_cable_detect(ide_hwif_t *hwif)
+static u8 __devinit pdcnew_cable_detect(ide_hwif_t *hwif)
 {
 	if (get_indexed_reg(hwif, 0x0b) & 0x04)
 		return ATA_CBL_PATA40;
@@ -454,11 +450,7 @@ static void __devinit init_hwif_pdc202new(ide_hwif_t *hwif)
 	hwif->quirkproc = &pdcnew_quirkproc;
 	hwif->resetproc = &pdcnew_reset;
 
-	if (hwif->dma_base == 0)
-		return;
-
-	if (hwif->cbl != ATA_CBL_PATA40_SHORT)
-		hwif->cbl = pdcnew_cable_detect(hwif);
+	hwif->cable_detect = pdcnew_cable_detect;
 }
 
 static struct pci_dev * __devinit pdc20270_get_dev2(struct pci_dev *dev)

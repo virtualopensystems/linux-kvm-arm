@@ -59,12 +59,6 @@ struct mtrr_ops * mtrr_if = NULL;
 static void set_mtrr(unsigned int reg, unsigned long base,
 		     unsigned long size, mtrr_type type);
 
-#ifndef CONFIG_X86_64
-extern int arr3_protected;
-#else
-#define arr3_protected 0
-#endif
-
 void set_mtrr_ops(struct mtrr_ops * ops)
 {
 	if (ops->vendor && ops->vendor < X86_VENDOR_NUM)
@@ -513,12 +507,6 @@ int mtrr_del_page(int reg, unsigned long base, unsigned long size)
 		printk(KERN_WARNING "mtrr: register: %d too big\n", reg);
 		goto out;
 	}
-	if (is_cpu(CYRIX) && !use_intel()) {
-		if ((reg == 3) && arr3_protected) {
-			printk(KERN_WARNING "mtrr: ARR3 cannot be changed\n");
-			goto out;
-		}
-	}
 	mtrr_if->get(reg, &lbase, &lsize, &ltype);
 	if (lsize < 1) {
 		printk(KERN_WARNING "mtrr: MTRR %d not used\n", reg);
@@ -566,10 +554,6 @@ EXPORT_SYMBOL(mtrr_del);
  * These should be called implicitly, but we can't yet until all the initcall
  * stuff is done...
  */
-extern void amd_init_mtrr(void);
-extern void cyrix_init_mtrr(void);
-extern void centaur_init_mtrr(void);
-
 static void __init init_ifs(void)
 {
 #ifndef CONFIG_X86_64
@@ -675,7 +659,7 @@ static __init int amd_special_default_mtrr(void)
  */
 int __init mtrr_trim_uncached_memory(unsigned long end_pfn)
 {
-	unsigned long i, base, size, highest_addr = 0, def, dummy;
+	unsigned long i, base, size, highest_pfn = 0, def, dummy;
 	mtrr_type type;
 	u64 trim_start, trim_size;
 
@@ -698,28 +682,27 @@ int __init mtrr_trim_uncached_memory(unsigned long end_pfn)
 		mtrr_if->get(i, &base, &size, &type);
 		if (type != MTRR_TYPE_WRBACK)
 			continue;
-		base <<= PAGE_SHIFT;
-		size <<= PAGE_SHIFT;
-		if (highest_addr < base + size)
-			highest_addr = base + size;
+		if (highest_pfn < base + size)
+			highest_pfn = base + size;
 	}
 
 	/* kvm/qemu doesn't have mtrr set right, don't trim them all */
-	if (!highest_addr) {
+	if (!highest_pfn) {
 		printk(KERN_WARNING "WARNING: strange, CPU MTRRs all blank?\n");
 		WARN_ON(1);
 		return 0;
 	}
 
-	if ((highest_addr >> PAGE_SHIFT) < end_pfn) {
+	if (highest_pfn < end_pfn) {
 		printk(KERN_WARNING "WARNING: BIOS bug: CPU MTRRs don't cover"
-			" all of memory, losing %LdMB of RAM.\n",
-			(((u64)end_pfn << PAGE_SHIFT) - highest_addr) >> 20);
+			" all of memory, losing %luMB of RAM.\n",
+			(end_pfn - highest_pfn) >> (20 - PAGE_SHIFT));
 
 		WARN_ON(1);
 
 		printk(KERN_INFO "update e820 for mtrr\n");
-		trim_start = highest_addr;
+		trim_start = highest_pfn;
+		trim_start <<= PAGE_SHIFT;
 		trim_size = end_pfn;
 		trim_size <<= PAGE_SHIFT;
 		trim_size -= trim_start;

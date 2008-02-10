@@ -37,7 +37,8 @@ obj-$(CONFIG_X86_MSR)		+= msr.o
 obj-$(CONFIG_X86_CPUID)		+= cpuid.o
 obj-$(CONFIG_MICROCODE)		+= microcode.o
 obj-$(CONFIG_PCI)		+= early-quirks.o
-obj-$(CONFIG_APM)		+= apm_32.o
+apm-y				:= apm_32.o
+obj-$(CONFIG_APM)		+= apm.o
 obj-$(CONFIG_X86_SMP)		+= smp_$(BITS).o smpboot_$(BITS).o tsc_sync.o
 obj-$(CONFIG_X86_32_SMP)	+= smpcommon_32.o
 obj-$(CONFIG_X86_64_SMP)	+= smp_64.o smpboot_64.o tsc_sync.o
@@ -74,7 +75,8 @@ ifdef CONFIG_INPUT_PCSPKR
 obj-y				+= pcspeaker.o
 endif
 
-obj-$(CONFIG_SCx200)		+= scx200_32.o
+obj-$(CONFIG_SCx200)		+= scx200.o
+scx200-y			+= scx200_32.o
 
 ###
 # 64 bit specific files
@@ -82,8 +84,6 @@ ifeq ($(CONFIG_X86_64),y)
         obj-y				+= genapic_64.o genapic_flat_64.o
         obj-$(CONFIG_X86_PM_TIMER)	+= pmtimer_64.o
         obj-$(CONFIG_AUDIT)		+= audit_64.o
-        obj-$(CONFIG_PM)		+= suspend_64.o
-        obj-$(CONFIG_HIBERNATION)	+= suspend_asm_64.o
 
         obj-$(CONFIG_GART_IOMMU)	+= pci-gart_64.o aperture_64.o
         obj-$(CONFIG_CALGARY_IOMMU)	+= pci-calgary_64.o tce_64.o

@@ -1,5 +1,4 @@
 /*
- * ide-acpi.c
  * Provides ACPI support for IDE drives.
  *
  * Copyright (C) 2005 Intel Corp.
@@ -40,7 +39,6 @@ struct GTM_buffer {
 };
 
 struct ide_acpi_drive_link {
-	ide_drive_t	*drive;
 	acpi_handle	 obj_handle;
 	u8		 idbuff[512];
 };
@@ -173,7 +171,7 @@ err:
 static acpi_handle ide_acpi_hwif_get_handle(ide_hwif_t *hwif)
 {
 	struct device		*dev = hwif->gendev.parent;
-	acpi_handle		dev_handle;
+	acpi_handle		uninitialized_var(dev_handle);
 	acpi_integer		pcidevfn;
 	acpi_handle		chan_handle;
 	int			err;
@@ -280,16 +278,6 @@ static int do_drive_get_GTF(ide_drive_t *drive,
 	}
 
 	port = hwif->channel ? drive->dn - 2: drive->dn;
-
-	if (!drive->acpidata) {
-		if (port == 0) {
-			drive->acpidata = &hwif->acpidata->master;
-			hwif->acpidata->master.drive = drive;
-		} else {
-			drive->acpidata = &hwif->acpidata->slave;
-			hwif->acpidata->slave.drive = drive;
-		}
-	}
 
 	DEBPRINT("ENTER: %s at %s, port#: %d, hard_port#: %d\n",
 		 hwif->name, dev->bus_id, port, hwif->channel);
@@ -495,7 +483,6 @@ int ide_acpi_exec_tfs(ide_drive_t *drive)
 
 	return ret;
 }
-EXPORT_SYMBOL_GPL(ide_acpi_exec_tfs);
 
 /**
  * ide_acpi_get_timing - get the channel (controller) timings
@@ -581,7 +568,6 @@ void ide_acpi_get_timing(ide_hwif_t *hwif)
 
 	kfree(output.pointer);
 }
-EXPORT_SYMBOL_GPL(ide_acpi_get_timing);
 
 /**
  * ide_acpi_push_timing - set the channel (controller) timings
@@ -635,7 +621,6 @@ void ide_acpi_push_timing(ide_hwif_t *hwif)
 	}
 	DEBPRINT("_STM status: %d\n", status);
 }
-EXPORT_SYMBOL_GPL(ide_acpi_push_timing);
 
 /**
  * ide_acpi_set_state - set the channel power state
@@ -689,11 +674,6 @@ void ide_acpi_set_state(ide_hwif_t *hwif, int on)
  */
 void ide_acpi_init(ide_hwif_t *hwif)
 {
-	int unit;
-	int			err;
-	struct ide_acpi_drive_link	*master;
-	struct ide_acpi_drive_link	*slave;
-
 	ide_acpi_blacklist();
 
 	hwif->acpidata = kzalloc(sizeof(struct ide_acpi_hwif_link), GFP_KERNEL);
@@ -705,40 +685,38 @@ void ide_acpi_init(ide_hwif_t *hwif)
 		DEBPRINT("no ACPI object for %s found\n", hwif->name);
 		kfree(hwif->acpidata);
 		hwif->acpidata = NULL;
-		return;
 	}
+}
+
+void ide_acpi_port_init_devices(ide_hwif_t *hwif)
+{
+	ide_drive_t *drive;
+	int i, err;
+
+	if (hwif->acpidata == NULL)
+		return;
 
 	/*
 	 * The ACPI spec mandates that we send information
 	 * for both drives, regardless whether they are connected
 	 * or not.
 	 */
-	hwif->acpidata->master.drive = &hwif->drives[0];
 	hwif->drives[0].acpidata = &hwif->acpidata->master;
-	master = &hwif->acpidata->master;
-
-	hwif->acpidata->slave.drive = &hwif->drives[1];
 	hwif->drives[1].acpidata = &hwif->acpidata->slave;
-	slave = &hwif->acpidata->slave;
-
 
 	/*
 	 * Send IDENTIFY for each drive
 	 */
-	if (master->drive->present) {
-		err = taskfile_lib_get_identify(master->drive, master->idbuff);
-		if (err) {
-			DEBPRINT("identify device %s failed (%d)\n",
-				 master->drive->name, err);
-		}
-	}
+	for (i = 0; i < MAX_DRIVES; i++) {
+		drive = &hwif->drives[i];
 
-	if (slave->drive->present) {
-		err = taskfile_lib_get_identify(slave->drive, slave->idbuff);
-		if (err) {
+		if (!drive->present)
+			continue;
+
+		err = taskfile_lib_get_identify(drive, drive->acpidata->idbuff);
+		if (err)
 			DEBPRINT("identify device %s failed (%d)\n",
-				 slave->drive->name, err);
-		}
+				 drive->name, err);
 	}
 
 	if (ide_noacpionboot) {
@@ -754,13 +732,11 @@ void ide_acpi_init(ide_hwif_t *hwif)
 	ide_acpi_get_timing(hwif);
 	ide_acpi_push_timing(hwif);
 
-	for (unit = 0; unit < MAX_DRIVES; ++unit) {
-		ide_drive_t *drive = &hwif->drives[unit];
+	for (i = 0; i < MAX_DRIVES; i++) {
+		drive = &hwif->drives[i];
 
-		if (drive->present) {
+		if (drive->present)
 			/* Execute ACPI startup code */
 			ide_acpi_exec_tfs(drive);
-		}
 	}
 }
-EXPORT_SYMBOL_GPL(ide_acpi_init);

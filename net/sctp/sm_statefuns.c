@@ -1,23 +1,21 @@
-/* SCTP kernel reference Implementation
+/* SCTP kernel implementation
  * (C) Copyright IBM Corp. 2001, 2004
  * Copyright (c) 1999-2000 Cisco, Inc.
  * Copyright (c) 1999-2001 Motorola, Inc.
  * Copyright (c) 2001-2002 Intel Corp.
  * Copyright (c) 2002      Nokia Corp.
  *
- * This file is part of the SCTP kernel reference Implementation
- *
- * This is part of the SCTP Linux Kernel Reference Implementation.
+ * This is part of the SCTP Linux Kernel Implementation.
  *
  * These are the state functions for the state machine.
  *
- * The SCTP reference implementation is free software;
+ * This SCTP implementation is free software;
  * you can redistribute it and/or modify it under the terms of
  * the GNU General Public License as published by
  * the Free Software Foundation; either version 2, or (at your option)
  * any later version.
  *
- * The SCTP reference implementation is distributed in the hope that it
+ * This SCTP implementation is distributed in the hope that it
  * will be useful, but WITHOUT ANY WARRANTY; without even the implied
  *                 ************************
  * warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -537,7 +535,7 @@ sctp_disposition_t sctp_sf_do_5_1C_ack(const struct sctp_endpoint *ep,
 		 *
 		 * This means that if we only want to abort associations
 		 * in an authenticated way (i.e AUTH+ABORT), then we
-		 * can't destory this association just becuase the packet
+		 * can't destroy this association just becuase the packet
 		 * was malformed.
 		 */
 		if (sctp_auth_recv_cid(SCTP_CID_ABORT, asoc))
@@ -3865,6 +3863,10 @@ sctp_disposition_t sctp_sf_eat_auth(const struct sctp_endpoint *ep,
 	struct sctp_chunk *err_chunk;
 	sctp_ierror_t error;
 
+	/* Make sure that the peer has AUTH capable */
+	if (!asoc->peer.auth_capable)
+		return sctp_sf_unk_chunk(ep, asoc, type, arg, commands);
+
 	if (!sctp_vtag_verify(chunk, asoc)) {
 		sctp_add_cmd_sf(commands, SCTP_CMD_REPORT_BAD_TAG,
 				SCTP_NULL());
@@ -4130,7 +4132,7 @@ static sctp_disposition_t sctp_sf_abort_violation(
 	 *
 	 * This means that if we only want to abort associations
 	 * in an authenticated way (i.e AUTH+ABORT), then we
-	 * can't destory this association just becuase the packet
+	 * can't destroy this association just becuase the packet
 	 * was malformed.
 	 */
 	if (sctp_auth_recv_cid(SCTP_CID_ABORT, asoc))

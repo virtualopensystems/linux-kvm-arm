@@ -183,7 +183,7 @@ pte_t *pte_alloc_one_kernel(struct mm_struct *mm, unsigned long address)
 	return (pte_t *)__get_free_page(GFP_KERNEL|__GFP_REPEAT|__GFP_ZERO);
 }
 
-struct page *pte_alloc_one(struct mm_struct *mm, unsigned long address)
+pgtable_t pte_alloc_one(struct mm_struct *mm, unsigned long address)
 {
 	struct page *pte;
 
@@ -192,6 +192,8 @@ struct page *pte_alloc_one(struct mm_struct *mm, unsigned long address)
 #else
 	pte = alloc_pages(GFP_KERNEL|__GFP_REPEAT|__GFP_ZERO, 0);
 #endif
+	if (pte)
+		pgtable_page_ctor(pte);
 	return pte;
 }
 
@@ -219,50 +221,39 @@ static inline void pgd_list_del(pgd_t *pgd)
 	list_del(&page->lru);
 }
 
+#define UNSHARED_PTRS_PER_PGD				\
+	(SHARED_KERNEL_PMD ? USER_PTRS_PER_PGD : PTRS_PER_PGD)
 
-
-#if (PTRS_PER_PMD == 1)
-/* Non-PAE pgd constructor */
-static void pgd_ctor(void *pgd)
+static void pgd_ctor(void *p)
 {
+	pgd_t *pgd = p;
 	unsigned long flags;
 
-	/* !PAE, no pagetable sharing */
+	/* Clear usermode parts of PGD */
 	memset(pgd, 0, USER_PTRS_PER_PGD*sizeof(pgd_t));
 
 	spin_lock_irqsave(&pgd_lock, flags);
 
-	/* must happen under lock */
-	clone_pgd_range((pgd_t *)pgd + USER_PTRS_PER_PGD,
-			swapper_pg_dir + USER_PTRS_PER_PGD,
-			KERNEL_PGD_PTRS);
-	paravirt_alloc_pd_clone(__pa(pgd) >> PAGE_SHIFT,
-				__pa(swapper_pg_dir) >> PAGE_SHIFT,
-				USER_PTRS_PER_PGD,
-				KERNEL_PGD_PTRS);
-	pgd_list_add(pgd);
-	spin_unlock_irqrestore(&pgd_lock, flags);
-}
-#else  /* PTRS_PER_PMD > 1 */
-/* PAE pgd constructor */
-static void pgd_ctor(void *pgd)
-{
-	/* PAE, kernel PMD may be shared */
-
-	if (SHARED_KERNEL_PMD) {
-		clone_pgd_range((pgd_t *)pgd + USER_PTRS_PER_PGD,
+	/* If the pgd points to a shared pagetable level (either the
+	   ptes in non-PAE, or shared PMD in PAE), then just copy the
+	   references from swapper_pg_dir. */
+	if (PAGETABLE_LEVELS == 2 ||
+	    (PAGETABLE_LEVELS == 3 && SHARED_KERNEL_PMD)) {
+		clone_pgd_range(pgd + USER_PTRS_PER_PGD,
 				swapper_pg_dir + USER_PTRS_PER_PGD,
 				KERNEL_PGD_PTRS);
-	} else {
-		unsigned long flags;
-
-		memset(pgd, 0, USER_PTRS_PER_PGD*sizeof(pgd_t));
-		spin_lock_irqsave(&pgd_lock, flags);
-		pgd_list_add(pgd);
-		spin_unlock_irqrestore(&pgd_lock, flags);
+		paravirt_alloc_pd_clone(__pa(pgd) >> PAGE_SHIFT,
+					__pa(swapper_pg_dir) >> PAGE_SHIFT,
+					USER_PTRS_PER_PGD,
+					KERNEL_PGD_PTRS);
 	}
+
+	/* list required to sync kernel mapping updates */
+	if (!SHARED_KERNEL_PMD)
+		pgd_list_add(pgd);
+
+	spin_unlock_irqrestore(&pgd_lock, flags);
 }
-#endif	/* PTRS_PER_PMD */
 
 static void pgd_dtor(void *pgd)
 {
@@ -276,9 +267,6 @@ static void pgd_dtor(void *pgd)
 	spin_unlock_irqrestore(&pgd_lock, flags);
 }
 
-#define UNSHARED_PTRS_PER_PGD				\
-	(SHARED_KERNEL_PMD ? USER_PTRS_PER_PGD : PTRS_PER_PGD)
-
 #ifdef CONFIG_X86_PAE
 /*
  * Mop up any pmd pages which may still be attached to the pgd.
@@ -286,7 +274,7 @@ static void pgd_dtor(void *pgd)
  * preallocate which never got a corresponding vma will need to be
  * freed manually.
  */
-static void pgd_mop_up_pmds(pgd_t *pgdp)
+static void pgd_mop_up_pmds(struct mm_struct *mm, pgd_t *pgdp)
 {
 	int i;
 
@@ -299,7 +287,7 @@ static void pgd_mop_up_pmds(pgd_t *pgdp)
 			pgdp[i] = native_make_pgd(0);
 
 			paravirt_release_pd(pgd_val(pgd) >> PAGE_SHIFT);
-			pmd_free(pmd);
+			pmd_free(mm, pmd);
 		}
 	}
 }
@@ -327,7 +315,7 @@ static int pgd_prepopulate_pmd(struct mm_struct *mm, pgd_t *pgd)
 		pmd_t *pmd = pmd_alloc_one(mm, addr);
 
 		if (!pmd) {
-			pgd_mop_up_pmds(pgd);
+			pgd_mop_up_pmds(mm, pgd);
 			return 0;
 		}
 
@@ -347,7 +335,7 @@ static int pgd_prepopulate_pmd(struct mm_struct *mm, pgd_t *pgd)
 	return 1;
 }
 
-static void pgd_mop_up_pmds(pgd_t *pgd)
+static void pgd_mop_up_pmds(struct mm_struct *mm, pgd_t *pgdp)
 {
 }
 #endif	/* CONFIG_X86_PAE */
@@ -366,9 +354,9 @@ pgd_t *pgd_alloc(struct mm_struct *mm)
 	return pgd;
 }
 
-void pgd_free(pgd_t *pgd)
+void pgd_free(struct mm_struct *mm, pgd_t *pgd)
 {
-	pgd_mop_up_pmds(pgd);
+	pgd_mop_up_pmds(mm, pgd);
 	quicklist_free(0, pgd_dtor, pgd);
 }
 
@@ -379,6 +367,7 @@ void check_pgt_cache(void)
 
 void __pte_free_tlb(struct mmu_gather *tlb, struct page *pte)
 {
+	pgtable_page_dtor(pte);
 	paravirt_release_pt(page_to_pfn(pte));
 	tlb_remove_page(tlb, pte);
 }
@@ -387,13 +376,6 @@ void __pte_free_tlb(struct mmu_gather *tlb, struct page *pte)
 
 void __pmd_free_tlb(struct mmu_gather *tlb, pmd_t *pmd)
 {
-	/* This is called just after the pmd has been detached from
-	   the pgd, which requires a full tlb flush to be recognized
-	   by the CPU.  Rather than incurring multiple tlb flushes
-	   while the address space is being pulled down, make the tlb
-	   gathering machinery do a full flush when we're done. */
-	tlb->fullmm = 1;
-
 	paravirt_release_pd(__pa(pmd) >> PAGE_SHIFT);
 	tlb_remove_page(tlb, virt_to_page(pmd));
 }

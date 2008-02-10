@@ -449,9 +449,6 @@ static int aac_slave_configure(struct scsi_device *sdev)
 		else if (depth < 2)
 			depth = 2;
 		scsi_adjust_queue_depth(sdev, MSG_ORDERED_TAG, depth);
-		if (!(((struct aac_dev *)host->hostdata)->adapter_info.options &
-				AAC_OPT_NEW_COMM))
-			blk_queue_max_segment_size(sdev->request_queue, 65536);
 	} else
 		scsi_adjust_queue_depth(sdev, 0, 1);
 
@@ -1137,21 +1134,25 @@ static int __devinit aac_probe_one(struct pci_dev *pdev,
  	 * Lets override negotiations and drop the maximum SG limit to 34
  	 */
 	if ((aac_drivers[index].quirks & AAC_QUIRK_34SG) &&
-			(aac->scsi_host_ptr->sg_tablesize > 34)) {
- 		aac->scsi_host_ptr->sg_tablesize = 34;
- 		aac->scsi_host_ptr->max_sectors
- 		  = (aac->scsi_host_ptr->sg_tablesize * 8) + 112;
+			(shost->sg_tablesize > 34)) {
+		shost->sg_tablesize = 34;
+		shost->max_sectors = (shost->sg_tablesize * 8) + 112;
  	}
 
  	if ((aac_drivers[index].quirks & AAC_QUIRK_17SG) &&
-			(aac->scsi_host_ptr->sg_tablesize > 17)) {
- 		aac->scsi_host_ptr->sg_tablesize = 17;
- 		aac->scsi_host_ptr->max_sectors
- 		  = (aac->scsi_host_ptr->sg_tablesize * 8) + 112;
+			(shost->sg_tablesize > 17)) {
+		shost->sg_tablesize = 17;
+		shost->max_sectors = (shost->sg_tablesize * 8) + 112;
  	}
 
+	error = pci_set_dma_max_seg_size(pdev,
+		(aac->adapter_info.options & AAC_OPT_NEW_COMM) ?
+			(shost->max_sectors << 9) : 65536);
+	if (error)
+		goto out_deinit;
+
 	/*
-	 * Firware printf works only with older firmware.
+	 * Firmware printf works only with older firmware.
 	 */
 	if (aac_drivers[index].quirks & AAC_QUIRK_34SG)
 		aac->printf_enabled = 1;

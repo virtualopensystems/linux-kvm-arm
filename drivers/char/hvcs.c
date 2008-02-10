@@ -306,7 +306,7 @@ struct hvcs_struct {
 /* Required to back map a kref to its containing object */
 #define from_kref(k) container_of(k, struct hvcs_struct, kref)
 
-static struct list_head hvcs_structs = LIST_HEAD_INIT(hvcs_structs);
+static LIST_HEAD(hvcs_structs);
 static DEFINE_SPINLOCK(hvcs_structs_lock);
 
 static void hvcs_unthrottle(struct tty_struct *tty);
@@ -838,7 +838,7 @@ static int __devexit hvcs_remove(struct vio_dev *dev)
 	if (!hvcsd)
 		return -ENODEV;
 
-	/* By this time the vty-server won't be getting any more interrups */
+	/* By this time the vty-server won't be getting any more interrupts */
 
 	spin_lock_irqsave(&hvcsd->lock, flags);
 

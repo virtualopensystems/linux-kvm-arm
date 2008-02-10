@@ -267,6 +267,14 @@ static const struct pci_device_id piix_pci_tbl[] = {
 	{ 0x8086, 0x292e, PCI_ANY_ID, PCI_ANY_ID, 0, 0, ich8_sata_ahci },
 	/* SATA Controller IDE (Tolapai) */
 	{ 0x8086, 0x5028, PCI_ANY_ID, PCI_ANY_ID, 0, 0, tolapai_sata_ahci },
+	/* SATA Controller IDE (ICH10) */
+	{ 0x8086, 0x3a00, PCI_ANY_ID, PCI_ANY_ID, 0, 0, ich8_sata_ahci },
+	/* SATA Controller IDE (ICH10) */
+	{ 0x8086, 0x3a06, PCI_ANY_ID, PCI_ANY_ID, 0, 0, ich8_2port_sata },
+	/* SATA Controller IDE (ICH10) */
+	{ 0x8086, 0x3a20, PCI_ANY_ID, PCI_ANY_ID, 0, 0, ich8_sata_ahci },
+	/* SATA Controller IDE (ICH10) */
+	{ 0x8086, 0x3a26, PCI_ANY_ID, PCI_ANY_ID, 0, 0, ich8_2port_sata },
 
 	{ }	/* terminate list */
 };
@@ -829,7 +837,7 @@ static void piix_set_piomode(struct ata_port *ap, struct ata_device *adev)
 	if (is_slave) {
 		/* clear TIME1|IE1|PPE1|DTE1 */
 		master_data &= 0xff0f;
-		/* Enable SITRE (seperate slave timing register) */
+		/* Enable SITRE (separate slave timing register) */
 		master_data |= 0x4000;
 		/* enable PPE1, IE1 and TIME1 as needed */
 		master_data |= (control << 4);
@@ -1068,7 +1076,7 @@ static void piix_sidpr_write(struct ata_device *dev, unsigned int reg, u32 val)
 	iowrite32(val, hpriv->sidpr + PIIX_SIDPR_DATA);
 }
 
-u32 piix_merge_scr(u32 val0, u32 val1, const int * const *merge_tbl)
+static u32 piix_merge_scr(u32 val0, u32 val1, const int * const *merge_tbl)
 {
 	u32 val = 0;
 	int i, mi;
@@ -1595,7 +1603,8 @@ static void piix_iocfg_bit18_quirk(struct pci_dev *pdev)
  *	Zero on success, or -ERRNO value.
  */
 
-static int piix_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
+static int __devinit piix_init_one(struct pci_dev *pdev,
+				   const struct pci_device_id *ent)
 {
 	static int printed_version;
 	struct device *dev = &pdev->dev;

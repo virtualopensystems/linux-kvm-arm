@@ -1,6 +1,5 @@
 config MAC80211
 	tristate "Generic IEEE 802.11 Networking Stack (mac80211)"
-	depends on EXPERIMENTAL
 	select CRYPTO
 	select CRYPTO_ECB
 	select CRYPTO_ARC4
@@ -97,6 +96,18 @@ config MAC80211_DEBUGFS
 	  the internal state of mac80211 in debugfs.
 
 	  Say N unless you know you need this.
+
+config MAC80211_DEBUG_PACKET_ALIGNMENT
+	bool "Enable packet alignment debugging"
+	depends on MAC80211
+	help
+	  This option is recommended for driver authors and strongly
+	  discouraged for everybody else, it will trigger a warning
+	  when a driver hands mac80211 a buffer that is aligned in
+	  a way that will cause problems with the IP stack on some
+	  architectures.
+
+	  Say N unless you're writing a mac80211 based driver.
 
 config MAC80211_DEBUG
 	bool "Enable debugging output"

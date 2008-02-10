@@ -23,6 +23,7 @@
 #include <linux/ioport.h>
 #include <linux/pm.h>
 #include <linux/string.h>
+#include <linux/sysdev.h>
 
 #include <asm/hardware.h>
 #include <asm/irq.h>
@@ -31,7 +32,6 @@
 #include <asm/mach/map.h>
 
 #include <asm/arch/pxa-regs.h>
-#include <asm/arch/gpio.h>
 
 #include "generic.h"
 
@@ -66,97 +66,6 @@ unsigned int get_memclk_frequency_10khz(void)
 EXPORT_SYMBOL(get_memclk_frequency_10khz);
 
 /*
- * Handy function to set GPIO alternate functions
- */
-int pxa_last_gpio;
-
-int pxa_gpio_mode(int gpio_mode)
-{
-	unsigned long flags;
-	int gpio = gpio_mode & GPIO_MD_MASK_NR;
-	int fn = (gpio_mode & GPIO_MD_MASK_FN) >> 8;
-	int gafr;
-
-	if (gpio > pxa_last_gpio)
-		return -EINVAL;
-
-	local_irq_save(flags);
-	if (gpio_mode & GPIO_DFLT_LOW)
-		GPCR(gpio) = GPIO_bit(gpio);
-	else if (gpio_mode & GPIO_DFLT_HIGH)
-		GPSR(gpio) = GPIO_bit(gpio);
-	if (gpio_mode & GPIO_MD_MASK_DIR)
-		GPDR(gpio) |= GPIO_bit(gpio);
-	else
-		GPDR(gpio) &= ~GPIO_bit(gpio);
-	gafr = GAFR(gpio) & ~(0x3 << (((gpio) & 0xf)*2));
-	GAFR(gpio) = gafr |  (fn  << (((gpio) & 0xf)*2));
-	local_irq_restore(flags);
-
-	return 0;
-}
-
-EXPORT_SYMBOL(pxa_gpio_mode);
-
-int gpio_direction_input(unsigned gpio)
-{
-	unsigned long flags;
-	u32 mask;
-
-	if (gpio > pxa_last_gpio)
-		return -EINVAL;
-
-	mask = GPIO_bit(gpio);
-	local_irq_save(flags);
-	GPDR(gpio) &= ~mask;
-	local_irq_restore(flags);
-
-	return 0;
-}
-EXPORT_SYMBOL(gpio_direction_input);
-
-int gpio_direction_output(unsigned gpio, int value)
-{
-	unsigned long flags;
-	u32 mask;
-
-	if (gpio > pxa_last_gpio)
-		return -EINVAL;
-
-	mask = GPIO_bit(gpio);
-	local_irq_save(flags);
-	if (value)
-		GPSR(gpio) = mask;
-	else
-		GPCR(gpio) = mask;
-	GPDR(gpio) |= mask;
-	local_irq_restore(flags);
-
-	return 0;
-}
-EXPORT_SYMBOL(gpio_direction_output);
-
-/*
- * Return GPIO level
- */
-int pxa_gpio_get_value(unsigned gpio)
-{
-	return __gpio_get_value(gpio);
-}
-
-EXPORT_SYMBOL(pxa_gpio_get_value);
-
-/*
- * Set output GPIO level
- */
-void pxa_gpio_set_value(unsigned gpio, int value)
-{
-	__gpio_set_value(gpio, value);
-}
-
-EXPORT_SYMBOL(pxa_gpio_set_value);
-
-/*
  * Routine to safely enable or disable a clock in the CKEN
  */
 void __pxa_set_cken(int clock, int enable)
@@ -171,7 +80,6 @@ void __pxa_set_cken(int clock, int enable)
 
 	local_irq_restore(flags);
 }
-
 EXPORT_SYMBOL(__pxa_set_cken);
 
 /*
@@ -226,3 +134,59 @@ void __init pxa_map_io(void)
 	iotable_init(standard_io_desc, ARRAY_SIZE(standard_io_desc));
 	get_clk_frequency_khz(1);
 }
+
+#ifdef CONFIG_PM
+
+static unsigned long saved_gplr[4];
+static unsigned long saved_gpdr[4];
+static unsigned long saved_grer[4];
+static unsigned long saved_gfer[4];
+
+static int pxa_gpio_suspend(struct sys_device *dev, pm_message_t state)
+{
+	int i, gpio;
+
+	for (gpio = 0, i = 0; gpio < pxa_last_gpio; gpio += 32, i++) {
+		saved_gplr[i] = GPLR(gpio);
+		saved_gpdr[i] = GPDR(gpio);
+		saved_grer[i] = GRER(gpio);
+		saved_gfer[i] = GFER(gpio);
+
+		/* Clear GPIO transition detect bits */
+		GEDR(gpio) = GEDR(gpio);
+	}
+	return 0;
+}
+
+static int pxa_gpio_resume(struct sys_device *dev)
+{
+	int i, gpio;
+
+	for (gpio = 0, i = 0; gpio < pxa_last_gpio; gpio += 32, i++) {
+		/* restore level with set/clear */
+		GPSR(gpio) = saved_gplr[i];
+		GPCR(gpio) = ~saved_gplr[i];
+
+		GRER(gpio) = saved_grer[i];
+		GFER(gpio) = saved_gfer[i];
+		GPDR(gpio) = saved_gpdr[i];
+	}
+	return 0;
+}
+#else
+#define pxa_gpio_suspend	NULL
+#define pxa_gpio_resume		NULL
+#endif
+
+struct sysdev_class pxa_gpio_sysclass = {
+	.name		= "gpio",
+	.suspend	= pxa_gpio_suspend,
+	.resume		= pxa_gpio_resume,
+};
+
+static int __init pxa_gpio_init(void)
+{
+	return sysdev_class_register(&pxa_gpio_sysclass);
+}
+
+core_initcall(pxa_gpio_init);

@@ -88,10 +88,6 @@
  *	in /proc for a task before it execs a suid executable.
  */
 
-
-/* Worst case buffer size needed for holding an integer. */
-#define PROC_NUMBUF 13
-
 struct pid_entry {
 	char *name;
 	int len;
@@ -125,6 +121,10 @@ struct pid_entry {
 	NOD(NAME, (S_IFREG|(MODE)), 			\
 		NULL, &proc_info_file_operations,	\
 		{ .proc_read = &proc_##OTYPE } )
+#define ONE(NAME, MODE, OTYPE)				\
+	NOD(NAME, (S_IFREG|(MODE)), 			\
+		NULL, &proc_single_file_operations,	\
+		{ .proc_show = &proc_##OTYPE } )
 
 int maps_protect;
 EXPORT_SYMBOL(maps_protect);
@@ -506,7 +506,7 @@ static const struct inode_operations proc_def_inode_operations = {
 	.setattr	= proc_setattr,
 };
 
-extern struct seq_operations mounts_op;
+extern const struct seq_operations mounts_op;
 struct proc_mounts {
 	struct seq_file m;
 	int event;
@@ -585,7 +585,7 @@ static const struct file_operations proc_mounts_operations = {
 	.poll		= mounts_poll,
 };
 
-extern struct seq_operations mountstats_op;
+extern const struct seq_operations mountstats_op;
 static int mountstats_open(struct inode *inode, struct file *file)
 {
 	int ret = seq_open(file, &mountstats_op);
@@ -660,6 +660,45 @@ out_no_task:
 
 static const struct file_operations proc_info_file_operations = {
 	.read		= proc_info_read,
+};
+
+static int proc_single_show(struct seq_file *m, void *v)
+{
+	struct inode *inode = m->private;
+	struct pid_namespace *ns;
+	struct pid *pid;
+	struct task_struct *task;
+	int ret;
+
+	ns = inode->i_sb->s_fs_info;
+	pid = proc_pid(inode);
+	task = get_pid_task(pid, PIDTYPE_PID);
+	if (!task)
+		return -ESRCH;
+
+	ret = PROC_I(inode)->op.proc_show(m, ns, pid, task);
+
+	put_task_struct(task);
+	return ret;
+}
+
+static int proc_single_open(struct inode *inode, struct file *filp)
+{
+	int ret;
+	ret = single_open(filp, proc_single_show, NULL);
+	if (!ret) {
+		struct seq_file *m = filp->private_data;
+
+		m->private = inode;
+	}
+	return ret;
+}
+
+static const struct file_operations proc_single_file_operations = {
+	.open		= proc_single_open,
+	.read		= seq_read,
+	.llseek		= seq_lseek,
+	.release	= single_release,
 };
 
 static int mem_open(struct inode* inode, struct file* file)
@@ -787,7 +826,7 @@ out_no_task:
 }
 #endif
 
-static loff_t mem_lseek(struct file * file, loff_t offset, int orig)
+loff_t mem_lseek(struct file *file, loff_t offset, int orig)
 {
 	switch (orig) {
 	case 0:
@@ -935,42 +974,6 @@ static const struct file_operations proc_oom_adjust_operations = {
 	.write		= oom_adjust_write,
 };
 
-#ifdef CONFIG_MMU
-static ssize_t clear_refs_write(struct file *file, const char __user *buf,
-				size_t count, loff_t *ppos)
-{
-	struct task_struct *task;
-	char buffer[PROC_NUMBUF], *end;
-	struct mm_struct *mm;
-
-	memset(buffer, 0, sizeof(buffer));
-	if (count > sizeof(buffer) - 1)
-		count = sizeof(buffer) - 1;
-	if (copy_from_user(buffer, buf, count))
-		return -EFAULT;
-	if (!simple_strtol(buffer, &end, 0))
-		return -EINVAL;
-	if (*end == '\n')
-		end++;
-	task = get_proc_task(file->f_path.dentry->d_inode);
-	if (!task)
-		return -ESRCH;
-	mm = get_task_mm(task);
-	if (mm) {
-		clear_refs_smap(mm);
-		mmput(mm);
-	}
-	put_task_struct(task);
-	if (end - buffer == 0)
-		return -EIO;
-	return end - buffer;
-}
-
-static struct file_operations proc_clear_refs_operations = {
-	.write		= clear_refs_write,
-};
-#endif
-
 #ifdef CONFIG_AUDITSYSCALL
 #define TMPBUFLEN 21
 static ssize_t proc_loginuid_read(struct file * file, char __user * buf,
@@ -984,7 +987,7 @@ static ssize_t proc_loginuid_read(struct file * file, char __user * buf,
 	if (!task)
 		return -ESRCH;
 	length = scnprintf(tmpbuf, TMPBUFLEN, "%u",
-				audit_get_loginuid(task->audit_context));
+				audit_get_loginuid(task));
 	put_task_struct(task);
 	return simple_read_from_buffer(buf, count, ppos, tmpbuf, length);
 }
@@ -2098,15 +2101,23 @@ static const struct file_operations proc_coredump_filter_operations = {
 static int proc_self_readlink(struct dentry *dentry, char __user *buffer,
 			      int buflen)
 {
+	struct pid_namespace *ns = dentry->d_sb->s_fs_info;
+	pid_t tgid = task_tgid_nr_ns(current, ns);
 	char tmp[PROC_NUMBUF];
-	sprintf(tmp, "%d", task_tgid_vnr(current));
+	if (!tgid)
+		return -ENOENT;
+	sprintf(tmp, "%d", tgid);
 	return vfs_readlink(dentry,buffer,buflen,tmp);
 }
 
 static void *proc_self_follow_link(struct dentry *dentry, struct nameidata *nd)
 {
+	struct pid_namespace *ns = dentry->d_sb->s_fs_info;
+	pid_t tgid = task_tgid_nr_ns(current, ns);
 	char tmp[PROC_NUMBUF];
-	sprintf(tmp, "%d", task_tgid_vnr(current));
+	if (!tgid)
+		return ERR_PTR(-ENOENT);
+	sprintf(tmp, "%d", task_tgid_nr_ns(current, ns));
 	return ERR_PTR(vfs_follow_link(nd,tmp));
 }
 
@@ -2271,14 +2282,14 @@ static const struct pid_entry tgid_base_stuff[] = {
 	DIR("fdinfo",     S_IRUSR|S_IXUSR, fdinfo),
 	REG("environ",    S_IRUSR, environ),
 	INF("auxv",       S_IRUSR, pid_auxv),
-	INF("status",     S_IRUGO, pid_status),
+	ONE("status",     S_IRUGO, pid_status),
 	INF("limits",	  S_IRUSR, pid_limits),
 #ifdef CONFIG_SCHED_DEBUG
 	REG("sched",      S_IRUGO|S_IWUSR, pid_sched),
 #endif
 	INF("cmdline",    S_IRUGO, pid_cmdline),
-	INF("stat",       S_IRUGO, tgid_stat),
-	INF("statm",      S_IRUGO, pid_statm),
+	ONE("stat",       S_IRUGO, tgid_stat),
+	ONE("statm",      S_IRUGO, pid_statm),
 	REG("maps",       S_IRUGO, maps),
 #ifdef CONFIG_NUMA
 	REG("numa_maps",  S_IRUGO, numa_maps),
@@ -2289,9 +2300,10 @@ static const struct pid_entry tgid_base_stuff[] = {
 	LNK("exe",        exe),
 	REG("mounts",     S_IRUGO, mounts),
 	REG("mountstats", S_IRUSR, mountstats),
-#ifdef CONFIG_MMU
+#ifdef CONFIG_PROC_PAGE_MONITOR
 	REG("clear_refs", S_IWUSR, clear_refs),
 	REG("smaps",      S_IRUGO, smaps),
+	REG("pagemap",    S_IRUSR, pagemap),
 #endif
 #ifdef CONFIG_SECURITY
 	DIR("attr",       S_IRUGO|S_IXUGO, attr_dir),
@@ -2360,7 +2372,8 @@ static void proc_flush_task_mnt(struct vfsmount *mnt, pid_t pid, pid_t tgid)
 	name.len = snprintf(buf, sizeof(buf), "%d", pid);
 	dentry = d_hash_and_lookup(mnt->mnt_root, &name);
 	if (dentry) {
-		shrink_dcache_parent(dentry);
+		if (!(current->flags & PF_EXITING))
+			shrink_dcache_parent(dentry);
 		d_drop(dentry);
 		dput(dentry);
 	}
@@ -2600,14 +2613,14 @@ static const struct pid_entry tid_base_stuff[] = {
 	DIR("fdinfo",    S_IRUSR|S_IXUSR, fdinfo),
 	REG("environ",   S_IRUSR, environ),
 	INF("auxv",      S_IRUSR, pid_auxv),
-	INF("status",    S_IRUGO, pid_status),
+	ONE("status",    S_IRUGO, pid_status),
 	INF("limits",	 S_IRUSR, pid_limits),
 #ifdef CONFIG_SCHED_DEBUG
 	REG("sched",     S_IRUGO|S_IWUSR, pid_sched),
 #endif
 	INF("cmdline",   S_IRUGO, pid_cmdline),
-	INF("stat",      S_IRUGO, tid_stat),
-	INF("statm",     S_IRUGO, pid_statm),
+	ONE("stat",      S_IRUGO, tid_stat),
+	ONE("statm",     S_IRUGO, pid_statm),
 	REG("maps",      S_IRUGO, maps),
 #ifdef CONFIG_NUMA
 	REG("numa_maps", S_IRUGO, numa_maps),
@@ -2617,9 +2630,10 @@ static const struct pid_entry tid_base_stuff[] = {
 	LNK("root",      root),
 	LNK("exe",       exe),
 	REG("mounts",    S_IRUGO, mounts),
-#ifdef CONFIG_MMU
+#ifdef CONFIG_PROC_PAGE_MONITOR
 	REG("clear_refs", S_IWUSR, clear_refs),
 	REG("smaps",     S_IRUGO, smaps),
+	REG("pagemap",    S_IRUSR, pagemap),
 #endif
 #ifdef CONFIG_SECURITY
 	DIR("attr",      S_IRUGO|S_IXUGO, attr_dir),

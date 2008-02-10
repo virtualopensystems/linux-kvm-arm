@@ -15,7 +15,6 @@
 #include <linux/ptrace.h>
 #include <linux/slab.h>
 #include <linux/user.h>
-#include <linux/a.out.h>
 #include <linux/screen_info.h>
 #include <linux/ioport.h>
 #include <linux/delay.h>
@@ -182,13 +181,14 @@ contig_initmem_init(unsigned long start_pfn, unsigned long end_pfn)
 	unsigned long bootmap_size, bootmap;
 
 	bootmap_size = bootmem_bootmap_pages(end_pfn)<<PAGE_SHIFT;
-	bootmap = find_e820_area(0, end_pfn<<PAGE_SHIFT, bootmap_size);
+	bootmap = find_e820_area(0, end_pfn<<PAGE_SHIFT, bootmap_size,
+				 PAGE_SIZE);
 	if (bootmap == -1L)
 		panic("Cannot find bootmem map of size %ld\n", bootmap_size);
 	bootmap_size = init_bootmem(bootmap >> PAGE_SHIFT, end_pfn);
 	e820_register_active_regions(0, start_pfn, end_pfn);
 	free_bootmem_with_active_regions(0, end_pfn);
-	reserve_bootmem(bootmap, bootmap_size);
+	reserve_bootmem(bootmap, bootmap_size, BOOTMEM_DEFAULT);
 }
 #endif
 
@@ -219,28 +219,35 @@ static inline void copy_edd(void)
 #ifdef CONFIG_KEXEC
 static void __init reserve_crashkernel(void)
 {
-	unsigned long long free_mem;
+	unsigned long long total_mem;
 	unsigned long long crash_size, crash_base;
 	int ret;
 
-	free_mem =
-		((unsigned long long)max_low_pfn - min_low_pfn) << PAGE_SHIFT;
+	total_mem = ((unsigned long long)max_low_pfn - min_low_pfn) << PAGE_SHIFT;
 
-	ret = parse_crashkernel(boot_command_line, free_mem,
+	ret = parse_crashkernel(boot_command_line, total_mem,
 			&crash_size, &crash_base);
 	if (ret == 0 && crash_size) {
-		if (crash_base > 0) {
-			printk(KERN_INFO "Reserving %ldMB of memory at %ldMB "
-					"for crashkernel (System RAM: %ldMB)\n",
-					(unsigned long)(crash_size >> 20),
-					(unsigned long)(crash_base >> 20),
-					(unsigned long)(free_mem >> 20));
-			crashk_res.start = crash_base;
-			crashk_res.end   = crash_base + crash_size - 1;
-			reserve_bootmem(crash_base, crash_size);
-		} else
+		if (crash_base <= 0) {
 			printk(KERN_INFO "crashkernel reservation failed - "
 					"you have to specify a base address\n");
+			return;
+		}
+
+		if (reserve_bootmem(crash_base, crash_size,
+					BOOTMEM_EXCLUSIVE) < 0) {
+			printk(KERN_INFO "crashkernel reservation failed - "
+					"memory is in use\n");
+			return;
+		}
+
+		printk(KERN_INFO "Reserving %ldMB of memory at %ldMB "
+				"for crashkernel (System RAM: %ldMB)\n",
+				(unsigned long)(crash_size >> 20),
+				(unsigned long)(crash_base >> 20),
+				(unsigned long)(total_mem >> 20));
+		crashk_res.start = crash_base;
+		crashk_res.end   = crash_base + crash_size - 1;
 	}
 }
 #else
@@ -1066,82 +1073,6 @@ static int show_cpuinfo(struct seq_file *m, void *v)
 {
 	struct cpuinfo_x86 *c = v;
 	int cpu = 0, i;
-
-	/*
-	 * These flag bits must match the definitions in <asm/cpufeature.h>.
-	 * NULL means this bit is undefined or reserved; either way it doesn't
-	 * have meaning as far as Linux is concerned.  Note that it's important
-	 * to realize there is a difference between this table and CPUID -- if
-	 * applications want to get the raw CPUID data, they should access
-	 * /dev/cpu/<cpu_nr>/cpuid instead.
-	 */
-	static const char *const x86_cap_flags[] = {
-		/* Intel-defined */
-		"fpu", "vme", "de", "pse", "tsc", "msr", "pae", "mce",
-		"cx8", "apic", NULL, "sep", "mtrr", "pge", "mca", "cmov",
-		"pat", "pse36", "pn", "clflush", NULL, "dts", "acpi", "mmx",
-		"fxsr", "sse", "sse2", "ss", "ht", "tm", "ia64", "pbe",
-
-		/* AMD-defined */
-		NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
-		NULL, NULL, NULL, "syscall", NULL, NULL, NULL, NULL,
-		NULL, NULL, NULL, NULL, "nx", NULL, "mmxext", NULL,
-		NULL, "fxsr_opt", "pdpe1gb", "rdtscp", NULL, "lm",
-		"3dnowext", "3dnow",
-
-		/* Transmeta-defined */
-		"recovery", "longrun", NULL, "lrti", NULL, NULL, NULL, NULL,
-		NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
-		NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
-		NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
-
-		/* Other (Linux-defined) */
-		"cxmmx", "k6_mtrr", "cyrix_arr", "centaur_mcr",
-		NULL, NULL, NULL, NULL,
-		"constant_tsc", "up", NULL, "arch_perfmon",
-		"pebs", "bts", NULL, "sync_rdtsc",
-		"rep_good", NULL, NULL, NULL, NULL, NULL, NULL, NULL,
-		NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
-
-		/* Intel-defined (#2) */
-		"pni", NULL, NULL, "monitor", "ds_cpl", "vmx", "smx", "est",
-		"tm2", "ssse3", "cid", NULL, NULL, "cx16", "xtpr", NULL,
-		NULL, NULL, "dca", "sse4_1", "sse4_2", NULL, NULL, "popcnt",
-		NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
-
-		/* VIA/Cyrix/Centaur-defined */
-		NULL, NULL, "rng", "rng_en", NULL, NULL, "ace", "ace_en",
-		"ace2", "ace2_en", "phe", "phe_en", "pmm", "pmm_en", NULL, NULL,
-		NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
-		NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
-
-		/* AMD-defined (#2) */
-		"lahf_lm", "cmp_legacy", "svm", "extapic",
-		"cr8_legacy", "abm", "sse4a", "misalignsse",
-		"3dnowprefetch", "osvw", "ibs", "sse5",
-		"skinit", "wdt", NULL, NULL,
-		NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
-		NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
-
-		/* Auxiliary (Linux-defined) */
-		"ida", NULL, NULL, NULL, NULL, NULL, NULL, NULL,
-		NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
-		NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
-		NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
-	};
-	static const char *const x86_power_flags[] = {
-		"ts",	/* temperature sensor */
-		"fid",  /* frequency id control */
-		"vid",  /* voltage id control */
-		"ttp",  /* thermal trip */
-		"tm",
-		"stc",
-		"100mhzsteps",
-		"hwpstate",
-		"",	/* tsc invariant mapped to constant_tsc */
-		/* nothing */
-	};
-
 
 #ifdef CONFIG_SMP
 	cpu = c->cpu_index;

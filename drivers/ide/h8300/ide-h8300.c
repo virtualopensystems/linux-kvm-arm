@@ -1,5 +1,4 @@
 /*
- * drivers/ide/h8300/ide-h8300.c
  * H8/300 generic IDE interface
  */
 
@@ -115,7 +114,7 @@ static int __init h8300_ide_init(void)
 
 	idx[0] = index;
 
-	ide_device_add(idx);
+	ide_device_add(idx, NULL);
 
 	return 0;
 

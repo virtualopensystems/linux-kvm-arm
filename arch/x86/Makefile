@@ -92,7 +92,6 @@ KBUILD_AFLAGS += $(cfi) $(cfi-sigframe)
 KBUILD_CFLAGS += $(cfi) $(cfi-sigframe)
 
 LDFLAGS := -m elf_$(UTS_MACHINE)
-OBJCOPYFLAGS := -O binary -R .note -R .comment -S
 
 # Speed up the build
 KBUILD_CFLAGS += -pipe
@@ -192,8 +191,10 @@ drivers-$(CONFIG_PCI)            += arch/x86/pci/
 # must be linked after kernel/
 drivers-$(CONFIG_OPROFILE) += arch/x86/oprofile/
 
-ifeq ($(CONFIG_X86_32),y)
+# suspend and hibernation support
 drivers-$(CONFIG_PM) += arch/x86/power/
+
+ifeq ($(CONFIG_X86_32),y)
 drivers-$(CONFIG_FB) += arch/x86/video/
 endif
 

@@ -92,6 +92,7 @@ struct sched_param {
 
 #include <asm/processor.h>
 
+struct mem_cgroup;
 struct exec_domain;
 struct futex_pi_state;
 struct robust_list_head;
@@ -459,7 +460,7 @@ struct signal_struct {
 
 	/* ITIMER_REAL timer for the process */
 	struct hrtimer real_timer;
-	struct task_struct *tsk;
+	struct pid *leader_pid;
 	ktime_t it_real_incr;
 
 	/* ITIMER_PROF and ITIMER_VIRTUAL timers for the process */
@@ -554,6 +555,13 @@ struct signal_struct {
 #define SIGNAL_STOP_DEQUEUED	0x00000002 /* stop signal dequeued */
 #define SIGNAL_STOP_CONTINUED	0x00000004 /* SIGCONT since WCONTINUED reap */
 #define SIGNAL_GROUP_EXIT	0x00000008 /* group exit in progress */
+
+/* If true, all threads except ->group_exit_task have pending SIGKILL */
+static inline int signal_group_exit(const struct signal_struct *sig)
+{
+	return	(sig->flags & SIGNAL_GROUP_EXIT) ||
+		(sig->group_exit_task != NULL);
+}
 
 /*
  * Some day this will be a full-fledged user tracking system..
@@ -803,7 +811,7 @@ static inline int above_background_load(void)
 
 struct io_context;			/* See blkdev.h */
 #define NGROUPS_SMALL		32
-#define NGROUPS_PER_BLOCK	((int)(PAGE_SIZE / sizeof(gid_t)))
+#define NGROUPS_PER_BLOCK	((unsigned int)(PAGE_SIZE / sizeof(gid_t)))
 struct group_info {
 	int ngroups;
 	atomic_t usage;
@@ -1091,7 +1099,7 @@ struct task_struct {
 	uid_t uid,euid,suid,fsuid;
 	gid_t gid,egid,sgid,fsgid;
 	struct group_info *group_info;
-	kernel_cap_t   cap_effective, cap_inheritable, cap_permitted;
+	kernel_cap_t   cap_effective, cap_inheritable, cap_permitted, cap_bset;
 	unsigned keep_capabilities:1;
 	struct user_struct *user;
 #ifdef CONFIG_KEYS
@@ -1139,6 +1147,10 @@ struct task_struct {
 	void *security;
 #endif
 	struct audit_context *audit_context;
+#ifdef CONFIG_AUDITSYSCALL
+	uid_t loginuid;
+	unsigned int sessionid;
+#endif
 	seccomp_t seccomp;
 
 /* Thread group tracking */
@@ -1320,9 +1332,8 @@ struct pid_namespace;
  * from various namespaces
  *
  * task_xid_nr()     : global id, i.e. the id seen from the init namespace;
- * task_xid_vnr()    : virtual id, i.e. the id seen from the namespace the task
- *                     belongs to. this only makes sence when called in the
- *                     context of the task that belongs to the same namespace;
+ * task_xid_vnr()    : virtual id, i.e. the id seen from the pid namespace of
+ *                     current.
  * task_xid_nr_ns()  : id seen from the ns specified;
  *
  * set_task_vxid()   : assigns a virtual id to a task;
@@ -1620,7 +1631,7 @@ extern struct task_struct *find_task_by_vpid(pid_t nr);
 extern struct task_struct *find_task_by_pid_ns(pid_t nr,
 		struct pid_namespace *ns);
 
-extern void __set_special_pids(pid_t session, pid_t pgrp);
+extern void __set_special_pids(struct pid *pid);
 
 /* per-UID process charging. */
 extern struct user_struct * alloc_uid(struct user_namespace *, uid_t);
@@ -1675,11 +1686,9 @@ extern void block_all_signals(int (*notifier)(void *priv), void *priv,
 extern void unblock_all_signals(void);
 extern void release_task(struct task_struct * p);
 extern int send_sig_info(int, struct siginfo *, struct task_struct *);
-extern int send_group_sig_info(int, struct siginfo *, struct task_struct *);
 extern int force_sigsegv(int, struct task_struct *);
 extern int force_sig_info(int, struct siginfo *, struct task_struct *);
 extern int __kill_pgrp_info(int sig, struct siginfo *info, struct pid *pgrp);
-extern int kill_pgrp_info(int sig, struct siginfo *info, struct pid *pgrp);
 extern int kill_pid_info(int sig, struct siginfo *info, struct pid *pid);
 extern int kill_pid_info_as_uid(int, struct siginfo *, struct pid *, uid_t, uid_t, u32);
 extern int kill_pgrp(struct pid *pid, int sig, int priv);
@@ -1766,7 +1775,7 @@ extern long do_fork(unsigned long, unsigned long, struct pt_regs *, unsigned lon
 struct task_struct *fork_idle(int);
 
 extern void set_task_comm(struct task_struct *tsk, char *from);
-extern void get_task_comm(char *to, struct task_struct *tsk);
+extern char *get_task_comm(char *to, struct task_struct *tsk);
 
 #ifdef CONFIG_SMP
 extern void wait_task_inactive(struct task_struct * p);
@@ -2074,6 +2083,10 @@ void migration_init(void);
 static inline void migration_init(void)
 {
 }
+#endif
+
+#ifndef TASK_SIZE_OF
+#define TASK_SIZE_OF(tsk)	TASK_SIZE
 #endif
 
 #endif /* __KERNEL__ */

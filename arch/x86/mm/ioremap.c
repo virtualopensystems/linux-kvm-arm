@@ -70,23 +70,11 @@ int page_is_ram(unsigned long pagenr)
  * Fix up the linear direct mapping of the kernel to avoid cache attribute
  * conflicts.
  */
-static int ioremap_change_attr(unsigned long paddr, unsigned long size,
+static int ioremap_change_attr(unsigned long vaddr, unsigned long size,
 			       enum ioremap_mode mode)
 {
-	unsigned long vaddr = (unsigned long)__va(paddr);
 	unsigned long nrpages = size >> PAGE_SHIFT;
-	int err, level;
-
-	/* No change for pages after the last mapping */
-	if ((paddr + size - 1) >= (max_pfn_mapped << PAGE_SHIFT))
-		return 0;
-
-	/*
-	 * If there is no identity map for this address,
-	 * change_page_attr_addr is unnecessary
-	 */
-	if (!lookup_address(vaddr, &level))
-		return 0;
+	int err;
 
 	switch (mode) {
 	case IOR_MODE_UNCACHED:
@@ -113,9 +101,8 @@ static int ioremap_change_attr(unsigned long paddr, unsigned long size,
 static void __iomem *__ioremap(unsigned long phys_addr, unsigned long size,
 			       enum ioremap_mode mode)
 {
-	void __iomem *addr;
+	unsigned long pfn, offset, last_addr, vaddr;
 	struct vm_struct *area;
-	unsigned long offset, last_addr;
 	pgprot_t prot;
 
 	/* Don't allow wraparound or zero size */
@@ -132,9 +119,10 @@ static void __iomem *__ioremap(unsigned long phys_addr, unsigned long size,
 	/*
 	 * Don't allow anybody to remap normal RAM that we're using..
 	 */
-	for (offset = phys_addr >> PAGE_SHIFT; offset < max_pfn_mapped &&
-	     (offset << PAGE_SHIFT) < last_addr; offset++) {
-		if (page_is_ram(offset))
+	for (pfn = phys_addr >> PAGE_SHIFT; pfn < max_pfn_mapped &&
+	     (pfn << PAGE_SHIFT) < last_addr; pfn++) {
+		if (page_is_ram(pfn) && pfn_valid(pfn) &&
+		    !PageReserved(pfn_to_page(pfn)))
 			return NULL;
 	}
 
@@ -162,19 +150,18 @@ static void __iomem *__ioremap(unsigned long phys_addr, unsigned long size,
 	if (!area)
 		return NULL;
 	area->phys_addr = phys_addr;
-	addr = (void __iomem *) area->addr;
-	if (ioremap_page_range((unsigned long)addr, (unsigned long)addr + size,
-			       phys_addr, prot)) {
-		remove_vm_area((void *)(PAGE_MASK & (unsigned long) addr));
+	vaddr = (unsigned long) area->addr;
+	if (ioremap_page_range(vaddr, vaddr + size, phys_addr, prot)) {
+		remove_vm_area((void *)(vaddr & PAGE_MASK));
 		return NULL;
 	}
 
-	if (ioremap_change_attr(phys_addr, size, mode) < 0) {
-		vunmap(addr);
+	if (ioremap_change_attr(vaddr, size, mode) < 0) {
+		vunmap(area->addr);
 		return NULL;
 	}
 
-	return (void __iomem *) (offset + (char __iomem *)addr);
+	return (void __iomem *) (vaddr + offset);
 }
 
 /**
@@ -253,9 +240,6 @@ void iounmap(volatile void __iomem *addr)
 		return;
 	}
 
-	/* Reset the direct mapping. Can block */
-	ioremap_change_attr(p->phys_addr, p->size, IOR_MODE_CACHED);
-
 	/* Finally remove it */
 	o = remove_vm_area((void *)addr);
 	BUG_ON(p != o || o == NULL);
@@ -276,41 +260,46 @@ static int __init early_ioremap_debug_setup(char *str)
 early_param("early_ioremap_debug", early_ioremap_debug_setup);
 
 static __initdata int after_paging_init;
-static __initdata unsigned long bm_pte[1024]
+static __initdata pte_t bm_pte[PAGE_SIZE/sizeof(pte_t)]
 				__attribute__((aligned(PAGE_SIZE)));
 
-static inline unsigned long * __init early_ioremap_pgd(unsigned long addr)
+static inline pmd_t * __init early_ioremap_pmd(unsigned long addr)
 {
-	return (unsigned long *)swapper_pg_dir + ((addr >> 22) & 1023);
+	pgd_t *pgd = &swapper_pg_dir[pgd_index(addr)];
+	pud_t *pud = pud_offset(pgd, addr);
+	pmd_t *pmd = pmd_offset(pud, addr);
+
+	return pmd;
 }
 
-static inline unsigned long * __init early_ioremap_pte(unsigned long addr)
+static inline pte_t * __init early_ioremap_pte(unsigned long addr)
 {
-	return bm_pte + ((addr >> PAGE_SHIFT) & 1023);
+	return &bm_pte[pte_index(addr)];
 }
 
 void __init early_ioremap_init(void)
 {
-	unsigned long *pgd;
+	pmd_t *pmd;
 
 	if (early_ioremap_debug)
 		printk(KERN_INFO "early_ioremap_init()\n");
 
-	pgd = early_ioremap_pgd(fix_to_virt(FIX_BTMAP_BEGIN));
-	*pgd = __pa(bm_pte) | _PAGE_TABLE;
+	pmd = early_ioremap_pmd(fix_to_virt(FIX_BTMAP_BEGIN));
 	memset(bm_pte, 0, sizeof(bm_pte));
+	pmd_populate_kernel(&init_mm, pmd, bm_pte);
+
 	/*
-	 * The boot-ioremap range spans multiple pgds, for which
+	 * The boot-ioremap range spans multiple pmds, for which
 	 * we are not prepared:
 	 */
-	if (pgd != early_ioremap_pgd(fix_to_virt(FIX_BTMAP_END))) {
+	if (pmd != early_ioremap_pmd(fix_to_virt(FIX_BTMAP_END))) {
 		WARN_ON(1);
-		printk(KERN_WARNING "pgd %p != %p\n",
-		       pgd, early_ioremap_pgd(fix_to_virt(FIX_BTMAP_END)));
+		printk(KERN_WARNING "pmd %p != %p\n",
+		       pmd, early_ioremap_pmd(fix_to_virt(FIX_BTMAP_END)));
 		printk(KERN_WARNING "fix_to_virt(FIX_BTMAP_BEGIN): %08lx\n",
-		       fix_to_virt(FIX_BTMAP_BEGIN));
+			fix_to_virt(FIX_BTMAP_BEGIN));
 		printk(KERN_WARNING "fix_to_virt(FIX_BTMAP_END):   %08lx\n",
-		       fix_to_virt(FIX_BTMAP_END));
+			fix_to_virt(FIX_BTMAP_END));
 
 		printk(KERN_WARNING "FIX_BTMAP_END:       %d\n", FIX_BTMAP_END);
 		printk(KERN_WARNING "FIX_BTMAP_BEGIN:     %d\n",
@@ -320,28 +309,29 @@ void __init early_ioremap_init(void)
 
 void __init early_ioremap_clear(void)
 {
-	unsigned long *pgd;
+	pmd_t *pmd;
 
 	if (early_ioremap_debug)
 		printk(KERN_INFO "early_ioremap_clear()\n");
 
-	pgd = early_ioremap_pgd(fix_to_virt(FIX_BTMAP_BEGIN));
-	*pgd = 0;
-	paravirt_release_pt(__pa(pgd) >> PAGE_SHIFT);
+	pmd = early_ioremap_pmd(fix_to_virt(FIX_BTMAP_BEGIN));
+	pmd_clear(pmd);
+	paravirt_release_pt(__pa(bm_pte) >> PAGE_SHIFT);
 	__flush_tlb_all();
 }
 
 void __init early_ioremap_reset(void)
 {
 	enum fixed_addresses idx;
-	unsigned long *pte, phys, addr;
+	unsigned long addr, phys;
+	pte_t *pte;
 
 	after_paging_init = 1;
 	for (idx = FIX_BTMAP_BEGIN; idx >= FIX_BTMAP_END; idx--) {
 		addr = fix_to_virt(idx);
 		pte = early_ioremap_pte(addr);
-		if (*pte & _PAGE_PRESENT) {
-			phys = *pte & PAGE_MASK;
+		if (pte_present(*pte)) {
+			phys = pte_val(*pte) & PAGE_MASK;
 			set_fixmap(idx, phys);
 		}
 	}
@@ -350,7 +340,8 @@ void __init early_ioremap_reset(void)
 static void __init __early_set_fixmap(enum fixed_addresses idx,
 				   unsigned long phys, pgprot_t flags)
 {
-	unsigned long *pte, addr = __fix_to_virt(idx);
+	unsigned long addr = __fix_to_virt(idx);
+	pte_t *pte;
 
 	if (idx >= __end_of_fixed_addresses) {
 		BUG();
@@ -358,9 +349,9 @@ static void __init __early_set_fixmap(enum fixed_addresses idx,
 	}
 	pte = early_ioremap_pte(addr);
 	if (pgprot_val(flags))
-		*pte = (phys & PAGE_MASK) | pgprot_val(flags);
+		set_pte(pte, pfn_pte(phys >> PAGE_SHIFT, flags));
 	else
-		*pte = 0;
+		pte_clear(NULL, addr, pte);
 	__flush_tlb_one(addr);
 }
 

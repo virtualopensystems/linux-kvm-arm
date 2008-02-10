@@ -1,6 +1,4 @@
 /*
- * linux/drivers/ide/pci/sis5513.c	Version 0.31	Aug 9, 2007
- *
  * Copyright (C) 1999-2000	Andre Hedrick <andre@linux-ide.org>
  * Copyright (C) 2002		Lionel Bouton <Lionel.Bouton@inet6.fr>, Maintainer
  * Copyright (C) 2003		Vojtech Pavlik <vojtech@suse.cz>
@@ -49,19 +47,10 @@
 #include <linux/types.h>
 #include <linux/module.h>
 #include <linux/kernel.h>
-#include <linux/delay.h>
-#include <linux/timer.h>
-#include <linux/mm.h>
-#include <linux/ioport.h>
-#include <linux/blkdev.h>
 #include <linux/hdreg.h>
-
-#include <linux/interrupt.h>
 #include <linux/pci.h>
 #include <linux/init.h>
 #include <linux/ide.h>
-
-#include <asm/irq.h>
 
 #include "ide-timing.h"
 
@@ -197,7 +186,7 @@ static char* chipset_capability[] = {
 
 static u8 sis_ata133_get_base(ide_drive_t *drive)
 {
-	struct pci_dev *dev = drive->hwif->pci_dev;
+	struct pci_dev *dev = to_pci_dev(drive->hwif->dev);
 	u32 reg54 = 0;
 
 	pci_read_config_dword(dev, 0x54, &reg54);
@@ -207,7 +196,7 @@ static u8 sis_ata133_get_base(ide_drive_t *drive)
 
 static void sis_ata16_program_timings(ide_drive_t *drive, const u8 mode)
 {
-	struct pci_dev *dev = drive->hwif->pci_dev;
+	struct pci_dev *dev = to_pci_dev(drive->hwif->dev);
 	u16 t1 = 0;
 	u8 drive_pci = 0x40 + drive->dn * 2;
 
@@ -230,7 +219,7 @@ static void sis_ata16_program_timings(ide_drive_t *drive, const u8 mode)
 
 static void sis_ata100_program_timings(ide_drive_t *drive, const u8 mode)
 {
-	struct pci_dev *dev = drive->hwif->pci_dev;
+	struct pci_dev *dev = to_pci_dev(drive->hwif->dev);
 	u8 t1, drive_pci = 0x40 + drive->dn * 2;
 
 	/* timing bits: 7:4 active 3:0 recovery */
@@ -253,7 +242,7 @@ static void sis_ata100_program_timings(ide_drive_t *drive, const u8 mode)
 
 static void sis_ata133_program_timings(ide_drive_t *drive, const u8 mode)
 {
-	struct pci_dev *dev = drive->hwif->pci_dev;
+	struct pci_dev *dev = to_pci_dev(drive->hwif->dev);
 	u32 t1 = 0;
 	u8 drive_pci = sis_ata133_get_base(drive), clk, idx;
 
@@ -286,7 +275,7 @@ static void sis_program_timings(ide_drive_t *drive, const u8 mode)
 static void config_drive_art_rwp (ide_drive_t *drive)
 {
 	ide_hwif_t *hwif	= HWIF(drive);
-	struct pci_dev *dev	= hwif->pci_dev;
+	struct pci_dev *dev	= to_pci_dev(hwif->dev);
 	u8 reg4bh		= 0;
 	u8 rw_prefetch		= 0;
 
@@ -307,7 +296,7 @@ static void sis_set_pio_mode(ide_drive_t *drive, const u8 pio)
 
 static void sis_ata133_program_udma_timings(ide_drive_t *drive, const u8 mode)
 {
-	struct pci_dev *dev = drive->hwif->pci_dev;
+	struct pci_dev *dev = to_pci_dev(drive->hwif->dev);
 	u32 regdw = 0;
 	u8 drive_pci = sis_ata133_get_base(drive), clk, idx;
 
@@ -326,7 +315,7 @@ static void sis_ata133_program_udma_timings(ide_drive_t *drive, const u8 mode)
 
 static void sis_ata33_program_udma_timings(ide_drive_t *drive, const u8 mode)
 {
-	struct pci_dev *dev = drive->hwif->pci_dev;
+	struct pci_dev *dev = to_pci_dev(drive->hwif->dev);
 	u8 drive_pci = 0x40 + drive->dn * 2, reg = 0, i = chipset_family;
 
 	pci_read_config_byte(dev, drive_pci + 1, &reg);
@@ -359,7 +348,7 @@ static void sis_set_dma_mode(ide_drive_t *drive, const u8 speed)
 
 static u8 sis5513_ata133_udma_filter(ide_drive_t *drive)
 {
-	struct pci_dev *dev = drive->hwif->pci_dev;
+	struct pci_dev *dev = to_pci_dev(drive->hwif->dev);
 	u32 regdw = 0;
 	u8 drive_pci = sis_ata133_get_base(drive);
 
@@ -530,7 +519,7 @@ static const struct sis_laptop sis_laptop[] = {
 
 static u8 __devinit ata66_sis5513(ide_hwif_t *hwif)
 {
-	struct pci_dev *pdev = hwif->pci_dev;
+	struct pci_dev *pdev = to_pci_dev(hwif->dev);
 	const struct sis_laptop *lap = &sis_laptop[0];
 	u8 ata66 = 0;
 
@@ -545,12 +534,12 @@ static u8 __devinit ata66_sis5513(ide_hwif_t *hwif)
 	if (chipset_family >= ATA_133) {
 		u16 regw = 0;
 		u16 reg_addr = hwif->channel ? 0x52: 0x50;
-		pci_read_config_word(hwif->pci_dev, reg_addr, &regw);
+		pci_read_config_word(pdev, reg_addr, &regw);
 		ata66 = (regw & 0x8000) ? 0 : 1;
 	} else if (chipset_family >= ATA_66) {
 		u8 reg48h = 0;
 		u8 mask = hwif->channel ? 0x20 : 0x10;
-		pci_read_config_byte(hwif->pci_dev, 0x48, &reg48h);
+		pci_read_config_byte(pdev, 0x48, &reg48h);
 		ata66 = (reg48h & mask) ? 0 : 1;
 	}
 
@@ -567,13 +556,12 @@ static void __devinit init_hwif_sis5513 (ide_hwif_t *hwif)
 	if (chipset_family >= ATA_133)
 		hwif->udma_filter = sis5513_ata133_udma_filter;
 
+	hwif->cable_detect = ata66_sis5513;
+
 	if (hwif->dma_base == 0)
 		return;
 
 	hwif->ultra_mask = udma_rates[chipset_family];
-
-	if (hwif->cbl != ATA_CBL_PATA40_SHORT)
-		hwif->cbl = ata66_sis5513(hwif);
 }
 
 static const struct ide_port_info sis5513_chipset __devinitdata = {
