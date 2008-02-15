@@ -46,6 +46,7 @@
 #include <linux/pfn.h>
 #include <linux/pci.h>
 #include <linux/init_ohci1394_dma.h>
+#include <linux/kvm_para.h>
 
 #include <video/edid.h>
 
@@ -771,6 +772,10 @@ void __init setup_arch(char **cmdline_p)
 	mtrr_bp_init();
 	if (mtrr_trim_uncached_memory(max_pfn))
 		max_low_pfn = setup_memory();
+
+#ifdef CONFIG_KVM_CLOCK
+	kvmclock_init();
+#endif
 
 #ifdef CONFIG_VMI
 	/*
