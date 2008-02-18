@@ -490,7 +490,7 @@ static void kvm_write_wall_clock(struct kvm *kvm, gpa_t wall_clock)
 	struct timespec wc_ts;
 
 	if (!wall_clock)
-		return
+		return;
 
 	mutex_lock(&kvm->lock);
 
