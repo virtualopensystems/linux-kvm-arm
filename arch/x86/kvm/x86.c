@@ -596,6 +596,8 @@ int kvm_set_msr_common(struct kvm_vcpu *vcpu, u32 msr, u64 data)
 
 		if (is_error_page(vcpu->arch.time_page))
 			vcpu->arch.time_page = NULL;
+
+		kvm_write_guest_time(vcpu);
 		break;
 	}
 	default:
