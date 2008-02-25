@@ -595,8 +595,10 @@ int kvm_set_msr_common(struct kvm_vcpu *vcpu, u32 msr, u64 data)
 				gfn_to_page(vcpu->kvm, data >> PAGE_SHIFT);
 		up_read(&current->mm->mmap_sem);
 
-		if (is_error_page(vcpu->arch.time_page))
+		if (is_error_page(vcpu->arch.time_page)) {
+			kvm_release_page_clean(vcpu->arch.time_page);
 			vcpu->arch.time_page = NULL;
+		}
 
 		kvm_write_guest_time(vcpu);
 		break;
