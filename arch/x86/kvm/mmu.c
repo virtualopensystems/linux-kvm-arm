@@ -1265,7 +1265,7 @@ static void mmu_alloc_roots(struct kvm_vcpu *vcpu)
 			metaphysical = 1;
 		sp = kvm_mmu_get_page(vcpu, root_gfn, 0,
 				      PT64_ROOT_LEVEL, metaphysical,
-				      ACC_ALL, NULL, NULL);
+				      ACC_ALL, NULL);
 		root = __pa(sp->spt);
 		++sp->root_count;
 		vcpu->arch.mmu.root_hpa = root;
