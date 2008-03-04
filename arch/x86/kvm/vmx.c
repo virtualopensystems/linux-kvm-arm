@@ -522,7 +522,7 @@ static void vmx_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
 {
 	struct vcpu_vmx *vmx = to_vmx(vcpu);
 	u64 phys_addr = __pa(vmx->vmcs);
-	u64 tsc_this, delta;
+	u64 tsc_this, delta, new_offset;
 
 	if (vcpu->cpu != cpu) {
 		vcpu_clear(vmx);
@@ -562,8 +562,11 @@ static void vmx_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
 		 * Make sure the time stamp counter is monotonous.
 		 */
 		rdtscll(tsc_this);
-		delta = vcpu->arch.host_tsc - tsc_this;
-		vmcs_write64(TSC_OFFSET, vmcs_read64(TSC_OFFSET) + delta);
+		if (tsc_this < vcpu->arch.host_tsc) {
+			delta = vcpu->arch.host_tsc - tsc_this;
+			new_offset = vmcs_read64(TSC_OFFSET) + delta;
+			vmcs_write64(TSC_OFFSET, new_offset);
+		}
 	}
 }
 
