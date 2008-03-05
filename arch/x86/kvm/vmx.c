@@ -608,7 +608,7 @@ static unsigned long vmx_get_rflags(struct kvm_vcpu *vcpu)
 static void vmx_set_rflags(struct kvm_vcpu *vcpu, unsigned long rflags)
 {
 	if (vcpu->arch.rmode.active)
-		rflags |= IOPL_MASK | X86_EFLAGS_VM;
+		rflags |= X86_EFLAGS_IOPL | X86_EFLAGS_VM;
 	vmcs_writel(GUEST_RFLAGS, rflags);
 }
 
@@ -1161,7 +1161,7 @@ static void enter_pmode(struct kvm_vcpu *vcpu)
 	vmcs_write32(GUEST_TR_AR_BYTES, vcpu->arch.rmode.tr.ar);
 
 	flags = vmcs_readl(GUEST_RFLAGS);
-	flags &= ~(IOPL_MASK | X86_EFLAGS_VM);
+	flags &= ~(X86_EFLAGS_IOPL | X86_EFLAGS_VM);
 	flags |= (vcpu->arch.rmode.save_iopl << IOPL_SHIFT);
 	vmcs_writel(GUEST_RFLAGS, flags);
 
@@ -1223,9 +1223,10 @@ static void enter_rmode(struct kvm_vcpu *vcpu)
 	vmcs_write32(GUEST_TR_AR_BYTES, 0x008b);
 
 	flags = vmcs_readl(GUEST_RFLAGS);
-	vcpu->arch.rmode.save_iopl = (flags & IOPL_MASK) >> IOPL_SHIFT;
+	vcpu->arch.rmode.save_iopl
+		= (flags & X86_EFLAGS_IOPL) >> IOPL_SHIFT;
 
-	flags |= IOPL_MASK | X86_EFLAGS_VM;
+	flags |= X86_EFLAGS_IOPL | X86_EFLAGS_VM;
 
 	vmcs_writel(GUEST_RFLAGS, flags);
 	vmcs_writel(GUEST_CR4, vmcs_readl(GUEST_CR4) | X86_CR4_VME);
