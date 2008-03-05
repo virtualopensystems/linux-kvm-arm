@@ -20,7 +20,6 @@
 #include <linux/kvm_para.h>
 #include <asm/arch_hooks.h>
 #include <asm/msr.h>
-#include <xen/interface/xen.h>
 
 #define KVM_SCALE 22
 
@@ -32,8 +31,6 @@ static int parse_no_kvmclock(char *arg)
 	return 0;
 }
 early_param("no-kvmclock", parse_no_kvmclock);
-
-struct shared_info shared_info __attribute__((__aligned__(PAGE_SIZE)));
 
 /* The hypervisor will put information about time periodically here */
 static struct kvm_vcpu_time_info hv_clock[NR_CPUS];
