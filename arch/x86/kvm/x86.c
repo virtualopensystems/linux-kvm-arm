@@ -591,8 +591,15 @@ int kvm_set_msr_common(struct kvm_vcpu *vcpu, u32 msr, u64 data)
 		if (vcpu->arch.time_page)
 			kvm_release_page_dirty(vcpu->arch.time_page);
 
+		/* we verify if the enable bit is set... */
+		if (!(data & 1)) {
+			vcpu->arch.time = NULL;
+			break;
+		}
+
 		vcpu->arch.time = data & PAGE_MASK;
-		vcpu->arch.time_offset = data & ~PAGE_MASK;
+		/* ...but clean it before doing the actual write */
+		vcpu->arch.time_offset = data & ~(PAGE_MASK | 1);
 
 		vcpu->arch.hv_clock.tsc_to_system_mul =
 					clocksource_khz2mult(tsc_khz, 22);
