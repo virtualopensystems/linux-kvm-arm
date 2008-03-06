@@ -20,6 +20,7 @@
 #include <linux/kvm_para.h>
 #include <asm/arch_hooks.h>
 #include <asm/msr.h>
+#include <linux/percpu.h>
 
 #define KVM_SCALE 22
 
@@ -33,8 +34,8 @@ static int parse_no_kvmclock(char *arg)
 early_param("no-kvmclock", parse_no_kvmclock);
 
 /* The hypervisor will put information about time periodically here */
-static struct kvm_vcpu_time_info hv_clock[NR_CPUS];
-#define get_clock(cpu, field) hv_clock[cpu].field
+static DEFINE_PER_CPU_SHARED_ALIGNED(struct kvm_vcpu_time_info, hv_clock);
+#define get_clock(cpu, field) per_cpu(hv_clock, cpu).field
 
 static inline u64 kvm_get_delta(u64 last_tsc)
 {
@@ -124,8 +125,8 @@ static int kvm_register_clock(void)
 {
 	int cpu = smp_processor_id();
 	int low, high;
-	low = (int)__pa(&hv_clock[cpu]);
-	high = ((u64)__pa(&hv_clock[cpu]) >> 32);
+	low = (int)__pa(&per_cpu(hv_clock, cpu));
+	high = ((u64)__pa(&per_cpu(hv_clock, cpu)) >> 32);
 
 	return native_write_msr_safe(MSR_KVM_SYSTEM_TIME, low, high);
 }
