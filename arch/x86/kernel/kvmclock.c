@@ -125,7 +125,7 @@ static int kvm_register_clock(void)
 {
 	int cpu = smp_processor_id();
 	int low, high;
-	low = (int)__pa(&per_cpu(hv_clock, cpu));
+	low = (int)__pa(&per_cpu(hv_clock, cpu)) | 1;
 	high = ((u64)__pa(&per_cpu(hv_clock, cpu)) >> 32);
 
 	return native_write_msr_safe(MSR_KVM_SYSTEM_TIME, low, high);
