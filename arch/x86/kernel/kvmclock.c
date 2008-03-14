@@ -20,6 +20,7 @@
 #include <linux/kvm_para.h>
 #include <asm/arch_hooks.h>
 #include <asm/msr.h>
+#include <asm/apic.h>
 #include <linux/percpu.h>
 
 #define KVM_SCALE 22
