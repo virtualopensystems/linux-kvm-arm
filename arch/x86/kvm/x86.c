@@ -589,16 +589,17 @@ int kvm_set_msr_common(struct kvm_vcpu *vcpu, u32 msr, u64 data)
 		kvm_write_wall_clock(vcpu->kvm, data);
 		break;
 	case MSR_KVM_SYSTEM_TIME: {
-		if (vcpu->arch.time_page)
+		if (vcpu->arch.time_page) {
 			kvm_release_page_dirty(vcpu->arch.time_page);
-
-		/* we verify if the enable bit is set... */
-		if (!(data & 1)) {
-			vcpu->arch.time = NULL;
-			break;
+			vcpu->arch.time_page = NULL;
 		}
 
-		vcpu->arch.time = data & PAGE_MASK;
+		vcpu->arch.time = data;
+
+		/* we verify if the enable bit is set... */
+		if (!(data & 1))
+			break;
+
 		/* ...but clean it before doing the actual write */
 		vcpu->arch.time_offset = data & ~(PAGE_MASK | 1);
 
