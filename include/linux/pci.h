@@ -278,6 +278,7 @@ struct pci_bus {
 	struct device		dev;
 	struct bin_attribute	*legacy_io; /* legacy I/O for this bus */
 	struct bin_attribute	*legacy_mem; /* legacy mem */
+	unsigned int		is_added:1;
 };
 
 #define pci_bus_b(n)	list_entry(n, struct pci_bus, node)
@@ -387,6 +388,16 @@ struct pci_driver {
 };
 
 #define	to_pci_driver(drv) container_of(drv, struct pci_driver, driver)
+
+/**
+ * DEFINE_PCI_DEVICE_TABLE - macro used to describe a pci device table
+ * @_table: device table name
+ *
+ * This macro is used to create a struct pci_device_id array (a device table)
+ * in a generic manner.
+ */
+#define DEFINE_PCI_DEVICE_TABLE(_table) \
+	const struct pci_device_id _table[] __devinitconst
 
 /**
  * PCI_DEVICE - macro used to describe a specific pci device
