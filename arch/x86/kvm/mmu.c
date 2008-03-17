@@ -1024,8 +1024,16 @@ static void mmu_set_spte(struct kvm_vcpu *vcpu, u64 *shadow_pte,
 			 struct page *page)
 {
 	u64 spte;
-	int was_rmapped = is_rmap_pte(*shadow_pte);
+	int was_rmapped = 0;
 	int was_writeble = is_writeble_pte(*shadow_pte);
+	hfn_t host_pfn = (*shadow_pte & PT64_BASE_ADDR_MASK) >> PAGE_SHIFT;
+
+	if (is_rmap_pte(*shadow_pte)) {
+		if (host_pfn != page_to_pfn(page))
+			rmap_remove(vcpu->kvm, shadow_pte);
+		else
+			was_rmapped = 1;
+	}
 
 	/*
 	 * If we overwrite a PTE page pointer with a 2MB PMD, unlink
