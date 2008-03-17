@@ -500,21 +500,21 @@ static void kvm_write_wall_clock(struct kvm *kvm, gpa_t wall_clock)
 	if (!wall_clock)
 		return;
 
-	mutex_lock(&kvm->lock);
-
 	version++;
+
+	down_read(&kvm->slots_lock);
 	kvm_write_guest(kvm, wall_clock, &version, sizeof(version));
 
 	wc_ts = current_kernel_time();
 	wc.wc_sec = wc_ts.tv_sec;
 	wc.wc_nsec = wc_ts.tv_nsec;
 	wc.wc_version = version;
+
 	kvm_write_guest(kvm, wall_clock, &wc, sizeof(wc));
 
 	version++;
 	kvm_write_guest(kvm, wall_clock, &version, sizeof(version));
-
-	mutex_unlock(&kvm->lock);
+	up_read(&kvm->slots_lock);
 }
 
 static void kvm_write_guest_time(struct kvm_vcpu *v)
@@ -608,8 +608,10 @@ int kvm_set_msr_common(struct kvm_vcpu *vcpu, u32 msr, u64 data)
 		vcpu->arch.hv_clock.tsc_shift = 22;
 
 		down_read(&current->mm->mmap_sem);
+		down_read(&vcpu->kvm->slots_lock);
 		vcpu->arch.time_page =
 				gfn_to_page(vcpu->kvm, data >> PAGE_SHIFT);
+		up_read(&vcpu->kvm->slots_lock);
 		up_read(&current->mm->mmap_sem);
 
 		if (is_error_page(vcpu->arch.time_page)) {
