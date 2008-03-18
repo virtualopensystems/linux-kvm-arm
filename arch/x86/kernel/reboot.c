@@ -454,7 +454,9 @@ struct machine_ops machine_ops = {
 	.emergency_restart = native_machine_emergency_restart,
 	.restart = native_machine_restart,
 	.halt = native_machine_halt,
+#ifdef CONFIG_KEXEC
 	.crash_shutdown = native_machine_crash_shutdown,
+#endif
 };
 
 void machine_power_off(void)
@@ -482,7 +484,9 @@ void machine_halt(void)
 	machine_ops.halt();
 }
 
+#ifdef CONFIG_KEXEC
 void machine_crash_shutdown(struct pt_regs *regs)
 {
 	machine_ops.crash_shutdown(regs);
 }
+#endif
