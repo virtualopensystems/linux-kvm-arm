@@ -1480,7 +1480,7 @@ static int init_rmode_tss(struct kvm *kvm)
 	int ret = 0;
 	int r;
 
-	down_read(&current->mm->mmap_sem);
+	down_read(&kvm->slots_lock);
 	r = kvm_clear_guest_page(kvm, fn, 0, PAGE_SIZE);
 	if (r < 0)
 		goto out;
@@ -1503,7 +1503,7 @@ static int init_rmode_tss(struct kvm *kvm)
 
 	ret = 1;
 out:
-	up_read(&current->mm->mmap_sem);
+	up_read(&kvm->slots_lock);
 	return ret;
 }
 
