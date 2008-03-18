@@ -152,11 +152,13 @@ static void kvm_setup_secondary_clock(void)
  * kind of shutdown from our side, we unregister the clock by writting anything
  * that does not have the 'enable' bit set in the msr
  */
+#ifdef CONFIG_KEXEC
 static void kvm_crash_shutdown(struct pt_regs *regs)
 {
 	native_write_msr_safe(MSR_KVM_SYSTEM_TIME, 0, 0);
 	native_machine_crash_shutdown(regs);
 }
+#endif
 
 static void kvm_shutdown(void)
 {
@@ -177,7 +179,9 @@ void __init kvmclock_init(void)
 		pv_time_ops.sched_clock = kvm_clock_read;
 		pv_apic_ops.setup_secondary_clock = kvm_setup_secondary_clock;
 		machine_ops.shutdown  = kvm_shutdown;
+#ifdef CONFIG_KEXEC
 		machine_ops.crash_shutdown  = kvm_crash_shutdown;
+#endif
 		clocksource_register(&kvm_clock);
 	}
 }
