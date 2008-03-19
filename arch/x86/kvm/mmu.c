@@ -2116,7 +2116,7 @@ int kvm_pv_mmu_op(struct kvm_vcpu *vcpu, unsigned long bytes,
 	down_read(&current->mm->mmap_sem);
 
 	buffer.ptr = buffer.buf;
-	buffer.len = min(bytes, sizeof buffer.buf);
+	buffer.len = min_t(unsigned long, bytes, sizeof buffer.buf);
 	buffer.processed = 0;
 
 	r = kvm_read_guest(vcpu->kvm, addr, buffer.buf, buffer.len);
