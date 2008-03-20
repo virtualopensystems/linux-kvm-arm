@@ -186,8 +186,7 @@ static struct kvm *kvm_create_vm(void)
 	if (IS_ERR(kvm))
 		goto out;
 
-	kvm->mm = current->mm;
-	atomic_inc(&kvm->mm->mm_count);
+	kvm->mm = get_task_mm(current);
 	spin_lock_init(&kvm->mmu_lock);
 	kvm_io_bus_init(&kvm->pio_bus);
 	mutex_init(&kvm->lock);
@@ -239,7 +238,7 @@ static void kvm_destroy_vm(struct kvm *kvm)
 	kvm_io_bus_destroy(&kvm->pio_bus);
 	kvm_io_bus_destroy(&kvm->mmio_bus);
 	kvm_arch_destroy_vm(kvm);
-	mmdrop(mm);
+	mmput(mm);
 }
 
 static int kvm_vm_release(struct inode *inode, struct file *filp)
