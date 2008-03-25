@@ -3457,6 +3457,8 @@ void kvm_arch_destroy_vm(struct kvm *kvm)
 	kfree(kvm->arch.vioapic);
 	kvm_free_vcpus(kvm);
 	kvm_free_physmem(kvm);
+	if (kvm->arch.apic_access_page)
+		put_page(kvm->arch.apic_access_page);
 	kfree(kvm);
 }
 
