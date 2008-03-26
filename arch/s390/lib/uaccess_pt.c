@@ -365,6 +365,9 @@ int futex_atomic_op_pt(int op, int __user *uaddr, int oparg, int *old)
 {
 	int oldval = 0, newval, ret;
 
+	if (!current->mm)
+		return -EFAULT;
+
 	spin_lock(&current->mm->page_table_lock);
 	uaddr = (int __user *) __dat_user_addr((unsigned long) uaddr);
 	if (!uaddr) {
