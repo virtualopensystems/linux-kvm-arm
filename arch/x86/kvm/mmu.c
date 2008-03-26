@@ -237,8 +237,7 @@ static int is_dirty_pte(unsigned long pte)
 
 static int is_rmap_pte(u64 pte)
 {
-	return pte != shadow_trap_nonpresent_pte
-		&& pte != shadow_notrap_nonpresent_pte;
+	return is_shadow_present_pte(pte);
 }
 
 static struct page *spte_to_page(u64 pte)
@@ -1042,6 +1041,11 @@ static void mmu_set_spte(struct kvm_vcpu *vcpu, u64 *shadow_pte,
 	int was_rmapped = 0;
 	int was_writeble = is_writeble_pte(*shadow_pte);
 
+	pgprintk("%s: spte %llx access %x write_fault %d"
+		 " user_fault %d gfn %lx\n",
+		 __func__, *shadow_pte, pt_access,
+		 write_fault, user_fault, gfn);
+
 	if (is_rmap_pte(*shadow_pte)) {
 		if (page != spte_to_page(*shadow_pte))
 			rmap_remove(vcpu->kvm, shadow_pte);
@@ -1063,11 +1067,6 @@ static void mmu_set_spte(struct kvm_vcpu *vcpu, u64 *shadow_pte,
 		}
 		was_rmapped = is_large_pte(*shadow_pte);
 	}
-
-	pgprintk("%s: spte %llx access %x write_fault %d"
-		 " user_fault %d gfn %lx\n",
-		 __func__, *shadow_pte, pt_access,
-		 write_fault, user_fault, gfn);
 
 	/*
 	 * We don't set the accessed bit, since we sometimes want to see
