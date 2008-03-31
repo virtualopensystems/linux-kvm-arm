@@ -1057,9 +1057,12 @@ static void mmu_set_spte(struct kvm_vcpu *vcpu, u64 *shadow_pte,
 
 			child = page_header(pte & PT64_BASE_ADDR_MASK);
 			mmu_page_remove_parent_pte(child, shadow_pte);
-		} else if (page != spte_to_page(*shadow_pte))
+		} else if (page != spte_to_page(*shadow_pte)) {
+			pgprintk("hfn old %lx new %lx\n",
+				 page_to_pfn(spte_to_page(*shadow_pte)),
+				 page_to_pfn(page));
 			rmap_remove(vcpu->kvm, shadow_pte);
-		else {
+		} else {
 			if (largepage)
 				was_rmapped = is_large_pte(*shadow_pte);
 			else
