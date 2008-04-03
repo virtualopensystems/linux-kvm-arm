@@ -2785,6 +2785,8 @@ again:
 
 	kvm_lapic_sync_to_vapic(vcpu);
 
+	up_read(&vcpu->kvm->slots_lock);
+
 	vcpu->guest_mode = 1;
 	kvm_guest_enter();
 
@@ -2810,6 +2812,8 @@ again:
 	kvm_guest_exit();
 
 	preempt_enable();
+
+	down_read(&vcpu->kvm->slots_lock);
 
 	/*
 	 * Profile KVM exit RIPs:
