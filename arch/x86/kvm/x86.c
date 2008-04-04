@@ -3365,7 +3365,8 @@ int kvm_task_switch_16(struct kvm_vcpu *vcpu, u16 tss_selector,
 	save_state_to_tss16(vcpu, &tss_segment_16);
 	save_tss_segment16(vcpu, cseg_desc, &tss_segment_16);
 
-	load_tss_segment16(vcpu, nseg_desc, &tss_segment_16);
+	if (load_tss_segment16(vcpu, nseg_desc, &tss_segment_16))
+		goto out;
 	if (load_state_from_tss16(vcpu, &tss_segment_16))
 		goto out;
 
@@ -3454,7 +3455,7 @@ int kvm_task_switch(struct kvm_vcpu *vcpu, u16 tss_selector, int reason)
 		kvm_x86_ops->set_rflags(vcpu, eflags | X86_EFLAGS_NT);
 	}
 
-	if (TASK_SWITCH_IRET != 1) {
+	if (reason != TASK_SWITCH_IRET) {
 		nseg_desc.type |= (1 << 8);
 		save_guest_segment_descriptor(vcpu, tss_selector,
 					      &nseg_desc);
