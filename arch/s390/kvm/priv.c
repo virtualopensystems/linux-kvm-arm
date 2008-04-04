@@ -175,7 +175,6 @@ static int handle_stfl(struct kvm_vcpu *vcpu)
 	else
 		VCPU_EVENT(vcpu, 5, "store facility list value %x",
 			   facility_list);
-
 	return 0;
 }
 
@@ -315,8 +314,10 @@ static intercept_handler_t priv_handlers[256] = {
 
 int kvm_s390_handle_priv(struct kvm_vcpu *vcpu)
 {
-	if (priv_handlers[vcpu->arch.sie_block->ipa & 0x00ff])
-		return priv_handlers[vcpu->arch.sie_block->ipa & 0x00ff]
-			(vcpu);
-		return -ENOTSUPP;
+	intercept_handler_t handler;
+
+	handler = priv_handlers[vcpu->arch.sie_block->ipa & 0x00ff];
+	if (handler)
+		return handler(vcpu);
+	return -ENOTSUPP;
 }

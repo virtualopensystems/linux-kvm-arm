@@ -45,7 +45,7 @@ static int handle_lctg(struct kvm_vcpu *vcpu)
 
 	do {
 		rc = get_guest_u64(vcpu, useraddr,
-			&vcpu->arch.sie_block->gcr[reg]);
+				   &vcpu->arch.sie_block->gcr[reg]);
 		if (rc == -EFAULT) {
 			kvm_s390_inject_program_int(vcpu, PGM_ADDRESSING);
 			break;
@@ -53,9 +53,7 @@ static int handle_lctg(struct kvm_vcpu *vcpu)
 		useraddr += 8;
 		if (reg == reg3)
 			break;
-		reg = reg + 1;
-		if (reg > 15)
-			reg = 0;
+		reg = (reg + 1) % 16;
 	} while (1);
 	return 0;
 }
@@ -76,11 +74,10 @@ static int handle_lctl(struct kvm_vcpu *vcpu)
 	if (base2)
 		useraddr += vcpu->arch.guest_gprs[base2];
 
-	reg = reg1;
-
 	VCPU_EVENT(vcpu, 5, "lctl r1:%x, r3:%x,b2:%x,d2:%x", reg1, reg3, base2,
 		   disp2);
 
+	reg = reg1;
 	do {
 		rc = get_guest_u32(vcpu, useraddr, &val);
 		if (rc == -EFAULT) {
@@ -92,9 +89,7 @@ static int handle_lctl(struct kvm_vcpu *vcpu)
 		useraddr += 4;
 		if (reg == reg3)
 			break;
-		reg = reg + 1;
-		if (reg > 15)
-			reg = 0;
+		reg = (reg + 1) % 16;
 	} while (1);
 	return 0;
 }
@@ -153,26 +148,25 @@ static int handle_validity(struct kvm_vcpu *vcpu)
 	vcpu->stat.exit_validity++;
 	if (viwhy == 0x37) {
 		fault_in_pages_writeable((char __user *)
-				vcpu->kvm->arch.guest_origin +
-				vcpu->arch.sie_block->prefix, PAGE_SIZE);
+					 vcpu->kvm->arch.guest_origin +
+					 vcpu->arch.sie_block->prefix,
+					 PAGE_SIZE);
 		return 0;
 	}
 	VCPU_EVENT(vcpu, 2, "unhandled validity intercept code %d",
-		viwhy);
+		   viwhy);
 	return -ENOTSUPP;
 }
 
 static int handle_instruction(struct kvm_vcpu *vcpu)
 {
-	intercept_handler_t handler =
-		instruction_handlers[vcpu->arch.sie_block->ipa >> 8];
+	intercept_handler_t handler;
 
 	vcpu->stat.exit_instruction++;
-
-	if (!handler)
-		return -ENOTSUPP;
-
-	return handler(vcpu);
+	handler = instruction_handlers[vcpu->arch.sie_block->ipa >> 8];
+	if (handler)
+		return handler(vcpu);
+	return -ENOTSUPP;
 }
 
 static int handle_prog(struct kvm_vcpu *vcpu)
@@ -215,11 +209,8 @@ int kvm_handle_sie_intercept(struct kvm_vcpu *vcpu)
 
 	if (code & 3 || code > 0x48)
 		return -ENOTSUPP;
-
 	func = intercept_funcs[code >> 2];
-
 	if (func)
 		return func(vcpu);
-
 	return -ENOTSUPP;
 }

@@ -149,9 +149,8 @@ unlock:
 static int __sigp_set_arch(struct kvm_vcpu *vcpu, u32 parameter)
 {
 	int rc;
-	parameter = parameter & 0xff;
 
-	switch (parameter) {
+	switch (parameter & 0xff) {
 	case 0:
 		printk(KERN_WARNING "kvm: request to switch to ESA/390 mode"
 							" not supported");

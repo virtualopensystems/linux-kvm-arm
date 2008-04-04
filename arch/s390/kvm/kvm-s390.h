@@ -13,12 +13,13 @@
 
 #ifndef ARCH_S390_KVM_S390_H
 #define ARCH_S390_KVM_S390_H
+
 #include <linux/kvm.h>
 #include <linux/kvm_host.h>
 
-typedef  int (*intercept_handler_t)(struct kvm_vcpu *vcpu);
+typedef int (*intercept_handler_t)(struct kvm_vcpu *vcpu);
 
-extern int kvm_handle_sie_intercept(struct kvm_vcpu *vcpu);
+int kvm_handle_sie_intercept(struct kvm_vcpu *vcpu);
 
 #define VM_EVENT(d_kvm, d_loglevel, d_string, d_args...)\
 do { \
@@ -59,4 +60,5 @@ int __kvm_s390_vcpu_store_status(struct kvm_vcpu *vcpu,
 				 unsigned long addr);
 /* implemented in diag.c */
 int kvm_s390_handle_diag(struct kvm_vcpu *vcpu);
+
 #endif

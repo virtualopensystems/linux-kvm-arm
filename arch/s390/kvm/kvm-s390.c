@@ -64,7 +64,7 @@ struct kvm_stats_debugfs_item debugfs_entries[] = {
 	{ "instruction_sigp_set_prefix", VCPU_STAT(instruction_sigp_prefix) },
 	{ "instruction_sigp_restart", VCPU_STAT(instruction_sigp_restart) },
 	{ "diagnose_44", VCPU_STAT(diagnose_44) },
-	{ NULL }
+	{ NULL },
 };
 
 
@@ -113,8 +113,6 @@ long kvm_arch_dev_ioctl(struct file *filp,
 	return -EINVAL;
 }
 
-
-
 int kvm_dev_ioctl_check_extension(long ext)
 {
 	return 0;
@@ -159,7 +157,6 @@ struct kvm *kvm_arch_create_vm(void)
 	struct kvm *kvm;
 	int rc;
 	char debug_name[16];
-
 
 	rc = s390_enable_sie();
 	if (rc)
@@ -392,8 +389,7 @@ int kvm_arch_vcpu_ioctl_get_fpu(struct kvm_vcpu *vcpu, struct kvm_fpu *fpu)
 	return 0;
 }
 
-static int kvm_arch_vcpu_ioctl_set_initial_psw(struct kvm_vcpu *vcpu,
-	psw_t psw)
+static int kvm_arch_vcpu_ioctl_set_initial_psw(struct kvm_vcpu *vcpu, psw_t psw)
 {
 	int rc = 0;
 
@@ -475,7 +471,7 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *kvm_run)
 		rc = kvm_handle_sie_intercept(vcpu);
 	} while (!signal_pending(current) && !rc);
 
-	if ((rc == 0) && signal_pending(current))
+	if (signal_pending(current) && !rc)
 		rc = -EINTR;
 
 	if (rc == -ENOTSUPP) {
@@ -537,49 +533,47 @@ int __kvm_s390_vcpu_store_status(struct kvm_vcpu *vcpu, unsigned long addr)
 	} else
 		prefix = 0;
 
-
 	if (__guestcopy(vcpu, addr + offsetof(struct save_area_s390x, fp_regs),
-	  vcpu->arch.guest_fpregs.fprs, 128, prefix))
+			vcpu->arch.guest_fpregs.fprs, 128, prefix))
 		return -EFAULT;
 
 	if (__guestcopy(vcpu, addr + offsetof(struct save_area_s390x, gp_regs),
-	  vcpu->arch.guest_gprs, 128, prefix))
+			vcpu->arch.guest_gprs, 128, prefix))
 		return -EFAULT;
 
 	if (__guestcopy(vcpu, addr + offsetof(struct save_area_s390x, psw),
-	  &vcpu->arch.sie_block->gpsw, 16, prefix))
+			&vcpu->arch.sie_block->gpsw, 16, prefix))
 		return -EFAULT;
 
 	if (__guestcopy(vcpu, addr + offsetof(struct save_area_s390x, pref_reg),
-	  &vcpu->arch.sie_block->prefix, 4, prefix))
+			&vcpu->arch.sie_block->prefix, 4, prefix))
 		return -EFAULT;
 
 	if (__guestcopy(vcpu,
-	  addr + offsetof(struct save_area_s390x, fp_ctrl_reg),
-	  &vcpu->arch.guest_fpregs.fpc, 4, prefix))
+			addr + offsetof(struct save_area_s390x, fp_ctrl_reg),
+			&vcpu->arch.guest_fpregs.fpc, 4, prefix))
 		return -EFAULT;
 
 	if (__guestcopy(vcpu, addr + offsetof(struct save_area_s390x, tod_reg),
-	  &vcpu->arch.sie_block->todpr, 4, prefix))
+			&vcpu->arch.sie_block->todpr, 4, prefix))
 		return -EFAULT;
 
 	if (__guestcopy(vcpu, addr + offsetof(struct save_area_s390x, timer),
-	  &vcpu->arch.sie_block->cputm, 8, prefix))
+			&vcpu->arch.sie_block->cputm, 8, prefix))
 		return -EFAULT;
 
 	if (__guestcopy(vcpu, addr + offsetof(struct save_area_s390x, clk_cmp),
-	  &vcpu->arch.sie_block->ckc, 8, prefix))
+			&vcpu->arch.sie_block->ckc, 8, prefix))
 		return -EFAULT;
 
 	if (__guestcopy(vcpu, addr + offsetof(struct save_area_s390x, acc_regs),
-	  &vcpu->arch.guest_acrs, 64, prefix))
+			&vcpu->arch.guest_acrs, 64, prefix))
 		return -EFAULT;
 
 	if (__guestcopy(vcpu,
-	  addr + offsetof(struct save_area_s390x, ctrl_regs),
-	  &vcpu->arch.sie_block->gcr, 128, prefix))
+			addr + offsetof(struct save_area_s390x, ctrl_regs),
+			&vcpu->arch.sie_block->gcr, 128, prefix))
 		return -EFAULT;
-
 	return 0;
 }
 
@@ -590,7 +584,6 @@ static int kvm_s390_vcpu_store_status(struct kvm_vcpu *vcpu, unsigned long addr)
 	vcpu_load(vcpu);
 	rc = __kvm_s390_vcpu_store_status(vcpu, addr);
 	vcpu_put(vcpu);
-
 	return rc;
 }
 
@@ -638,16 +631,16 @@ int kvm_arch_set_memory_region(struct kvm *kvm,
 	   vmas. It is okay to mmap() and munmap() stuff in this slot after
 	   doing this call at any time */
 
-	if (mem->slot != 0)
+	if (mem->slot)
 		return -EINVAL;
 
-	if (mem->guest_phys_addr != 0)
+	if (mem->guest_phys_addr)
 		return -EINVAL;
 
-	if (mem->userspace_addr % PAGE_SIZE)
+	if (mem->userspace_addr & (PAGE_SIZE - 1))
 		return -EINVAL;
 
-	if (mem->memory_size % PAGE_SIZE)
+	if (mem->memory_size & (PAGE_SIZE - 1))
 		return -EINVAL;
 
 	kvm->arch.guest_origin = mem->userspace_addr;
@@ -674,7 +667,6 @@ static int __init kvm_s390_init(void)
 static void __exit kvm_s390_exit(void)
 {
 	kvm_exit();
-	return;
 }
 
 module_init(kvm_s390_init);

@@ -42,8 +42,7 @@ static inline int get_guest_u64(struct kvm_vcpu *vcpu, u64 guestaddr,
 {
 	void __user *uptr = __guestaddr_to_user(vcpu, guestaddr);
 
-	if (guestaddr & 7)
-		BUG();
+	BUG_ON(guestaddr & 7);
 
 	if (IS_ERR((void __force *) uptr))
 		return PTR_ERR((void __force *) uptr);
@@ -56,8 +55,7 @@ static inline int get_guest_u32(struct kvm_vcpu *vcpu, u64 guestaddr,
 {
 	void __user *uptr = __guestaddr_to_user(vcpu, guestaddr);
 
-	if (guestaddr & 3)
-		BUG();
+	BUG_ON(guestaddr & 3);
 
 	if (IS_ERR((void __force *) uptr))
 		return PTR_ERR((void __force *) uptr);
@@ -70,8 +68,7 @@ static inline int get_guest_u16(struct kvm_vcpu *vcpu, u64 guestaddr,
 {
 	void __user *uptr = __guestaddr_to_user(vcpu, guestaddr);
 
-	if (guestaddr & 1)
-		BUG();
+	BUG_ON(guestaddr & 1);
 
 	if (IS_ERR(uptr))
 		return PTR_ERR(uptr);
@@ -95,8 +92,7 @@ static inline int put_guest_u64(struct kvm_vcpu *vcpu, u64 guestaddr,
 {
 	void __user *uptr = __guestaddr_to_user(vcpu, guestaddr);
 
-	if (guestaddr & 7)
-		BUG();
+	BUG_ON(guestaddr & 7);
 
 	if (IS_ERR((void __force *) uptr))
 		return PTR_ERR((void __force *) uptr);
@@ -109,8 +105,7 @@ static inline int put_guest_u32(struct kvm_vcpu *vcpu, u64 guestaddr,
 {
 	void __user *uptr = __guestaddr_to_user(vcpu, guestaddr);
 
-	if (guestaddr & 3)
-		BUG();
+	BUG_ON(guestaddr & 3);
 
 	if (IS_ERR((void __force *) uptr))
 		return PTR_ERR((void __force *) uptr);
@@ -123,8 +118,7 @@ static inline int put_guest_u16(struct kvm_vcpu *vcpu, u64 guestaddr,
 {
 	void __user *uptr = __guestaddr_to_user(vcpu, guestaddr);
 
-	if (guestaddr & 1)
-		BUG();
+	BUG_ON(guestaddr & 1);
 
 	if (IS_ERR((void __force *) uptr))
 		return PTR_ERR((void __force *) uptr);
