@@ -347,6 +347,9 @@ int __kvm_set_memory_region(struct kvm *kvm,
 		int largepages = npages / KVM_PAGES_PER_HPAGE;
 		if (npages % KVM_PAGES_PER_HPAGE)
 			largepages++;
+		if (base_gfn % KVM_PAGES_PER_HPAGE)
+			largepages++;
+
 		new.lpage_info = vmalloc(largepages * sizeof(*new.lpage_info));
 
 		if (!new.lpage_info)
