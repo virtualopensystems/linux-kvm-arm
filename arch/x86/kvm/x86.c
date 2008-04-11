@@ -2801,6 +2801,13 @@ again:
 		goto out;
 	}
 
+	vcpu->guest_mode = 1;
+	/*
+	 * Make sure that guest_mode assignment won't happen after
+	 * testing the pending IRQ vector bitmap.
+	 */
+	smp_wmb();
+
 	if (vcpu->arch.exception.pending)
 		__queue_exception(vcpu);
 	else if (irqchip_in_kernel(vcpu->kvm))
@@ -2812,7 +2819,6 @@ again:
 
 	up_read(&vcpu->kvm->slots_lock);
 
-	vcpu->guest_mode = 1;
 	kvm_guest_enter();
 
 	if (vcpu->requests)
