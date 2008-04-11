@@ -199,6 +199,7 @@ int __pit_timer_fn(struct kvm_kpit_state *ps)
 	struct kvm_kpit_timer *pt = &ps->pit_timer;
 
 	atomic_inc(&pt->pending);
+	smp_mb__after_atomic_inc();
 	if (vcpu0 && waitqueue_active(&vcpu0->wq)) {
 		vcpu0->arch.mp_state = VCPU_MP_STATE_RUNNABLE;
 		wake_up_interruptible(&vcpu0->wq);
@@ -208,6 +209,16 @@ int __pit_timer_fn(struct kvm_kpit_state *ps)
 	pt->scheduled = ktime_to_ns(pt->timer.expires);
 
 	return (pt->period == 0 ? 0 : 1);
+}
+
+int pit_has_pending_timer(struct kvm_vcpu *vcpu)
+{
+	struct kvm_pit *pit = vcpu->kvm->arch.vpit;
+
+	if (pit && vcpu->vcpu_id == 0)
+		return atomic_read(&pit->pit_state.pit_timer.pending);
+
+	return 0;
 }
 
 static enum hrtimer_restart pit_timer_fn(struct hrtimer *data)
