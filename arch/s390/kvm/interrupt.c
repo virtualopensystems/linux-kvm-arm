@@ -50,7 +50,7 @@ static int __interrupt_is_deliverable(struct kvm_vcpu *vcpu,
 		if (psw_extint_disabled(vcpu))
 			return 0;
 		if (vcpu->arch.sie_block->gcr[0] & 0x200ul)
-			return 1; /*FIXME virtio control register bit */
+			return 1;
 		return 0;
 	case KVM_S390_PROGRAM_INT:
 	case KVM_S390_SIGP_STOP:
@@ -162,7 +162,11 @@ static void __do_deliver_interrupt(struct kvm_vcpu *vcpu,
 		VCPU_EVENT(vcpu, 4, "interrupt: virtio parm:%x,parm64:%lx",
 			   inti->ext.ext_params, inti->ext.ext_params2);
 		vcpu->stat.deliver_virtio_interrupt++;
-		rc = put_guest_u16(vcpu, __LC_EXT_INT_CODE, 0x1237);
+		rc = put_guest_u16(vcpu, __LC_EXT_INT_CODE, 0x2603);
+		if (rc == -EFAULT)
+			exception = 1;
+
+		rc = put_guest_u16(vcpu, __LC_CPU_ADDRESS, 0x0d00);
 		if (rc == -EFAULT)
 			exception = 1;
 

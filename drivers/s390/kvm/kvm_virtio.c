@@ -23,6 +23,8 @@
 #include <asm/setup.h>
 #include <asm/s390_ext.h>
 
+#define VIRTIO_SUBCODE_64 0x0D00
+
 /*
  * The pointer to our (page) of device descriptions.
  */
@@ -291,6 +293,10 @@ static void scan_devices(void)
 static void kvm_extint_handler(u16 code)
 {
 	void *data = (void *) *(long *) __LC_PFAULT_INTPARM;
+	u16 subcode = S390_lowcore.cpu_addr;
+
+	if ((subcode & 0xff00) != VIRTIO_SUBCODE_64)
+		return;
 
 	vring_interrupt(0, data);
 }
@@ -319,8 +325,8 @@ static int __init kvm_devices_init(void)
 
 	kvm_devices  = (void *) (max_pfn << PAGE_SHIFT);
 
-	register_external_interrupt(0x1237, kvm_extint_handler);
 	ctl_set_bit(0, 9);
+	register_external_interrupt(0x2603, kvm_extint_handler);
 
 	scan_devices();
 	return 0;
