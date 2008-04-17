@@ -15,10 +15,12 @@ menuconfig VIRTUALIZATION
 if VIRTUALIZATION
 
 config KVM
-	tristate "Kernel-based Virtual Machine (KVM) support"
-	depends on EXPERIMENTAL
+	bool "Kernel-based Virtual Machine (KVM) support"
+	depends on 44x && EXPERIMENTAL
 	select PREEMPT_NOTIFIERS
 	select ANON_INODES
+	# We can only run on Book E hosts so far
+	select KVM_BOOKE_HOST
 	---help---
 	  Support hosting virtualized guest machines. You will also
 	  need to select one or more of the processor modules below.
@@ -26,13 +28,10 @@ config KVM
 	  This module provides access to the hardware capabilities through
 	  a character device node named /dev/kvm.
 
-	  To compile this as a module, choose M here: the module
-	  will be called kvm.
-
 	  If unsure, say N.
 
 config KVM_BOOKE_HOST
-	tristate "KVM host support for Book E PowerPC processors"
+	bool "KVM host support for Book E PowerPC processors"
 	depends on KVM && 44x
 	---help---
 	  Provides host support for KVM on Book E PowerPC processors. Currently
