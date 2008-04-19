@@ -8,7 +8,7 @@
  * as published by the Free Software Foundation.
  *
  *    Author(s): Ulrich Weigand <weigand@de.ibm.com>
- *               Christian Borntraeger <borntraeger@de.ibm.com>
+ *		 Christian Borntraeger <borntraeger@de.ibm.com>
  */
 
 struct sysinfo_1_1_1 {
@@ -20,6 +20,11 @@ struct sysinfo_1_1_1 {
 	char sequence[16];
 	char plant[4];
 	char model[16];
+	char model_perm_cap[16];
+	char model_temp_cap[16];
+	char model_cap_rating[4];
+	char model_perm_cap_rating[4];
+	char model_temp_cap_rating[4];
 };
 
 struct sysinfo_1_2_1 {

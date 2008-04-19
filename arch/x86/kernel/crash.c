@@ -27,11 +27,7 @@
 #include <asm/smp.h>
 #include <asm/reboot.h>
 
-#ifdef CONFIG_X86_32
 #include <mach_ipi.h>
-#else
-#include <asm/mach_apic.h>
-#endif
 
 /* This keeps a track of which one is crashing cpu. */
 static int crashing_cpu;
