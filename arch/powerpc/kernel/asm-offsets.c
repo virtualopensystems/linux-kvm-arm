@@ -23,7 +23,9 @@
 #include <linux/mm.h>
 #include <linux/suspend.h>
 #include <linux/hrtimer.h>
+#ifdef CONFIG_KVM
 #include <linux/kvm_host.h>
+#endif
 #ifdef CONFIG_PPC64
 #include <linux/time.h>
 #include <linux/hardirq.h>
