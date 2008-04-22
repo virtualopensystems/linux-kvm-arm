@@ -450,15 +450,6 @@ int sock_setsockopt(struct socket *sock, int level, int optname,
 	 *	Options without arguments
 	 */
 
-#ifdef SO_DONTLINGER		/* Compatibility item... */
-	if (optname == SO_DONTLINGER) {
-		lock_sock(sk);
-		sock_reset_flag(sk, SOCK_LINGER);
-		release_sock(sk);
-		return 0;
-	}
-#endif
-
 	if (optname == SO_BINDTODEVICE)
 		return sock_bindtodevice(sk, optval, optlen);
 
@@ -942,7 +933,6 @@ static void sk_prot_free(struct proto *prot, struct sock *sk)
  *	@family: protocol family
  *	@priority: for allocation (%GFP_KERNEL, %GFP_ATOMIC, etc)
  *	@prot: struct proto associated with this new sock instance
- *	@zero_it: if we should zero the newly allocated sock
  */
 struct sock *sk_alloc(struct net *net, int family, gfp_t priority,
 		      struct proto *prot)

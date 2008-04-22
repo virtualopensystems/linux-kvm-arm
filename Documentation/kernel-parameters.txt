@@ -847,6 +847,10 @@ and is between 256 and 4096 characters. It is defined in the file
 			than 32 bit addressing. The default is to look
 			for translation below 32 bit and if not available
 			then look in the higher range.
+		strict [Default Off]
+			With this option on every unmap_single operation will
+			result in a hardware IOTLB flush operation as opposed
+			to batching them for performance.
 
 	io_delay=	[X86-32,X86-64] I/O delay method
 		0x80
@@ -953,6 +957,8 @@ and is between 256 and 4096 characters. It is defined in the file
 			Format: <serial_device>[,baud]
 
 	l2cr=		[PPC]
+
+	l3cr=		[PPC]
 
 	lapic		[X86-32,APIC] Enable the local APIC even if BIOS
 			disabled it.
@@ -1280,8 +1286,16 @@ and is between 256 and 4096 characters. It is defined in the file
 	noexec		[IA-64]
 
 	noexec		[X86-32,X86-64]
+			On X86-32 available only on PAE configured kernels.
 			noexec=on: enable non-executable mappings (default)
-			noexec=off: disable nn-executable mappings
+			noexec=off: disable non-executable mappings
+
+	noexec32	[X86-64]
+			This affects only 32-bit executables.
+			noexec32=on: enable non-executable mappings (default)
+				read doesn't imply executable mappings
+			noexec32=off: disable non-executable mappings
+				read implies executable mappings
 
 	nofxsr		[BUGS=X86-32] Disables x86 floating point extended
 			register save and restore. The kernel will only save
@@ -1461,10 +1475,6 @@ and is between 256 and 4096 characters. It is defined in the file
 		nomsi		[MSI] If the PCI_MSI kernel config parameter is
 				enabled, this kernel boot option can be used to
 				disable the use of MSI interrupts system-wide.
-		nosort		[X86-32] Don't sort PCI devices according to
-				order given by the PCI BIOS. This sorting is
-				done to get a device order compatible with
-				older kernels.
 		biosirq		[X86-32] Use PCI BIOS calls to get the interrupt
 				routing table. These calls are known to be buggy
 				on several machines and they hang the machine

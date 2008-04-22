@@ -55,8 +55,6 @@
 
 extern unsigned int tlb_44x_hwater;
 
-typedef unsigned long long phys_addr_t;
-
 typedef struct {
 	unsigned long id;
 	unsigned long vdso_base;

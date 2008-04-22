@@ -117,6 +117,9 @@ config ARCH_HAS_CPU_RELAX
 config HAVE_SETUP_PER_CPU_AREA
 	def_bool X86_64 || (X86_SMP && !X86_VOYAGER)
 
+config HAVE_CPUMASK_OF_CPU_MAP
+	def_bool X86_64_SMP
+
 config ARCH_HIBERNATION_POSSIBLE
 	def_bool y
 	depends on !SMP || !X86_VOYAGER
@@ -921,6 +924,15 @@ config X86_64_ACPI_NUMA
 	select ACPI_NUMA
 	help
 	  Enable ACPI SRAT based node topology detection.
+
+# Some NUMA nodes have memory ranges that span
+# other nodes.  Even though a pfn is valid and
+# between a node's start and end pfns, it may not
+# reside on that node.  See memmap_init_zone()
+# for details.
+config NODES_SPAN_OTHER_NODES
+	def_bool y
+	depends on X86_64_ACPI_NUMA
 
 config NUMA_EMU
 	bool "NUMA emulation"

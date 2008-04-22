@@ -39,6 +39,7 @@
 #include <linux/efi.h>
 #include <linux/init.h>
 #include <linux/edd.h>
+#include <linux/iscsi_ibft.h>
 #include <linux/nodemask.h>
 #include <linux/kexec.h>
 #include <linux/crash_dump.h>
@@ -690,6 +691,8 @@ void __init setup_bootmem_allocator(void)
 #endif
 	numa_kva_reserve();
 	reserve_crashkernel();
+
+	reserve_ibft_region();
 }
 
 /*
@@ -813,10 +816,10 @@ void __init setup_arch(char **cmdline_p)
 		efi_init();
 
 	/* update e820 for memory not covered by WB MTRRs */
-	find_max_pfn();
+	propagate_e820_map();
 	mtrr_bp_init();
 	if (mtrr_trim_uncached_memory(max_pfn))
-		find_max_pfn();
+		propagate_e820_map();
 
 	max_low_pfn = setup_memory();
 
