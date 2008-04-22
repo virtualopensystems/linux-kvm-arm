@@ -35,6 +35,7 @@ struct kvm_kpit_state {
 	struct mutex lock;
 	struct kvm_pit *pit;
 	bool inject_pending; /* if inject pending interrupts */
+	unsigned long last_injected_time;
 };
 
 struct kvm_pit {

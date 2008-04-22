@@ -200,10 +200,8 @@ int __pit_timer_fn(struct kvm_kpit_state *ps)
 
 	atomic_inc(&pt->pending);
 	smp_mb__after_atomic_inc();
-	if (vcpu0 && waitqueue_active(&vcpu0->wq)) {
-		vcpu0->arch.mp_state = KVM_MP_STATE_RUNNABLE;
-		wake_up_interruptible(&vcpu0->wq);
-	}
+	if (vcpu0)
+		kvm_vcpu_kick(vcpu0);
 
 	pt->timer.expires = ktime_add_ns(pt->timer.expires, pt->period);
 	pt->scheduled = ktime_to_ns(pt->timer.expires);
@@ -572,7 +570,6 @@ void kvm_inject_pit_timer_irqs(struct kvm_vcpu *vcpu)
 	struct kvm_pit *pit = vcpu->kvm->arch.vpit;
 	struct kvm *kvm = vcpu->kvm;
 	struct kvm_kpit_state *ps;
-	static unsigned long last_injected_time;
 
 	if (vcpu && pit) {
 		ps = &pit->pit_state;
@@ -582,11 +579,11 @@ void kvm_inject_pit_timer_irqs(struct kvm_vcpu *vcpu)
 		 * 2. Last interrupt was accepted or waited for too long time*/
 		if (atomic_read(&ps->pit_timer.pending) &&
 		    (ps->inject_pending ||
-		    (jiffies - last_injected_time
+		    (jiffies - ps->last_injected_time
 				>= KVM_MAX_PIT_INTR_INTERVAL))) {
 			ps->inject_pending = 0;
 			__inject_pit_timer_intr(kvm);
-			last_injected_time = jiffies;
+			ps->last_injected_time = jiffies;
 		}
 	}
 }
