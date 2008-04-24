@@ -200,8 +200,11 @@ int __pit_timer_fn(struct kvm_kpit_state *ps)
 
 	atomic_inc(&pt->pending);
 	smp_mb__after_atomic_inc();
-	if (vcpu0)
-		kvm_vcpu_kick(vcpu0);
+	/* FIXME: handle case where the guest is in guest mode */
+	if (vcpu0 && waitqueue_active(&vcpu0->wq)) {
+		vcpu0->arch.mp_state = KVM_MP_STATE_RUNNABLE;
+		wake_up_interruptible(&vcpu0->wq);
+	}
 
 	pt->timer.expires = ktime_add_ns(pt->timer.expires, pt->period);
 	pt->scheduled = ktime_to_ns(pt->timer.expires);
