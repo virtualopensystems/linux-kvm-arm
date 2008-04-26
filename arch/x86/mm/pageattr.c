@@ -483,9 +483,7 @@ static int split_large_page(pte_t *kpte, unsigned long address)
 		goto out_unlock;
 
 	pbase = (pte_t *)page_address(base);
-#ifdef CONFIG_X86_32
-	paravirt_alloc_pt(&init_mm, page_to_pfn(base));
-#endif
+	paravirt_alloc_pte(&init_mm, page_to_pfn(base));
 	ref_prot = pte_pgprot(pte_clrhuge(*kpte));
 
 #ifdef CONFIG_X86_64
@@ -993,7 +991,7 @@ static const struct file_operations dpa_fops = {
 	.release	= single_release,
 };
 
-int __init debug_pagealloc_proc_init(void)
+static int __init debug_pagealloc_proc_init(void)
 {
 	struct dentry *de;
 

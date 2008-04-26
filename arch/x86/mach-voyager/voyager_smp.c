@@ -206,11 +206,6 @@ static struct irq_chip vic_chip = {
 /* used to count up as CPUs are brought on line (starts at 0) */
 static int cpucount = 0;
 
-/* steal a page from the bottom of memory for the trampoline and
- * squirrel its address away here.  This will be in kernel virtual
- * space */
-unsigned char *trampoline_base;
-
 /* The per cpu profile stuff - used in smp_local_timer_interrupt */
 static DEFINE_PER_CPU(int, prof_multiplier) = 1;
 static DEFINE_PER_CPU(int, prof_old_multiplier) = 1;
@@ -427,18 +422,6 @@ void __init smp_store_cpu_info(int id)
 	identify_secondary_cpu(c);
 }
 
-/* set up the trampoline and return the physical address of the code */
-unsigned long __init setup_trampoline(void)
-{
-	/* these two are global symbols in trampoline.S */
-	extern const __u8 trampoline_end[];
-	extern const __u8 trampoline_data[];
-
-	memcpy(trampoline_base, trampoline_data,
-	       trampoline_end - trampoline_data);
-	return virt_to_phys(trampoline_base);
-}
-
 /* Routine initially called when a non-boot CPU is brought online */
 static void __init start_secondary(void *unused)
 {
@@ -560,8 +543,8 @@ static void __init do_boot_cpu(__u8 cpu)
 		hijack_source.idt.Offset, stack_start.sp));
 
 	/* init lowmem identity mapping */
-	clone_pgd_range(swapper_pg_dir, swapper_pg_dir + USER_PGD_PTRS,
-			min_t(unsigned long, KERNEL_PGD_PTRS, USER_PGD_PTRS));
+	clone_pgd_range(swapper_pg_dir, swapper_pg_dir + KERNEL_PGD_BOUNDARY,
+			min_t(unsigned long, KERNEL_PGD_PTRS, KERNEL_PGD_BOUNDARY));
 	flush_tlb_all();
 
 	if (quad_boot) {
