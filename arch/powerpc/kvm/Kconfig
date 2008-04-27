@@ -40,4 +40,3 @@ config KVM_BOOKE_HOST
 source drivers/virtio/Kconfig
 
 endif # VIRTUALIZATION
-

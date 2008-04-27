@@ -1,5 +1,6 @@
 #ifndef __LINUX_KVM_S390_H
 #define __LINUX_KVM_S390_H
+
 /*
  * asm-s390/kvm.h - KVM s390 specific structures and definitions
  *
