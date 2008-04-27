@@ -175,14 +175,12 @@ found:
 
 	gayle_setup_ports(&hw, base, ctrlport, irqport, ack_intr);
 
-	hwif = ide_find_port(base);
+	hwif = ide_find_port();
 	if (hwif) {
 	    u8 index = hwif->index;
 
 	    ide_init_port_data(hwif, index);
 	    ide_init_port_hw(hwif, &hw);
-
-	    hwif->mmio = 1;
 
 	    idx[i] = index;
 	} else

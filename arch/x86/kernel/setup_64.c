@@ -117,7 +117,7 @@ extern int root_mountflags;
 
 char __initdata command_line[COMMAND_LINE_SIZE];
 
-struct resource standard_io_resources[] = {
+static struct resource standard_io_resources[] = {
 	{ .name = "dma1", .start = 0x00, .end = 0x1f,
 		.flags = IORESOURCE_BUSY | IORESOURCE_IO },
 	{ .name = "pic1", .start = 0x20, .end = 0x21,
@@ -191,6 +191,7 @@ contig_initmem_init(unsigned long start_pfn, unsigned long end_pfn)
 	bootmap_size = init_bootmem(bootmap >> PAGE_SHIFT, end_pfn);
 	e820_register_active_regions(0, start_pfn, end_pfn);
 	free_bootmem_with_active_regions(0, end_pfn);
+	early_res_to_bootmem(0, end_pfn<<PAGE_SHIFT);
 	reserve_bootmem(bootmap, bootmap_size, BOOTMEM_DEFAULT);
 }
 #endif
@@ -265,6 +266,28 @@ void __attribute__((weak)) __init memory_setup(void)
        machine_specific_memory_setup();
 }
 
+static void __init parse_setup_data(void)
+{
+	struct setup_data *data;
+	unsigned long pa_data;
+
+	if (boot_params.hdr.version < 0x0209)
+		return;
+	pa_data = boot_params.hdr.setup_data;
+	while (pa_data) {
+		data = early_ioremap(pa_data, PAGE_SIZE);
+		switch (data->type) {
+		default:
+			break;
+		}
+#ifndef CONFIG_DEBUG_BOOT_PARAMS
+		free_early(pa_data, pa_data+sizeof(*data)+data->len);
+#endif
+		pa_data = data->next;
+		early_iounmap(data, PAGE_SIZE);
+	}
+}
+
 /*
  * setup_arch - architecture-specific boot-time initializations
  *
@@ -316,6 +339,8 @@ void __init setup_arch(char **cmdline_p)
 
 	strlcpy(command_line, boot_command_line, COMMAND_LINE_SIZE);
 	*cmdline_p = command_line;
+
+	parse_setup_data();
 
 	parse_early_param();
 
@@ -401,8 +426,6 @@ void __init setup_arch(char **cmdline_p)
 #else
 	contig_initmem_init(0, end_pfn);
 #endif
-
-	early_res_to_bootmem();
 
 	dma32_reserve_bootmem();
 

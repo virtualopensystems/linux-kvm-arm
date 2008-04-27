@@ -44,7 +44,7 @@ rapide_probe(struct expansion_card *ec, const struct ecard_id *id)
 		goto release;
 	}
 
-	hwif = ide_find_port((unsigned long)base);
+	hwif = ide_find_port();
 	if (hwif) {
 		memset(&hw, 0, sizeof(hw));
 		rapide_setup_ports(&hw, base, base + 0x818, 1 << 6, ec->irq);
@@ -53,7 +53,6 @@ rapide_probe(struct expansion_card *ec, const struct ecard_id *id)
 
 		ide_init_port_hw(hwif, &hw);
 
-		hwif->mmio = 1;
 		default_hwif_mmiops(hwif);
 
 		idx[0] = hwif->index;

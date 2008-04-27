@@ -390,7 +390,6 @@ unsigned long __init find_max_low_pfn(void)
 	return max_low_pfn;
 }
 
-#define BIOS_EBDA_SEGMENT 0x40E
 #define BIOS_LOWMEM_KILOBYTES 0x413
 
 /*
@@ -421,8 +420,7 @@ static void __init reserve_ebda_region(void)
 	lowmem <<= 10;
 
 	/* start of EBDA area */
-	ebda_addr = *(unsigned short *)__va(BIOS_EBDA_SEGMENT);
-	ebda_addr <<= 4;
+	ebda_addr = get_bios_ebda();
 
 	/* Fixup: bios puts an EBDA in the top 64K segment */
 	/* of conventional memory, but does not adjust lowmem. */

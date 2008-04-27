@@ -221,14 +221,12 @@ fail_base2:
 
 			buddha_setup_ports(&hw, base, ctl, irq_port, ack_intr);
 
-			hwif = ide_find_port(hw.io_ports[IDE_DATA_OFFSET]);
+			hwif = ide_find_port();
 			if (hwif) {
 				u8 index = hwif->index;
 
 				ide_init_port_data(hwif, index);
 				ide_init_port_hw(hwif, &hw);
-
-				hwif->mmio = 1;
 
 				idx[i] = index;
 			}
