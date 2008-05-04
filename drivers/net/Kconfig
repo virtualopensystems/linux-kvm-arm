@@ -469,7 +469,7 @@ config SNI_82596
 
 config KORINA
 	tristate "Korina (IDT RC32434) Ethernet support"
-	depends on NET_ETHERNET && MIKROTIK_RB500
+	depends on NET_ETHERNET && MIKROTIK_RB532
 	help
 	  If you have a Mikrotik RouterBoard 500 or IDT RC32434
 	  based system say Y. Otherwise say N.
@@ -2593,6 +2593,7 @@ config BNX2X
 	  To compile this driver as a module, choose M here: the module
 	  will be called bnx2x.  This is recommended.
 
+source "drivers/net/sfc/Kconfig"
 
 endif # NETDEV_10000
 

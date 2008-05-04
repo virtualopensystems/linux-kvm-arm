@@ -133,6 +133,14 @@ static struct ftdi_sio_quirk ftdi_HE_TIRA1_quirk = {
 static struct usb_device_id id_table_combined [] = {
 	{ USB_DEVICE(FTDI_VID, FTDI_AMC232_PID) },
 	{ USB_DEVICE(FTDI_VID, FTDI_CANUSB_PID) },
+	{ USB_DEVICE(FTDI_VID, FTDI_SCS_DEVICE_0_PID) },
+	{ USB_DEVICE(FTDI_VID, FTDI_SCS_DEVICE_1_PID) },
+	{ USB_DEVICE(FTDI_VID, FTDI_SCS_DEVICE_2_PID) },
+	{ USB_DEVICE(FTDI_VID, FTDI_SCS_DEVICE_3_PID) },
+	{ USB_DEVICE(FTDI_VID, FTDI_SCS_DEVICE_4_PID) },
+	{ USB_DEVICE(FTDI_VID, FTDI_SCS_DEVICE_5_PID) },
+	{ USB_DEVICE(FTDI_VID, FTDI_SCS_DEVICE_6_PID) },
+	{ USB_DEVICE(FTDI_VID, FTDI_SCS_DEVICE_7_PID) },
 	{ USB_DEVICE(FTDI_VID, FTDI_ACTZWAVE_PID) },
 	{ USB_DEVICE(FTDI_VID, FTDI_IRTRANS_PID) },
 	{ USB_DEVICE(FTDI_VID, FTDI_IPLUS_PID) },
@@ -1104,7 +1112,7 @@ static int ftdi_mtxorb_hack_setup(struct usb_serial *serial)
 	struct usb_endpoint_descriptor *ep_desc = &ep->desc;
 
 	if (ep->enabled && ep_desc->wMaxPacketSize == 0) {
-		ep_desc->wMaxPacketSize = 0x40;
+		ep_desc->wMaxPacketSize = cpu_to_le16(0x40);
 		info("Fixing invalid wMaxPacketSize on read pipe");
 	}
 

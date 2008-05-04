@@ -25,6 +25,18 @@ config X86
 	select HAVE_KVM if ((X86_32 && !X86_VOYAGER && !X86_VISWS && !X86_NUMAQ) || X86_64)
 	select HAVE_ARCH_KGDB if !X86_VOYAGER
 
+config DEFCONFIG_LIST
+	string
+	depends on X86_32
+	option defconfig_list
+	default "arch/x86/configs/i386_defconfig"
+
+config DEFCONFIG_LIST
+	string
+	depends on X86_64
+	option defconfig_list
+	default "arch/x86/configs/x86_64_defconfig"
+
 
 config GENERIC_LOCKBREAK
 	def_bool n
@@ -86,9 +98,6 @@ config GENERIC_GPIO
 config ARCH_MAY_HAVE_PC_FDC
 	def_bool y
 
-config DMI
-	def_bool y
-
 config RWSEM_GENERIC_SPINLOCK
 	def_bool !X86_XADD
 
@@ -112,6 +121,9 @@ config GENERIC_TIME_VSYSCALL
 	default X86_64
 
 config ARCH_HAS_CPU_RELAX
+	def_bool y
+
+config ARCH_HAS_CACHE_LINE_SIZE
 	def_bool y
 
 config HAVE_SETUP_PER_CPU_AREA
@@ -180,7 +192,7 @@ config X86_HT
 
 config X86_BIOS_REBOOT
 	bool
-	depends on X86_32 && !(X86_VISWS || X86_VOYAGER)
+	depends on !X86_VISWS && !X86_VOYAGER
 	default y
 
 config X86_TRAMPOLINE
@@ -482,6 +494,15 @@ config HPET_EMULATE_RTC
 
 # Mark as embedded because too many people got it wrong.
 # The code disables itself when not needed.
+config DMI
+	default y
+	bool "Enable DMI scanning" if EMBEDDED
+	help
+	  Enabled scanning of DMI to identify machine quirks. Say Y
+	  here unless you have verified that your setup is not
+	  affected by entries in the DMI blacklist. Required by PNP
+	  BIOS code.
+
 config GART_IOMMU
 	bool "GART IOMMU support" if EMBEDDED
 	default y
@@ -528,9 +549,6 @@ config CALGARY_IOMMU_ENABLED_BY_DEFAULT
 	  Calgary anyway, pass 'iommu=calgary' on the kernel command line.
 	  If unsure, say Y.
 
-config IOMMU_HELPER
-	def_bool (CALGARY_IOMMU || GART_IOMMU)
-
 # need this always selected by IOMMU for the VIA workaround
 config SWIOTLB
 	bool
@@ -541,6 +559,8 @@ config SWIOTLB
 	  access 32-bits of memory can be used on systems with more than
 	  3 GB of memory. If unsure, say Y.
 
+config IOMMU_HELPER
+	def_bool (CALGARY_IOMMU || GART_IOMMU || SWIOTLB)
 
 config NR_CPUS
 	int "Maximum number of CPUs (2-255)"
@@ -1153,7 +1173,7 @@ source kernel/Kconfig.hz
 
 config KEXEC
 	bool "kexec system call"
-	depends on X86_64 || X86_BIOS_REBOOT
+	depends on X86_BIOS_REBOOT
 	help
 	  kexec is a system call that implements the ability to shutdown your
 	  current kernel, and to start another kernel.  It is like a reboot
@@ -1496,6 +1516,10 @@ config PCI_GODIRECT
 config PCI_GOANY
 	bool "Any"
 
+config PCI_GOOLPC
+	bool "OLPC"
+	depends on OLPC
+
 endchoice
 
 config PCI_BIOS
@@ -1505,11 +1529,16 @@ config PCI_BIOS
 # x86-64 doesn't support PCI BIOS access from long mode so always go direct.
 config PCI_DIRECT
 	def_bool y
-	depends on PCI && (X86_64 || (PCI_GODIRECT || PCI_GOANY) || X86_VISWS)
+	depends on PCI && (X86_64 || (PCI_GODIRECT || PCI_GOANY || PCI_GOOLPC) || X86_VISWS)
 
 config PCI_MMCONFIG
 	def_bool y
 	depends on X86_32 && PCI && ACPI && (PCI_GOMMCONFIG || PCI_GOANY)
+
+config PCI_OLPC
+	bool
+	depends on PCI && PCI_GOOLPC
+	default y
 
 config PCI_DOMAINS
 	def_bool y
@@ -1629,6 +1658,13 @@ config GEODE_MFGPT_TIMER
 	  timer(s) in the CS5535 and CS5536 companion chip for the geode.
 	  MFGPTs have a better resolution and max interval than the
 	  generic PIT, and are suitable for use as high-res timers.
+
+config OLPC
+	bool "One Laptop Per Child support"
+	default n
+	help
+	  Add support for detecting the unique features of the OLPC
+	  XO hardware.
 
 endif # X86_32
 

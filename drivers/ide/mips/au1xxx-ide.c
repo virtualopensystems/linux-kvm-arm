@@ -48,8 +48,6 @@
 
 static _auide_hwif auide_hwif;
 
-static int auide_ddma_init(_auide_hwif *auide);
-
 #if defined(CONFIG_BLK_DEV_IDE_AU1XXX_PIO_DBDMA)
 
 void auide_insw(unsigned long port, void *addr, u32 count)
@@ -88,6 +86,17 @@ void auide_outsw(unsigned long port, void *addr, u32 count)
 	ctp->cur_ptr = au1xxx_ddma_get_nextptr_virt(dp);
 }
 
+static void au1xxx_input_data(ide_drive_t *drive, struct request *rq,
+			      void *buf, unsigned int len)
+{
+	auide_insw(drive->hwif->io_ports.data_addr, buf, (len + 1) / 2);
+}
+
+static void au1xxx_output_data(ide_drive_t *drive, struct request *rq,
+			       void *buf, unsigned int len)
+{
+	auide_outsw(drive->hwif->io_ports.data_addr, buf, (len + 1) / 2);
+}
 #endif
 
 static void au1xxx_set_pio_mode(ide_drive_t *drive, const u8 pio)
@@ -359,7 +368,7 @@ static void auide_ddma_rx_callback(int irq, void *param)
 static void auide_init_dbdma_dev(dbdev_tab_t *dev, u32 dev_id, u32 tsize, u32 devwidth, u32 flags)
 {
 	dev->dev_id          = dev_id;
-	dev->dev_physaddr    = (u32)AU1XXX_ATA_PHYS_ADDR;
+	dev->dev_physaddr    = (u32)IDE_PHYS_ADDR;
 	dev->dev_intlevel    = 0;
 	dev->dev_intpolarity = 0;
 	dev->dev_tsize       = tsize;
@@ -397,7 +406,7 @@ static int auide_ddma_init(ide_hwif_t *hwif, const struct ide_port_info *d)
 	dbdev_tab_t source_dev_tab, target_dev_tab;
 	u32 dev_id, tsize, devwidth, flags;
 
-	dev_id   = AU1XXX_ATA_DDMA_REQ;
+	dev_id	 = IDE_DDMA_REQ;
 
 	tsize    =  8; /*  1 */
 	devwidth = 32; /* 16 */
@@ -506,10 +515,10 @@ static void auide_setup_ports(hw_regs_t *hw, _auide_hwif *ahwif)
 
 	/* FIXME? */
 	for (i = 0; i < 8; i++)
-		*ata_regs++ = ahwif->regbase + (i << AU1XXX_ATA_REG_OFFSET);
+		*ata_regs++ = ahwif->regbase + (i << IDE_REG_SHIFT);
 
 	/* set the Alternative Status register */
-	*ata_regs = ahwif->regbase + (14 << AU1XXX_ATA_REG_OFFSET);
+	*ata_regs = ahwif->regbase + (14 << IDE_REG_SHIFT);
 }
 
 static const struct ide_port_ops au1xxx_port_ops = {
@@ -598,8 +607,8 @@ static int au_ide_probe(struct device *dev)
 	*/
 
 #ifdef CONFIG_BLK_DEV_IDE_AU1XXX_PIO_DBDMA	
-	hwif->INSW                      = auide_insw;
-	hwif->OUTSW                     = auide_outsw;
+	hwif->input_data  = au1xxx_input_data;
+	hwif->output_data = au1xxx_output_data;
 #endif
 	hwif->select_data               = 0;    /* no chipset-specific code */
 	hwif->config_data               = 0;    /* no chipset-specific code */

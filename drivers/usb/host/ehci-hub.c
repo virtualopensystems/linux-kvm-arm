@@ -530,7 +530,7 @@ ehci_hub_descriptor (
 	if (HCS_INDICATOR (ehci->hcs_params))
 		temp |= 0x0080;		/* per-port indicators (LEDs) */
 #endif
-	desc->wHubCharacteristics = (__force __u16)cpu_to_le16 (temp);
+	desc->wHubCharacteristics = cpu_to_le16(temp);
 }
 
 /*-------------------------------------------------------------------------*/
@@ -770,7 +770,7 @@ static int ehci_hub_control (
 	if (status & ~0xffff)	/* only if wPortChange is interesting */
 #endif
 		dbg_port (ehci, "GetStatus", wIndex + 1, temp);
-		put_unaligned(cpu_to_le32 (status), (__le32 *) buf);
+		put_unaligned_le32(status, buf);
 		break;
 	case SetHubFeature:
 		switch (wValue) {
