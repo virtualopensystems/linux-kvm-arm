@@ -7,7 +7,6 @@ offsets-file := asm-offsets.h
 always  := $(offsets-file)
 targets := $(offsets-file)
 targets += arch/ia64/kvm/asm-offsets.s
-clean-files := $(addprefix $(objtree)/,$(targets) $(obj)/memcpy.S $(obj)/memset.S)
 
 # Default sed regexp - multiline due to syntax constraints
 define sed-y
