@@ -1685,7 +1685,7 @@ static void kvm_mmu_access_page(struct kvm_vcpu *vcpu, gfn_t gfn)
 	    && shadow_accessed_mask
 	    && !(*spte & shadow_accessed_mask)
 	    && is_shadow_present_pte(*spte))
-		set_bit(PT_ACCESSED_SHIFT, spte);
+		set_bit(PT_ACCESSED_SHIFT, (unsigned long *)spte);
 }
 
 void kvm_mmu_pte_write(struct kvm_vcpu *vcpu, gpa_t gpa,
