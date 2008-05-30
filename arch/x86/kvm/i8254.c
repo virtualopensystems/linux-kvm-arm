@@ -457,7 +457,8 @@ static void pit_ioport_read(struct kvm_io_device *this,
 	mutex_unlock(&pit_state->lock);
 }
 
-static int pit_in_range(struct kvm_io_device *this, gpa_t addr)
+static int pit_in_range(struct kvm_io_device *this, gpa_t addr,
+			int len, int is_write)
 {
 	return ((addr >= KVM_PIT_BASE_ADDRESS) &&
 		(addr < KVM_PIT_BASE_ADDRESS + KVM_PIT_MEM_LENGTH));
@@ -498,7 +499,8 @@ static void speaker_ioport_read(struct kvm_io_device *this,
 	mutex_unlock(&pit_state->lock);
 }
 
-static int speaker_in_range(struct kvm_io_device *this, gpa_t addr)
+static int speaker_in_range(struct kvm_io_device *this, gpa_t addr,
+			    int len, int is_write)
 {
 	return (addr == KVM_SPEAKER_BASE_ADDRESS);
 }
