@@ -339,6 +339,8 @@ static void __vcpu_clear(void *arg)
 		per_cpu(current_vmcs, cpu) = NULL;
 	rdtscll(vmx->vcpu.arch.host_tsc);
 	list_del(&vmx->local_vcpus_link);
+	vmx->vcpu.cpu = -1;
+	vmx->launched = 0;
 }
 
 static void vcpu_clear(struct vcpu_vmx *vmx)
@@ -346,7 +348,6 @@ static void vcpu_clear(struct vcpu_vmx *vmx)
 	if (vmx->vcpu.cpu == -1)
 		return;
 	smp_call_function_single(vmx->vcpu.cpu, __vcpu_clear, vmx, 0, 1);
-	vmx->launched = 0;
 }
 
 static inline void vpid_sync_vcpu_all(struct vcpu_vmx *vmx)
