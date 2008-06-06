@@ -2798,6 +2798,8 @@ again:
 	if (vcpu->requests) {
 		if (test_and_clear_bit(KVM_REQ_MIGRATE_TIMER, &vcpu->requests))
 			__kvm_migrate_timers(vcpu);
+		if (test_and_clear_bit(KVM_REQ_TLB_FLUSH, &vcpu->requests))
+			kvm_x86_ops->tlb_flush(vcpu);
 		if (test_and_clear_bit(KVM_REQ_REPORT_TPR_ACCESS,
 				       &vcpu->requests)) {
 			kvm_run->exit_reason = KVM_EXIT_TPR_ACCESS;
@@ -2820,20 +2822,12 @@ again:
 
 	local_irq_disable();
 
-	if (need_resched()) {
+	if (vcpu->requests || need_resched()) {
 		local_irq_enable();
 		preempt_enable();
 		r = 1;
 		goto out;
 	}
-
-	if (vcpu->requests)
-		if (test_bit(KVM_REQ_MMU_RELOAD, &vcpu->requests)) {
-			local_irq_enable();
-			preempt_enable();
-			r = 1;
-			goto out;
-		}
 
 	if (signal_pending(current)) {
 		local_irq_enable();
@@ -2864,9 +2858,6 @@ again:
 
 	kvm_guest_enter();
 
-	if (vcpu->requests)
-		if (test_and_clear_bit(KVM_REQ_TLB_FLUSH, &vcpu->requests))
-			kvm_x86_ops->tlb_flush(vcpu);
 
 	KVMTRACE_0D(VMENTRY, vcpu, entryexit);
 	kvm_x86_ops->run(vcpu, kvm_run);
