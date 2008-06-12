@@ -1294,8 +1294,7 @@ static void enter_pmode(struct kvm_vcpu *vcpu)
 	fix_pmode_dataseg(VCPU_SREG_GS, &vcpu->arch.rmode.gs);
 	fix_pmode_dataseg(VCPU_SREG_FS, &vcpu->arch.rmode.fs);
 
-	if (vcpu->arch.rmode_failed)
-		vmcs_write16(GUEST_SS_SELECTOR, 0);
+	vmcs_write16(GUEST_SS_SELECTOR, 0);
 	vmcs_write32(GUEST_SS_AR_BYTES, 0x93);
 
 	vmcs_write16(GUEST_CS_SELECTOR,
@@ -2676,70 +2675,6 @@ static int handle_nmi_window(struct kvm_vcpu *vcpu, struct kvm_run *kvm_run)
 	return 1;
 }
 
-static int invalid_guest_state(struct kvm_vcpu *vcpu,
-		struct kvm_run *kvm_run, u32 failure_reason)
-{
-	u16 ss, cs;
-	u8 opcodes[4];
-	unsigned long rip = vcpu->arch.rip;
-	unsigned long rip_linear;
-
-	ss = vmcs_read16(GUEST_SS_SELECTOR);
-	cs = vmcs_read16(GUEST_CS_SELECTOR);
-
-	if ((ss & 0x03) != (cs & 0x03)) {
-		int err;
-		rip_linear = rip + vmx_get_segment_base(vcpu, VCPU_SREG_CS);
-		emulator_read_std(rip_linear, (void *)opcodes, 4, vcpu);
-		err = emulate_instruction(vcpu, kvm_run, 0, 0, 0);
-		switch (err) {
-			case EMULATE_DONE:
-				return 1;
-			case EMULATE_DO_MMIO:
-				printk(KERN_INFO "mmio?\n");
-				return 0;
-			default:
-				/* HACK: If we can not emulate the instruction
-				 * we write a sane value on SS to pass sanity
-				 * checks. The good thing to do is to emulate the
-				 * instruction */
-				kvm_report_emulation_failure(vcpu, "vmentry failure");
-				printk(KERN_INFO "   => Quit real mode emulation\n");
-				vcpu->arch.rmode_failed = 1;
-				vmcs_write16(GUEST_SS_SELECTOR, 0);
-				return 1;
-		}
-	}
-
-	kvm_run->exit_reason = KVM_EXIT_UNKNOWN;
-	kvm_run->hw.hardware_exit_reason = failure_reason;
-	return 0;
-}
-
-static int handle_vmentry_failure(struct kvm_vcpu *vcpu,
-				  struct kvm_run *kvm_run,
-				  u32 failure_reason)
-{
-	unsigned long exit_qualification = vmcs_readl(EXIT_QUALIFICATION);
-	switch (failure_reason) {
-		case EXIT_REASON_INVALID_GUEST_STATE:
-			return invalid_guest_state(vcpu, kvm_run, failure_reason);
-		case EXIT_REASON_MSR_LOADING:
-			printk("VMentry failure caused by MSR entry %ld loading.\n",
-					exit_qualification);
-			printk("  ... Not handled\n");
-			break;
-		case EXIT_REASON_MACHINE_CHECK:
-			printk("VMentry failure caused by machine check.\n");
-			printk("  ... Not handled\n");
-			break;
-		default:
-			printk("reason not known yet!\n");
-			break;
-	}
-	return 0;
-}
-
 /*
  * The exit handlers return 1 if the exit was handled fully and guest execution
  * may resume.  Otherwise they set the kvm_run parameter to indicate what needs
@@ -2802,12 +2737,6 @@ static int kvm_handle_exit(struct kvm_run *kvm_run, struct kvm_vcpu *vcpu)
 			exit_reason != EXIT_REASON_EPT_VIOLATION))
 		printk(KERN_WARNING "%s: unexpected, valid vectoring info and "
 		       "exit reason is 0x%x\n", __func__, exit_reason);
-
-	if ((exit_reason & VMX_EXIT_REASONS_FAILED_VMENTRY)) {
-		exit_reason &= ~VMX_EXIT_REASONS_FAILED_VMENTRY;
-		return handle_vmentry_failure(vcpu, kvm_run, exit_reason);
-	}
-
 	if (exit_reason < kvm_vmx_max_exit_handlers
 	    && kvm_vmx_exit_handlers[exit_reason])
 		return kvm_vmx_exit_handlers[exit_reason](vcpu, kvm_run);

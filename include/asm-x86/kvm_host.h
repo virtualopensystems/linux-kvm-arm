@@ -277,7 +277,6 @@ struct kvm_vcpu_arch {
 		} tr, es, ds, fs, gs;
 	} rmode;
 	int halt_request; /* real mode on Intel only */
-	int rmode_failed;
 
 	int cpuid_nent;
 	struct kvm_cpuid_entry2 cpuid_entries[KVM_MAX_CPUID_ENTRIES];
