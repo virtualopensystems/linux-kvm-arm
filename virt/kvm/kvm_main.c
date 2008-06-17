@@ -262,11 +262,11 @@ static void kvm_destroy_vm(struct kvm *kvm)
 	spin_unlock(&kvm_lock);
 	kvm_io_bus_destroy(&kvm->pio_bus);
 	kvm_io_bus_destroy(&kvm->mmio_bus);
-	kvm_arch_destroy_vm(kvm);
 #ifdef KVM_COALESCED_MMIO_PAGE_OFFSET
 	if (kvm->coalesced_mmio_ring != NULL)
 		free_page((unsigned long)kvm->coalesced_mmio_ring);
 #endif
+	kvm_arch_destroy_vm(kvm);
 	mmdrop(mm);
 }
 
