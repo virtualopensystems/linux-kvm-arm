@@ -322,7 +322,7 @@ struct kvm_trace_rec {
 	__u32 vcpu_id;
 	union {
 		struct {
-			ktime_t timestamp;
+			__u64 timestamp;
 			__u32 extra_u32[KVM_TRC_EXTRA_MAX];
 		} timestamp;
 		struct {

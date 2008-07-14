@@ -17,6 +17,7 @@
 #include <linux/module.h>
 #include <linux/relay.h>
 #include <linux/debugfs.h>
+#include <linux/ktime.h>
 
 #include <linux/kvm_host.h>
 
@@ -73,7 +74,7 @@ static void kvm_add_trace(void *probe_private, void *call_data,
 			| TRACE_REC_NUM_DATA_ARGS(extra);
 
 	if (p->timestamp_in) {
-		rec.u.timestamp.timestamp = ktime_get();
+		rec.u.timestamp.timestamp = ktime_to_ns(ktime_get());
 
 		for (i = 0; i < extra; i++)
 			rec.u.timestamp.extra_u32[i] = va_arg(*args, u32);
