@@ -26,6 +26,13 @@ config WAKELOCK
 	bool
 	default n
 
+config FB_EARLYSUSPEND
+	bool "Sysfs compat interface for earlysuspend"
+	---help---
+	  Register early suspend handler that notifies and waits for
+	  user-space through sysfs when user-space should stop drawing
+	  to the screen and notifies user-space when it should resume.
+
 config HIBERNATE_CALLBACKS
 	bool
 
