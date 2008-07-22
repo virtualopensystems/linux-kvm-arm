@@ -932,12 +932,10 @@ static void kvm_mmu_unlink_parents(struct kvm *kvm, struct kvm_mmu_page *sp)
 static void kvm_mmu_zap_page(struct kvm *kvm, struct kvm_mmu_page *sp)
 {
 	++kvm->stat.mmu_shadow_zapped;
-	if (!sp->role.invalid) {
-		kvm_mmu_page_unlink_children(kvm, sp);
-		kvm_mmu_unlink_parents(kvm, sp);
-		if (!sp->role.metaphysical)
-			unaccount_shadowed(kvm, sp->gfn);
-	}
+	kvm_mmu_page_unlink_children(kvm, sp);
+	kvm_mmu_unlink_parents(kvm, sp);
+	if (!sp->role.invalid && !sp->role.metaphysical)
+		unaccount_shadowed(kvm, sp->gfn);
 	if (!sp->root_count) {
 		hlist_del(&sp->hash_link);
 		kvm_mmu_free_page(kvm, sp);
