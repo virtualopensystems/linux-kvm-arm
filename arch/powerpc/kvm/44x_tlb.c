@@ -182,7 +182,8 @@ void kvmppc_mmu_map(struct kvm_vcpu *vcpu, u64 gvaddr, gfn_t gfn, u64 asid,
 			handler);
 }
 
-void kvmppc_mmu_invalidate(struct kvm_vcpu *vcpu, u64 eaddr, u64 asid)
+void kvmppc_mmu_invalidate(struct kvm_vcpu *vcpu, gva_t eaddr,
+                           gva_t eend, u32 asid)
 {
 	unsigned int pid = asid & 0xff;
 	int i;
@@ -196,7 +197,7 @@ void kvmppc_mmu_invalidate(struct kvm_vcpu *vcpu, u64 eaddr, u64 asid)
 		if (!get_tlb_v(stlbe))
 			continue;
 
-		if (eaddr < get_tlb_eaddr(stlbe))
+		if (eend < get_tlb_eaddr(stlbe))
 			continue;
 
 		if (eaddr > get_tlb_end(stlbe))
