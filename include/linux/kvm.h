@@ -324,12 +324,12 @@ struct kvm_trace_rec {
 		struct {
 			__u64 timestamp;
 			__u32 extra_u32[KVM_TRC_EXTRA_MAX];
-		} timestamp;
+		} __attribute__((packed)) timestamp;
 		struct {
 			__u32 extra_u32[KVM_TRC_EXTRA_MAX];
 		} notimestamp;
 	} u;
-} __attribute__((packed));
+};
 
 #define TRACE_REC_EVENT_ID(val) \
 		(0x0fffffff & (val))
