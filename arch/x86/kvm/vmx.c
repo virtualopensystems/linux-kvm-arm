@@ -2911,6 +2911,9 @@ static void handle_invalid_guest_state(struct kvm_vcpu *vcpu,
 	struct vcpu_vmx *vmx = to_vmx(vcpu);
 	int err;
 
+	preempt_enable();
+	local_irq_enable();
+
 	while (!guest_state_valid(vcpu)) {
 		err = emulate_instruction(vcpu, kvm_run, 0, 0, 0);
 
@@ -2931,6 +2934,9 @@ static void handle_invalid_guest_state(struct kvm_vcpu *vcpu,
 		if (need_resched())
 			schedule();
 	}
+
+	local_irq_disable();
+	preempt_enable();
 
 	/* Guest state should be valid now, no more emulation should be needed */
 	vmx->emulation_required = 0;
