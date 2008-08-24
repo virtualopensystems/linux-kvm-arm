@@ -135,8 +135,7 @@ void generic_smp_call_function_interrupt(void)
 			 */
 			smp_wmb();
 			data->csd.flags &= ~CSD_FLAG_WAIT;
-		}
-		if (data->csd.flags & CSD_FLAG_ALLOC)
+		} else
 			call_rcu(&data->rcu_head, rcu_free_call_data);
 	}
 	rcu_read_unlock();
@@ -290,11 +289,10 @@ static void smp_call_function_mask_quiesce_stack(cpumask_t mask)
 
 	data.func = quiesce_dummy;
 	data.info = NULL;
+	data.flags = CSD_FLAG_WAIT;
 
-	for_each_cpu_mask(cpu, mask) {
-		data.flags = CSD_FLAG_WAIT;
+	for_each_cpu_mask(cpu, mask)
 		generic_exec_single(cpu, &data);
-	}
 }
 
 /**
@@ -373,7 +371,7 @@ int smp_call_function_mask(cpumask_t mask, void (*func)(void *), void *info,
 	if (wait) {
 		csd_flag_wait(&data->csd);
 		if (unlikely(slowpath))
-			smp_call_function_mask_quiesce_stack(mask);
+			smp_call_function_mask_quiesce_stack(allbutself);
 	}
 
 	return 0;
