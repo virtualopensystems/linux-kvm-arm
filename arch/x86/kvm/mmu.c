@@ -999,7 +999,6 @@ static void kvm_mmu_page_unlink_children(struct kvm *kvm,
 		}
 		pt[i] = shadow_trap_nonpresent_pte;
 	}
-	kvm_flush_remote_tlbs(kvm);
 }
 
 static void kvm_mmu_put_page(struct kvm_mmu_page *sp, u64 *parent_pte)
@@ -1041,6 +1040,7 @@ static void kvm_mmu_zap_page(struct kvm *kvm, struct kvm_mmu_page *sp)
 	++kvm->stat.mmu_shadow_zapped;
 	kvm_mmu_page_unlink_children(kvm, sp);
 	kvm_mmu_unlink_parents(kvm, sp);
+	kvm_flush_remote_tlbs(kvm);
 	if (!sp->role.invalid && !sp->role.metaphysical)
 		unaccount_shadowed(kvm, sp->gfn);
 	if (!sp->root_count) {
