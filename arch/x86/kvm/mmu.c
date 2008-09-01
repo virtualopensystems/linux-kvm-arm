@@ -980,7 +980,6 @@ static void kvm_mmu_page_unlink_children(struct kvm *kvm,
 				rmap_remove(kvm, &pt[i]);
 			pt[i] = shadow_trap_nonpresent_pte;
 		}
-		kvm_flush_remote_tlbs(kvm);
 		return;
 	}
 
