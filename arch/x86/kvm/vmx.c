@@ -2937,7 +2937,7 @@ static void handle_invalid_guest_state(struct kvm_vcpu *vcpu,
 	}
 
 	local_irq_disable();
-	preempt_enable();
+	preempt_disable();
 
 	/* Guest state should be valid now, no more emulation should be needed */
 	vmx->emulation_required = 0;
