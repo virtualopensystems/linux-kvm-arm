@@ -349,7 +349,15 @@ int intel_iommu_page_mapping(struct dmar_domain *domain, dma_addr_t iova,
 			     u64 hpa, size_t size, int prot);
 void intel_iommu_detach_dev(struct dmar_domain *domain, u8 bus, u8 devfn);
 struct dmar_domain *intel_iommu_find_domain(struct pci_dev *pdev);
-int intel_iommu_found(void);
 u64 intel_iommu_iova_to_pfn(struct dmar_domain *domain, u64 iova);
+
+#ifdef CONFIG_DMAR
+int intel_iommu_found(void);
+#else /* CONFIG_DMAR */
+static inline int intel_iommu_found(void)
+{
+	return 0;
+}
+#endif /* CONFIG_DMAR */
 
 #endif
