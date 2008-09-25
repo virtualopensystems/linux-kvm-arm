@@ -661,8 +661,6 @@ static void rmap_write_protect(struct kvm *kvm, u64 gfn)
 
 	if (write_protected)
 		kvm_flush_remote_tlbs(kvm);
-
-	account_shadowed(kvm, gfn);
 }
 
 static int kvm_unmap_rmapp(struct kvm *kvm, unsigned long *rmapp)
@@ -1130,8 +1128,10 @@ static struct kvm_mmu_page *kvm_mmu_get_page(struct kvm_vcpu *vcpu,
 	sp->gfn = gfn;
 	sp->role = role;
 	hlist_add_head(&sp->hash_link, bucket);
-	if (!metaphysical)
+	if (!metaphysical) {
 		rmap_write_protect(vcpu->kvm, gfn);
+		account_shadowed(vcpu->kvm, gfn);
+	}
 	if (shadow_trap_nonpresent_pte != shadow_notrap_nonpresent_pte)
 		vcpu->arch.mmu.prefetch_page(vcpu, sp);
 	else
