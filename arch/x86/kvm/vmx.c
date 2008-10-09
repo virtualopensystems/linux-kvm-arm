@@ -3572,6 +3572,11 @@ static int get_ept_level(void)
 	return VMX_EPT_DEFAULT_GAW + 1;
 }
 
+static int vmx_get_mt_mask_shift(void)
+{
+	return VMX_EPT_MT_EPTE_SHIFT;
+}
+
 static struct kvm_x86_ops vmx_x86_ops = {
 	.cpu_has_kvm_support = cpu_has_kvm_support,
 	.disabled_by_bios = vmx_disabled_by_bios,
@@ -3627,6 +3632,7 @@ static struct kvm_x86_ops vmx_x86_ops = {
 
 	.set_tss_addr = vmx_set_tss_addr,
 	.get_tdp_level = get_ept_level,
+	.get_mt_mask_shift = vmx_get_mt_mask_shift,
 };
 
 static int __init vmx_init(void)
@@ -3682,10 +3688,10 @@ static int __init vmx_init(void)
 	if (vm_need_ept()) {
 		bypass_guest_pf = 0;
 		kvm_mmu_set_base_ptes(VMX_EPT_READABLE_MASK |
-			VMX_EPT_WRITABLE_MASK |
-			VMX_EPT_DEFAULT_MT << VMX_EPT_MT_EPTE_SHIFT);
+			VMX_EPT_WRITABLE_MASK);
 		kvm_mmu_set_mask_ptes(0ull, 0ull, 0ull, 0ull,
-				VMX_EPT_EXECUTABLE_MASK);
+				VMX_EPT_EXECUTABLE_MASK,
+				VMX_EPT_DEFAULT_MT << VMX_EPT_MT_EPTE_SHIFT);
 		kvm_enable_tdp();
 	} else
 		kvm_disable_tdp();
