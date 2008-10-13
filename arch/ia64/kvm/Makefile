@@ -30,7 +30,7 @@ define cmd_offsets
 	 echo "#endif" ) > $@
 endef
 # We use internal rules to avoid the "is up to date" message from make
-arch/ia64/kvm/asm-offsets.s: arch/ia64/kvm/asm-offsets.c
+arch/ia64/kvm/asm-offsets.s: arch/ia64/kvm/asm-offsets.c FORCE
 	$(call if_changed_dep,cc_s_c)
 
 $(obj)/$(offsets-file): arch/ia64/kvm/asm-offsets.s
@@ -53,7 +53,6 @@ endif
 kvm-objs := $(common-objs) kvm-ia64.o kvm_fw.o
 obj-$(CONFIG_KVM) += kvm.o
 
-FORCE : $(obj)/$(offsets-file)
 EXTRA_CFLAGS_vcpu.o += -mfixed-range=f2-f5,f12-f127
 kvm-intel-objs = vmm.o vmm_ivt.o trampoline.o vcpu.o optvfault.o mmio.o \
 	vtlb.o process.o
