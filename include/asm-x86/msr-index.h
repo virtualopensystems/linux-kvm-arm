@@ -1,5 +1,5 @@
-#ifndef __ASM_MSR_INDEX_H
-#define __ASM_MSR_INDEX_H
+#ifndef ASM_X86__MSR_INDEX_H
+#define ASM_X86__MSR_INDEX_H
 
 /* CPU model specific register (MSR) numbers */
 
@@ -329,4 +329,4 @@
 #define MSR_IA32_VMX_PROCBASED_CTLS2    0x0000048b
 #define MSR_IA32_VMX_EPT_VPID_CAP       0x0000048c
 
-#endif /* __ASM_MSR_INDEX_H */
+#endif /* ASM_X86__MSR_INDEX_H */
