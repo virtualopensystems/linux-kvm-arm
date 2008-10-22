@@ -4117,7 +4117,7 @@ struct  kvm *kvm_arch_create_vm(void)
 	INIT_LIST_HEAD(&kvm->arch.assigned_dev_head);
 
 	/* Reserve bit 0 of irq_sources_bitmap for userspace irq source */
-	kvm->arch.irq_sources_bitmap = 1;
+	set_bit(KVM_USERSPACE_IRQ_SOURCE_ID, &kvm->arch.irq_sources_bitmap);
 
 	return kvm;
 }
