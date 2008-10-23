@@ -37,7 +37,7 @@
 #define KVM_REQ_UNHALT             6
 #define KVM_REQ_MMU_SYNC           7
 
-#define KVM_USERSPACE_IRQ_SOURCE_ID	(1 << 0)
+#define KVM_USERSPACE_IRQ_SOURCE_ID	0
 
 struct kvm_vcpu;
 extern struct kmem_cache *kvm_vcpu_cache;
