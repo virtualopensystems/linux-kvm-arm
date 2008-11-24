@@ -164,6 +164,14 @@ static void kvmppc_44x_shadow_release(struct kvm_vcpu *vcpu,
 	}
 }
 
+void kvmppc_core_destroy_mmu(struct kvm_vcpu *vcpu)
+{
+	int i;
+
+	for (i = 0; i <= tlb_44x_hwater; i++)
+		kvmppc_44x_shadow_release(vcpu, i);
+}
+
 void kvmppc_tlbe_set_modified(struct kvm_vcpu *vcpu, unsigned int i)
 {
 	struct kvmppc_vcpu_44x *vcpu_44x = to_44x(vcpu);
