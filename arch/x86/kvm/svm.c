@@ -81,6 +81,11 @@ static int nested_svm_vmsave(struct vcpu_svm *svm, void *nested_vmcb,
 			     void *arg2, void *opaque);
 static int nested_svm_check_exception(struct vcpu_svm *svm, unsigned nr,
 				      bool has_error_code, u32 error_code);
+static int vmload_interception(struct vcpu_svm *svm, struct kvm_run *kvm_run);
+static int vmsave_interception(struct vcpu_svm *svm, struct kvm_run *kvm_run);
+static int vmrun_interception(struct vcpu_svm *svm, struct kvm_run *kvm_run);
+static int stgi_interception(struct vcpu_svm *svm, struct kvm_run *kvm_run);
+
 
 static inline struct vcpu_svm *to_svm(struct kvm_vcpu *vcpu)
 {
@@ -1443,6 +1448,50 @@ static int nested_svm_exit_handled(struct vcpu_svm *svm, bool kvm_override)
 			     nested_svm_exit_handled_real);
 }
 
+static int nested_svm_emulate(struct vcpu_svm *svm, struct kvm_run *kvm_run)
+{
+	int er;
+	u32 opcode = 0;
+	unsigned long rip;
+	unsigned long rip_linear;
+
+	svm->vmcb->save.rax = svm->vcpu.arch.regs[VCPU_REGS_RAX];
+	svm->vmcb->save.rsp = svm->vcpu.arch.regs[VCPU_REGS_RSP];
+	svm->vmcb->save.rip = svm->vcpu.arch.regs[VCPU_REGS_RIP];
+	rip = svm->vcpu.arch.regs[VCPU_REGS_RIP];
+	rip_linear = rip + svm_seg(&svm->vcpu, VCPU_SREG_CS)->base;
+
+	er = emulator_read_std(rip_linear, (void *)&opcode, 3, &svm->vcpu);
+	if (er != X86EMUL_CONTINUE)
+		return er;
+	er = EMULATE_FAIL;
+
+	switch (opcode) {
+		case 0xda010f:
+			vmload_interception(svm, kvm_run);
+			er = EMULATE_DONE;
+			break;
+		case 0xd8010f:
+			vmrun_interception(svm, kvm_run);
+			er = EMULATE_DONE;
+			break;
+		case 0xdb010f:
+			vmsave_interception(svm, kvm_run);
+			er = EMULATE_DONE;
+			break;
+		case 0xdc010f:
+			stgi_interception(svm, kvm_run);
+			er = EMULATE_DONE;
+			break;
+		default:
+			nsvm_printk("NSVM: Opcode %x unknown\n", opcode);
+	}
+
+	nsvm_printk("NSVM: svm emul at 0x%lx -> %d\n", rip, er);
+
+	return er;
+}
+
 static int nested_svm_vmexit_real(struct vcpu_svm *svm, void *arg1,
 				  void *arg2, void *opaque)
 {
@@ -1537,6 +1586,9 @@ static int nested_svm_vmexit(struct vcpu_svm *svm)
 
 	kvm_mmu_reset_context(&svm->vcpu);
 	kvm_mmu_load(&svm->vcpu);
+
+	/* KVM calls vmsave after vmrun, so let's run it now if we can */
+	nested_svm_emulate(svm, NULL);
 
 	return 0;
 }
@@ -1760,6 +1812,23 @@ static int clgi_interception(struct vcpu_svm *svm, struct kvm_run *kvm_run)
 	svm_clear_vintr(svm);
 	svm->vmcb->control.int_ctl &= ~V_IRQ_MASK;
 
+	/* Let's try to emulate as many instructions as possible in GIF=0 */
+
+	while(true) {
+		int er;
+
+		er = emulate_instruction(&svm->vcpu, kvm_run, 0, 0, 0);
+		nsvm_printk("NSVM: emulating at 0x%lx -> %d\n", svm->vcpu.arch.regs[VCPU_REGS_RIP], er);
+
+		/* So we can now emulate the SVM instructions that most probably
+		   occur at the end of the codepath */
+		if (er != EMULATE_DONE) {
+			while (true)
+				if (nested_svm_emulate(svm, kvm_run) == EMULATE_FAIL)
+					break;
+			break;
+		}
+	}
 	return 1;
 }
 
