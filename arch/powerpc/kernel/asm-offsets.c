@@ -377,5 +377,16 @@ int main(void)
 	DEFINE(VCPU_FAULT_ESR, offsetof(struct kvm_vcpu, arch.fault_esr));
 #endif
 
+#ifdef CONFIG_KVM_EXIT_TIMING
+	DEFINE(VCPU_TIMING_EXIT_TBU, offsetof(struct kvm_vcpu,
+						arch.timing_exit.tv32.tbu));
+	DEFINE(VCPU_TIMING_EXIT_TBL, offsetof(struct kvm_vcpu,
+						arch.timing_exit.tv32.tbl));
+	DEFINE(VCPU_TIMING_LAST_ENTER_TBU, offsetof(struct kvm_vcpu,
+					arch.timing_last_enter.tv32.tbu));
+	DEFINE(VCPU_TIMING_LAST_ENTER_TBL, offsetof(struct kvm_vcpu,
+					arch.timing_last_enter.tv32.tbl));
+#endif
+
 	return 0;
 }
