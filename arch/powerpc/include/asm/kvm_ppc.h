@@ -91,4 +91,6 @@ extern void kvmppc_booke_exit(void);
 
 extern void kvmppc_core_destroy_mmu(struct kvm_vcpu *vcpu);
 
+extern void kvmppc_core_destroy_mmu(struct kvm_vcpu *vcpu);
+
 #endif /* __POWERPC_KVM_PPC_H__ */
