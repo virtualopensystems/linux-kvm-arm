@@ -1848,6 +1848,8 @@ static int stgi_interception(struct vcpu_svm *svm, struct kvm_run *kvm_run)
 
 static int clgi_interception(struct vcpu_svm *svm, struct kvm_run *kvm_run)
 {
+	int loopcount = 0;
+
 	if (nested_svm_check_permissions(svm))
 		return 1;
 
@@ -1862,7 +1864,7 @@ static int clgi_interception(struct vcpu_svm *svm, struct kvm_run *kvm_run)
 
 	/* Let's try to emulate as many instructions as possible in GIF=0 */
 
-	while(true) {
+	while (++loopcount < 100) {
 		int er;
 
 		er = emulate_instruction(&svm->vcpu, kvm_run, 0, 0, 0);
