@@ -389,7 +389,7 @@ static void emergency_vmx_disable_all(void)
 	 * We can't take any locks and we may be on an inconsistent
 	 * state, so we use NMIs as IPIs to tell the other CPUs to disable
 	 * VMX and halt.
-	 * 
+	 *
 	 * For safety, we will avoid running the nmi_shootdown_cpus()
 	 * stuff unnecessarily, but we don't have a way to check
 	 * if other CPUs have VMX enabled. So we will call it only if the
