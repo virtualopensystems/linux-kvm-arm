@@ -29,6 +29,7 @@
 #include <asm/kvm_ppc.h>
 #include <asm/tlbflush.h>
 #include "timing.h"
+#include "../mm/mmu_decl.h"
 
 gfn_t unalias_gfn(struct kvm *kvm, gfn_t gfn)
 {
@@ -227,6 +228,11 @@ void kvm_arch_vcpu_put(struct kvm_vcpu *vcpu)
 	if (vcpu->guest_debug.enabled)
 		kvmppc_core_load_host_debugstate(vcpu);
 
+	/* Don't leave guest TLB entries resident when being de-scheduled. */
+	/* XXX It would be nice to differentiate between heavyweight exit and
+	 * sched_out here, since we could avoid the TLB flush for heavyweight
+	 * exits. */
+	_tlbil_all();
 	kvmppc_core_vcpu_put(vcpu);
 }
 
