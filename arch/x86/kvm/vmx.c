@@ -3129,7 +3129,6 @@ static int handle_nmi_window(struct kvm_vcpu *vcpu, struct kvm_run *kvm_run)
 static void handle_invalid_guest_state(struct kvm_vcpu *vcpu,
 				struct kvm_run *kvm_run)
 {
-	struct vcpu_vmx *vmx = to_vmx(vcpu);
 	int err;
 
 	preempt_enable();
@@ -3154,11 +3153,6 @@ static void handle_invalid_guest_state(struct kvm_vcpu *vcpu,
 
 	local_irq_disable();
 	preempt_disable();
-
-	/* Guest state should be valid now except if we need to
-	 * emulate an MMIO */
-	if (guest_state_valid(vcpu))
-		vmx->emulation_required = 0;
 }
 
 /*
@@ -3207,8 +3201,11 @@ static int kvm_handle_exit(struct kvm_run *kvm_run, struct kvm_vcpu *vcpu)
 
 	/* If we need to emulate an MMIO from handle_invalid_guest_state
 	 * we just return 0 */
-	if (vmx->emulation_required && emulate_invalid_guest_state)
+	if (vmx->emulation_required && emulate_invalid_guest_state) {
+		if (guest_state_valid(vcpu))
+			vmx->emulation_required = 0;
 		return 0;
+	}
 
 	/* Access CR3 don't cause VMExit in paging mode, so we need
 	 * to sync with guest real CR3. */
