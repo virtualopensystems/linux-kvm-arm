@@ -35,6 +35,12 @@
 #include "kvm_cache_regs.h"
 #include "irq.h"
 
+#ifndef CONFIG_X86_64
+#define mod_64(x, y) ((x) - (y) * div64_u64(x, y))
+#else
+#define mod_64(x, y) ((x) % (y))
+#endif
+
 #define PRId64 "d"
 #define PRIx64 "llx"
 #define PRIu64 "u"
@@ -525,7 +531,7 @@ static u32 apic_get_tmcct(struct kvm_lapic *apic)
 	if (ktime_to_ns(remaining) < 0)
 		remaining = ktime_set(0, 0);
 
-	ns = ktime_to_ns(remaining) % apic->timer.period;
+	ns = mod_64(ktime_to_ns(remaining), apic->timer.period);
 	tmcct = div64_u64(ns, (APIC_BUS_CYCLE_NS * apic->timer.divide_count));
 
 	return tmcct;
