@@ -480,6 +480,7 @@ static int kvm_vm_ioctl_assign_device(struct kvm *kvm,
 	struct kvm_assigned_dev_kernel *match;
 	struct pci_dev *dev;
 
+	down_read(&kvm->slots_lock);
 	mutex_lock(&kvm->lock);
 
 	match = kvm_find_assigned_dev(&kvm->arch.assigned_dev_head,
@@ -541,6 +542,7 @@ static int kvm_vm_ioctl_assign_device(struct kvm *kvm,
 
 out:
 	mutex_unlock(&kvm->lock);
+	up_read(&kvm->slots_lock);
 	return r;
 out_list_del:
 	list_del(&match->list);
@@ -552,6 +554,7 @@ out_put:
 out_free:
 	kfree(match);
 	mutex_unlock(&kvm->lock);
+	up_read(&kvm->slots_lock);
 	return r;
 }
 #endif
