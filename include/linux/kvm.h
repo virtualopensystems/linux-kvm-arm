@@ -409,6 +409,9 @@ struct kvm_trace_rec {
 #ifdef __KVM_HAVE_DEVICE_ASSIGNMENT
 #define KVM_CAP_DEVICE_DEASSIGNMENT 27
 #endif
+#ifdef __KVM_HAVE_MSIX
+#define KVM_CAP_DEVICE_MSIX 28
+#endif
 
 #ifdef KVM_CAP_IRQ_ROUTING
 
@@ -608,6 +611,11 @@ struct kvm_assigned_irq {
 
 #define KVM_DEV_IRQ_ASSIGN_MSI_ACTION	KVM_DEV_IRQ_ASSIGN_ENABLE_MSI
 #define KVM_DEV_IRQ_ASSIGN_ENABLE_MSI	(1 << 0)
+
+#define KVM_DEV_IRQ_ASSIGN_MSIX_ACTION  (KVM_DEV_IRQ_ASSIGN_ENABLE_MSIX |\
+					KVM_DEV_IRQ_ASSIGN_MASK_MSIX)
+#define KVM_DEV_IRQ_ASSIGN_ENABLE_MSIX  (1 << 1)
+#define KVM_DEV_IRQ_ASSIGN_MASK_MSIX    (1 << 2)
 
 struct kvm_assigned_msix_nr {
 	__u32 assigned_dev_id;
