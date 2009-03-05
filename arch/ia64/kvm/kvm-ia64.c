@@ -283,6 +283,18 @@ static int handle_sal_call(struct kvm_vcpu *vcpu, struct kvm_run *kvm_run)
 
 }
 
+static int __apic_accept_irq(struct kvm_vcpu *vcpu, uint64_t vector)
+{
+	struct vpd *vpd = to_host(vcpu->kvm, vcpu->arch.vpd);
+
+	if (!test_and_set_bit(vector, &vpd->irr[0])) {
+		vcpu->arch.irq_new_pending = 1;
+		kvm_vcpu_kick(vcpu);
+		return 1;
+	}
+	return 0;
+}
+
 /*
  *  offset: address offset to IPI space.
  *  value:  deliver value.
@@ -292,20 +304,20 @@ static void vcpu_deliver_ipi(struct kvm_vcpu *vcpu, uint64_t dm,
 {
 	switch (dm) {
 	case SAPIC_FIXED:
-		kvm_apic_set_irq(vcpu, vector, dm, 0);
 		break;
 	case SAPIC_NMI:
-		kvm_apic_set_irq(vcpu, 2, dm, 0);
+		vector = 2;
 		break;
 	case SAPIC_EXTINT:
-		kvm_apic_set_irq(vcpu, 0, dm, 0);
+		vector = 0;
 		break;
 	case SAPIC_INIT:
 	case SAPIC_PMI:
 	default:
 		printk(KERN_ERR"kvm: Unimplemented Deliver reserved IPI!\n");
-		break;
+		return
 	}
+	__apic_accept_irq(vcpu, vector);
 }
 
 static struct kvm_vcpu *lid_to_vcpu(struct kvm *kvm, unsigned long id,
@@ -1811,17 +1823,9 @@ void kvm_vcpu_kick(struct kvm_vcpu *vcpu)
 	put_cpu();
 }
 
-int kvm_apic_set_irq(struct kvm_vcpu *vcpu, u8 vec, u8 dmode, u8 trig)
+int kvm_apic_set_irq(struct kvm_vcpu *vcpu, struct kvm_lapic_irq *irq)
 {
-
-	struct vpd *vpd = to_host(vcpu->kvm, vcpu->arch.vpd);
-
-	if (!test_and_set_bit(vec, &vpd->irr[0])) {
-		vcpu->arch.irq_new_pending = 1;
-		kvm_vcpu_kick(vcpu);
-		return 1;
-	}
-	return 0;
+	return __apic_accept_irq(vcpu, irq->vector);
 }
 
 int kvm_apic_match_physical_addr(struct kvm_lapic *apic, u16 dest)
