@@ -22,6 +22,9 @@
 #include <linux/kvm_host.h>
 
 #include <asm/msidef.h>
+#ifdef CONFIG_IA64
+#include <asm/iosapic.h>
+#endif
 
 #include "irq.h"
 
@@ -43,6 +46,16 @@ static int kvm_set_ioapic_irq(struct kvm_kernel_irq_routing_entry *e,
 	return kvm_ioapic_set_irq(kvm->arch.vioapic, e->irqchip.pin, level);
 }
 
+inline static bool kvm_is_dm_lowest_prio(struct kvm_lapic_irq *irq)
+{
+#ifdef CONFIG_IA64
+	return irq->delivery_mode ==
+		(IOSAPIC_LOWEST_PRIORITY << IOSAPIC_DELIVERY_SHIFT);
+#else
+	return irq->delivery_mode == APIC_DM_LOWEST;
+#endif
+}
+
 int kvm_irq_delivery_to_apic(struct kvm *kvm, struct kvm_lapic *src,
 		struct kvm_lapic_irq *irq)
 {
@@ -50,7 +63,7 @@ int kvm_irq_delivery_to_apic(struct kvm *kvm, struct kvm_lapic *src,
 	struct kvm_vcpu *vcpu, *lowest = NULL;
 
 	if (irq->dest_mode == 0 && irq->dest_id == 0xff &&
-			irq->delivery_mode == APIC_DM_LOWEST)
+			kvm_is_dm_lowest_prio(irq))
 		printk(KERN_INFO "kvm: apic: phys broadcast and lowest prio\n");
 
 	for (i = 0; i < KVM_MAX_VCPUS; i++) {
@@ -63,7 +76,7 @@ int kvm_irq_delivery_to_apic(struct kvm *kvm, struct kvm_lapic *src,
 					irq->dest_id, irq->dest_mode))
 			continue;
 
-		if (irq->delivery_mode != APIC_DM_LOWEST) {
+		if (!kvm_is_dm_lowest_prio(irq)) {
 			if (r < 0)
 				r = 0;
 			r += kvm_apic_set_irq(vcpu, irq);

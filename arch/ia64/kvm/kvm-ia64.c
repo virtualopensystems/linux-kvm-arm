@@ -327,7 +327,7 @@ static void vcpu_deliver_ipi(struct kvm_vcpu *vcpu, uint64_t dm,
 	case SAPIC_PMI:
 	default:
 		printk(KERN_ERR"kvm: Unimplemented Deliver reserved IPI!\n");
-		return
+		return;
 	}
 	__apic_accept_irq(vcpu, vector);
 }
@@ -1919,6 +1919,7 @@ int kvm_apic_compare_prio(struct kvm_vcpu *vcpu1, struct kvm_vcpu *vcpu2)
 int kvm_apic_match_dest(struct kvm_vcpu *vcpu, struct kvm_lapic *source,
 		int short_hand, int dest, int dest_mode)
 {
+	struct kvm_lapic *target = vcpu->arch.apic;
 	return (dest_mode == 0) ?
 		kvm_apic_match_physical_addr(target, dest) :
 		kvm_apic_match_logical_addr(target, dest);

@@ -38,7 +38,6 @@ void kvm_set_apic_base(struct kvm_vcpu *vcpu, u64 data);
 void kvm_apic_post_state_restore(struct kvm_vcpu *vcpu);
 int kvm_lapic_enabled(struct kvm_vcpu *vcpu);
 bool kvm_apic_present(struct kvm_vcpu *vcpu);
-bool kvm_lapic_present(struct kvm_vcpu *vcpu);
 int kvm_lapic_find_highest_irr(struct kvm_vcpu *vcpu);
 
 void kvm_lapic_set_vapic_addr(struct kvm_vcpu *vcpu, gpa_t vapic_addr);
