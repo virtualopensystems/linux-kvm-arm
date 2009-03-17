@@ -489,7 +489,7 @@ struct kvm_irq_routing {
 			    struct kvm_assigned_irq)
 #define KVM_ASSIGN_DEV_IRQ        _IOW(KVMIO, 0x70, struct kvm_assigned_irq)
 #define KVM_REINJECT_CONTROL      _IO(KVMIO, 0x71)
-#define KVM_DEASSIGN_PCI_DEVICE _IOR(KVMIO, 0x72, \
+#define KVM_DEASSIGN_PCI_DEVICE _IOW(KVMIO, 0x72, \
 				     struct kvm_assigned_pci_dev)
 #define KVM_ASSIGN_SET_MSIX_NR \
 			_IOW(KVMIO, 0x73, struct kvm_assigned_msix_nr)
