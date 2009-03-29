@@ -36,10 +36,10 @@
 #include <linux/clocksource.h>
 #include <linux/of_device.h>
 #include <linux/platform_device.h>
-#include <linux/irq.h>
 
 #include <asm/oplib.h>
 #include <asm/timer.h>
+#include <asm/irq.h>
 #include <asm/io.h>
 #include <asm/prom.h>
 #include <asm/starfire.h>
@@ -729,7 +729,7 @@ void timer_interrupt(int irq, struct pt_regs *regs)
 
 	irq_enter();
 
-	kstat_this_cpu.irqs[0]++;
+	kstat_incr_irqs_this_cpu(0, irq_to_desc(0));
 
 	if (unlikely(!evt->event_handler)) {
 		printk(KERN_WARNING

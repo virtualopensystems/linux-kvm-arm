@@ -328,7 +328,7 @@ static char *sockfs_dname(struct dentry *dentry, char *buffer, int buflen)
 				dentry->d_inode->i_ino);
 }
 
-static struct dentry_operations sockfs_dentry_operations = {
+static const struct dentry_operations sockfs_dentry_operations = {
 	.d_delete = sockfs_delete_dentry,
 	.d_dname  = sockfs_dname,
 };
@@ -1535,8 +1535,6 @@ SYSCALL_DEFINE4(accept4, int, fd, struct sockaddr __user *, upeer_sockaddr,
 
 	fd_install(newfd, newfile);
 	err = newfd;
-
-	security_socket_post_accept(sock, newsock);
 
 out_put:
 	fput_light(sock->file, fput_needed);
