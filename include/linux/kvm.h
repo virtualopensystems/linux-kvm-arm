@@ -413,6 +413,8 @@ struct kvm_trace_rec {
 #define KVM_CAP_DEVICE_MSIX 28
 #endif
 #define KVM_CAP_ASSIGN_DEV_IRQ 29
+/* Another bug in KVM_SET_USER_MEMORY_REGION fixed: */
+#define KVM_CAP_JOIN_MEMORY_REGIONS_WORKS 30
 
 #ifdef KVM_CAP_IRQ_ROUTING
 
