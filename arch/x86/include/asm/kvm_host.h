@@ -512,10 +512,15 @@ struct kvm_x86_ops {
 				unsigned char *hypercall_addr);
 	int (*get_irq)(struct kvm_vcpu *vcpu);
 	void (*set_irq)(struct kvm_vcpu *vcpu, int vec);
+	void (*set_nmi)(struct kvm_vcpu *vcpu);
 	void (*queue_exception)(struct kvm_vcpu *vcpu, unsigned nr,
 				bool has_error_code, u32 error_code);
-	void (*inject_pending_irq)(struct kvm_vcpu *vcpu, struct kvm_run *run);
 	int (*interrupt_allowed)(struct kvm_vcpu *vcpu);
+	int (*nmi_allowed)(struct kvm_vcpu *vcpu);
+	void (*enable_nmi_window)(struct kvm_vcpu *vcpu);
+	void (*enable_irq_window)(struct kvm_vcpu *vcpu);
+	void (*update_cr8_intercept)(struct kvm_vcpu *vcpu, int tpr, int irr);
+	void (*drop_interrupt_shadow)(struct kvm_vcpu *vcpu);
 	int (*set_tss_addr)(struct kvm *kvm, unsigned int addr);
 	int (*get_tdp_level)(void);
 	int (*get_mt_mask_shift)(void);
