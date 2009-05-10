@@ -1280,7 +1280,13 @@ static void do_cpuid_ent(struct kvm_cpuid_entry2 *entry, u32 function,
 		bit(X86_FEATURE_XMM3) | bit(X86_FEATURE_CX16);
 	const u32 kvm_supported_word6_x86_features =
 		bit(X86_FEATURE_LAHF_LM) | bit(X86_FEATURE_CMP_LEGACY) |
-		bit(X86_FEATURE_SVM);
+		bit(X86_FEATURE_SVM) | 0 /* ExtApicSpace */ |
+		bit(X86_FEATURE_CR8_LEGACY) | bit(X86_FEATURE_ABM) |
+		bit(X86_FEATURE_SSE4A) | bit(X86_FEATURE_MISALIGNSSE) |
+		bit(X86_FEATURE_3DNOWPREFETCH) | 0 /* OSVW */ |
+		0 /* IBS */ | bit(X86_FEATURE_SSE5) |
+		0 /* SKINIT */ | 0 /* WDT);
+
 
 	/* all calls to cpuid_count() should be made on the same cpu */
 	get_cpu();
