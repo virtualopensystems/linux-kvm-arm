@@ -1252,7 +1252,7 @@ static void do_cpuid_ent(struct kvm_cpuid_entry2 *entry, u32 function,
 #ifdef CONFIG_X86_64
 	unsigned f_lm = F(LM);
 #else
-	unsigned f_lm = 0
+	unsigned f_lm = 0;
 #endif
 
 	/* cpuid 1.edx */
