@@ -1,8 +1,6 @@
 #ifndef _ASM_X86_MCE_H
 #define _ASM_X86_MCE_H
 
-#ifdef __x86_64__
-
 #include <linux/types.h>
 #include <asm/ioctls.h>
 
@@ -81,8 +79,6 @@ struct mce_log {
 #define K8_MCE_THRESHOLD_BANK_4    (MCE_THRESHOLD_BASE + 4 * 9)
 #define K8_MCE_THRESHOLD_BANK_5    (MCE_THRESHOLD_BASE + 5 * 9)
 #define K8_MCE_THRESHOLD_DRAM_ECC  (MCE_THRESHOLD_BANK_4 + 0)
-
-#endif /* __x86_64__ */
 
 #ifdef __KERNEL__
 
