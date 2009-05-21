@@ -206,6 +206,12 @@ kvm_deassign_irqfd(struct kvm *kvm, int fd, int gsi)
 	return count ? count : -ENOENT;
 }
 
+void
+kvm_irqfd_init(struct kvm *kvm)
+{
+	INIT_LIST_HEAD(&kvm->irqfds);
+}
+
 int
 kvm_irqfd(struct kvm *kvm, int fd, int gsi, int flags)
 {
