@@ -8,21 +8,21 @@
  * Machine Check support for x86
  */
 
-#define MCG_CTL_P	 (1UL<<8)   /* MCG_CAP register available */
-#define MCG_EXT_P	 (1ULL<<9)   /* Extended registers available */
-#define MCG_CMCI_P	 (1ULL<<10)  /* CMCI supported */
+#define MCG_CTL_P        (1ULL<<8)  /* MCG_CAP register available */
+#define MCG_EXT_P        (1ULL<<9)  /* Extended registers available */
+#define MCG_CMCI_P       (1ULL<<10) /* CMCI supported */
 
-#define MCG_STATUS_RIPV  (1UL<<0)   /* restart ip valid */
-#define MCG_STATUS_EIPV  (1UL<<1)   /* ip points to correct instruction */
-#define MCG_STATUS_MCIP  (1UL<<2)   /* machine check in progress */
+#define MCG_STATUS_RIPV  (1ULL<<0)  /* restart ip valid */
+#define MCG_STATUS_EIPV  (1ULL<<1)  /* ip points to correct instruction */
+#define MCG_STATUS_MCIP  (1ULL<<2)  /* machine check in progress */
 
-#define MCI_STATUS_VAL   (1UL<<63)  /* valid error */
-#define MCI_STATUS_OVER  (1UL<<62)  /* previous errors lost */
-#define MCI_STATUS_UC    (1UL<<61)  /* uncorrected error */
-#define MCI_STATUS_EN    (1UL<<60)  /* error enabled */
-#define MCI_STATUS_MISCV (1UL<<59)  /* misc error reg. valid */
-#define MCI_STATUS_ADDRV (1UL<<58)  /* addr reg. valid */
-#define MCI_STATUS_PCC   (1UL<<57)  /* processor context corrupt */
+#define MCI_STATUS_VAL   (1ULL<<63) /* valid error */
+#define MCI_STATUS_OVER  (1ULL<<62) /* previous errors lost */
+#define MCI_STATUS_UC    (1ULL<<61) /* uncorrected error */
+#define MCI_STATUS_EN    (1ULL<<60) /* error enabled */
+#define MCI_STATUS_MISCV (1ULL<<59) /* misc error reg. valid */
+#define MCI_STATUS_ADDRV (1ULL<<58) /* addr reg. valid */
+#define MCI_STATUS_PCC   (1ULL<<57) /* processor context corrupt */
 
 /* Fields are zero when not available */
 struct mce {
