@@ -27,6 +27,7 @@
 #include <linux/poll.h>
 #include <linux/file.h>
 #include <linux/list.h>
+#include <linux/eventfd.h>
 
 /*
  * --------------------------------------------------------------------
@@ -102,7 +103,7 @@ kvm_assign_irqfd(struct kvm *kvm, int fd, int gsi)
 	/*
 	 * Embed the file* lifetime in the irqfd.
 	 */
-	file = fget(fd);
+	file = eventfd_fget(fd);
 	if (IS_ERR(file)) {
 		ret = PTR_ERR(file);
 		goto fail;
