@@ -2099,10 +2099,10 @@ long kvm_arch_vm_ioctl(struct file *filp,
 			goto out;
 		if (irqchip_in_kernel(kvm)) {
 			__s32 status;
-			mutex_lock(&kvm->lock);
+			mutex_lock(&kvm->irq_lock);
 			status = kvm_set_irq(kvm, KVM_USERSPACE_IRQ_SOURCE_ID,
 					irq_event.irq, irq_event.level);
-			mutex_unlock(&kvm->lock);
+			mutex_unlock(&kvm->irq_lock);
 			if (ioctl == KVM_IRQ_LINE_STATUS) {
 				irq_event.status = status;
 				if (copy_to_user(argp, &irq_event,
@@ -2348,12 +2348,11 @@ mmio:
 	 */
 	mutex_lock(&vcpu->kvm->lock);
 	mmio_dev = vcpu_find_mmio_dev(vcpu, gpa, bytes, 0);
+	mutex_unlock(&vcpu->kvm->lock);
 	if (mmio_dev) {
 		kvm_iodevice_read(mmio_dev, gpa, bytes, val);
-		mutex_unlock(&vcpu->kvm->lock);
 		return X86EMUL_CONTINUE;
 	}
-	mutex_unlock(&vcpu->kvm->lock);
 
 	vcpu->mmio_needed = 1;
 	vcpu->mmio_phys_addr = gpa;
@@ -2403,12 +2402,11 @@ mmio:
 	 */
 	mutex_lock(&vcpu->kvm->lock);
 	mmio_dev = vcpu_find_mmio_dev(vcpu, gpa, bytes, 1);
+	mutex_unlock(&vcpu->kvm->lock);
 	if (mmio_dev) {
 		kvm_iodevice_write(mmio_dev, gpa, bytes, val);
-		mutex_unlock(&vcpu->kvm->lock);
 		return X86EMUL_CONTINUE;
 	}
-	mutex_unlock(&vcpu->kvm->lock);
 
 	vcpu->mmio_needed = 1;
 	vcpu->mmio_phys_addr = gpa;
@@ -2731,7 +2729,6 @@ static void kernel_pio(struct kvm_io_device *pio_dev,
 {
 	/* TODO: String I/O for in kernel device */
 
-	mutex_lock(&vcpu->kvm->lock);
 	if (vcpu->arch.pio.in)
 		kvm_iodevice_read(pio_dev, vcpu->arch.pio.port,
 				  vcpu->arch.pio.size,
@@ -2740,7 +2737,6 @@ static void kernel_pio(struct kvm_io_device *pio_dev,
 		kvm_iodevice_write(pio_dev, vcpu->arch.pio.port,
 				   vcpu->arch.pio.size,
 				   pd);
-	mutex_unlock(&vcpu->kvm->lock);
 }
 
 static void pio_string_write(struct kvm_io_device *pio_dev,
@@ -2750,14 +2746,12 @@ static void pio_string_write(struct kvm_io_device *pio_dev,
 	void *pd = vcpu->arch.pio_data;
 	int i;
 
-	mutex_lock(&vcpu->kvm->lock);
 	for (i = 0; i < io->cur_count; i++) {
 		kvm_iodevice_write(pio_dev, io->port,
 				   io->size,
 				   pd);
 		pd += io->size;
 	}
-	mutex_unlock(&vcpu->kvm->lock);
 }
 
 static struct kvm_io_device *vcpu_find_pio_dev(struct kvm_vcpu *vcpu,
@@ -2794,7 +2788,9 @@ int kvm_emulate_pio(struct kvm_vcpu *vcpu, struct kvm_run *run, int in,
 	val = kvm_register_read(vcpu, VCPU_REGS_RAX);
 	memcpy(vcpu->arch.pio_data, &val, 4);
 
+	mutex_lock(&vcpu->kvm->lock);
 	pio_dev = vcpu_find_pio_dev(vcpu, port, size, !in);
+	mutex_unlock(&vcpu->kvm->lock);
 	if (pio_dev) {
 		kernel_pio(pio_dev, vcpu, vcpu->arch.pio_data);
 		complete_pio(vcpu);
@@ -2858,9 +2854,12 @@ int kvm_emulate_pio_string(struct kvm_vcpu *vcpu, struct kvm_run *run, int in,
 
 	vcpu->arch.pio.guest_gva = address;
 
+	mutex_lock(&vcpu->kvm->lock);
 	pio_dev = vcpu_find_pio_dev(vcpu, port,
 				    vcpu->arch.pio.cur_count,
 				    !vcpu->arch.pio.in);
+	mutex_unlock(&vcpu->kvm->lock);
+
 	if (!vcpu->arch.pio.in) {
 		/* string PIO write */
 		ret = pio_copy_data(vcpu);

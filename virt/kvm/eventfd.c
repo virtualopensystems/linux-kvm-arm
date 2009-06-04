@@ -60,10 +60,10 @@ irqfd_inject(struct work_struct *work)
 
 	kvm = rcu_dereference(irqfd->kvm);
 	if (kvm) {
-		mutex_lock(&kvm->lock);
+		mutex_lock(&kvm->irq_lock);
 		kvm_set_irq(kvm, KVM_USERSPACE_IRQ_SOURCE_ID, irqfd->gsi, 1);
 		kvm_set_irq(kvm, KVM_USERSPACE_IRQ_SOURCE_ID, irqfd->gsi, 0);
-		mutex_unlock(&kvm->lock);
+		mutex_unlock(&kvm->irq_lock);
 	}
 
 	srcu_read_unlock(&irqfd->srcu, idx);
