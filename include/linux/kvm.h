@@ -482,8 +482,6 @@ struct kvm_x86_mce {
 };
 #endif
 
-#define KVM_IRQFD_FLAG_DEASSIGN (1 << 0)
-
 struct kvm_irqfd {
 	__u32 fd;
 	__u32 gsi;
