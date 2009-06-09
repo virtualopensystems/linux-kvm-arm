@@ -228,7 +228,7 @@ int pit_has_pending_timer(struct kvm_vcpu *vcpu)
 {
 	struct kvm_pit *pit = vcpu->kvm->arch.vpit;
 
-	if (pit && vcpu->vcpu_id == 0 && pit->pit_state.irq_ack)
+	if (pit && kvm_vcpu_is_bsp(vcpu) && pit->pit_state.irq_ack)
 		return atomic_read(&pit->pit_state.pit_timer.pending);
 	return 0;
 }
@@ -249,7 +249,7 @@ void __kvm_migrate_pit_timer(struct kvm_vcpu *vcpu)
 	struct kvm_pit *pit = vcpu->kvm->arch.vpit;
 	struct hrtimer *timer;
 
-	if (vcpu->vcpu_id != 0 || !pit)
+	if (!kvm_vcpu_is_bsp(vcpu) || !pit)
 		return;
 
 	timer = &pit->pit_state.pit_timer.timer;
