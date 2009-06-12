@@ -2195,6 +2195,7 @@ static long kvm_vm_ioctl(struct file *filp,
 		vfree(entries);
 		break;
 	}
+#endif /* KVM_CAP_IRQ_ROUTING */
 #ifdef __KVM_HAVE_MSIX
 	case KVM_ASSIGN_SET_MSIX_NR: {
 		struct kvm_assigned_msix_nr entry_nr;
@@ -2217,7 +2218,6 @@ static long kvm_vm_ioctl(struct file *filp,
 		break;
 	}
 #endif
-#endif /* KVM_CAP_IRQ_ROUTING */
 	case KVM_IRQFD: {
 		struct kvm_irqfd data;
 
@@ -2624,7 +2624,6 @@ int kvm_init(void *opaque, unsigned int vcpu_size,
 		r = -ENOMEM;
 		goto out_free_0;
 	}
-	cpumask_clear(cpus_hardware_enabled);
 
 	r = kvm_arch_hardware_setup();
 	if (r < 0)
