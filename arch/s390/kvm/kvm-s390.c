@@ -516,7 +516,7 @@ rerun_vcpu:
 		BUG();
 	}
 
-	might_sleep();
+	might_fault();
 
 	do {
 		__vcpu_run(vcpu);
