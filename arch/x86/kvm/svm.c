@@ -29,6 +29,9 @@
 #include <asm/desc.h>
 
 #include <asm/virtext.h>
+#include "svm-trace.h"
+#define CREATE_TRACE_POINTS
+#include "trace-arch.h"
 
 #define __ex(x) __kvm_handle_fault_on_reboot(x)
 
@@ -1099,7 +1102,6 @@ static unsigned long svm_get_dr(struct kvm_vcpu *vcpu, int dr)
 		val = 0;
 	}
 
-	KVMTRACE_2D(DR_READ, vcpu, (u32)dr, (u32)val, handler);
 	return val;
 }
 
@@ -1107,8 +1109,6 @@ static void svm_set_dr(struct kvm_vcpu *vcpu, int dr, unsigned long value,
 		       int *exception)
 {
 	struct vcpu_svm *svm = to_svm(vcpu);
-
-	KVMTRACE_2D(DR_WRITE, vcpu, (u32)dr, (u32)value, handler);
 
 	*exception = 0;
 
@@ -1157,14 +1157,7 @@ static int pf_interception(struct vcpu_svm *svm, struct kvm_run *kvm_run)
 	fault_address  = svm->vmcb->control.exit_info_2;
 	error_code = svm->vmcb->control.exit_info_1;
 
-	if (!npt_enabled)
-		KVMTRACE_3D(PAGE_FAULT, &svm->vcpu, error_code,
-			    (u32)fault_address, (u32)(fault_address >> 32),
-			    handler);
-	else
-		KVMTRACE_3D(TDP_FAULT, &svm->vcpu, error_code,
-			    (u32)fault_address, (u32)(fault_address >> 32),
-			    handler);
+	trace_kvm_page_fault(fault_address, error_code);
 	/*
 	 * FIXME: Tis shouldn't be necessary here, but there is a flush
 	 * missing in the MMU code. Until we find this bug, flush the
@@ -1291,14 +1284,12 @@ static int io_interception(struct vcpu_svm *svm, struct kvm_run *kvm_run)
 
 static int nmi_interception(struct vcpu_svm *svm, struct kvm_run *kvm_run)
 {
-	KVMTRACE_0D(NMI, &svm->vcpu, handler);
 	return 1;
 }
 
 static int intr_interception(struct vcpu_svm *svm, struct kvm_run *kvm_run)
 {
 	++svm->vcpu.stat.irq_exits;
-	KVMTRACE_0D(INTR, &svm->vcpu, handler);
 	return 1;
 }
 
@@ -2080,8 +2071,7 @@ static int rdmsr_interception(struct vcpu_svm *svm, struct kvm_run *kvm_run)
 	if (svm_get_msr(&svm->vcpu, ecx, &data))
 		kvm_inject_gp(&svm->vcpu, 0);
 	else {
-		KVMTRACE_3D(MSR_READ, &svm->vcpu, ecx, (u32)data,
-			    (u32)(data >> 32), handler);
+		trace_kvm_msr_read(ecx, data);
 
 		svm->vcpu.arch.regs[VCPU_REGS_RAX] = data & 0xffffffff;
 		svm->vcpu.arch.regs[VCPU_REGS_RDX] = data >> 32;
@@ -2164,8 +2154,7 @@ static int wrmsr_interception(struct vcpu_svm *svm, struct kvm_run *kvm_run)
 	u64 data = (svm->vcpu.arch.regs[VCPU_REGS_RAX] & -1u)
 		| ((u64)(svm->vcpu.arch.regs[VCPU_REGS_RDX] & -1u) << 32);
 
-	KVMTRACE_3D(MSR_WRITE, &svm->vcpu, ecx, (u32)data, (u32)(data >> 32),
-		    handler);
+	trace_kvm_msr_write(ecx, data);
 
 	svm->next_rip = kvm_rip_read(&svm->vcpu) + 2;
 	if (svm_set_msr(&svm->vcpu, ecx, data))
@@ -2186,8 +2175,6 @@ static int msr_interception(struct vcpu_svm *svm, struct kvm_run *kvm_run)
 static int interrupt_window_interception(struct vcpu_svm *svm,
 				   struct kvm_run *kvm_run)
 {
-	KVMTRACE_0D(PEND_INTR, &svm->vcpu, handler);
-
 	svm_clear_vintr(svm);
 	svm->vmcb->control.int_ctl &= ~V_IRQ_MASK;
 	/*
@@ -2266,8 +2253,7 @@ static int handle_exit(struct kvm_run *kvm_run, struct kvm_vcpu *vcpu)
 	struct vcpu_svm *svm = to_svm(vcpu);
 	u32 exit_code = svm->vmcb->control.exit_code;
 
-	KVMTRACE_3D(VMEXIT, vcpu, exit_code, (u32)svm->vmcb->save.rip,
-		    (u32)((u64)svm->vmcb->save.rip >> 32), entryexit);
+	trace_kvm_exit(exit_code, svm->vmcb->save.rip);
 
 	if (is_nested(svm)) {
 		nsvm_printk("nested handle_exit: 0x%x | 0x%lx | 0x%lx | 0x%lx\n",
@@ -2355,7 +2341,7 @@ static inline void svm_inject_irq(struct vcpu_svm *svm, int irq)
 {
 	struct vmcb_control_area *control;
 
-	KVMTRACE_1D(INJ_VIRQ, &svm->vcpu, (u32)irq, handler);
+	trace_kvm_inj_virq(irq);
 
 	++svm->vcpu.stat.irq_injections;
 	control = &svm->vmcb->control;
