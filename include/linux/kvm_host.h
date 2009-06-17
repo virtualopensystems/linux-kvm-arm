@@ -124,6 +124,7 @@ struct kvm_kernel_irq_routing_entry {
 
 struct kvm {
 	spinlock_t mmu_lock;
+	spinlock_t requests_lock;
 	struct rw_semaphore slots_lock;
 	struct mm_struct *mm; /* userspace tied to this vm */
 	int nmemslots;
