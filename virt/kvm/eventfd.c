@@ -156,9 +156,6 @@ kvm_irqfd(struct kvm *kvm, int fd, int gsi, int flags)
 	INIT_LIST_HEAD(&irqfd->list);
 	INIT_WORK(&irqfd->inject, irqfd_inject);
 
-	/*
-	 * Embed the file* lifetime in the irqfd.
-	 */
 	file = eventfd_fget(fd);
 	if (IS_ERR(file)) {
 		ret = PTR_ERR(file);
