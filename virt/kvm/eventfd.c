@@ -144,6 +144,7 @@ kvm_irqfd(struct kvm *kvm, int fd, int gsi, int flags)
 	struct _irqfd *irqfd;
 	struct file *file = NULL;
 	int ret;
+	unsigned int events;
 
 	irqfd = kzalloc(sizeof(*irqfd), GFP_KERNEL);
 	if (!irqfd)
@@ -169,15 +170,19 @@ kvm_irqfd(struct kvm *kvm, int fd, int gsi, int flags)
 	init_waitqueue_func_entry(&irqfd->wait, irqfd_wakeup);
 	init_poll_funcptr(&irqfd->pt, irqfd_ptable_queue_proc);
 
-	ret = file->f_op->poll(file, &irqfd->pt);
-	if (ret < 0)
-		goto fail;
+	events = file->f_op->poll(file, &irqfd->pt);
 
 	kvm_get_kvm(kvm);
 
 	mutex_lock(&kvm->lock);
 	list_add_tail(&irqfd->list, &kvm->irqfds);
 	mutex_unlock(&kvm->lock);
+
+	/*
+	 * Check if there was an event already queued
+	 */
+	if (events & POLLIN)
+		schedule_work(&irqfd->inject);
 
 	/*
 	 * do not drop the file until the irqfd is fully initialized, otherwise
@@ -188,9 +193,6 @@ kvm_irqfd(struct kvm *kvm, int fd, int gsi, int flags)
 	return 0;
 
 fail:
-	if (irqfd->wqh)
-		remove_wait_queue(irqfd->wqh, &irqfd->wait);
-
 	if (file && !IS_ERR(file))
 		fput(file);
 
