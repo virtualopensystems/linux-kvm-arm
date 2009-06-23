@@ -684,7 +684,7 @@ int kvm_arch_set_memory_region(struct kvm *kvm,
 				struct kvm_memory_slot old,
 				int user_alloc)
 {
-	int i, j = 0, r = -EINVAL;
+	int i;
 	struct kvm_vcpu *vcpu;
 
 	/* A few sanity checks. We can have exactly one memory slot which has
