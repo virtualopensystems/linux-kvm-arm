@@ -3,6 +3,7 @@
 
 #include <linux/tracepoint.h>
 
+#if defined(__KVM_HAVE_IOAPIC) && defined(__KVM_HAVE_PIT)
 #undef TRACE_SYSTEM
 #define TRACE_SYSTEM kvm
 #define TRACE_INCLUDE_FILE kvm
@@ -49,6 +50,7 @@ TRACE_EVENT(kvm_ack_irq,
 
 
 
+#endif /* defined(__KVM_HAVE_IOAPIC) && defined(__KVM_HAVE_PIT) */
 #endif /* _TRACE_KVM_MAIN_H */
 
 /* This part must be outside protection */
