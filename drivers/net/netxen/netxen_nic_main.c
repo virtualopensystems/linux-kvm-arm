@@ -107,9 +107,14 @@ static uint32_t crb_cmd_producer[4] = {
 
 void
 netxen_nic_update_cmd_producer(struct netxen_adapter *adapter,
-		struct nx_host_tx_ring *tx_ring, u32 producer)
+		struct nx_host_tx_ring *tx_ring)
 {
-	NXWR32(adapter, tx_ring->crb_cmd_producer, producer);
+	NXWR32(adapter, tx_ring->crb_cmd_producer, tx_ring->producer);
+
+	if (netxen_tx_avail(tx_ring) <= TX_STOP_THRESH) {
+		netif_stop_queue(adapter->netdev);
+		smp_mb();
+	}
 }
 
 static uint32_t crb_cmd_consumer[4] = {
@@ -119,9 +124,9 @@ static uint32_t crb_cmd_consumer[4] = {
 
 static inline void
 netxen_nic_update_cmd_consumer(struct netxen_adapter *adapter,
-		struct nx_host_tx_ring *tx_ring, u32 consumer)
+		struct nx_host_tx_ring *tx_ring)
 {
-	NXWR32(adapter, tx_ring->crb_cmd_consumer, consumer);
+	NXWR32(adapter, tx_ring->crb_cmd_consumer, tx_ring->sw_consumer);
 }
 
 static uint32_t msi_tgt_status[8] = {
@@ -700,7 +705,7 @@ netxen_start_firmware(struct netxen_adapter *adapter, int request_fw)
 		first_driver = (adapter->ahw.pci_func == 0);
 
 	if (!first_driver)
-		return 0;
+		goto wait_init;
 
 	first_boot = NXRD32(adapter, NETXEN_CAM_RAM(0x1fc));
 
@@ -747,6 +752,7 @@ netxen_start_firmware(struct netxen_adapter *adapter, int request_fw)
 		| (_NETXEN_NIC_LINUX_SUBVERSION);
 	NXWR32(adapter, CRB_DRIVER_VERSION, val);
 
+wait_init:
 	/* Handshake with the card before we register the devices. */
 	err = netxen_phantom_init(adapter, NETXEN_NIC_PEG_TUNE);
 	if (err) {
@@ -900,8 +906,11 @@ netxen_nic_attach(struct netxen_adapter *adapter)
 		tx_ring->crb_cmd_producer = crb_cmd_producer[adapter->portnum];
 		tx_ring->crb_cmd_consumer = crb_cmd_consumer[adapter->portnum];
 
-		netxen_nic_update_cmd_producer(adapter, tx_ring, 0);
-		netxen_nic_update_cmd_consumer(adapter, tx_ring, 0);
+		tx_ring->producer = 0;
+		tx_ring->sw_consumer = 0;
+
+		netxen_nic_update_cmd_producer(adapter, tx_ring);
+		netxen_nic_update_cmd_consumer(adapter, tx_ring);
 	}
 
 	for (ring = 0; ring < adapter->max_rds_rings; ring++) {
@@ -1170,6 +1179,7 @@ static void __devexit netxen_nic_remove(struct pci_dev *pdev)
 	free_netdev(netdev);
 }
 
+#ifdef CONFIG_PM
 static int
 netxen_nic_suspend(struct pci_dev *pdev, pm_message_t state)
 {
@@ -1234,6 +1244,7 @@ netxen_nic_resume(struct pci_dev *pdev)
 
 	return 0;
 }
+#endif
 
 static int netxen_nic_open(struct net_device *netdev)
 {
@@ -1362,7 +1373,7 @@ netxen_nic_xmit_frame(struct sk_buff *skb, struct net_device *netdev)
 	dma_addr_t temp_dma;
 	int i, k;
 
-	u32 producer, consumer;
+	u32 producer;
 	int frag_count, no_of_desc;
 	u32 num_txd = tx_ring->num_desc;
 	bool is_tso = false;
@@ -1372,14 +1383,12 @@ netxen_nic_xmit_frame(struct sk_buff *skb, struct net_device *netdev)
 	/* 4 fragments per cmd des */
 	no_of_desc = (frag_count + 3) >> 2;
 
-	producer = tx_ring->producer;
-	smp_mb();
-	consumer = tx_ring->sw_consumer;
-	if ((no_of_desc+2) >= find_diff_among(producer, consumer, num_txd)) {
+	if (unlikely(no_of_desc + 2) > netxen_tx_avail(tx_ring)) {
 		netif_stop_queue(netdev);
-		smp_mb();
 		return NETDEV_TX_BUSY;
 	}
+
+	producer = tx_ring->producer;
 
 	hwdesc = &tx_ring->desc_head[producer];
 	netxen_clear_cmddesc((u64 *)hwdesc);
@@ -1493,7 +1502,7 @@ netxen_nic_xmit_frame(struct sk_buff *skb, struct net_device *netdev)
 	tx_ring->producer = producer;
 	adapter->stats.txbytes += skb->len;
 
-	netxen_nic_update_cmd_producer(adapter, tx_ring, producer);
+	netxen_nic_update_cmd_producer(adapter, tx_ring);
 
 	adapter->stats.xmitcalled++;
 
@@ -1765,8 +1774,10 @@ static struct pci_driver netxen_driver = {
 	.id_table = netxen_pci_tbl,
 	.probe = netxen_nic_probe,
 	.remove = __devexit_p(netxen_nic_remove),
+#ifdef CONFIG_PM
 	.suspend = netxen_nic_suspend,
 	.resume = netxen_nic_resume
+#endif
 };
 
 /* Driver Registration on NetXen card    */

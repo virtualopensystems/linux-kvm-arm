@@ -944,28 +944,31 @@ int netxen_phantom_init(struct netxen_adapter *adapter, int pegtune_val)
 	u32 val = 0;
 	int retries = 60;
 
-	if (!pegtune_val) {
-		do {
-			val = NXRD32(adapter, CRB_CMDPEG_STATE);
+	if (pegtune_val)
+		return 0;
 
-			if (val == PHAN_INITIALIZE_COMPLETE ||
-				val == PHAN_INITIALIZE_ACK)
-				return 0;
+	do {
+		val = NXRD32(adapter, CRB_CMDPEG_STATE);
 
-			msleep(500);
-
-		} while (--retries);
-
-		if (!retries) {
-			pegtune_val = NXRD32(adapter,
-					NETXEN_ROMUSB_GLB_PEGTUNE_DONE);
-			printk(KERN_WARNING "netxen_phantom_init: init failed, "
-					"pegtune_val=%x\n", pegtune_val);
-			return -1;
+		switch (val) {
+		case PHAN_INITIALIZE_COMPLETE:
+		case PHAN_INITIALIZE_ACK:
+			return 0;
+		case PHAN_INITIALIZE_FAILED:
+			goto out_err;
+		default:
+			break;
 		}
-	}
 
-	return 0;
+		msleep(500);
+
+	} while (--retries);
+
+	NXWR32(adapter, CRB_CMDPEG_STATE, PHAN_INITIALIZE_FAILED);
+
+out_err:
+	dev_warn(&adapter->pdev->dev, "firmware init failed\n");
+	return -EIO;
 }
 
 static int
@@ -1292,7 +1295,6 @@ int netxen_process_cmd_ring(struct netxen_adapter *adapter)
 		return 1;
 
 	sw_consumer = tx_ring->sw_consumer;
-	barrier(); /* hw_consumer can change underneath */
 	hw_consumer = le32_to_cpu(*(tx_ring->hw_consumer));
 
 	while (sw_consumer != hw_consumer) {
@@ -1319,14 +1321,15 @@ int netxen_process_cmd_ring(struct netxen_adapter *adapter)
 			break;
 	}
 
-	tx_ring->sw_consumer = sw_consumer;
-
 	if (count && netif_running(netdev)) {
+		tx_ring->sw_consumer = sw_consumer;
+
 		smp_mb();
+
 		if (netif_queue_stopped(netdev) && netif_carrier_ok(netdev)) {
 			netif_tx_lock(netdev);
-			netif_wake_queue(netdev);
-			smp_mb();
+			if (netxen_tx_avail(tx_ring) > TX_STOP_THRESH)
+				netif_wake_queue(netdev);
 			netif_tx_unlock(netdev);
 		}
 	}
@@ -1343,7 +1346,6 @@ int netxen_process_cmd_ring(struct netxen_adapter *adapter)
 	 * There is still a possible race condition and the host could miss an
 	 * interrupt. The card has to take care of this.
 	 */
-	barrier(); /* hw_consumer can change underneath */
 	hw_consumer = le32_to_cpu(*(tx_ring->hw_consumer));
 	done = (sw_consumer == hw_consumer);
 	spin_unlock(&adapter->tx_clean_lock);

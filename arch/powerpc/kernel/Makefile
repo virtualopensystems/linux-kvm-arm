@@ -4,6 +4,8 @@
 
 CFLAGS_ptrace.o		+= -DUTS_MACHINE='"$(UTS_MACHINE)"'
 
+subdir-ccflags-$(CONFIG_PPC_WERROR) := -Werror
+
 ifeq ($(CONFIG_PPC64),y)
 CFLAGS_prom_init.o	+= -mno-minimal-toc
 endif
@@ -95,9 +97,10 @@ obj64-$(CONFIG_AUDIT)		+= compat_audit.o
 
 obj-$(CONFIG_DYNAMIC_FTRACE)	+= ftrace.o
 obj-$(CONFIG_FUNCTION_GRAPH_TRACER)	+= ftrace.o
-obj-$(CONFIG_PERF_COUNTERS)	+= perf_counter.o power4-pmu.o ppc970-pmu.o \
-				   power5-pmu.o power5+-pmu.o power6-pmu.o \
-				   power7-pmu.o
+obj-$(CONFIG_PPC_PERF_CTRS)	+= perf_counter.o
+obj64-$(CONFIG_PPC_PERF_CTRS)	+= power4-pmu.o ppc970-pmu.o power5-pmu.o \
+				   power5+-pmu.o power6-pmu.o power7-pmu.o
+obj32-$(CONFIG_PPC_PERF_CTRS)	+= mpc7450-pmu.o
 
 obj-$(CONFIG_8XX_MINIMAL_FPEMU) += softemu8xx.o
 
@@ -106,6 +109,7 @@ obj-y				+= iomap.o
 endif
 
 obj-$(CONFIG_PPC64)		+= $(obj64-y)
+obj-$(CONFIG_PPC32)		+= $(obj32-y)
 
 ifneq ($(CONFIG_XMON)$(CONFIG_KEXEC),)
 obj-y				+= ppc_save_regs.o
@@ -125,6 +129,7 @@ PHONY += systbl_chk
 systbl_chk: $(src)/systbl_chk.sh $(obj)/systbl_chk.i
 	$(call cmd,systbl_chk)
 
+ifeq ($(CONFIG_PPC_OF_BOOT_TRAMPOLINE),y)
 $(obj)/built-in.o:		prom_init_check
 
 quiet_cmd_prom_init_check = CALL    $<
@@ -133,5 +138,6 @@ quiet_cmd_prom_init_check = CALL    $<
 PHONY += prom_init_check
 prom_init_check: $(src)/prom_init_check.sh $(obj)/prom_init.o
 	$(call cmd,prom_init_check)
+endif
 
 clean-files := vmlinux.lds

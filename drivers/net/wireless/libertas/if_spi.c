@@ -43,8 +43,8 @@ struct if_spi_card {
 	struct lbs_private		*priv;
 	struct libertas_spi_platform_data *pdata;
 
-	char				helper_fw_name[FIRMWARE_NAME_MAX];
-	char				main_fw_name[FIRMWARE_NAME_MAX];
+	char				helper_fw_name[IF_SPI_FW_NAME_MAX];
+	char				main_fw_name[IF_SPI_FW_NAME_MAX];
 
 	/* The card ID and card revision, as reported by the hardware. */
 	u16				card_id;
@@ -812,7 +812,6 @@ out:
 static void if_spi_e2h(struct if_spi_card *card)
 {
 	int err = 0;
-	unsigned long flags;
 	u32 cause;
 	struct lbs_private *priv = card->priv;
 
@@ -827,10 +826,7 @@ static void if_spi_e2h(struct if_spi_card *card)
 	/* generate a card interrupt */
 	spu_write_u16(card, IF_SPI_CARD_INT_CAUSE_REG, IF_SPI_CIC_HOST_EVENT);
 
-	spin_lock_irqsave(&priv->driver_lock, flags);
 	lbs_queue_event(priv, cause & 0xff);
-	spin_unlock_irqrestore(&priv->driver_lock, flags);
-
 out:
 	if (err)
 		lbs_pr_err("%s: error %d\n", __func__, err);
@@ -875,7 +871,12 @@ static int lbs_spi_thread(void *data)
 			err = if_spi_c2h_data(card);
 			if (err)
 				goto err;
-		if (hiStatus & IF_SPI_HIST_CMD_DOWNLOAD_RDY) {
+
+		/* workaround: in PS mode, the card does not set the Command
+		 * Download Ready bit, but it sets TX Download Ready. */
+		if (hiStatus & IF_SPI_HIST_CMD_DOWNLOAD_RDY ||
+		   (card->priv->psstate != PS_STATE_FULL_POWER &&
+		    (hiStatus & IF_SPI_HIST_TX_DOWNLOAD_RDY))) {
 			/* This means two things. First of all,
 			 * if there was a previous command sent, the card has
 			 * successfully received it.
@@ -1019,9 +1020,9 @@ static int if_spi_calculate_fw_names(u16 card_id,
 		lbs_pr_err("Unsupported chip_id: 0x%02x\n", card_id);
 		return -EAFNOSUPPORT;
 	}
-	snprintf(helper_fw, FIRMWARE_NAME_MAX, "libertas/gspi%d_hlp.bin",
+	snprintf(helper_fw, IF_SPI_FW_NAME_MAX, "libertas/gspi%d_hlp.bin",
 		 chip_id_to_device_name[i].name);
-	snprintf(main_fw, FIRMWARE_NAME_MAX, "libertas/gspi%d.bin",
+	snprintf(main_fw, IF_SPI_FW_NAME_MAX, "libertas/gspi%d.bin",
 		 chip_id_to_device_name[i].name);
 	return 0;
 }
