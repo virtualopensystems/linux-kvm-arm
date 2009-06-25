@@ -34,7 +34,6 @@
 #include <asm/virtext.h>
 #include <asm/mce.h>
 
-#include "vmx-trace.h"
 #define CREATE_TRACE_POINTS
 #include "trace-arch.h"
 
@@ -3881,6 +3880,29 @@ static u64 vmx_get_mt_mask(struct kvm_vcpu *vcpu, gfn_t gfn, bool is_mmio)
 	return ret;
 }
 
+static const struct trace_print_flags vmx_exit_reasons_str[] = {
+	{ EXIT_REASON_EXCEPTION_NMI,           "exception" },
+	{ EXIT_REASON_EXTERNAL_INTERRUPT,      "ext_irq" },
+	{ EXIT_REASON_TRIPLE_FAULT,            "triple_fault" },
+	{ EXIT_REASON_NMI_WINDOW,              "nmi_window" },
+	{ EXIT_REASON_IO_INSTRUCTION,          "io_instruction" },
+	{ EXIT_REASON_CR_ACCESS,               "cr_access" },
+	{ EXIT_REASON_DR_ACCESS,               "dr_access" },
+	{ EXIT_REASON_CPUID,                   "cpuid" },
+	{ EXIT_REASON_MSR_READ,                "rdmsr" },
+	{ EXIT_REASON_MSR_WRITE,               "wrmsr" },
+	{ EXIT_REASON_PENDING_INTERRUPT,       "interrupt_window" },
+	{ EXIT_REASON_HLT,                     "halt" },
+	{ EXIT_REASON_INVLPG,                  "invlpg" },
+	{ EXIT_REASON_VMCALL,                  "hypercall" },
+	{ EXIT_REASON_TPR_BELOW_THRESHOLD,     "tpr_below_thres" },
+	{ EXIT_REASON_APIC_ACCESS,             "apic_access" },
+	{ EXIT_REASON_WBINVD,                  "wbinvd" },
+	{ EXIT_REASON_TASK_SWITCH,             "task_switch" },
+	{ EXIT_REASON_EPT_VIOLATION,           "ept_violation" },
+	{ -1, NULL }
+};
+
 static struct kvm_x86_ops vmx_x86_ops = {
 	.cpu_has_kvm_support = cpu_has_kvm_support,
 	.disabled_by_bios = vmx_disabled_by_bios,
@@ -3940,6 +3962,8 @@ static struct kvm_x86_ops vmx_x86_ops = {
 	.set_tss_addr = vmx_set_tss_addr,
 	.get_tdp_level = get_ept_level,
 	.get_mt_mask = vmx_get_mt_mask,
+
+	.exit_reasons_str = vmx_exit_reasons_str,
 };
 
 static int __init vmx_init(void)

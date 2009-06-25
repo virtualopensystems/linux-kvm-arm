@@ -26,7 +26,8 @@ TRACE_EVENT(kvm_exit,
 	),
 
 	TP_printk("reason %s rip 0x%lx",
-		  __print_symbolic(__entry->exit_reason, exit_reasons),
+		 ftrace_print_symbols_seq(p, __entry->exit_reason,
+					  kvm_x86_ops->exit_reasons_str),
 		 __entry->guest_rip)
 );
 
