@@ -138,6 +138,8 @@ TRACE_EVENT(kvm_apic,
 #define trace_kvm_apic_read(reg, val)		trace_kvm_apic(0, reg, val)
 #define trace_kvm_apic_write(reg, val)		trace_kvm_apic(1, reg, val)
 
+#include "trace-arch.h"
+
 #endif /* _TRACE_KVM_H */
 
 /* This part must be outside protection */

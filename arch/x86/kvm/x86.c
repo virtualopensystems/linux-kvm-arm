@@ -4883,3 +4883,9 @@ int kvm_arch_interrupt_allowed(struct kvm_vcpu *vcpu)
 {
 	return kvm_x86_ops->interrupt_allowed(vcpu);
 }
+
+EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_exit);
+EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_inj_virq);
+EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_page_fault);
+EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_msr);
+EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_cr);

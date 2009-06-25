@@ -25,6 +25,7 @@
 #include <linux/highmem.h>
 #include <linux/sched.h>
 #include <linux/moduleparam.h>
+#include <linux/ftrace_event.h>
 #include "kvm_cache_regs.h"
 #include "x86.h"
 
@@ -34,8 +35,7 @@
 #include <asm/virtext.h>
 #include <asm/mce.h>
 
-#define CREATE_TRACE_POINTS
-#include "trace-arch.h"
+#include "trace.h"
 
 #define __ex(x) __kvm_handle_fault_on_reboot(x)
 

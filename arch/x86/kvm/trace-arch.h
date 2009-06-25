@@ -1,13 +1,3 @@
-#if !defined(_TRACE_KVM_ARCH_H) || defined(TRACE_HEADER_MULTI_READ)
-#define _TRACE_KVM_ARCH_H
-
-#include <linux/tracepoint.h>
-
-#undef TRACE_SYSTEM
-#define TRACE_SYSTEM kvm
-#define TRACE_INCLUDE_PATH arch/x86/kvm
-#define TRACE_INCLUDE_FILE trace-arch
-
 /*
  * Tracepoint for kvm guest exit:
  */
@@ -123,8 +113,3 @@ TRACE_EVENT(kvm_cr,
 
 #define trace_kvm_cr_read(cr, val)		trace_kvm_cr(0, cr, val)
 #define trace_kvm_cr_write(cr, val)		trace_kvm_cr(1, cr, val)
-
-#endif /* _TRACE_KVM_ARCH_H */
-
-/* This part must be outside protection */
-#include <trace/define_trace.h>

@@ -25,12 +25,12 @@
 #include <linux/vmalloc.h>
 #include <linux/highmem.h>
 #include <linux/sched.h>
+#include <linux/ftrace_event.h>
 
 #include <asm/desc.h>
 
 #include <asm/virtext.h>
-#define CREATE_TRACE_POINTS
-#include "trace-arch.h"
+#include "trace.h"
 
 #define __ex(x) __kvm_handle_fault_on_reboot(x)
 
