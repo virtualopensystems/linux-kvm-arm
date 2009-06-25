@@ -1174,6 +1174,9 @@ int __kvm_set_memory_region(struct kvm *kvm,
 	for (i = 0; i < KVM_NR_PAGE_SIZES - 1; ++i) {
 		int level = i + 2;
 
+		/* Avoid unused variable warning if no large pages */
+		(void)level;
+
 		if (new.lpage_info[i])
 			continue;
 
