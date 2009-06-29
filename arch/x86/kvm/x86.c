@@ -2334,35 +2334,23 @@ static void kvm_init_msr_list(void)
 	num_msrs_to_save = j;
 }
 
-/*
- * Only apic need an MMIO device hook, so shortcut now..
- */
-static struct kvm_io_device *vcpu_find_pervcpu_dev(struct kvm_vcpu *vcpu,
-						gpa_t addr, int len,
-						int is_write)
+static int vcpu_mmio_write(struct kvm_vcpu *vcpu, gpa_t addr, int len,
+			   const void *v)
 {
-	struct kvm_io_device *dev;
+	if (vcpu->arch.apic &&
+	    !kvm_iodevice_write(&vcpu->arch.apic->dev, addr, len, v))
+		return 0;
 
-	if (vcpu->arch.apic) {
-		dev = &vcpu->arch.apic->dev;
-		if (kvm_iodevice_in_range(dev, addr, len, is_write))
-			return dev;
-	}
-	return NULL;
+	return kvm_io_bus_write(&vcpu->kvm->mmio_bus, addr, len, v);
 }
 
-
-static struct kvm_io_device *vcpu_find_mmio_dev(struct kvm_vcpu *vcpu,
-						gpa_t addr, int len,
-						int is_write)
+static int vcpu_mmio_read(struct kvm_vcpu *vcpu, gpa_t addr, int len, void *v)
 {
-	struct kvm_io_device *dev;
+	if (vcpu->arch.apic &&
+	    !kvm_iodevice_read(&vcpu->arch.apic->dev, addr, len, v))
+		return 0;
 
-	dev = vcpu_find_pervcpu_dev(vcpu, addr, len, is_write);
-	if (dev == NULL)
-		dev = kvm_io_bus_find_dev(&vcpu->kvm->mmio_bus, addr, len,
-					  is_write);
-	return dev;
+	return kvm_io_bus_read(&vcpu->kvm->mmio_bus, addr, len, v);
 }
 
 static int kvm_read_guest_virt(gva_t addr, void *val, unsigned int bytes,
@@ -2431,7 +2419,6 @@ static int emulator_read_emulated(unsigned long addr,
 				  unsigned int bytes,
 				  struct kvm_vcpu *vcpu)
 {
-	struct kvm_io_device *mmio_dev;
 	gpa_t                 gpa;
 
 	if (vcpu->mmio_read_completed) {
@@ -2456,13 +2443,8 @@ mmio:
 	/*
 	 * Is this MMIO handled locally?
 	 */
-	mutex_lock(&vcpu->kvm->lock);
-	mmio_dev = vcpu_find_mmio_dev(vcpu, gpa, bytes, 0);
-	mutex_unlock(&vcpu->kvm->lock);
-	if (mmio_dev) {
-		kvm_iodevice_read(mmio_dev, gpa, bytes, val);
+	if (!vcpu_mmio_read(vcpu, gpa, bytes, val))
 		return X86EMUL_CONTINUE;
-	}
 
 	vcpu->mmio_needed = 1;
 	vcpu->mmio_phys_addr = gpa;
@@ -2489,7 +2471,6 @@ static int emulator_write_emulated_onepage(unsigned long addr,
 					   unsigned int bytes,
 					   struct kvm_vcpu *vcpu)
 {
-	struct kvm_io_device *mmio_dev;
 	gpa_t                 gpa;
 
 	gpa = vcpu->arch.mmu.gva_to_gpa(vcpu, addr);
@@ -2510,13 +2491,8 @@ mmio:
 	/*
 	 * Is this MMIO handled locally?
 	 */
-	mutex_lock(&vcpu->kvm->lock);
-	mmio_dev = vcpu_find_mmio_dev(vcpu, gpa, bytes, 1);
-	mutex_unlock(&vcpu->kvm->lock);
-	if (mmio_dev) {
-		kvm_iodevice_write(mmio_dev, gpa, bytes, val);
+	if (!vcpu_mmio_write(vcpu, gpa, bytes, val))
 		return X86EMUL_CONTINUE;
-	}
 
 	vcpu->mmio_needed = 1;
 	vcpu->mmio_phys_addr = gpa;
@@ -2851,48 +2827,40 @@ int complete_pio(struct kvm_vcpu *vcpu)
 	return 0;
 }
 
-static void kernel_pio(struct kvm_io_device *pio_dev,
-		       struct kvm_vcpu *vcpu,
-		       void *pd)
+static int kernel_pio(struct kvm_vcpu *vcpu, void *pd)
 {
 	/* TODO: String I/O for in kernel device */
+	int r;
 
 	if (vcpu->arch.pio.in)
-		kvm_iodevice_read(pio_dev, vcpu->arch.pio.port,
-				  vcpu->arch.pio.size,
-				  pd);
+		r = kvm_io_bus_read(&vcpu->kvm->pio_bus, vcpu->arch.pio.port,
+				    vcpu->arch.pio.size, pd);
 	else
-		kvm_iodevice_write(pio_dev, vcpu->arch.pio.port,
-				   vcpu->arch.pio.size,
-				   pd);
+		r = kvm_io_bus_write(&vcpu->kvm->pio_bus, vcpu->arch.pio.port,
+				     vcpu->arch.pio.size, pd);
+	return r;
 }
 
-static void pio_string_write(struct kvm_io_device *pio_dev,
-			     struct kvm_vcpu *vcpu)
+static int pio_string_write(struct kvm_vcpu *vcpu)
 {
 	struct kvm_pio_request *io = &vcpu->arch.pio;
 	void *pd = vcpu->arch.pio_data;
-	int i;
+	int i, r = 0;
 
 	for (i = 0; i < io->cur_count; i++) {
-		kvm_iodevice_write(pio_dev, io->port,
-				   io->size,
-				   pd);
+		if (kvm_io_bus_write(&vcpu->kvm->pio_bus,
+				     io->port, io->size, pd)) {
+			r = -EOPNOTSUPP;
+			break;
+		}
 		pd += io->size;
 	}
-}
-
-static struct kvm_io_device *vcpu_find_pio_dev(struct kvm_vcpu *vcpu,
-					       gpa_t addr, int len,
-					       int is_write)
-{
-	return kvm_io_bus_find_dev(&vcpu->kvm->pio_bus, addr, len, is_write);
+	return r;
 }
 
 int kvm_emulate_pio(struct kvm_vcpu *vcpu, struct kvm_run *run, int in,
 		  int size, unsigned port)
 {
-	struct kvm_io_device *pio_dev;
 	unsigned long val;
 
 	vcpu->run->exit_reason = KVM_EXIT_IO;
@@ -2912,11 +2880,7 @@ int kvm_emulate_pio(struct kvm_vcpu *vcpu, struct kvm_run *run, int in,
 	val = kvm_register_read(vcpu, VCPU_REGS_RAX);
 	memcpy(vcpu->arch.pio_data, &val, 4);
 
-	mutex_lock(&vcpu->kvm->lock);
-	pio_dev = vcpu_find_pio_dev(vcpu, port, size, !in);
-	mutex_unlock(&vcpu->kvm->lock);
-	if (pio_dev) {
-		kernel_pio(pio_dev, vcpu, vcpu->arch.pio_data);
+	if (!kernel_pio(vcpu, vcpu->arch.pio_data)) {
 		complete_pio(vcpu);
 		return 1;
 	}
@@ -2930,7 +2894,6 @@ int kvm_emulate_pio_string(struct kvm_vcpu *vcpu, struct kvm_run *run, int in,
 {
 	unsigned now, in_page;
 	int ret = 0;
-	struct kvm_io_device *pio_dev;
 
 	vcpu->run->exit_reason = KVM_EXIT_IO;
 	vcpu->run->io.direction = in ? KVM_EXIT_IO_IN : KVM_EXIT_IO_OUT;
@@ -2974,12 +2937,6 @@ int kvm_emulate_pio_string(struct kvm_vcpu *vcpu, struct kvm_run *run, int in,
 
 	vcpu->arch.pio.guest_gva = address;
 
-	mutex_lock(&vcpu->kvm->lock);
-	pio_dev = vcpu_find_pio_dev(vcpu, port,
-				    vcpu->arch.pio.cur_count,
-				    !vcpu->arch.pio.in);
-	mutex_unlock(&vcpu->kvm->lock);
-
 	if (!vcpu->arch.pio.in) {
 		/* string PIO write */
 		ret = pio_copy_data(vcpu);
@@ -2987,16 +2944,13 @@ int kvm_emulate_pio_string(struct kvm_vcpu *vcpu, struct kvm_run *run, int in,
 			kvm_inject_gp(vcpu, 0);
 			return 1;
 		}
-		if (ret == 0 && pio_dev) {
-			pio_string_write(pio_dev, vcpu);
+		if (ret == 0 && !pio_string_write(vcpu)) {
 			complete_pio(vcpu);
 			if (vcpu->arch.pio.count == 0)
 				ret = 1;
 		}
-	} else if (pio_dev)
-		pr_unimpl(vcpu, "no string pio read support yet, "
-		       "port %x size %d count %ld\n",
-			port, size, count);
+	}
+	/* no string PIO read support yet */
 
 	return ret;
 }
