@@ -867,12 +867,22 @@ M:	alex@shark-linux.de
 W:	http://www.shark-linux.de/shark.html
 S:	Maintained
 
+ARM/SAMSUNG ARM ARCHITECTURES
+P:	Ben Dooks
+M:	ben-linux@fluff.org
+L:	linux-arm-kernel@lists.arm.linux.org.uk	(subscribers-only)
+W:	http://www.fluff.org/ben/linux/
+S:	Maintained
+F:	arch/arm/plat-s3c/
+F:	arch/arm/plat-s3c24xx/
+
 ARM/S3C2410 ARM ARCHITECTURE
 P:	Ben Dooks
 M:	ben-linux@fluff.org
 L:	linux-arm-kernel@lists.arm.linux.org.uk	(subscribers-only)
 W:	http://www.fluff.org/ben/linux/
 S:	Maintained
+F:	arch/arm/mach-s3c2410/
 
 ARM/S3C2440 ARM ARCHITECTURE
 P:	Ben Dooks
@@ -880,6 +890,39 @@ M:	ben-linux@fluff.org
 L:	linux-arm-kernel@lists.arm.linux.org.uk	(subscribers-only)
 W:	http://www.fluff.org/ben/linux/
 S:	Maintained
+F:	arch/arm/mach-s3c2440/
+
+ARM/S3C2442 ARM ARCHITECTURE
+P:	Ben Dooks
+M:	ben-linux@fluff.org
+L:	linux-arm-kernel@lists.arm.linux.org.uk	(subscribers-only)
+W:	http://www.fluff.org/ben/linux/
+S:	Maintained
+F:	arch/arm/mach-s3c2442/
+
+ARM/S3C2443 ARM ARCHITECTURE
+P:	Ben Dooks
+M:	ben-linux@fluff.org
+L:	linux-arm-kernel@lists.arm.linux.org.uk	(subscribers-only)
+W:	http://www.fluff.org/ben/linux/
+S:	Maintained
+F:	arch/arm/mach-s3c2443/
+
+ARM/S3C6400 ARM ARCHITECTURE
+P:	Ben Dooks
+M:	ben-linux@fluff.org
+L:	linux-arm-kernel@lists.arm.linux.org.uk	(subscribers-only)
+W:	http://www.fluff.org/ben/linux/
+S:	Maintained
+F:	arch/arm/mach-s3c6400/
+
+ARM/S3C6410 ARM ARCHITECTURE
+P:	Ben Dooks
+M:	ben-linux@fluff.org
+L:	linux-arm-kernel@lists.arm.linux.org.uk	(subscribers-only)
+W:	http://www.fluff.org/ben/linux/
+S:	Maintained
+F:	arch/arm/mach-s3c6410/
 
 ARM/TECHNOLOGIC SYSTEMS TS7250 MACHINE SUPPORT
 P:	Lennert Buytenhek
@@ -2087,9 +2130,9 @@ F:	drivers/edac/i5400_edac.c
 
 EDAC-I82975X
 P:	Ranganathan Desikan
-M:	rdesikan@jetzbroadband.com
+M:	ravi@jetztechnologies.com
 P:	Arvind R.
-M:	arvind@acarlab.com
+M:	arvind@jetztechnologies.com
 L:	bluesmoke-devel@lists.sourceforge.net (moderated for non-subscribers)
 W:	bluesmoke.sourceforge.net
 S:	Maintained
@@ -2808,7 +2851,9 @@ S:	Maintained
 
 IA64 (Itanium) PLATFORM
 P:	Tony Luck
+P:	Fenghua Yu
 M:	tony.luck@intel.com
+M:	fenghua.yu@intel.com
 L:	linux-ia64@vger.kernel.org
 W:	http://www.ia64-linux.org/
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/aegl/linux-2.6.git
@@ -5533,8 +5578,8 @@ F:	drivers/staging/
 
 STARFIRE/DURALAN NETWORK DRIVER
 P:	Ion Badulescu
-M:	ionut@cs.columbia.edu
-S:	Maintained
+M:	ionut@badula.org
+S:	Odd Fixes
 F:	drivers/net/starfire*
 
 STARMODE RADIO IP (STRIP) PROTOCOL DRIVER
@@ -5667,6 +5712,13 @@ S:	Maintained
 F:	drivers/misc/tifm*
 F:	drivers/mmc/host/tifm_sd.c
 F:	include/linux/tifm.h
+
+TI TWL4030 SERIES SOC CODEC DRIVER
+P:	Peter Ujfalusi
+M:	peter.ujfalusi@nokia.com
+L:	alsa-devel@alsa-project.org (moderated for non-subscribers)
+S:	Maintained
+F:	sound/soc/codecs/twl4030*
 
 TIPC NETWORK LAYER
 P:	Per Liden
