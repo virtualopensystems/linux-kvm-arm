@@ -2903,7 +2903,7 @@ static int handle_cr(struct kvm_vcpu *vcpu, struct kvm_run *kvm_run)
 			return 1;
 		case 8:
 			val = kvm_get_cr8(vcpu);
-			kvm_register_write(vcpu, cr, val);
+			kvm_register_write(vcpu, reg, val);
 			trace_kvm_cr_read(cr, val);
 			skip_emulated_instruction(vcpu);
 			return 1;
