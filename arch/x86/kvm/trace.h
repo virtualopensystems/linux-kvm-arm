@@ -23,7 +23,7 @@ TRACE_EVENT(kvm_entry,
 		__entry->vcpu_id	= vcpu_id;
 	),
 
-	TP_printk("vcpu %u\n", __entry->vcpu_id)
+	TP_printk("vcpu %u", __entry->vcpu_id)
 );
 
 /*
