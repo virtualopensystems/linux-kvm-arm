@@ -105,12 +105,7 @@ static int eventfd_release(struct inode *inode, struct file *file)
 {
 	struct eventfd_ctx *ctx = file->private_data;
 
-	/*
-	 * No need to hold the lock here, since we are on the file cleanup
-	 * path and the ones still attached to the wait queue will be
-	 * serialized by wake_up_locked_poll().
-	 */
-	wake_up_locked_poll(&ctx->wqh, POLLHUP);
+	wake_up_poll(&ctx->wqh, POLLHUP);
 	eventfd_ctx_put(ctx);
 	return 0;
 }
