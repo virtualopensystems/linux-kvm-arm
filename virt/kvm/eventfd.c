@@ -28,7 +28,6 @@
 #include <linux/file.h>
 #include <linux/list.h>
 #include <linux/eventfd.h>
-#include <linux/srcu.h>
 
 /*
  * --------------------------------------------------------------------
@@ -38,8 +37,6 @@
  * --------------------------------------------------------------------
  */
 struct _irqfd {
-	struct mutex              lock;
-	struct srcu_struct        srcu;
 	struct kvm               *kvm;
 	int                       gsi;
 	struct list_head          list;
@@ -53,48 +50,12 @@ static void
 irqfd_inject(struct work_struct *work)
 {
 	struct _irqfd *irqfd = container_of(work, struct _irqfd, inject);
-	struct kvm *kvm;
-	int idx;
+	struct kvm *kvm = irqfd->kvm;
 
-	idx = srcu_read_lock(&irqfd->srcu);
-
-	kvm = rcu_dereference(irqfd->kvm);
-	if (kvm) {
-		mutex_lock(&kvm->irq_lock);
-		kvm_set_irq(kvm, KVM_USERSPACE_IRQ_SOURCE_ID, irqfd->gsi, 1);
-		kvm_set_irq(kvm, KVM_USERSPACE_IRQ_SOURCE_ID, irqfd->gsi, 0);
-		mutex_unlock(&kvm->irq_lock);
-	}
-
-	srcu_read_unlock(&irqfd->srcu, idx);
-}
-
-static void
-irqfd_disconnect(struct _irqfd *irqfd)
-{
-	struct kvm *kvm;
-
-	mutex_lock(&irqfd->lock);
-
-	kvm = rcu_dereference(irqfd->kvm);
-	rcu_assign_pointer(irqfd->kvm, NULL);
-
-	mutex_unlock(&irqfd->lock);
-
-	if (!kvm)
-		return;
-
-	mutex_lock(&kvm->lock);
-	list_del(&irqfd->list);
-	mutex_unlock(&kvm->lock);
-
-	/*
-	 * It is important to not drop the kvm reference until the next grace
-	 * period because there might be lockless references in flight up
-	 * until then
-	 */
-	synchronize_srcu(&irqfd->srcu);
-	kvm_put_kvm(kvm);
+	mutex_lock(&kvm->irq_lock);
+	kvm_set_irq(kvm, KVM_USERSPACE_IRQ_SOURCE_ID, irqfd->gsi, 1);
+	kvm_set_irq(kvm, KVM_USERSPACE_IRQ_SOURCE_ID, irqfd->gsi, 0);
+	mutex_unlock(&kvm->irq_lock);
 }
 
 static int
@@ -103,26 +64,24 @@ irqfd_wakeup(wait_queue_t *wait, unsigned mode, int sync, void *key)
 	struct _irqfd *irqfd = container_of(wait, struct _irqfd, wait);
 	unsigned long flags = (unsigned long)key;
 
+	/*
+	 * Assume we will be called with interrupts disabled
+	 */
 	if (flags & POLLIN)
 		/*
-		 * The POLLIN wake_up is called with interrupts disabled.
-		 * Therefore we need to defer the IRQ injection until later
-		 * since we need to acquire the kvm->lock to do so.
+		 * Defer the IRQ injection until later since we need to
+		 * acquire the kvm->lock to do so.
 		 */
 		schedule_work(&irqfd->inject);
 
 	if (flags & POLLHUP) {
 		/*
-		 * The POLLHUP is called unlocked, so it theoretically should
-		 * be safe to remove ourselves from the wqh using the locked
-		 * variant of remove_wait_queue()
+		 * for now, just remove ourselves from the list and let
+		 * the rest dangle.  We will fix this up later once
+		 * the races in eventfd are fixed
 		 */
-		remove_wait_queue(irqfd->wqh, &irqfd->wait);
-		flush_work(&irqfd->inject);
-		irqfd_disconnect(irqfd);
-
-		cleanup_srcu_struct(&irqfd->srcu);
-		kfree(irqfd);
+		__remove_wait_queue(irqfd->wqh, &irqfd->wait);
+		irqfd->wqh = NULL;
 	}
 
 	return 0;
@@ -150,8 +109,6 @@ kvm_irqfd(struct kvm *kvm, int fd, int gsi, int flags)
 	if (!irqfd)
 		return -ENOMEM;
 
-	mutex_init(&irqfd->lock);
-	init_srcu_struct(&irqfd->srcu);
 	irqfd->kvm = kvm;
 	irqfd->gsi = gsi;
 	INIT_LIST_HEAD(&irqfd->list);
@@ -171,8 +128,6 @@ kvm_irqfd(struct kvm *kvm, int fd, int gsi, int flags)
 	init_poll_funcptr(&irqfd->pt, irqfd_ptable_queue_proc);
 
 	events = file->f_op->poll(file, &irqfd->pt);
-
-	kvm_get_kvm(kvm);
 
 	mutex_lock(&kvm->lock);
 	list_add_tail(&irqfd->list, &kvm->irqfds);
@@ -211,6 +166,16 @@ kvm_irqfd_release(struct kvm *kvm)
 {
 	struct _irqfd *irqfd, *tmp;
 
-	list_for_each_entry_safe(irqfd, tmp, &kvm->irqfds, list)
-		irqfd_disconnect(irqfd);
+	list_for_each_entry_safe(irqfd, tmp, &kvm->irqfds, list) {
+		if (irqfd->wqh)
+			remove_wait_queue(irqfd->wqh, &irqfd->wait);
+
+		flush_work(&irqfd->inject);
+
+		mutex_lock(&kvm->lock);
+		list_del(&irqfd->list);
+		mutex_unlock(&kvm->lock);
+
+		kfree(irqfd);
+	}
 }
