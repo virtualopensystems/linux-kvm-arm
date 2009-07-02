@@ -161,8 +161,8 @@ irqfd_ptable_queue_proc(struct file *file, wait_queue_head_t *wqh,
 	add_wait_queue(wqh, &irqfd->wait);
 }
 
-int
-kvm_irqfd(struct kvm *kvm, int fd, int gsi, int flags)
+static int
+kvm_irqfd_assign(struct kvm *kvm, int fd, int gsi)
 {
 	struct _irqfd *irqfd;
 	struct file *file = NULL;
@@ -238,6 +238,48 @@ kvm_irqfd_init(struct kvm *kvm)
 {
 	spin_lock_init(&kvm->irqfds.lock);
 	INIT_LIST_HEAD(&kvm->irqfds.items);
+}
+
+/*
+ * shutdown any irqfd's that match fd+gsi
+ */
+static int
+kvm_irqfd_deassign(struct kvm *kvm, int fd, int gsi)
+{
+	struct _irqfd *irqfd, *tmp;
+	struct eventfd_ctx *eventfd;
+
+	eventfd = eventfd_ctx_fdget(fd);
+	if (IS_ERR(eventfd))
+		return PTR_ERR(eventfd);
+
+	spin_lock_irq(&kvm->irqfds.lock);
+
+	list_for_each_entry_safe(irqfd, tmp, &kvm->irqfds.items, list) {
+		if (irqfd->eventfd == eventfd && irqfd->gsi == gsi)
+			irqfd_deactivate(irqfd);
+	}
+
+	spin_unlock_irq(&kvm->irqfds.lock);
+	eventfd_ctx_put(eventfd);
+
+	/*
+	 * Block until we know all outstanding shutdown jobs have completed
+	 * so that we guarantee there will not be any more interrupts on this
+	 * gsi once this deassign function returns.
+	 */
+	flush_workqueue(irqfd_cleanup_wq);
+
+	return 0;
+}
+
+int
+kvm_irqfd(struct kvm *kvm, int fd, int gsi, int flags)
+{
+	if (flags & KVM_IRQFD_FLAG_DEASSIGN)
+		return kvm_irqfd_deassign(kvm, fd, gsi);
+
+	return kvm_irqfd_assign(kvm, fd, gsi);
 }
 
 /*
