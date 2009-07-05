@@ -19,6 +19,22 @@
 #define cpu_relax()	asm volatile("" ::: "memory");
 #endif
 
+#ifdef __sh__
+#include "../../arch/sh/include/asm/unistd.h"
+#if defined(__SH4A__) || defined(__SH5__)
+# define rmb()		asm volatile("synco" ::: "memory")
+#else
+# define rmb()		asm volatile("" ::: "memory")
+#endif
+#define cpu_relax()	asm volatile("" ::: "memory")
+#endif
+
+#ifdef __hppa__
+#include "../../arch/parisc/include/asm/unistd.h"
+#define rmb()		asm volatile("" ::: "memory")
+#define cpu_relax()	asm volatile("" ::: "memory");
+#endif
+
 #include <time.h>
 #include <unistd.h>
 #include <sys/types.h>
