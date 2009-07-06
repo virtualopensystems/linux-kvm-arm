@@ -7,7 +7,7 @@
 #define TRACE_SYSTEM kvm
 #define TRACE_INCLUDE_FILE kvm
 
-#if defined(__KVM_HAVE_IOAPIC) && defined(__KVM_HAVE_PIT)
+#if defined(__KVM_HAVE_IOAPIC)
 TRACE_EVENT(kvm_set_irq,
 	TP_PROTO(unsigned int gsi, int level, int irq_source_id),
 	TP_ARGS(gsi, level, irq_source_id),
@@ -55,7 +55,7 @@ TRACE_EVENT(kvm_ack_irq,
 
 
 
-#endif /* defined(__KVM_HAVE_IOAPIC) && defined(__KVM_HAVE_PIT) */
+#endif /* defined(__KVM_HAVE_IOAPIC) */
 
 #define KVM_TRACE_MMIO_READ_UNSATISFIED 0
 #define KVM_TRACE_MMIO_READ 1
