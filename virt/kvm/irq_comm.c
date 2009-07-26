@@ -171,7 +171,8 @@ void kvm_notify_acked_irq(struct kvm *kvm, unsigned irqchip, unsigned pin)
 	trace_kvm_ack_irq(irqchip, pin);
 
 	list_for_each_entry(e, &kvm->irq_routing, link)
-		if (e->irqchip.irqchip == irqchip &&
+		if (e->type == KVM_IRQ_ROUTING_IRQCHIP &&
+		    e->irqchip.irqchip == irqchip &&
 		    e->irqchip.pin == pin) {
 			gsi = e->gsi;
 			break;
@@ -288,6 +289,7 @@ static int setup_routing_entry(struct kvm_kernel_irq_routing_entry *e,
 	int delta;
 
 	e->gsi = ue->gsi;
+	e->type = ue->type;
 	switch (ue->type) {
 	case KVM_IRQ_ROUTING_IRQCHIP:
 		delta = 0;
