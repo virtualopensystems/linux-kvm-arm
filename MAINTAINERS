@@ -150,7 +150,7 @@ F:	drivers/scsi/53c700*
 
 6PACK NETWORK DRIVER FOR AX.25
 P:	Andreas Koensgen
-M:	ajk@iehk.rwth-aachen.de
+M:	ajk@comnets.uni-bremen.de
 L:	linux-hams@vger.kernel.org
 S:	Maintained
 F:	drivers/net/hamradio/6pack.c
@@ -1611,6 +1611,13 @@ M:	joel.becker@oracle.com
 S:	Supported
 F:	fs/configfs/
 F:	include/linux/configfs.h
+
+CONNECTOR
+P:	Evgeniy Polyakov
+M:	zbr@ioremap.net
+L:	netdev@vger.kernel.org
+S:	Maintained
+F:	drivers/connector/
 
 CONTROL GROUPS (CGROUPS)
 P:	Paul Menage
@@ -3287,11 +3294,11 @@ F:	include/linux/ivtv*
 
 JFS FILESYSTEM
 P:	Dave Kleikamp
-M:	shaggy@austin.ibm.com
+M:	shaggy@linux.vnet.ibm.com
 L:	jfs-discussion@lists.sourceforge.net
 W:	http://jfs.sourceforge.net/
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/shaggy/jfs-2.6.git
-S:	Supported
+S:	Maintained
 F:	Documentation/filesystems/jfs.txt
 F:	fs/jfs/
 
@@ -4089,6 +4096,7 @@ L:	netfilter@vger.kernel.org
 L:	coreteam@netfilter.org
 W:	http://www.netfilter.org/
 W:	http://www.iptables.org/
+T:	git://git.kernel.org/pub/scm/linux/kernel/git/kaber/nf-2.6.git
 S:	Supported
 F:	include/linux/netfilter*
 F:	include/linux/netfilter/
@@ -4407,7 +4415,7 @@ W:	http://www.nongnu.org/orinoco/
 S:	Maintained
 F:	drivers/net/wireless/orinoco/
 
-OSD LIBRARY
+OSD LIBRARY and FILESYSTEM
 P:	Boaz Harrosh
 M:	bharrosh@panasas.com
 P:	Benny Halevy
@@ -4416,6 +4424,9 @@ L:	osd-dev@open-osd.org
 W:	http://open-osd.org
 T:	git git://git.open-osd.org/open-osd.git
 S:	Maintained
+F:	drivers/scsi/osd/
+F:	drivers/include/scsi/osd_*
+F:	fs/exofs/
 
 P54 WIRELESS DRIVER
 P:	Michael Wu
@@ -5583,7 +5594,6 @@ S:	Odd Fixes
 F:	drivers/net/starfire*
 
 STARMODE RADIO IP (STRIP) PROTOCOL DRIVER
-W:	http://mosquitonet.Stanford.EDU/strip.html
 S:	Orphan
 F:	drivers/net/wireless/strip.c
 F:	include/linux/if_strip.h
@@ -5803,17 +5813,17 @@ P:	Jiri Kosina
 M:	trivial@kernel.org
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/jikos/trivial.git
 S:	Maintained
-F:	drivers/char/tty_*
-F:	drivers/serial/serial_core.c
-F:	include/linux/serial_core.h
-F:	include/linux/serial.h
-F:	include/linux/tty.h
 
 TTY LAYER
 P:	Alan Cox
 M:	alan@lxorguk.ukuu.org.uk
 S:	Maintained
 T:	stgit http://zeniv.linux.org.uk/~alan/ttydev/
+F:	drivers/char/tty_*
+F:	drivers/serial/serial_core.c
+F:	include/linux/serial_core.h
+F:	include/linux/serial.h
+F:	include/linux/tty.h
 
 TULIP NETWORK DRIVERS
 P:	Grant Grundler
@@ -5851,7 +5861,7 @@ UBI FILE SYSTEM (UBIFS)
 P:	Artem Bityutskiy
 M:	dedekind@infradead.org
 P:	Adrian Hunter
-M:	ext-adrian.hunter@nokia.com
+M:	adrian.hunter@nokia.com
 L:	linux-mtd@lists.infradead.org
 T:	git git://git.infradead.org/ubifs-2.6.git
 W:	http://www.linux-mtd.infradead.org/doc/ubifs.html

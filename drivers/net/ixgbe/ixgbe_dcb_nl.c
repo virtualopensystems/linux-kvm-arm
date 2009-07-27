@@ -106,8 +106,6 @@ static u8 ixgbe_dcbnl_get_state(struct net_device *netdev)
 {
 	struct ixgbe_adapter *adapter = netdev_priv(netdev);
 
-	DPRINTK(DRV, INFO, "Get DCB Admin Mode.\n");
-
 	return !!(adapter->flags & IXGBE_FLAG_DCB_ENABLED);
 }
 
@@ -115,8 +113,6 @@ static u8 ixgbe_dcbnl_set_state(struct net_device *netdev, u8 state)
 {
 	u8 err = 0;
 	struct ixgbe_adapter *adapter = netdev_priv(netdev);
-
-	DPRINTK(DRV, INFO, "Set DCB Admin Mode.\n");
 
 	if (state > 0) {
 		/* Turn on DCB */
@@ -138,6 +134,10 @@ static u8 ixgbe_dcbnl_set_state(struct net_device *netdev, u8 state)
 			adapter->hw.fc.requested_mode = ixgbe_fc_none;
 		}
 		adapter->flags &= ~IXGBE_FLAG_RSS_ENABLED;
+		if (adapter->hw.mac.type == ixgbe_mac_82599EB) {
+			adapter->flags &= ~IXGBE_FLAG_FDIR_HASH_CAPABLE;
+			adapter->flags &= ~IXGBE_FLAG_FDIR_PERFECT_CAPABLE;
+		}
 		adapter->flags |= IXGBE_FLAG_DCB_ENABLED;
 		ixgbe_init_interrupt_scheme(adapter);
 		if (netif_running(netdev))
@@ -154,6 +154,8 @@ static u8 ixgbe_dcbnl_set_state(struct net_device *netdev, u8 state)
 			adapter->dcb_cfg.pfc_mode_enable = false;
 			adapter->flags &= ~IXGBE_FLAG_DCB_ENABLED;
 			adapter->flags |= IXGBE_FLAG_RSS_ENABLED;
+			if (adapter->hw.mac.type == ixgbe_mac_82599EB)
+				adapter->flags |= IXGBE_FLAG_FDIR_HASH_CAPABLE;
 			ixgbe_init_interrupt_scheme(adapter);
 			if (netif_running(netdev))
 				netdev->netdev_ops->ndo_open(netdev);
@@ -168,6 +170,8 @@ static void ixgbe_dcbnl_get_perm_hw_addr(struct net_device *netdev,
 {
 	struct ixgbe_adapter *adapter = netdev_priv(netdev);
 	int i, j;
+
+	memset(perm_addr, 0xff, MAX_ADDR_LEN);
 
 	for (i = 0; i < netdev->addr_len; i++)
 		perm_addr[i] = adapter->hw.mac.perm_addr[i];
