@@ -556,9 +556,6 @@ static u32 __apic_read(struct kvm_lapic *apic, unsigned int offset)
 		return 0;
 
 	switch (offset) {
-	case APIC_ID:
-		apic_get_reg(apic, offset);
-		break;
 	case APIC_ARBPRI:
 		printk(KERN_WARNING "Access APIC ARBPRI register "
 		       "which is for P6\n");
