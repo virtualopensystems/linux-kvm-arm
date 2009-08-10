@@ -553,6 +553,7 @@ static unsigned long *gfn_to_rmap(struct kvm *kvm, gfn_t gfn, int level)
  *
  * Returns the number of rmap entries before the spte was added or zero if
  * the spte was not added.
+ *
  */
 static int rmap_add(struct kvm_vcpu *vcpu, u64 *spte, gfn_t gfn)
 {
