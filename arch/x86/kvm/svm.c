@@ -101,7 +101,6 @@ struct vcpu_svm {
 	unsigned long vmcb_pa;
 	struct svm_cpu_data *svm_data;
 	uint64_t asid_generation;
-	uint64_t sysenter_cs;
 	uint64_t sysenter_esp;
 	uint64_t sysenter_eip;
 
@@ -426,8 +425,6 @@ static void svm_vcpu_init_msrpm(u32 *msrpm)
 #endif
 	set_msr_interception(msrpm, MSR_K6_STAR, 1, 1);
 	set_msr_interception(msrpm, MSR_IA32_SYSENTER_CS, 1, 1);
-	set_msr_interception(msrpm, MSR_IA32_SYSENTER_ESP, 1, 1);
-	set_msr_interception(msrpm, MSR_IA32_SYSENTER_EIP, 1, 1);
 }
 
 static void svm_enable_lbrv(struct vcpu_svm *svm)
@@ -2087,7 +2084,7 @@ static int svm_get_msr(struct kvm_vcpu *vcpu, unsigned ecx, u64 *data)
 		break;
 #endif
 	case MSR_IA32_SYSENTER_CS:
-		*data = svm->sysenter_cs;
+		*data = svm->vmcb->save.sysenter_cs;
 		break;
 	case MSR_IA32_SYSENTER_EIP:
 		*data = svm->sysenter_eip;
@@ -2176,13 +2173,15 @@ static int svm_set_msr(struct kvm_vcpu *vcpu, unsigned ecx, u64 data)
 		break;
 #endif
 	case MSR_IA32_SYSENTER_CS:
-		svm->sysenter_cs = data;
+		svm->vmcb->save.sysenter_cs = data;
 		break;
 	case MSR_IA32_SYSENTER_EIP:
 		svm->sysenter_eip = data;
+		svm->vmcb->save.sysenter_eip = data;
 		break;
 	case MSR_IA32_SYSENTER_ESP:
 		svm->sysenter_esp = data;
+		svm->vmcb->save.sysenter_esp = data;
 		break;
 	case MSR_IA32_DEBUGCTLMSR:
 		if (!svm_has(SVM_FEATURE_LBRV)) {
