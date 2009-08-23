@@ -2194,6 +2194,7 @@ writeback:
 
 done:
 	if (rc == X86EMUL_UNHANDLEABLE) {
+		kvm_report_emulation_failure(ctxt->vcpu, "unhandled instruction");
 		c->eip = saved_eip;
 		return -1;
 	}
@@ -2467,7 +2468,7 @@ twobyte_insn:
 	goto writeback;
 
 cannot_emulate:
-	DPRINTF("Cannot emulate %02x\n", c->b);
+	kvm_report_emulation_failure(ctxt->vcpu, "unhandled instruction");
 	c->eip = saved_eip;
 	return -1;
 }
