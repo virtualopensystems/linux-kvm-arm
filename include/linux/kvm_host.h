@@ -129,7 +129,17 @@ struct kvm_kernel_irq_routing_entry {
 		} irqchip;
 		struct msi_msg msi;
 	};
-	struct list_head link;
+	struct hlist_node link;
+};
+
+struct kvm_irq_routing_table {
+	struct kvm_kernel_irq_routing_entry *rt_entries;
+	u32 nr_rt_entries;
+	/*
+	 * Array indexed by gsi. Each entry contains list of irq chips
+	 * the gsi is connected to.
+	 */
+	struct hlist_head map[0];
 };
 
 struct kvm {
@@ -167,7 +177,7 @@ struct kvm {
 
 	struct mutex irq_lock;
 #ifdef CONFIG_HAVE_KVM_IRQCHIP
-	struct list_head irq_routing; /* of kvm_kernel_irq_routing_entry */
+	struct kvm_irq_routing_table *irq_routing;
 	struct hlist_head mask_notifier_list;
 #endif
 
@@ -396,7 +406,7 @@ void kvm_get_intr_delivery_bitmask(struct kvm_ioapic *ioapic,
 				   union kvm_ioapic_redirect_entry *entry,
 				   unsigned long *deliver_bitmask);
 #endif
-int kvm_set_irq(struct kvm *kvm, int irq_source_id, int irq, int level);
+int kvm_set_irq(struct kvm *kvm, int irq_source_id, u32 irq, int level);
 void kvm_notify_acked_irq(struct kvm *kvm, unsigned irqchip, unsigned pin);
 void kvm_register_irq_ack_notifier(struct kvm *kvm,
 				   struct kvm_irq_ack_notifier *kian);
