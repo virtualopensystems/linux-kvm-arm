@@ -581,12 +581,13 @@ static inline bool kvm_vcpu_is_bsp(struct kvm_vcpu *vcpu)
 
 #ifdef __KVM_HAVE_DEVICE_ASSIGNMENT
 
-long kvm_assigned_dev_ioctl(struct kvm *kvm, unsigned ioctl, unsigned long arg);
+long kvm_vm_ioctl_assigned_device(struct kvm *kvm, unsigned ioctl,
+				  unsigned long arg);
 
 #else
 
-static inline
-long kvm_assigned_dev_ioctl(struct kvm *kvm, unsigned ioctl, unsigned long arg)
+static inline long kvm_vm_ioctl_assigned_device(struct kvm *kvm, unsigned ioctl,
+						unsigned long arg)
 {
 	return -ENOTTY;
 }
