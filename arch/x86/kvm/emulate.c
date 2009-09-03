@@ -1245,7 +1245,6 @@ static int emulate_popa(struct x86_emulate_ctxt *ctxt,
 			struct x86_emulate_ops *ops)
 {
 	struct decode_cache *c = &ctxt->decode;
-	unsigned long old_esp = c->regs[VCPU_REGS_RSP];
 	int rc = 0;
 	int reg = VCPU_REGS_RDI;
 
