@@ -172,6 +172,9 @@ aoeblk_make_request(struct request_queue *q, struct bio *bio)
 		BUG();
 		bio_endio(bio, -ENXIO);
 		return 0;
+	} else if (bio_rw_flagged(bio, BIO_RW_BARRIER)) {
+		bio_endio(bio, -EOPNOTSUPP);
+		return 0;
 	} else if (bio->bi_io_vec == NULL) {
 		printk(KERN_ERR "aoe: bi_io_vec is NULL\n");
 		BUG();
@@ -268,6 +271,7 @@ aoeblk_gdalloc(void *vp)
 	if (!d->blkq)
 		goto err_mempool;
 	blk_queue_make_request(d->blkq, aoeblk_make_request);
+	d->blkq->backing_dev_info.name = "aoe";
 	if (bdi_init(&d->blkq->backing_dev_info))
 		goto err_blkq;
 	spin_lock_irqsave(&d->lock, flags);
