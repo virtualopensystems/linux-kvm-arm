@@ -34,7 +34,6 @@
 #include <asm/mca_asm.h>
 #include <linux/init.h>
 #include <linux/linkage.h>
-#include "head.h"
 
 #ifdef CONFIG_HOTPLUG_CPU
 #define SAL_PSR_BITS_TO_SET				\
@@ -168,7 +167,7 @@ RestRR:											\
 	mov _tmp2=((ia64_rid(IA64_REGION_ID_KERNEL, (num<<61)) << 8) | (pgsize << 2) | vhpt);; \
 	mov rr[_tmp1]=_tmp2
 
-	.section __special_page_section,"ax"
+	__PAGE_ALIGNED_DATA
 
 	.global empty_zero_page
 empty_zero_page:
@@ -182,7 +181,7 @@ swapper_pg_dir:
 halt_msg:
 	stringz "Halting kernel\n"
 
-	.section .text.head,"ax"
+	__REF
 
 	.global start_ap
 
@@ -1243,7 +1242,7 @@ GLOBAL_ENTRY(ia64_jump_to_sal)
 	movl r16=SAL_PSR_BITS_TO_SET;;
 	mov cr.ipsr=r16
 	mov cr.ifs=r0;;
-	rfi;;
+	rfi;;			// note: this unmask MCA/INIT (psr.mc)
 1:
 	/*
 	 * Invalidate all TLB data/inst

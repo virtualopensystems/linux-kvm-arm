@@ -931,6 +931,12 @@ W:	http://wireless.kernel.org/en/users/Drivers/ar9170
 S:	Maintained
 F:	drivers/net/wireless/ath/ar9170/
 
+ATK0110 HWMON DRIVER
+M:	Luca Tettamanti <kronos.it@gmail.com>
+L:	lm-sensors@lm-sensors.org
+S:	Maintained
+F:	drivers/hwmon/asus_atk0110.c
+
 ATI_REMOTE2 DRIVER
 M:	Ville Syrjala <syrjala@sci.fi>
 S:	Maintained
@@ -1967,7 +1973,6 @@ F:	fs/ext2/
 F:	include/linux/ext2*
 
 EXT3 FILE SYSTEM
-M:	Stephen Tweedie <sct@redhat.com>
 M:	Andrew Morton <akpm@linux-foundation.org>
 M:	Andreas Dilger <adilger@sun.com>
 L:	linux-ext4@vger.kernel.org
@@ -2152,13 +2157,16 @@ F:	Documentation/filesystems/caching/
 F:	fs/fscache/
 F:	include/linux/fscache*.h
 
-FTRACE
+TRACING
 M:	Steven Rostedt <rostedt@goodmis.org>
+M:	Frederic Weisbecker <fweisbec@gmail.com>
+M:	Ingo Molnar <mingo@redhat.com>
+T:	git git://git.kernel.org/pub/scm/linux/kernel/git/tip/linux-2.6-tip.git tracing/core
 S:	Maintained
 F:	Documentation/trace/ftrace.txt
 F:	arch/*/*/*/ftrace.h
 F:	arch/*/kernel/ftrace.c
-F:	include/*/ftrace.h
+F:	include/*/ftrace.h include/trace/ include/linux/trace*.h
 F:	kernel/trace/
 
 FUJITSU FR-V (FRV) PORT
@@ -2217,6 +2225,13 @@ L:	linux-arch@vger.kernel.org
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/arnd/asm-generic.git
 S:	Maintained
 F:	include/asm-generic
+
+GENERIC UIO DRIVER FOR PCI DEVICES
+M:	Michael S. Tsirkin <mst@redhat.com>
+L:	kvm@vger.kernel.org
+L:	linux-kernel@vger.kernel.org
+S:	Supported
+F:	drivers/uio/uio_pci_generic.c
 
 GFS2 FILE SYSTEM
 M:	Steven Whitehouse <swhiteho@redhat.com>
@@ -2885,8 +2900,8 @@ F:	fs/jffs2/
 F:	include/linux/jffs2.h
 
 JOURNALLING LAYER FOR BLOCK DEVICES (JBD)
-M:	Stephen Tweedie <sct@redhat.com>
 M:	Andrew Morton <akpm@linux-foundation.org>
+M:	Jan Kara <jack@suse.cz>
 L:	linux-ext4@vger.kernel.org
 S:	Maintained
 F:	fs/jbd*/
@@ -3317,7 +3332,7 @@ S:	Supported
 F:	drivers/net/wireless/mwl8k.c
 
 MARVELL SOC MMC/SD/SDIO CONTROLLER DRIVER
-M:	Nicolas Pitre <nico@cam.org>
+M:	Nicolas Pitre <nico@fluxnic.net>
 S:	Maintained
 
 MARVELL YUKON / SYSKONNECT DRIVER
@@ -4439,6 +4454,14 @@ S:	Maintained
 F:	kernel/sched*
 F:	include/linux/sched.h
 
+SCORE ARCHITECTURE
+P:	Chen Liqin
+M:	liqin.chen@sunplusct.com
+P:	Lennox Wu
+M:	lennox.wu@sunplusct.com
+W:	http://www.sunplusct.com
+S:	Supported
+
 SCSI CDROM DRIVER
 M:	Jens Axboe <axboe@kernel.dk>
 L:	linux-scsi@vger.kernel.org
@@ -4638,6 +4661,12 @@ F:	arch/arm/mach-s3c2410/
 F:	drivers/*/*s3c2410*
 F:	drivers/*/*/*s3c2410*
 
+TI DAVINCI MACHINE SUPPORT
+P:	Kevin Hilman
+M:	davinci-linux-open-source@linux.davincidsp.com
+S:	Supported
+F:	arch/arm/mach-davinci
+
 SIS 190 ETHERNET DRIVER
 M:	Francois Romieu <romieu@fr.zoreil.com>
 L:	netdev@vger.kernel.org
@@ -4689,7 +4718,7 @@ F:	include/linux/sl?b*.h
 F:	mm/sl?b.c
 
 SMC91x ETHERNET DRIVER
-M:	Nicolas Pitre <nico@cam.org>
+M:	Nicolas Pitre <nico@fluxnic.net>
 S:	Maintained
 F:	drivers/net/smc91x.*
 
@@ -5662,6 +5691,26 @@ S:	Supported
 F:	drivers/input/touchscreen/*wm97*
 F:	include/linux/wm97xx.h
 
+WOLFSON MICROELECTRONICS PMIC DRIVERS
+P:	Mark Brown
+M:	broonie@opensource.wolfsonmicro.com
+L:	linux-kernel@vger.kernel.org
+T:	git git://opensource.wolfsonmicro.com/linux-2.6-audioplus
+W:	http://opensource.wolfsonmicro.com/node/8
+S:	Supported
+F:	drivers/leds/leds-wm83*.c
+F:	drivers/mfd/wm8*.c
+F:	drivers/power/wm83*.c
+F:	drivers/rtc/rtc-wm83*.c
+F:	drivers/regulator/wm8*.c
+F:	drivers/video/backlight/wm83*_bl.c
+F:	drivers/watchdog/wm83*_wdt.c
+F:	include/linux/mfd/wm831x/
+F:	include/linux/mfd/wm8350/
+F:	include/linux/mfd/wm8400/
+F:	sound/soc/codecs/wm8350.c
+F:	sound/soc/codecs/wm8400.c
+
 X.25 NETWORK LAYER
 M:	Henner Eisen <eis@baty.hanse.de>
 L:	linux-x25@vger.kernel.org
@@ -5694,7 +5743,7 @@ F:	include/xen/
 
 XFS FILESYSTEM
 P:	Silicon Graphics Inc
-M:	Felix Blyakher <felixb@sgi.com>
+M:	Alex Elder <aelder@sgi.com>
 M:	xfs-masters@oss.sgi.com
 L:	xfs@oss.sgi.com
 W:	http://oss.sgi.com/projects/xfs
