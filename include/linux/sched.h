@@ -100,7 +100,7 @@ struct robust_list_head;
 struct bio;
 struct fs_struct;
 struct bts_context;
-struct perf_counter_context;
+struct perf_event_context;
 
 /*
  * List of flags we want to share for kernel threads,
@@ -140,6 +140,10 @@ extern int nr_processes(void);
 extern unsigned long nr_running(void);
 extern unsigned long nr_uninterruptible(void);
 extern unsigned long nr_iowait(void);
+extern unsigned long nr_iowait_cpu(void);
+extern unsigned long this_cpu_load(void);
+
+
 extern void calc_global_load(void);
 extern u64 cpu_nr_migrations(int cpu);
 
@@ -257,7 +261,7 @@ extern asmlinkage void schedule_tail(struct task_struct *prev);
 extern void init_idle(struct task_struct *idle, int cpu);
 extern void init_idle_bootup_task(struct task_struct *idle);
 
-extern int runqueue_is_locked(void);
+extern int runqueue_is_locked(int cpu);
 extern void task_rq_unlock_wait(struct task_struct *p);
 
 extern cpumask_var_t nohz_cpu_mask;
@@ -434,7 +438,9 @@ extern int get_dumpable(struct mm_struct *mm);
 /* dumpable bits */
 #define MMF_DUMPABLE      0  /* core dump is permitted */
 #define MMF_DUMP_SECURELY 1  /* core file is readable only by root */
+
 #define MMF_DUMPABLE_BITS 2
+#define MMF_DUMPABLE_MASK ((1 << MMF_DUMPABLE_BITS) - 1)
 
 /* coredump filter bits */
 #define MMF_DUMP_ANON_PRIVATE	2
@@ -444,6 +450,7 @@ extern int get_dumpable(struct mm_struct *mm);
 #define MMF_DUMP_ELF_HEADERS	6
 #define MMF_DUMP_HUGETLB_PRIVATE 7
 #define MMF_DUMP_HUGETLB_SHARED  8
+
 #define MMF_DUMP_FILTER_SHIFT	MMF_DUMPABLE_BITS
 #define MMF_DUMP_FILTER_BITS	7
 #define MMF_DUMP_FILTER_MASK \
@@ -457,6 +464,10 @@ extern int get_dumpable(struct mm_struct *mm);
 #else
 # define MMF_DUMP_MASK_DEFAULT_ELF	0
 #endif
+					/* leave room for more dump flags */
+#define MMF_VM_MERGEABLE	16	/* KSM may merge identical pages */
+
+#define MMF_INIT_MASK		(MMF_DUMPABLE_MASK | MMF_DUMP_FILTER_MASK)
 
 struct sighand_struct {
 	atomic_t		count;
@@ -632,6 +643,8 @@ struct signal_struct {
 	unsigned audit_tty;
 	struct tty_audit_buf *tty_audit_buf;
 #endif
+
+	int oom_adj;	/* OOM kill score adjustment (bit shift) */
 };
 
 /* Context switch must be unlocked if interrupts are to be enabled */
@@ -701,7 +714,7 @@ struct user_struct {
 #endif
 #endif
 
-#ifdef CONFIG_PERF_COUNTERS
+#ifdef CONFIG_PERF_EVENTS
 	atomic_long_t locked_vm;
 #endif
 };
@@ -1075,6 +1088,8 @@ struct sched_class {
 	void (*prio_changed) (struct rq *this_rq, struct task_struct *task,
 			     int oldprio, int running);
 
+	unsigned int (*get_rr_interval) (struct task_struct *task);
+
 #ifdef CONFIG_FAIR_GROUP_SCHED
 	void (*moved_group) (struct task_struct *p);
 #endif
@@ -1212,7 +1227,6 @@ struct task_struct {
 	 * a short time
 	 */
 	unsigned char fpu_counter;
-	s8 oomkilladj; /* OOM kill score adjustment (bit shift). */
 #ifdef CONFIG_BLK_DEV_IO_TRACE
 	unsigned int btrace_seq;
 #endif
@@ -1449,10 +1463,10 @@ struct task_struct {
 	struct list_head pi_state_list;
 	struct futex_pi_state *pi_state_cache;
 #endif
-#ifdef CONFIG_PERF_COUNTERS
-	struct perf_counter_context *perf_counter_ctxp;
-	struct mutex perf_counter_mutex;
-	struct list_head perf_counter_list;
+#ifdef CONFIG_PERF_EVENTS
+	struct perf_event_context *perf_event_ctxp;
+	struct mutex perf_event_mutex;
+	struct list_head perf_event_list;
 #endif
 #ifdef CONFIG_NUMA
 	struct mempolicy *mempolicy;	/* Protected by alloc_lock */
@@ -1711,7 +1725,7 @@ extern cputime_t task_gtime(struct task_struct *p);
 #define PF_FROZEN	0x00010000	/* frozen for system suspend */
 #define PF_FSTRANS	0x00020000	/* inside a filesystem transaction */
 #define PF_KSWAPD	0x00040000	/* I am kswapd */
-#define PF_SWAPOFF	0x00080000	/* I am in swapoff */
+#define PF_OOM_ORIGIN	0x00080000	/* Allocating much memory to others */
 #define PF_LESS_THROTTLE 0x00100000	/* Throttle me less: I clean memory */
 #define PF_KTHREAD	0x00200000	/* I am a kernel thread */
 #define PF_RANDOMIZE	0x00400000	/* randomize virtual address space */
@@ -1753,7 +1767,6 @@ extern cputime_t task_gtime(struct task_struct *p);
 
 #define RCU_READ_UNLOCK_BLOCKED (1 << 0) /* blocked while in RCU read-side. */
 #define RCU_READ_UNLOCK_NEED_QS (1 << 1) /* RCU core needs CPU response. */
-#define RCU_READ_UNLOCK_GOT_QS  (1 << 2) /* CPU has responded to RCU core. */
 
 static inline void rcu_copy_process(struct task_struct *p)
 {

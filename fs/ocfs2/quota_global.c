@@ -154,7 +154,7 @@ static int ocfs2_get_quota_block(struct inode *inode, int block,
 		err = -EIO;
 		mlog_errno(err);
 	}
-	return err;;
+	return err;
 }
 
 /* Read data from global quotafile - avoid pagecache and such because we cannot
@@ -849,7 +849,7 @@ static void ocfs2_destroy_dquot(struct dquot *dquot)
 	kmem_cache_free(ocfs2_dquot_cachep, dquot);
 }
 
-struct dquot_operations ocfs2_quota_operations = {
+const struct dquot_operations ocfs2_quota_operations = {
 	.initialize	= dquot_initialize,
 	.drop		= dquot_drop,
 	.alloc_space	= dquot_alloc_space,
