@@ -344,7 +344,9 @@ static int btrfs_fill_super(struct super_block *sb,
 	sb->s_export_op = &btrfs_export_ops;
 	sb->s_xattr = btrfs_xattr_handlers;
 	sb->s_time_gran = 1;
+#ifdef CONFIG_BTRFS_POSIX_ACL
 	sb->s_flags |= MS_POSIXACL;
+#endif
 
 	tree_root = open_ctree(sb, fs_devices, (char *)data);
 
@@ -676,6 +678,7 @@ static int btrfs_unfreeze(struct super_block *sb)
 }
 
 static const struct super_operations btrfs_super_ops = {
+	.drop_inode	= btrfs_drop_inode,
 	.delete_inode	= btrfs_delete_inode,
 	.put_super	= btrfs_put_super,
 	.sync_fs	= btrfs_sync_fs,

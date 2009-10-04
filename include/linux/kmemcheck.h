@@ -145,12 +145,14 @@ static inline bool kmemcheck_is_obj_initialized(unsigned long addr, size_t size)
 
 #define kmemcheck_annotate_bitfield(ptr, name)				\
 	do {								\
+		int _n;							\
+									\
 		if (!ptr)						\
 			break;						\
 									\
-		int _n = (long) &((ptr)->name##_end)			\
+		_n = (long) &((ptr)->name##_end)			\
 			- (long) &((ptr)->name##_begin);		\
-		BUILD_BUG_ON(_n < 0);					\
+		MAYBE_BUILD_BUG_ON(_n < 0);				\
 									\
 		kmemcheck_mark_initialized(&((ptr)->name##_begin), _n);	\
 	} while (0)
