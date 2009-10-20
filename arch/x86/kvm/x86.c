@@ -2476,6 +2476,10 @@ long kvm_arch_vm_ioctl(struct file *filp,
 		if (copy_from_user(&user_ns, argp, sizeof(user_ns)))
 			goto out;
 
+		r = -EINVAL;
+		if (user_ns.flags)
+			goto out;
+
 		r = 0;
 		ktime_get_ts(&now);
 		now_ns = timespec_to_ns(&now);
@@ -2494,6 +2498,10 @@ long kvm_arch_vm_ioctl(struct file *filp,
 
 		if (copy_to_user(argp, &user_ns, sizeof(user_ns)))
 			r =  -EFAULT;
+
+		r = -EINVAL;
+		if (user_ns.flags)
+			goto out;
 
 		break;
 	}

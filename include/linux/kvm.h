@@ -515,7 +515,8 @@ struct kvm_irqfd {
 
 struct kvm_clock_data {
 	__u64 clock;
-	__u64 pad[2];
+	__u32 flags;
+	__u32 pad[9];
 };
 
 /*
