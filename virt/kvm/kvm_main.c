@@ -1623,7 +1623,9 @@ static int kvm_vm_mmap(struct file *file, struct vm_area_struct *vma)
 static struct file_operations kvm_vm_fops = {
 	.release        = kvm_vm_release,
 	.unlocked_ioctl = kvm_vm_ioctl,
+#ifdef CONFIG_COMPAT
 	.compat_ioctl   = kvm_vm_compat_ioctl,
+#endif
 	.mmap           = kvm_vm_mmap,
 };
 
