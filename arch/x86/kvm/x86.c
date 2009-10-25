@@ -2542,6 +2542,9 @@ long kvm_arch_vm_ioctl(struct file *filp,
 		if (copy_from_user(&kvm->arch.xen_hvm_config, argp,
 				   sizeof(struct kvm_xen_hvm_config)))
 			goto out;
+		r = -EINVAL;
+		if (kvm->arch.xen_hvm_config.flags)
+			goto out;
 		r = 0;
 		break;
 	}

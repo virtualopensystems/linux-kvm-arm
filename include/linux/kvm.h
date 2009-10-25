@@ -494,8 +494,8 @@ struct kvm_x86_mce {
 
 #ifdef KVM_CAP_XEN_HVM
 struct kvm_xen_hvm_config {
+	__u32 flags;
 	__u32 msr;
-	__u32 pad1;
 	__u64 blob_addr_32;
 	__u64 blob_addr_64;
 	__u8 blob_size_32;
