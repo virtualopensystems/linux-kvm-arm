@@ -880,7 +880,6 @@ static void vmx_queue_exception(struct kvm_vcpu *vcpu, unsigned nr,
 /*
  * Swap MSR entry in host/guest MSR entry array.
  */
-#ifdef CONFIG_X86_64
 static void move_msr_up(struct vcpu_vmx *vmx, int from, int to)
 {
 	struct shared_msr_entry tmp;
@@ -889,7 +888,6 @@ static void move_msr_up(struct vcpu_vmx *vmx, int from, int to)
 	vmx->guest_msrs[to] = vmx->guest_msrs[from];
 	vmx->guest_msrs[from] = tmp;
 }
-#endif
 
 /*
  * Set up the vmcs to automatically save and restore system
