@@ -656,7 +656,8 @@ static void vmx_save_host_state(struct kvm_vcpu *vcpu)
 	}
 #endif
 	for (i = 0; i < vmx->save_nmsrs; ++i)
-		kvm_set_shared_msr(i, vmx->guest_msrs[i].data);
+		kvm_set_shared_msr(vmx->guest_msrs[i].index,
+				   vmx->guest_msrs[i].data);
 }
 
 static void __vmx_load_host_state(struct vcpu_vmx *vmx)
