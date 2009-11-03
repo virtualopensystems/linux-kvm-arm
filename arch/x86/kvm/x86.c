@@ -2597,14 +2597,12 @@ long kvm_arch_vm_ioctl(struct file *filp,
 		ktime_get_ts(&now);
 		now_ns = timespec_to_ns(&now);
 		user_ns.clock = kvm->arch.kvmclock_offset + now_ns;
+		user_ns.flags = 0;
 
+		r = -EFAULT;
 		if (copy_to_user(argp, &user_ns, sizeof(user_ns)))
-			r =  -EFAULT;
-
-		r = -EINVAL;
-		if (user_ns.flags)
 			goto out;
-
+		r = 0;
 		break;
 	}
 
