@@ -1538,6 +1538,11 @@ static void vmx_set_efer(struct kvm_vcpu *vcpu, u64 efer)
 
 	if (!msr)
 		return;
+	/*
+	 * Force kernel_gs_base reloading before EFER changes, as control
+	 * of this msr depends on is_long_mode().
+	 */
+	vmx_load_host_state(to_vmx(vcpu));
 	vcpu->arch.shadow_efer = efer;
 	if (!msr)
 		return;
