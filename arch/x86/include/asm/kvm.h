@@ -276,6 +276,8 @@ struct kvm_vcpu_events {
 		__u8 pad;
 	} nmi;
 	__u32 sipi_vector;
+	__u32 flags;
+	__u32 reserved[10];
 };
 
 #endif /* _ASM_X86_KVM_H */

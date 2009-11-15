@@ -685,6 +685,7 @@ struct kvm_vcpu_events {
 		__u8 pad;
 	} nmi;
 	__u32 sipi_vector;
+	__u32 flags;   /* must be zero */
 };
 
 4.30 KVM_SET_VCPU_EVENTS

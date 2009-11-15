@@ -1904,12 +1904,17 @@ static void kvm_vcpu_ioctl_x86_get_vcpu_events(struct kvm_vcpu *vcpu,
 
 	events->sipi_vector = vcpu->arch.sipi_vector;
 
+	events->flags = 0;
+
 	vcpu_put(vcpu);
 }
 
-static void kvm_vcpu_ioctl_x86_set_vcpu_events(struct kvm_vcpu *vcpu,
-					       struct kvm_vcpu_events *events)
+static int kvm_vcpu_ioctl_x86_set_vcpu_events(struct kvm_vcpu *vcpu,
+					      struct kvm_vcpu_events *events)
 {
+	if (events->flags)
+		return -EINVAL;
+
 	vcpu_load(vcpu);
 
 	vcpu->arch.exception.pending = events->exception.injected;
@@ -1930,6 +1935,8 @@ static void kvm_vcpu_ioctl_x86_set_vcpu_events(struct kvm_vcpu *vcpu,
 	vcpu->arch.sipi_vector = events->sipi_vector;
 
 	vcpu_put(vcpu);
+
+	return 0;
 }
 
 long kvm_arch_vcpu_ioctl(struct file *filp,
@@ -2107,9 +2114,7 @@ long kvm_arch_vcpu_ioctl(struct file *filp,
 		if (copy_from_user(&events, argp, sizeof(struct kvm_vcpu_events)))
 			break;
 
-		kvm_vcpu_ioctl_x86_set_vcpu_events(vcpu, &events);
-
-		r = 0;
+		r = kvm_vcpu_ioctl_x86_set_vcpu_events(vcpu, &events);
 		break;
 	}
 	default:
