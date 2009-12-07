@@ -1614,8 +1614,10 @@ static void vmx_flush_tlb(struct kvm_vcpu *vcpu)
 
 static void vmx_decache_cr4_guest_bits(struct kvm_vcpu *vcpu)
 {
-	vcpu->arch.cr4 &= KVM_GUEST_CR4_MASK;
-	vcpu->arch.cr4 |= vmcs_readl(GUEST_CR4) & ~KVM_GUEST_CR4_MASK;
+	ulong cr4_guest_owned_bits = vcpu->arch.cr4_guest_owned_bits;
+
+	vcpu->arch.cr4 &= ~cr4_guest_owned_bits;
+	vcpu->arch.cr4 |= vmcs_readl(GUEST_CR4) & cr4_guest_owned_bits;
 }
 
 static void ept_load_pdptrs(struct kvm_vcpu *vcpu)
@@ -1660,7 +1662,7 @@ static void ept_update_paging_mode_cr0(unsigned long *hw_cr0,
 			     (CPU_BASED_CR3_LOAD_EXITING |
 			      CPU_BASED_CR3_STORE_EXITING));
 		vcpu->arch.cr0 = cr0;
-		vmx_set_cr4(vcpu, vcpu->arch.cr4);
+		vmx_set_cr4(vcpu, kvm_read_cr4(vcpu));
 	} else if (!is_paging(vcpu)) {
 		/* From nonpaging to paging */
 		vmcs_write32(CPU_BASED_VM_EXEC_CONTROL,
@@ -1668,7 +1670,7 @@ static void ept_update_paging_mode_cr0(unsigned long *hw_cr0,
 			     ~(CPU_BASED_CR3_LOAD_EXITING |
 			       CPU_BASED_CR3_STORE_EXITING));
 		vcpu->arch.cr0 = cr0;
-		vmx_set_cr4(vcpu, vcpu->arch.cr4);
+		vmx_set_cr4(vcpu, kvm_read_cr4(vcpu));
 	}
 
 	if (!(cr0 & X86_CR0_WP))
@@ -2419,6 +2421,7 @@ static int vmx_vcpu_setup(struct vcpu_vmx *vmx)
 
 	vmcs_writel(CR0_GUEST_HOST_MASK, ~0UL);
 	vmcs_writel(CR4_GUEST_HOST_MASK, KVM_GUEST_CR4_MASK);
+	vmx->vcpu.arch.cr4_guest_owned_bits = ~KVM_GUEST_CR4_MASK;
 
 	tsc_base = vmx->vcpu.kvm->arch.vm_init_tsc;
 	rdtscll(tsc_this);
@@ -3049,7 +3052,7 @@ static int handle_dr(struct kvm_vcpu *vcpu)
 				vcpu->arch.eff_db[dr] = val;
 			break;
 		case 4 ... 5:
-			if (vcpu->arch.cr4 & X86_CR4_DE)
+			if (kvm_read_cr4_bits(vcpu, X86_CR4_DE))
 				kvm_queue_exception(vcpu, UD_VECTOR);
 			break;
 		case 6:
