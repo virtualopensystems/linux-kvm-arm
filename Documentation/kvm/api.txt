@@ -706,8 +706,8 @@ from the update. These fields are nmi.pending and sipi_vector. Keep the
 corresponding bits in the flags field cleared to suppress overwriting the
 current in-kernel state. The bits are:
 
-KVM_VCPUEVENT_SET_NMI_PENDING - transfer nmi.pending to the kernel
-KVM_VCPUEVENT_SET_SIPI_VECTOR - transfer sipi_vector
+KVM_VCPUEVENT_VALID_NMI_PENDING - transfer nmi.pending to the kernel
+KVM_VCPUEVENT_VALID_SIPI_VECTOR - transfer sipi_vector
 
 
 5. The kvm_run structure

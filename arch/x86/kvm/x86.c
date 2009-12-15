@@ -1945,8 +1945,8 @@ static void kvm_vcpu_ioctl_x86_get_vcpu_events(struct kvm_vcpu *vcpu,
 
 	events->sipi_vector = vcpu->arch.sipi_vector;
 
-	events->flags = (KVM_VCPUEVENT_SET_NMI_PENDING
-			 | KVM_VCPUEVENT_SET_SIPI_VECTOR);
+	events->flags = (KVM_VCPUEVENT_VALID_NMI_PENDING
+			 | KVM_VCPUEVENT_VALID_SIPI_VECTOR);
 
 	vcpu_put(vcpu);
 }
@@ -1954,8 +1954,8 @@ static void kvm_vcpu_ioctl_x86_get_vcpu_events(struct kvm_vcpu *vcpu,
 static int kvm_vcpu_ioctl_x86_set_vcpu_events(struct kvm_vcpu *vcpu,
 					      struct kvm_vcpu_events *events)
 {
-	if (events->flags &
-	    ~(KVM_VCPUEVENT_SET_NMI_PENDING | KVM_VCPUEVENT_SET_SIPI_VECTOR))
+	if (events->flags & ~(KVM_VCPUEVENT_VALID_NMI_PENDING
+			      | KVM_VCPUEVENT_VALID_SIPI_VECTOR))
 		return -EINVAL;
 
 	vcpu_load(vcpu);
@@ -1972,11 +1972,11 @@ static int kvm_vcpu_ioctl_x86_set_vcpu_events(struct kvm_vcpu *vcpu,
 		kvm_pic_clear_isr_ack(vcpu->kvm);
 
 	vcpu->arch.nmi_injected = events->nmi.injected;
-	if (events->flags & KVM_VCPUEVENT_SET_NMI_PENDING)
+	if (events->flags & KVM_VCPUEVENT_VALID_NMI_PENDING)
 		vcpu->arch.nmi_pending = events->nmi.pending;
 	kvm_x86_ops->set_nmi_mask(vcpu, events->nmi.masked);
 
-	if (events->flags & KVM_VCPUEVENT_SET_SIPI_VECTOR)
+	if (events->flags & KVM_VCPUEVENT_VALID_SIPI_VECTOR)
 		vcpu->arch.sipi_vector = events->sipi_vector;
 
 	vcpu_put(vcpu);

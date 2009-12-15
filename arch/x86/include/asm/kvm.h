@@ -255,8 +255,8 @@ struct kvm_reinject_control {
 };
 
 /* When set in flags, include corresponding fields on KVM_SET_VCPU_EVENTS */
-#define KVM_VCPUEVENT_SET_NMI_PENDING	0x00000001
-#define KVM_VCPUEVENT_SET_SIPI_VECTOR	0x00000002
+#define KVM_VCPUEVENT_VALID_NMI_PENDING	0x00000001
+#define KVM_VCPUEVENT_VALID_SIPI_VECTOR	0x00000002
 
 /* for KVM_GET/SET_VCPU_EVENTS */
 struct kvm_vcpu_events {
