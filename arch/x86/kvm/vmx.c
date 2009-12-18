@@ -3987,6 +3987,10 @@ static bool vmx_gb_page_enable(void)
 	return false;
 }
 
+static void vmx_cpuid_update(struct kvm_vcpu *vcpu)
+{
+}
+
 static struct kvm_x86_ops vmx_x86_ops = {
 	.cpu_has_kvm_support = cpu_has_kvm_support,
 	.disabled_by_bios = vmx_disabled_by_bios,
@@ -4051,6 +4055,8 @@ static struct kvm_x86_ops vmx_x86_ops = {
 
 	.exit_reasons_str = vmx_exit_reasons_str,
 	.gb_page_enable = vmx_gb_page_enable,
+
+	.cpuid_update = vmx_cpuid_update,
 };
 
 static int __init vmx_init(void)
