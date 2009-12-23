@@ -689,10 +689,10 @@ long kvm_arch_vcpu_ioctl(struct file *filp,
 }
 
 /* Section: memory related */
-int kvm_arch_set_memory_region(struct kvm *kvm,
-				struct kvm_userspace_memory_region *mem,
-				struct kvm_memory_slot old,
-				int user_alloc)
+int kvm_arch_prepare_memory_region(struct kvm *kvm,
+				   struct kvm_userspace_memory_region *mem,
+				   struct kvm_memory_slot old,
+				   int user_alloc)
 {
 	int i;
 	struct kvm_vcpu *vcpu;
@@ -719,14 +719,20 @@ int kvm_arch_set_memory_region(struct kvm *kvm,
 	if (!user_alloc)
 		return -EINVAL;
 
+	return 0;
+}
+
+int kvm_arch_commit_memory_region(struct kvm *kvm,
+				struct kvm_userspace_memory_region *mem,
+				struct kvm_memory_slot old,
+				int user_alloc)
+{
 	/* request update of sie control block for all available vcpus */
 	kvm_for_each_vcpu(i, vcpu, kvm) {
 		if (test_and_set_bit(KVM_REQ_MMU_RELOAD, &vcpu->requests))
 			continue;
 		kvm_s390_inject_sigp_stop(vcpu, ACTION_RELOADVCPU_ON_STOP);
 	}
-
-	return 0;
 }
 
 void kvm_arch_flush_shadow(struct kvm *kvm)
