@@ -803,12 +803,23 @@ static void vmx_fpu_activate(struct kvm_vcpu *vcpu)
 	if (kvm_read_cr0_bits(vcpu, X86_CR0_TS))
 		vmcs_set_bits(GUEST_CR0, X86_CR0_TS);
 	update_exception_bitmap(vcpu);
+	vcpu->arch.cr0_guest_owned_bits = X86_CR0_TS;
+	vmcs_writel(CR0_GUEST_HOST_MASK, ~vcpu->arch.cr0_guest_owned_bits);
 }
 
 static void vmx_fpu_deactivate(struct kvm_vcpu *vcpu)
 {
+	ulong old_ts, old_cr0;
+
+	old_ts = kvm_read_cr0_bits(vcpu, X86_CR0_TS);
 	vmcs_set_bits(GUEST_CR0, X86_CR0_TS);
 	update_exception_bitmap(vcpu);
+	vcpu->arch.cr0_guest_owned_bits = 0;
+	vmcs_writel(CR0_GUEST_HOST_MASK, ~vcpu->arch.cr0_guest_owned_bits);
+	old_cr0 = vcpu->arch.cr0;
+	vcpu->arch.cr0 = (vcpu->arch.cr0 & ~X86_CR0_TS) | old_ts;
+	if (vcpu->arch.cr0 != old_cr0)
+		vmcs_writel(CR0_READ_SHADOW, vcpu->arch.cr0);
 }
 
 static unsigned long vmx_get_rflags(struct kvm_vcpu *vcpu)
