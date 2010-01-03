@@ -857,7 +857,7 @@ int kvm_vm_ioctl_get_dirty_log(struct kvm *kvm,
 	int is_dirty = 0;
 	int r, n;
 
-	down_write(&kvm->slots_lock);
+	mutex_lock(&kvm->slots_lock);
 
 	r = kvm_get_dirty_log(kvm, log, &is_dirty);
 	if (r)
@@ -865,7 +865,7 @@ int kvm_vm_ioctl_get_dirty_log(struct kvm *kvm,
 
 	/* If nothing is dirty, don't bother messing with page tables. */
 	if (is_dirty) {
-		memslot = &kvm->memslots[log->slot];
+		memslot = &kvm->memslots->memslots[log->slot];
 
 		ga = memslot->base_gfn << PAGE_SHIFT;
 		ga_end = ga + (memslot->npages << PAGE_SHIFT);
@@ -879,7 +879,7 @@ int kvm_vm_ioctl_get_dirty_log(struct kvm *kvm,
 
 	r = 0;
 out:
-	up_write(&kvm->slots_lock);
+	mutex_unlock(&kvm->slots_lock);
 	return r;
 }
 
