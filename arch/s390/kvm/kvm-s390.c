@@ -690,13 +690,11 @@ long kvm_arch_vcpu_ioctl(struct file *filp,
 
 /* Section: memory related */
 int kvm_arch_prepare_memory_region(struct kvm *kvm,
-				   struct kvm_userspace_memory_region *mem,
+				   struct kvm_memory_slot *memslot,
 				   struct kvm_memory_slot old,
+				   struct kvm_userspace_memory_region *mem,
 				   int user_alloc)
 {
-	int i;
-	struct kvm_vcpu *vcpu;
-
 	/* A few sanity checks. We can have exactly one memory slot which has
 	   to start at guest virtual zero and which has to be located at a
 	   page boundary in userland and which has to end at a page boundary.
@@ -722,11 +720,14 @@ int kvm_arch_prepare_memory_region(struct kvm *kvm,
 	return 0;
 }
 
-int kvm_arch_commit_memory_region(struct kvm *kvm,
+void kvm_arch_commit_memory_region(struct kvm *kvm,
 				struct kvm_userspace_memory_region *mem,
 				struct kvm_memory_slot old,
 				int user_alloc)
 {
+	int i;
+	struct kvm_vcpu *vcpu;
+
 	/* request update of sie control block for all available vcpus */
 	kvm_for_each_vcpu(i, vcpu, kvm) {
 		if (test_and_set_bit(KVM_REQ_MMU_RELOAD, &vcpu->requests))

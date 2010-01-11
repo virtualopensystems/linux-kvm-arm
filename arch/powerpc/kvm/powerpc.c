@@ -168,6 +168,7 @@ long kvm_arch_dev_ioctl(struct file *filp,
 int kvm_arch_prepare_memory_region(struct kvm *kvm,
                                    struct kvm_memory_slot *memslot,
                                    struct kvm_memory_slot old,
+                                   struct kvm_userspace_memory_region *mem,
                                    int user_alloc)
 {
 	return 0;
