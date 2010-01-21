@@ -3006,6 +3006,7 @@ static int handle_cr(struct kvm_vcpu *vcpu)
 		vmcs_writel(CR0_READ_SHADOW, kvm_read_cr0(vcpu));
 		trace_kvm_cr_write(0, kvm_read_cr0(vcpu));
 		skip_emulated_instruction(vcpu);
+		vmx_fpu_activate(vcpu);
 		return 1;
 	case 1: /*mov from cr*/
 		switch (cr) {
