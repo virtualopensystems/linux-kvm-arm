@@ -128,6 +128,7 @@ static void svm_flush_tlb(struct kvm_vcpu *vcpu);
 static void svm_complete_interrupts(struct vcpu_svm *svm);
 
 static int nested_svm_exit_handled(struct vcpu_svm *svm);
+static int nested_svm_intercept(struct vcpu_svm *svm);
 static int nested_svm_vmexit(struct vcpu_svm *svm);
 static int nested_svm_check_exception(struct vcpu_svm *svm, unsigned nr,
 				      bool has_error_code, u32 error_code);
@@ -1378,6 +1379,8 @@ static int nested_svm_check_permissions(struct vcpu_svm *svm)
 static int nested_svm_check_exception(struct vcpu_svm *svm, unsigned nr,
 				      bool has_error_code, u32 error_code)
 {
+	int vmexit;
+
 	if (!is_nested(svm))
 		return 0;
 
@@ -1386,7 +1389,11 @@ static int nested_svm_check_exception(struct vcpu_svm *svm, unsigned nr,
 	svm->vmcb->control.exit_info_1 = error_code;
 	svm->vmcb->control.exit_info_2 = svm->vcpu.arch.cr2;
 
-	return nested_svm_exit_handled(svm);
+	vmexit = nested_svm_intercept(svm);
+	if (vmexit == NESTED_EXIT_DONE)
+		svm->nested.exit_required = true;
+
+	return vmexit;
 }
 
 static inline int nested_svm_intr(struct vcpu_svm *svm)
@@ -1515,7 +1522,7 @@ static int nested_svm_exit_special(struct vcpu_svm *svm)
 /*
  * If this function returns true, this #vmexit was already handled
  */
-static int nested_svm_exit_handled(struct vcpu_svm *svm)
+static int nested_svm_intercept(struct vcpu_svm *svm)
 {
 	u32 exit_code = svm->vmcb->control.exit_code;
 	int vmexit = NESTED_EXIT_HOST;
@@ -1561,9 +1568,17 @@ static int nested_svm_exit_handled(struct vcpu_svm *svm)
 	}
 	}
 
-	if (vmexit == NESTED_EXIT_DONE) {
+	return vmexit;
+}
+
+static int nested_svm_exit_handled(struct vcpu_svm *svm)
+{
+	int vmexit;
+
+	vmexit = nested_svm_intercept(svm);
+
+	if (vmexit == NESTED_EXIT_DONE)
 		nested_svm_vmexit(svm);
-	}
 
 	return vmexit;
 }
