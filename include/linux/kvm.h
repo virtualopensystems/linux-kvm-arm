@@ -502,6 +502,7 @@ struct kvm_ioeventfd {
 #define KVM_CAP_HYPERV_SPIN 46
 #define KVM_CAP_PCI_SEGMENT 47
 #define KVM_CAP_PPC_PAIRED_SINGLES 48
+#define KVM_CAP_INTR_SHADOW 49
 
 #ifdef KVM_CAP_IRQ_ROUTING
 
