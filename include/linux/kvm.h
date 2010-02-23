@@ -506,6 +506,7 @@ struct kvm_ioeventfd {
 #ifdef __KVM_HAVE_DEBUGREGS
 #define KVM_CAP_DEBUGREGS 50
 #endif
+#define KVM_CAP_X86_ROBUST_SINGLESTEP 51
 
 #ifdef KVM_CAP_IRQ_ROUTING
 
