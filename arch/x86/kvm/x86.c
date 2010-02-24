@@ -485,7 +485,6 @@ void kvm_set_cr0(struct kvm_vcpu *vcpu, unsigned long cr0)
 	}
 
 	kvm_x86_ops->set_cr0(vcpu, cr0);
-	vcpu->arch.cr0 = cr0;
 
 	kvm_mmu_reset_context(vcpu);
 	return;
