@@ -1485,7 +1485,9 @@ static inline bool nested_svm_intr(struct vcpu_svm *svm)
 	if (!(svm->vcpu.arch.hflags & HF_HIF_MASK))
 		return false;
 
-	svm->vmcb->control.exit_code = SVM_EXIT_INTR;
+	svm->vmcb->control.exit_code   = SVM_EXIT_INTR;
+	svm->vmcb->control.exit_info_1 = 0;
+	svm->vmcb->control.exit_info_2 = 0;
 
 	if (svm->nested.intercept & 1ULL) {
 		/*
