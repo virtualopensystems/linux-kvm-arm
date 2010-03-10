@@ -40,7 +40,7 @@
 #include <linux/user-return-notifier.h>
 #include <linux/srcu.h>
 #include <trace/events/kvm.h>
-#undef TRACE_INCLUDE_FILE
+
 #define CREATE_TRACE_POINTS
 #include "trace.h"
 
