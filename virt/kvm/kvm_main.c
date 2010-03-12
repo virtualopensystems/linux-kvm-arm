@@ -1602,7 +1602,6 @@ static long kvm_vm_ioctl(struct file *filp,
 		r = -EFAULT;
 		if (copy_from_user(&zone, argp, sizeof zone))
 			goto out;
-		r = -ENXIO;
 		r = kvm_vm_ioctl_register_coalesced_mmio(kvm, &zone);
 		if (r)
 			goto out;
@@ -1614,7 +1613,6 @@ static long kvm_vm_ioctl(struct file *filp,
 		r = -EFAULT;
 		if (copy_from_user(&zone, argp, sizeof zone))
 			goto out;
-		r = -ENXIO;
 		r = kvm_vm_ioctl_unregister_coalesced_mmio(kvm, &zone);
 		if (r)
 			goto out;
