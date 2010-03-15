@@ -3229,7 +3229,8 @@ static int emulator_write_emulated_onepage(unsigned long addr,
 					   const void *val,
 					   unsigned int bytes,
 					   struct kvm_vcpu *vcpu,
-					   bool guest_initiated)
+					   bool guest_initiated,
+					   bool mmu_only)
 {
 	gpa_t                 gpa;
 	u32 error_code;
@@ -3249,6 +3250,10 @@ static int emulator_write_emulated_onepage(unsigned long addr,
 	if ((gpa & PAGE_MASK) == APIC_DEFAULT_PHYS_BASE)
 		goto mmio;
 
+	if (mmu_only) {
+		kvm_mmu_pte_write(vcpu, gpa, val, bytes, 1);
+		return X86EMUL_CONTINUE;
+	}
 	if (emulator_write_phys(vcpu, gpa, val, bytes))
 		return X86EMUL_CONTINUE;
 
@@ -3273,7 +3278,8 @@ int __emulator_write_emulated(unsigned long addr,
 				   const void *val,
 				   unsigned int bytes,
 				   struct kvm_vcpu *vcpu,
-				   bool guest_initiated)
+				   bool guest_initiated,
+				   bool mmu_only)
 {
 	/* Crossing a page boundary? */
 	if (((addr + bytes - 1) ^ addr) & PAGE_MASK) {
@@ -3281,7 +3287,7 @@ int __emulator_write_emulated(unsigned long addr,
 
 		now = -addr & ~PAGE_MASK;
 		rc = emulator_write_emulated_onepage(addr, val, now, vcpu,
-						     guest_initiated);
+						     guest_initiated, mmu_only);
 		if (rc != X86EMUL_CONTINUE)
 			return rc;
 		addr += now;
@@ -3289,7 +3295,7 @@ int __emulator_write_emulated(unsigned long addr,
 		bytes -= now;
 	}
 	return emulator_write_emulated_onepage(addr, val, bytes, vcpu,
-					       guest_initiated);
+					       guest_initiated, mmu_only);
 }
 
 int emulator_write_emulated(unsigned long addr,
@@ -3297,7 +3303,7 @@ int emulator_write_emulated(unsigned long addr,
 				   unsigned int bytes,
 				   struct kvm_vcpu *vcpu)
 {
-	return __emulator_write_emulated(addr, val, bytes, vcpu, true);
+	return __emulator_write_emulated(addr, val, bytes, vcpu, true, false);
 }
 EXPORT_SYMBOL_GPL(emulator_write_emulated);
 
@@ -3360,6 +3366,8 @@ static int emulator_cmpxchg_emulated(unsigned long addr,
 
 	if (!exchanged)
 		return X86EMUL_CMPXCHG_FAILED;
+
+	return __emulator_write_emulated(addr, new, bytes, vcpu, true, true);
 
 emul_write:
 	printk_once(KERN_WARNING "kvm: emulating exchange as write\n");
@@ -4015,7 +4023,8 @@ int kvm_fix_hypercall(struct kvm_vcpu *vcpu)
 
 	kvm_x86_ops->patch_hypercall(vcpu, instruction);
 
-	return __emulator_write_emulated(rip, instruction, 3, vcpu, false);
+	return __emulator_write_emulated(rip, instruction, 3, vcpu,
+					 false, false);
 }
 
 static u64 mk_cr_64(u64 curr_cr, u32 new_val)
