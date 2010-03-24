@@ -150,6 +150,7 @@ int kvm_dev_ioctl_check_extension(long ext)
 	case KVM_CAP_PPC_PAIRED_SINGLES:
 	case KVM_CAP_PPC_UNSET_IRQ:
 	case KVM_CAP_ENABLE_CAP:
+	case KVM_CAP_PPC_OSI:
 		r = 1;
 		break;
 	case KVM_CAP_COALESCED_MMIO:
@@ -432,6 +433,13 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 		if (!vcpu->arch.dcr_is_write)
 			kvmppc_complete_dcr_load(vcpu, run);
 		vcpu->arch.dcr_needed = 0;
+	} else if (vcpu->arch.osi_needed) {
+		u64 *gprs = run->osi.gprs;
+		int i;
+
+		for (i = 0; i < 32; i++)
+			kvmppc_set_gpr(vcpu, i, gprs[i]);
+		vcpu->arch.osi_needed = 0;
 	}
 
 	kvmppc_core_deliver_interrupts(vcpu);
@@ -474,6 +482,10 @@ static int kvm_vcpu_ioctl_enable_cap(struct kvm_vcpu *vcpu,
 		return -EINVAL;
 
 	switch (cap->cap) {
+	case KVM_CAP_PPC_OSI:
+		r = 0;
+		vcpu->arch.osi_enabled = true;
+		break;
 	default:
 		r = -EINVAL;
 		break;
