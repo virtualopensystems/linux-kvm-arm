@@ -1806,7 +1806,8 @@ static int kvm_ia64_sync_dirty_log(struct kvm *kvm,
 {
 	struct kvm_memory_slot *memslot;
 	int r, i;
-	long n, base;
+	long base;
+	unsigned long n;
 	unsigned long *dirty_bitmap = (unsigned long *)(kvm->arch.vm_base +
 			offsetof(struct kvm_vm_data, kvm_mem_dirty_log));
 
@@ -1819,7 +1820,7 @@ static int kvm_ia64_sync_dirty_log(struct kvm *kvm,
 	if (!memslot->dirty_bitmap)
 		goto out;
 
-	n = ALIGN(memslot->npages, BITS_PER_LONG) / 8;
+	n = kvm_dirty_bitmap_bytes(memslot);
 	base = memslot->base_gfn / BITS_PER_LONG;
 
 	for (i = 0; i < n/sizeof(long); ++i) {
@@ -1835,7 +1836,7 @@ int kvm_vm_ioctl_get_dirty_log(struct kvm *kvm,
 		struct kvm_dirty_log *log)
 {
 	int r;
-	int n;
+	unsigned long n;
 	struct kvm_memory_slot *memslot;
 	int is_dirty = 0;
 
@@ -1854,7 +1855,7 @@ int kvm_vm_ioctl_get_dirty_log(struct kvm *kvm,
 	if (is_dirty) {
 		kvm_flush_remote_tlbs(kvm);
 		memslot = &kvm->memslots->memslots[log->slot];
-		n = ALIGN(memslot->npages, BITS_PER_LONG) / 8;
+		n = kvm_dirty_bitmap_bytes(memslot);
 		memset(memslot->dirty_bitmap, 0, n);
 	}
 	r = 0;
