@@ -3301,10 +3301,10 @@ out:
 static int emulator_read_emulated(unsigned long addr,
 				  void *val,
 				  unsigned int bytes,
+				  unsigned int *error_code,
 				  struct kvm_vcpu *vcpu)
 {
 	gpa_t                 gpa;
-	u32 error_code;
 
 	if (vcpu->mmio_read_completed) {
 		memcpy(val, vcpu->mmio_data, bytes);
@@ -3314,12 +3314,10 @@ static int emulator_read_emulated(unsigned long addr,
 		return X86EMUL_CONTINUE;
 	}
 
-	gpa = kvm_mmu_gva_to_gpa_read(vcpu, addr, &error_code);
+	gpa = kvm_mmu_gva_to_gpa_read(vcpu, addr, error_code);
 
-	if (gpa == UNMAPPED_GVA) {
-		kvm_inject_page_fault(vcpu, addr, error_code);
+	if (gpa == UNMAPPED_GVA)
 		return X86EMUL_PROPAGATE_FAULT;
-	}
 
 	/* For APIC access vmexit */
 	if ((gpa & PAGE_MASK) == APIC_DEFAULT_PHYS_BASE)
@@ -3364,17 +3362,15 @@ int emulator_write_phys(struct kvm_vcpu *vcpu, gpa_t gpa,
 static int emulator_write_emulated_onepage(unsigned long addr,
 					   const void *val,
 					   unsigned int bytes,
+					   unsigned int *error_code,
 					   struct kvm_vcpu *vcpu)
 {
 	gpa_t                 gpa;
-	u32 error_code;
 
-	gpa = kvm_mmu_gva_to_gpa_write(vcpu, addr, &error_code);
+	gpa = kvm_mmu_gva_to_gpa_write(vcpu, addr, error_code);
 
-	if (gpa == UNMAPPED_GVA) {
-		kvm_inject_page_fault(vcpu, addr, error_code);
+	if (gpa == UNMAPPED_GVA)
 		return X86EMUL_PROPAGATE_FAULT;
-	}
 
 	/* For APIC access vmexit */
 	if ((gpa & PAGE_MASK) == APIC_DEFAULT_PHYS_BASE)
@@ -3404,6 +3400,7 @@ mmio:
 int emulator_write_emulated(unsigned long addr,
 			    const void *val,
 			    unsigned int bytes,
+			    unsigned int *error_code,
 			    struct kvm_vcpu *vcpu)
 {
 	/* Crossing a page boundary? */
@@ -3411,14 +3408,16 @@ int emulator_write_emulated(unsigned long addr,
 		int rc, now;
 
 		now = -addr & ~PAGE_MASK;
-		rc = emulator_write_emulated_onepage(addr, val, now, vcpu);
+		rc = emulator_write_emulated_onepage(addr, val, now, error_code,
+						     vcpu);
 		if (rc != X86EMUL_CONTINUE)
 			return rc;
 		addr += now;
 		val += now;
 		bytes -= now;
 	}
-	return emulator_write_emulated_onepage(addr, val, bytes, vcpu);
+	return emulator_write_emulated_onepage(addr, val, bytes, error_code,
+					       vcpu);
 }
 
 #define CMPXCHG_TYPE(t, ptr, old, new) \
@@ -3435,6 +3434,7 @@ static int emulator_cmpxchg_emulated(unsigned long addr,
 				     const void *old,
 				     const void *new,
 				     unsigned int bytes,
+				     unsigned int *error_code,
 				     struct kvm_vcpu *vcpu)
 {
 	gpa_t gpa;
@@ -3488,7 +3488,7 @@ static int emulator_cmpxchg_emulated(unsigned long addr,
 emul_write:
 	printk_once(KERN_WARNING "kvm: emulating exchange as write\n");
 
-	return emulator_write_emulated(addr, new, bytes, vcpu);
+	return emulator_write_emulated(addr, new, bytes, error_code, vcpu);
 }
 
 static int kernel_pio(struct kvm_vcpu *vcpu, void *pd)
@@ -4248,7 +4248,7 @@ int kvm_fix_hypercall(struct kvm_vcpu *vcpu)
 
 	kvm_x86_ops->patch_hypercall(vcpu, instruction);
 
-	return emulator_write_emulated(rip, instruction, 3, vcpu);
+	return emulator_write_emulated(rip, instruction, 3, NULL, vcpu);
 }
 
 void realmode_lgdt(struct kvm_vcpu *vcpu, u16 limit, unsigned long base)
