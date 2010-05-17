@@ -150,10 +150,10 @@
 
 #define USER(x...)				\
 9999:	x;					\
-	.section __ex_table,"a";		\
+	.pushsection __ex_table,"a";		\
 	.align	3;				\
 	.long	9999b,9001f;			\
-	.previous
+	.popsection
 
 /*
  * SMP data memory barrier
@@ -194,10 +194,10 @@
 	.error	"Unsupported inc macro argument"
 	.endif
 
-	.section __ex_table,"a"
+	.pushsection __ex_table,"a"
 	.align	3
 	.long	9999b, \abort
-	.previous
+	.popsection
 	.endm
 
 	.macro	usracc, instr, reg, ptr, inc, cond, rept, abort
@@ -235,10 +235,10 @@
 	.error	"Unsupported inc macro argument"
 	.endif
 
-	.section __ex_table,"a"
+	.pushsection __ex_table,"a"
 	.align	3
 	.long	9999b, \abort
-	.previous
+	.popsection
 	.endr
 	.endm
 
