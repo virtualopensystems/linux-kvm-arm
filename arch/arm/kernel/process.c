@@ -387,6 +387,10 @@ copy_thread(unsigned long clone_flags, unsigned long stack_start,
 		*childregs = *regs;
 		childregs->ARM_r0 = 0;
 		childregs->ARM_sp = stack_start;
+#if defined CONFIG_CPU_V7M
+		/* Return to Thread mode with Process stack */
+		childregs->ARM_EXC_RET = 0xfffffffdUL;
+#endif
 	} else {
 		memset(childregs, 0, sizeof(struct pt_regs));
 		thread->cpu_context.r4 = stk_sz;
