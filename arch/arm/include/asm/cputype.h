@@ -46,6 +46,9 @@ extern unsigned int processor_id;
 		    : "cc");						\
 		__val;							\
 	})
+#elif defined(CONFIG_CPU_V7M)
+#define read_cpuid(reg) (*(unsigned int *)0xe000ed00)
+#define read_cpuid_ext(reg) 0
 #else
 #define read_cpuid(reg) (processor_id)
 #define read_cpuid_ext(reg) 0
