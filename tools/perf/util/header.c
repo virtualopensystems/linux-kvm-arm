@@ -229,10 +229,9 @@ static int dsos__write_buildid_table(struct perf_header *header, int fd)
 	int err = 0;
 	u16 kmisc, umisc;
 
-	for (nd = rb_first(&session->kerninfo_root); nd; nd = rb_next(nd)) {
-		struct kernel_info *pos = rb_entry(nd, struct kernel_info,
-				rb_node);
-		if (is_host_kernel(pos)) {
+	for (nd = rb_first(&session->machines); nd; nd = rb_next(nd)) {
+		struct machine *pos = rb_entry(nd, struct machine, rb_node);
+		if (machine__is_host(pos)) {
 			kmisc = PERF_RECORD_MISC_KERNEL;
 			umisc = PERF_RECORD_MISC_USER;
 		} else {
@@ -240,11 +239,11 @@ static int dsos__write_buildid_table(struct perf_header *header, int fd)
 			umisc = PERF_RECORD_MISC_GUEST_USER;
 		}
 
-		err = __dsos__write_buildid_table(&pos->dsos__kernel, pos->pid,
-				kmisc, fd);
+		err = __dsos__write_buildid_table(&pos->kernel_dsos, pos->pid,
+						  kmisc, fd);
 		if (err == 0)
-			err = __dsos__write_buildid_table(&pos->dsos__user,
-				pos->pid, umisc, fd);
+			err = __dsos__write_buildid_table(&pos->user_dsos,
+							  pos->pid, umisc, fd);
 		if (err)
 			break;
 	}
@@ -378,11 +377,10 @@ static int dsos__cache_build_ids(struct perf_header *self)
 	if (mkdir(debugdir, 0755) != 0 && errno != EEXIST)
 		return -1;
 
-	for (nd = rb_first(&session->kerninfo_root); nd; nd = rb_next(nd)) {
-		struct kernel_info *pos = rb_entry(nd, struct kernel_info,
-				rb_node);
-		ret |= __dsos__cache_build_ids(&pos->dsos__kernel, debugdir);
-		ret |= __dsos__cache_build_ids(&pos->dsos__user, debugdir);
+	for (nd = rb_first(&session->machines); nd; nd = rb_next(nd)) {
+		struct machine *pos = rb_entry(nd, struct machine, rb_node);
+		ret |= __dsos__cache_build_ids(&pos->kernel_dsos, debugdir);
+		ret |= __dsos__cache_build_ids(&pos->user_dsos, debugdir);
 	}
 	return ret ? -1 : 0;
 }
@@ -394,11 +392,10 @@ static bool dsos__read_build_ids(struct perf_header *self, bool with_hits)
 			struct perf_session, header);
 	struct rb_node *nd;
 
-	for (nd = rb_first(&session->kerninfo_root); nd; nd = rb_next(nd)) {
-		struct kernel_info *pos = rb_entry(nd, struct kernel_info,
-				rb_node);
-		ret |= __dsos__read_build_ids(&pos->dsos__kernel, with_hits);
-		ret |= __dsos__read_build_ids(&pos->dsos__user, with_hits);
+	for (nd = rb_first(&session->machines); nd; nd = rb_next(nd)) {
+		struct machine *pos = rb_entry(nd, struct machine, rb_node);
+		ret |= __dsos__read_build_ids(&pos->kernel_dsos, with_hits);
+		ret |= __dsos__read_build_ids(&pos->user_dsos, with_hits);
 	}
 
 	return ret;
@@ -438,7 +435,6 @@ static int perf_header__adds_write(struct perf_header *self, int fd)
 		read_tracing_data(fd, attrs, nr_counters);
 		trace_sec->size = lseek(fd, 0, SEEK_CUR) - trace_sec->offset;
 	}
-
 
 	if (perf_header__has_feat(self, HEADER_BUILD_ID)) {
 		struct perf_file_section *buildid_sec;
@@ -685,13 +681,13 @@ static int __event_process_build_id(struct build_id_event *bev,
 {
 	int err = -1;
 	struct list_head *head;
-	struct kernel_info *kerninfo;
+	struct machine *machine;
 	u16 misc;
 	struct dso *dso;
 	enum dso_kernel_type dso_type;
 
-	kerninfo = kerninfo__findnew(&session->kerninfo_root, bev->pid);
-	if (!kerninfo)
+	machine = perf_session__findnew_machine(session, bev->pid);
+	if (!machine)
 		goto out;
 
 	misc = bev->header.misc & PERF_RECORD_MISC_CPUMODE_MASK;
@@ -699,16 +695,16 @@ static int __event_process_build_id(struct build_id_event *bev,
 	switch (misc) {
 	case PERF_RECORD_MISC_KERNEL:
 		dso_type = DSO_TYPE_KERNEL;
-		head = &kerninfo->dsos__kernel;
+		head = &machine->kernel_dsos;
 		break;
 	case PERF_RECORD_MISC_GUEST_KERNEL:
 		dso_type = DSO_TYPE_GUEST_KERNEL;
-		head = &kerninfo->dsos__kernel;
+		head = &machine->kernel_dsos;
 		break;
 	case PERF_RECORD_MISC_USER:
 	case PERF_RECORD_MISC_GUEST_USER:
 		dso_type = DSO_TYPE_USER;
-		head = &kerninfo->dsos__user;
+		head = &machine->user_dsos;
 		break;
 	default:
 		goto out;
@@ -716,10 +712,18 @@ static int __event_process_build_id(struct build_id_event *bev,
 
 	dso = __dsos__findnew(head, filename);
 	if (dso != NULL) {
+		char sbuild_id[BUILD_ID_SIZE * 2 + 1];
+
 		dso__set_build_id(dso, &bev->build_id);
-			if (filename[0] == '[')
-				dso->kernel = dso_type;
-		}
+
+		if (filename[0] == '[')
+			dso->kernel = dso_type;
+
+		build_id__sprintf(dso->build_id, sizeof(dso->build_id),
+				  sbuild_id);
+		pr_debug("build id event received for %s: %s\n",
+			 dso->long_name, sbuild_id);
+	}
 
 	err = 0;
 out:
@@ -770,7 +774,7 @@ static int perf_file_section__process(struct perf_file_section *self,
 
 	switch (feat) {
 	case HEADER_TRACE_INFO:
-		trace_report(fd);
+		trace_report(fd, false);
 		break;
 
 	case HEADER_BUILD_ID:
@@ -785,10 +789,14 @@ static int perf_file_section__process(struct perf_file_section *self,
 }
 
 static int perf_file_header__read_pipe(struct perf_pipe_file_header *self,
-				       struct perf_header *ph, int fd)
+				       struct perf_header *ph, int fd,
+				       bool repipe)
 {
 	if (do_read(fd, self, sizeof(*self)) <= 0 ||
 	    memcmp(&self->magic, __perf_magic, sizeof(self->magic)))
+		return -1;
+
+	if (repipe && do_write(STDOUT_FILENO, self, sizeof(*self)) < 0)
 		return -1;
 
 	if (self->size != sizeof(*self)) {
@@ -808,7 +816,8 @@ static int perf_header__read_pipe(struct perf_session *session, int fd)
 	struct perf_header *self = &session->header;
 	struct perf_pipe_file_header f_header;
 
-	if (perf_file_header__read_pipe(&f_header, self, fd) < 0) {
+	if (perf_file_header__read_pipe(&f_header, self, fd,
+					session->repipe) < 0) {
 		pr_debug("incompatible file format\n");
 		return -EINVAL;
 	}
@@ -912,6 +921,14 @@ struct perf_event_attr *
 perf_header__find_attr(u64 id, struct perf_header *header)
 {
 	int i;
+
+	/*
+	 * We set id to -1 if the data file doesn't contain sample
+	 * ids. Check for this and avoid walking through the entire
+	 * list of ids which may be large.
+	 */
+	if (id == -1ULL)
+		return NULL;
 
 	for (i = 0; i < header->attrs; i++) {
 		struct perf_header_attr *attr = header->attr[i];
@@ -1099,12 +1116,17 @@ int event__process_tracing_data(event_t *self,
 	lseek(session->fd, offset + sizeof(struct tracing_data_event),
 	      SEEK_SET);
 
-	size_read = trace_report(session->fd);
+	size_read = trace_report(session->fd, session->repipe);
 
 	padding = ALIGN(size_read, sizeof(u64)) - size_read;
 
 	if (read(session->fd, buf, padding) < 0)
 		die("reading input file");
+	if (session->repipe) {
+		int retw = write(STDOUT_FILENO, buf, padding);
+		if (retw <= 0 || retw != padding)
+			die("repiping tracing data padding");
+	}
 
 	if (size_read + padding != size)
 		die("tracing data size mismatch");
@@ -1114,7 +1136,7 @@ int event__process_tracing_data(event_t *self,
 
 int event__synthesize_build_id(struct dso *pos, u16 misc,
 			       event__handler_t process,
-			       struct kernel_info *kerninfo,
+			       struct machine *machine,
 			       struct perf_session *session)
 {
 	event_t ev;
@@ -1131,74 +1153,13 @@ int event__synthesize_build_id(struct dso *pos, u16 misc,
 	memcpy(&ev.build_id.build_id, pos->build_id, sizeof(pos->build_id));
 	ev.build_id.header.type = PERF_RECORD_HEADER_BUILD_ID;
 	ev.build_id.header.misc = misc;
-	ev.build_id.pid = kerninfo->pid;
+	ev.build_id.pid = machine->pid;
 	ev.build_id.header.size = sizeof(ev.build_id) + len;
 	memcpy(&ev.build_id.filename, pos->long_name, pos->long_name_len);
 
 	err = process(&ev, session);
 
 	return err;
-}
-
-static int __event_synthesize_build_ids(struct list_head *head, u16 misc,
-					event__handler_t process,
-					struct kernel_info *kerninfo,
-					struct perf_session *session)
-{
-	struct dso *pos;
-
-	dsos__for_each_with_build_id(pos, head) {
-		int err;
-		if (!pos->hit)
-			continue;
-
-		err = event__synthesize_build_id(pos, misc, process,
-					kerninfo, session);
-		if (err < 0)
-			return err;
-	}
-
-	return 0;
-}
-
-int event__synthesize_build_ids(event__handler_t process,
-				struct perf_session *session)
-{
-	int err = 0;
-	u16 kmisc, umisc;
-	struct kernel_info *pos;
-	struct rb_node *nd;
-
-	if (!dsos__read_build_ids(&session->header, true))
-		return 0;
-
-	for (nd = rb_first(&session->kerninfo_root); nd; nd = rb_next(nd)) {
-		pos = rb_entry(nd, struct kernel_info, rb_node);
-		if (is_host_kernel(pos)) {
-			kmisc = PERF_RECORD_MISC_KERNEL;
-			umisc = PERF_RECORD_MISC_USER;
-		} else {
-			kmisc = PERF_RECORD_MISC_GUEST_KERNEL;
-			umisc = PERF_RECORD_MISC_GUEST_USER;
-		}
-
-		err = __event_synthesize_build_ids(&pos->dsos__kernel,
-				kmisc, process, pos, session);
-		if (err == 0)
-			err = __event_synthesize_build_ids(&pos->dsos__user,
-					umisc, process, pos, session);
-		if (err)
-			break;
-	}
-
-	if (err < 0) {
-		pr_debug("failed to synthesize build ids\n");
-		return err;
-	}
-
-	dsos__cache_build_ids(&session->header);
-
-	return 0;
 }
 
 int event__process_build_id(event_t *self,

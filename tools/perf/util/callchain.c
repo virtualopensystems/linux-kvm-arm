@@ -17,6 +17,13 @@
 
 #include "callchain.h"
 
+bool ip_callchain__valid(struct ip_callchain *chain, event_t *event)
+{
+	unsigned int chain_size = event->header.size;
+	chain_size -= (unsigned long)&event->ip.__more_data - (unsigned long)event;
+	return chain->nr * sizeof(u64) <= chain_size;
+}
+
 #define chain_for_each_child(child, parent)	\
 	list_for_each_entry(child, &parent->children, brothers)
 
@@ -160,7 +167,7 @@ create_child(struct callchain_node *parent, bool inherit_children)
 {
 	struct callchain_node *new;
 
-	new = malloc(sizeof(*new));
+	new = zalloc(sizeof(*new));
 	if (!new) {
 		perror("not enough memory to create child for code path tree");
 		return NULL;
@@ -206,7 +213,7 @@ fill_node(struct callchain_node *node, struct resolved_chain *chain, int start)
 	for (i = start; i < chain->nr; i++) {
 		struct callchain_list *call;
 
-		call = malloc(sizeof(*call));
+		call = zalloc(sizeof(*call));
 		if (!call) {
 			perror("not enough memory for the code path tree");
 			return;
@@ -379,7 +386,7 @@ int append_chain(struct callchain_node *root, struct ip_callchain *chain,
 	if (!chain->nr)
 		return 0;
 
-	filtered = malloc(sizeof(*filtered) +
+	filtered = zalloc(sizeof(*filtered) +
 			  chain->nr * sizeof(struct resolved_ip));
 	if (!filtered)
 		return -ENOMEM;

@@ -71,7 +71,7 @@ static int			thread_num			=      0;
 static bool			inherit				=  false;
 static int			profile_cpu			=     -1;
 static int			nr_cpus				=      0;
-static unsigned int		realtime_prio			=      0;
+static int			realtime_prio			=      0;
 static bool			group				=  false;
 static unsigned int		page_size;
 static unsigned int		mmap_pages			=     16;
@@ -96,7 +96,7 @@ struct source_line {
 	struct source_line	*next;
 };
 
-static char			*sym_filter			=   NULL;
+static const char		*sym_filter			=   NULL;
 struct sym_entry		*sym_filter_entry		=   NULL;
 struct sym_entry		*sym_filter_entry_sched		=   NULL;
 static int			sym_pcnt_filter			=      5;
@@ -854,7 +854,7 @@ static void handle_keypress(struct perf_session *session, int c)
 		case 'Q':
 			printf("exiting.\n");
 			if (dump_symtab)
-				dsos__fprintf(&session->kerninfo_root, stderr);
+				perf_session__fprintf_dsos(session, stderr);
 			exit(0);
 		case 's':
 			prompt_symbol(&sym_filter_entry, "Enter details symbol");
@@ -982,7 +982,7 @@ static void event__process_sample(const event_t *self,
 	u64 ip = self->ip.ip;
 	struct sym_entry *syme;
 	struct addr_location al;
-	struct kernel_info *kerninfo;
+	struct machine *machine;
 	u8 origin = self->header.misc & PERF_RECORD_MISC_CPUMODE_MASK;
 
 	++samples;
@@ -992,18 +992,17 @@ static void event__process_sample(const event_t *self,
 		++us_samples;
 		if (hide_user_symbols)
 			return;
-		kerninfo = kerninfo__findhost(&session->kerninfo_root);
+		machine = perf_session__find_host_machine(session);
 		break;
 	case PERF_RECORD_MISC_KERNEL:
 		++kernel_samples;
 		if (hide_kernel_symbols)
 			return;
-		kerninfo = kerninfo__findhost(&session->kerninfo_root);
+		machine = perf_session__find_host_machine(session);
 		break;
 	case PERF_RECORD_MISC_GUEST_KERNEL:
 		++guest_kernel_samples;
-		kerninfo = kerninfo__find(&session->kerninfo_root,
-					  self->ip.pid);
+		machine = perf_session__find_machine(session, self->ip.pid);
 		break;
 	case PERF_RECORD_MISC_GUEST_USER:
 		++guest_us_samples;
@@ -1016,13 +1015,13 @@ static void event__process_sample(const event_t *self,
 		return;
 	}
 
-	if (!kerninfo && perf_guest) {
+	if (!machine && perf_guest) {
 		pr_err("Can't find guest [%d]'s kernel information\n",
 			self->ip.pid);
 		return;
 	}
 
-	if (self->header.misc & PERF_RECORD_MISC_EXACT)
+	if (self->header.misc & PERF_RECORD_MISC_EXACT_IP)
 		exact_samples++;
 
 	if (event__preprocess_sample(self, session, &al, symbol_filter) < 0 ||
@@ -1041,7 +1040,7 @@ static void event__process_sample(const event_t *self,
 		 * --hide-kernel-symbols, even if the user specifies an
 		 * invalid --vmlinux ;-)
 		 */
-		if (al.map == kerninfo->vmlinux_maps[MAP__FUNCTION] &&
+		if (al.map == machine->vmlinux_maps[MAP__FUNCTION] &&
 		    RB_EMPTY_ROOT(&al.map->dso->symbols[MAP__FUNCTION])) {
 			pr_err("The %s file can't be used\n",
 			       symbol_conf.vmlinux_name);
@@ -1288,7 +1287,7 @@ static int __cmd_top(void)
 	 * FIXME: perf_session__new should allow passing a O_MMAP, so that all this
 	 * mmap reading, etc is encapsulated in it. Use O_WRONLY for now.
 	 */
-	struct perf_session *session = perf_session__new(NULL, O_WRONLY, false);
+	struct perf_session *session = perf_session__new(NULL, O_WRONLY, false, false);
 	if (session == NULL)
 		return -ENOMEM;
 
@@ -1358,8 +1357,7 @@ static const struct option options[] = {
 		   "file", "vmlinux pathname"),
 	OPT_BOOLEAN('K', "hide_kernel_symbols", &hide_kernel_symbols,
 		    "hide kernel symbols"),
-	OPT_INTEGER('m', "mmap-pages", &mmap_pages,
-		    "number of mmap data pages"),
+	OPT_UINTEGER('m', "mmap-pages", &mmap_pages, "number of mmap data pages"),
 	OPT_INTEGER('r', "realtime", &realtime_prio,
 		    "collect data with this RT SCHED_FIFO priority"),
 	OPT_INTEGER('d', "delay", &delay_secs,

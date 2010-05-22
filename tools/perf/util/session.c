@@ -69,16 +69,14 @@ void perf_session__update_sample_type(struct perf_session *self)
 
 int perf_session__create_kernel_maps(struct perf_session *self)
 {
-	int ret;
-	struct rb_root *root = &self->kerninfo_root;
+	int ret = machine__create_kernel_maps(&self->host_machine);
 
-	ret = map_groups__create_kernel_maps(root, HOST_KERNEL_ID);
 	if (ret >= 0)
-		ret = map_groups__create_guest_kernel_maps(root);
+		ret = machines__create_guest_kernel_maps(&self->machines);
 	return ret;
 }
 
-struct perf_session *perf_session__new(const char *filename, int mode, bool force)
+struct perf_session *perf_session__new(const char *filename, int mode, bool force, bool repipe)
 {
 	size_t len = filename ? strlen(filename) + 1 : 0;
 	struct perf_session *self = zalloc(sizeof(*self) + len);
@@ -91,13 +89,15 @@ struct perf_session *perf_session__new(const char *filename, int mode, bool forc
 
 	memcpy(self->filename, filename, len);
 	self->threads = RB_ROOT;
-	self->stats_by_id = RB_ROOT;
+	self->hists_tree = RB_ROOT;
 	self->last_match = NULL;
 	self->mmap_window = 32;
 	self->cwd = NULL;
 	self->cwdlen = 0;
-	self->unknown_events = 0;
-	self->kerninfo_root = RB_ROOT;
+	self->machines = RB_ROOT;
+	self->repipe = repipe;
+	INIT_LIST_HEAD(&self->ordered_samples.samples_head);
+	machine__init(&self->host_machine, "", HOST_KERNEL_ID);
 
 	if (mode == O_RDONLY) {
 		if (perf_session__open(self, force) < 0)
@@ -192,6 +192,18 @@ static int process_event_stub(event_t *event __used,
 	return 0;
 }
 
+static int process_finished_round_stub(event_t *event __used,
+				       struct perf_session *session __used,
+				       struct perf_event_ops *ops __used)
+{
+	dump_printf(": unhandled!\n");
+	return 0;
+}
+
+static int process_finished_round(event_t *event,
+				  struct perf_session *session,
+				  struct perf_event_ops *ops);
+
 static void perf_event_ops__fill_defaults(struct perf_event_ops *handler)
 {
 	if (handler->sample == NULL)
@@ -220,35 +232,11 @@ static void perf_event_ops__fill_defaults(struct perf_event_ops *handler)
 		handler->tracing_data = process_event_stub;
 	if (handler->build_id == NULL)
 		handler->build_id = process_event_stub;
-}
-
-static const char *event__name[] = {
-	[0]			 = "TOTAL",
-	[PERF_RECORD_MMAP]	 = "MMAP",
-	[PERF_RECORD_LOST]	 = "LOST",
-	[PERF_RECORD_COMM]	 = "COMM",
-	[PERF_RECORD_EXIT]	 = "EXIT",
-	[PERF_RECORD_THROTTLE]	 = "THROTTLE",
-	[PERF_RECORD_UNTHROTTLE] = "UNTHROTTLE",
-	[PERF_RECORD_FORK]	 = "FORK",
-	[PERF_RECORD_READ]	 = "READ",
-	[PERF_RECORD_SAMPLE]	 = "SAMPLE",
-	[PERF_RECORD_HEADER_ATTR]	 = "ATTR",
-	[PERF_RECORD_HEADER_EVENT_TYPE]	 = "EVENT_TYPE",
-	[PERF_RECORD_HEADER_TRACING_DATA]	 = "TRACING_DATA",
-	[PERF_RECORD_HEADER_BUILD_ID]	 = "BUILD_ID",
-};
-
-unsigned long event__total[PERF_RECORD_HEADER_MAX];
-
-void event__print_totals(void)
-{
-	int i;
-	for (i = 0; i < PERF_RECORD_HEADER_MAX; ++i) {
-		if (!event__name[i])
-			continue;
-		pr_info("%10s events: %10ld\n",
-			event__name[i], event__total[i]);
+	if (handler->finished_round == NULL) {
+		if (handler->ordered_samples)
+			handler->finished_round = process_finished_round;
+		else
+			handler->finished_round = process_finished_round_stub;
 	}
 }
 
@@ -351,6 +339,205 @@ static event__swap_op event__swap_ops[] = {
 	[PERF_RECORD_HEADER_MAX]    = NULL,
 };
 
+struct sample_queue {
+	u64			timestamp;
+	struct sample_event	*event;
+	struct list_head	list;
+};
+
+static void flush_sample_queue(struct perf_session *s,
+			       struct perf_event_ops *ops)
+{
+	struct list_head *head = &s->ordered_samples.samples_head;
+	u64 limit = s->ordered_samples.next_flush;
+	struct sample_queue *tmp, *iter;
+
+	if (!ops->ordered_samples || !limit)
+		return;
+
+	list_for_each_entry_safe(iter, tmp, head, list) {
+		if (iter->timestamp > limit)
+			return;
+
+		if (iter == s->ordered_samples.last_inserted)
+			s->ordered_samples.last_inserted = NULL;
+
+		ops->sample((event_t *)iter->event, s);
+
+		s->ordered_samples.last_flush = iter->timestamp;
+		list_del(&iter->list);
+		free(iter->event);
+		free(iter);
+	}
+}
+
+/*
+ * When perf record finishes a pass on every buffers, it records this pseudo
+ * event.
+ * We record the max timestamp t found in the pass n.
+ * Assuming these timestamps are monotonic across cpus, we know that if
+ * a buffer still has events with timestamps below t, they will be all
+ * available and then read in the pass n + 1.
+ * Hence when we start to read the pass n + 2, we can safely flush every
+ * events with timestamps below t.
+ *
+ *    ============ PASS n =================
+ *       CPU 0         |   CPU 1
+ *                     |
+ *    cnt1 timestamps  |   cnt2 timestamps
+ *          1          |         2
+ *          2          |         3
+ *          -          |         4  <--- max recorded
+ *
+ *    ============ PASS n + 1 ==============
+ *       CPU 0         |   CPU 1
+ *                     |
+ *    cnt1 timestamps  |   cnt2 timestamps
+ *          3          |         5
+ *          4          |         6
+ *          5          |         7 <---- max recorded
+ *
+ *      Flush every events below timestamp 4
+ *
+ *    ============ PASS n + 2 ==============
+ *       CPU 0         |   CPU 1
+ *                     |
+ *    cnt1 timestamps  |   cnt2 timestamps
+ *          6          |         8
+ *          7          |         9
+ *          -          |         10
+ *
+ *      Flush every events below timestamp 7
+ *      etc...
+ */
+static int process_finished_round(event_t *event __used,
+				  struct perf_session *session,
+				  struct perf_event_ops *ops)
+{
+	flush_sample_queue(session, ops);
+	session->ordered_samples.next_flush = session->ordered_samples.max_timestamp;
+
+	return 0;
+}
+
+static void __queue_sample_end(struct sample_queue *new, struct list_head *head)
+{
+	struct sample_queue *iter;
+
+	list_for_each_entry_reverse(iter, head, list) {
+		if (iter->timestamp < new->timestamp) {
+			list_add(&new->list, &iter->list);
+			return;
+		}
+	}
+
+	list_add(&new->list, head);
+}
+
+static void __queue_sample_before(struct sample_queue *new,
+				  struct sample_queue *iter,
+				  struct list_head *head)
+{
+	list_for_each_entry_continue_reverse(iter, head, list) {
+		if (iter->timestamp < new->timestamp) {
+			list_add(&new->list, &iter->list);
+			return;
+		}
+	}
+
+	list_add(&new->list, head);
+}
+
+static void __queue_sample_after(struct sample_queue *new,
+				 struct sample_queue *iter,
+				 struct list_head *head)
+{
+	list_for_each_entry_continue(iter, head, list) {
+		if (iter->timestamp > new->timestamp) {
+			list_add_tail(&new->list, &iter->list);
+			return;
+		}
+	}
+	list_add_tail(&new->list, head);
+}
+
+/* The queue is ordered by time */
+static void __queue_sample_event(struct sample_queue *new,
+				 struct perf_session *s)
+{
+	struct sample_queue *last_inserted = s->ordered_samples.last_inserted;
+	struct list_head *head = &s->ordered_samples.samples_head;
+
+
+	if (!last_inserted) {
+		__queue_sample_end(new, head);
+		return;
+	}
+
+	/*
+	 * Most of the time the current event has a timestamp
+	 * very close to the last event inserted, unless we just switched
+	 * to another event buffer. Having a sorting based on a list and
+	 * on the last inserted event that is close to the current one is
+	 * probably more efficient than an rbtree based sorting.
+	 */
+	if (last_inserted->timestamp >= new->timestamp)
+		__queue_sample_before(new, last_inserted, head);
+	else
+		__queue_sample_after(new, last_inserted, head);
+}
+
+static int queue_sample_event(event_t *event, struct sample_data *data,
+			      struct perf_session *s)
+{
+	u64 timestamp = data->time;
+	struct sample_queue *new;
+
+
+	if (timestamp < s->ordered_samples.last_flush) {
+		printf("Warning: Timestamp below last timeslice flush\n");
+		return -EINVAL;
+	}
+
+	new = malloc(sizeof(*new));
+	if (!new)
+		return -ENOMEM;
+
+	new->timestamp = timestamp;
+
+	new->event = malloc(event->header.size);
+	if (!new->event) {
+		free(new);
+		return -ENOMEM;
+	}
+
+	memcpy(new->event, event, event->header.size);
+
+	__queue_sample_event(new, s);
+	s->ordered_samples.last_inserted = new;
+
+	if (new->timestamp > s->ordered_samples.max_timestamp)
+		s->ordered_samples.max_timestamp = new->timestamp;
+
+	return 0;
+}
+
+static int perf_session__process_sample(event_t *event, struct perf_session *s,
+					struct perf_event_ops *ops)
+{
+	struct sample_data data;
+
+	if (!ops->ordered_samples)
+		return ops->sample(event, s);
+
+	bzero(&data, sizeof(struct sample_data));
+	event__parse_sample(event, s->sample_type, &data);
+
+	queue_sample_event(event, &data, s);
+
+	return 0;
+}
+
 static int perf_session__process_event(struct perf_session *self,
 				       event_t *event,
 				       struct perf_event_ops *ops,
@@ -362,8 +549,7 @@ static int perf_session__process_event(struct perf_session *self,
 		dump_printf("%#Lx [%#x]: PERF_RECORD_%s",
 			    offset + head, event->header.size,
 			    event__name[event->header.type]);
-		++event__total[0];
-		++event__total[event->header.type];
+		hists__inc_nr_events(&self->hists, event->header.type);
 	}
 
 	if (self->header.needs_swap && event__swap_ops[event->header.type])
@@ -371,7 +557,7 @@ static int perf_session__process_event(struct perf_session *self,
 
 	switch (event->header.type) {
 	case PERF_RECORD_SAMPLE:
-		return ops->sample(event, self);
+		return perf_session__process_sample(event, self, ops);
 	case PERF_RECORD_MMAP:
 		return ops->mmap(event, self);
 	case PERF_RECORD_COMM:
@@ -398,8 +584,10 @@ static int perf_session__process_event(struct perf_session *self,
 		return ops->tracing_data(event, self);
 	case PERF_RECORD_HEADER_BUILD_ID:
 		return ops->build_id(event, self);
+	case PERF_RECORD_FINISHED_ROUND:
+		return ops->finished_round(event, self, ops);
 	default:
-		self->unknown_events++;
+		++self->hists.stats.nr_unknown_events;
 		return -1;
 	}
 }
@@ -476,15 +664,18 @@ more:
 	p = &event;
 	p += sizeof(struct perf_event_header);
 
-	err = do_read(self->fd, p, size - sizeof(struct perf_event_header));
-	if (err <= 0) {
-		if (err == 0) {
-			pr_err("unexpected end of event stream\n");
-			goto done;
-		}
+	if (size - sizeof(struct perf_event_header)) {
+		err = do_read(self->fd, p,
+			      size - sizeof(struct perf_event_header));
+		if (err <= 0) {
+			if (err == 0) {
+				pr_err("unexpected end of event stream\n");
+				goto done;
+			}
 
-		pr_err("failed to read event data\n");
-		goto out_err;
+			pr_err("failed to read event data\n");
+			goto out_err;
+		}
 	}
 
 	if (size == 0 ||
@@ -611,6 +802,9 @@ more:
 		goto more;
 done:
 	err = 0;
+	/* do the final flush for ordered samples */
+	self->ordered_samples.next_flush = ULLONG_MAX;
+	flush_sample_queue(self, ops);
 out_err:
 	ui_progress__delete(progress);
 	return err;
@@ -692,4 +886,11 @@ int perf_session__set_kallsyms_ref_reloc_sym(struct map **maps,
 	}
 
 	return 0;
+}
+
+size_t perf_session__fprintf_dsos(struct perf_session *self, FILE *fp)
+{
+	return __dsos__fprintf(&self->host_machine.kernel_dsos, fp) +
+	       __dsos__fprintf(&self->host_machine.user_dsos, fp) +
+	       machines__fprintf_dsos(&self->machines, fp);
 }

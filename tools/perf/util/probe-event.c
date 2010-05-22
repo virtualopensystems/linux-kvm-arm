@@ -72,8 +72,7 @@ static int e_snprintf(char *str, size_t size, const char *format, ...)
 }
 
 static char *synthesize_perf_probe_point(struct perf_probe_point *pp);
-static struct map_groups kmap_groups;
-static struct map *kmaps[MAP__NR_TYPES];
+static struct machine machine;
 
 /* Initialize symbol maps and path of vmlinux */
 static int init_vmlinux(void)
@@ -92,12 +91,15 @@ static int init_vmlinux(void)
 		goto out;
 	}
 
+	ret = machine__init(&machine, "/", 0);
+	if (ret < 0)
+		goto out;
+
 	kernel = dso__new_kernel(symbol_conf.vmlinux_name);
 	if (kernel == NULL)
 		die("Failed to create kernel dso.");
 
-	map_groups__init(&kmap_groups);
-	ret = __map_groups__create_kernel_maps(&kmap_groups, kmaps, kernel);
+	ret = __machine__create_kernel_maps(&machine, kernel);
 	if (ret < 0)
 		pr_debug("Failed to create kernel maps.\n");
 
@@ -110,12 +112,12 @@ out:
 #ifdef DWARF_SUPPORT
 static int open_vmlinux(void)
 {
-	if (map__load(kmaps[MAP__FUNCTION], NULL) < 0) {
+	if (map__load(machine.vmlinux_maps[MAP__FUNCTION], NULL) < 0) {
 		pr_debug("Failed to load kernel map.\n");
 		return -EINVAL;
 	}
-	pr_debug("Try to open %s\n", kmaps[MAP__FUNCTION]->dso->long_name);
-	return open(kmaps[MAP__FUNCTION]->dso->long_name, O_RDONLY);
+	pr_debug("Try to open %s\n", machine.vmlinux_maps[MAP__FUNCTION]->dso->long_name);
+	return open(machine.vmlinux_maps[MAP__FUNCTION]->dso->long_name, O_RDONLY);
 }
 
 /* Convert trace point to probe point with debuginfo */
@@ -125,7 +127,7 @@ static int convert_to_perf_probe_point(struct kprobe_trace_point *tp,
 	struct symbol *sym;
 	int fd, ret = -ENOENT;
 
-	sym = map__find_symbol_by_name(kmaps[MAP__FUNCTION],
+	sym = map__find_symbol_by_name(machine.vmlinux_maps[MAP__FUNCTION],
 				       tp->symbol, NULL);
 	if (sym) {
 		fd = open_vmlinux();
@@ -150,7 +152,8 @@ static int convert_to_perf_probe_point(struct kprobe_trace_point *tp,
 
 /* Try to find perf_probe_event with debuginfo */
 static int try_to_find_kprobe_trace_events(struct perf_probe_event *pev,
-					   struct kprobe_trace_event **tevs)
+					   struct kprobe_trace_event **tevs,
+					   int max_tevs)
 {
 	bool need_dwarf = perf_probe_event_need_dwarf(pev);
 	int fd, ntevs;
@@ -166,7 +169,7 @@ static int try_to_find_kprobe_trace_events(struct perf_probe_event *pev,
 	}
 
 	/* Searching trace events corresponding to probe event */
-	ntevs = find_kprobe_trace_events(fd, pev, tevs);
+	ntevs = find_kprobe_trace_events(fd, pev, tevs, max_tevs);
 	close(fd);
 
 	if (ntevs > 0) {	/* Succeeded to find trace events */
@@ -180,15 +183,16 @@ static int try_to_find_kprobe_trace_events(struct perf_probe_event *pev,
 		return -ENOENT;
 	}
 	/* Error path : ntevs < 0 */
-	if (need_dwarf) {
-		if (ntevs == -EBADF)
-			pr_warning("No dwarf info found in the vmlinux - "
-				"please rebuild with CONFIG_DEBUG_INFO=y.\n");
-		return ntevs;
+	pr_debug("An error occurred in debuginfo analysis (%d).\n", ntevs);
+	if (ntevs == -EBADF) {
+		pr_warning("Warning: No dwarf info found in the vmlinux - "
+			"please rebuild kernel with CONFIG_DEBUG_INFO=y.\n");
+		if (!need_dwarf) {
+			pr_debug("Trying to use symbols.\nn");
+			return 0;
+		}
 	}
-	pr_debug("An error occurred in debuginfo analysis."
-		 " Try to use symbols.\n");
-	return 0;
+	return ntevs;
 }
 
 #define LINEBUF_SIZE 256
@@ -317,7 +321,8 @@ static int convert_to_perf_probe_point(struct kprobe_trace_point *tp,
 }
 
 static int try_to_find_kprobe_trace_events(struct perf_probe_event *pev,
-				struct kprobe_trace_event **tevs __unused)
+				struct kprobe_trace_event **tevs __unused,
+				int max_tevs __unused)
 {
 	if (perf_probe_event_need_dwarf(pev)) {
 		pr_warning("Debuginfo-analysis is not supported.\n");
@@ -1407,14 +1412,15 @@ static int __add_kprobe_trace_events(struct perf_probe_event *pev,
 }
 
 static int convert_to_kprobe_trace_events(struct perf_probe_event *pev,
-					  struct kprobe_trace_event **tevs)
+					  struct kprobe_trace_event **tevs,
+					  int max_tevs)
 {
 	struct symbol *sym;
 	int ret = 0, i;
 	struct kprobe_trace_event *tev;
 
 	/* Convert perf_probe_event with debuginfo */
-	ret = try_to_find_kprobe_trace_events(pev, tevs);
+	ret = try_to_find_kprobe_trace_events(pev, tevs, max_tevs);
 	if (ret != 0)
 		return ret;
 
@@ -1462,7 +1468,7 @@ static int convert_to_kprobe_trace_events(struct perf_probe_event *pev,
 	}
 
 	/* Currently just checking function name from symbol map */
-	sym = map__find_symbol_by_name(kmaps[MAP__FUNCTION],
+	sym = map__find_symbol_by_name(machine.vmlinux_maps[MAP__FUNCTION],
 				       tev->point.symbol, NULL);
 	if (!sym) {
 		pr_warning("Kernel symbol \'%s\' not found.\n",
@@ -1486,7 +1492,7 @@ struct __event_package {
 };
 
 int add_perf_probe_events(struct perf_probe_event *pevs, int npevs,
-			  bool force_add)
+			  bool force_add, int max_tevs)
 {
 	int i, j, ret;
 	struct __event_package *pkgs;
@@ -1505,7 +1511,7 @@ int add_perf_probe_events(struct perf_probe_event *pevs, int npevs,
 		pkgs[i].pev = &pevs[i];
 		/* Convert with or without debuginfo */
 		ret  = convert_to_kprobe_trace_events(pkgs[i].pev,
-						      &pkgs[i].tevs);
+						      &pkgs[i].tevs, max_tevs);
 		if (ret < 0)
 			goto end;
 		pkgs[i].ntevs = ret;

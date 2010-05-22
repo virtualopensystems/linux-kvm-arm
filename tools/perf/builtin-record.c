@@ -33,8 +33,8 @@ enum write_mode_t {
 
 static int			*fd[MAX_NR_CPUS][MAX_COUNTERS];
 
-static unsigned int		user_interval 			= UINT_MAX;
-static long			default_interval		=      0;
+static u64			user_interval			= ULLONG_MAX;
+static u64			default_interval		=      0;
 
 static int			nr_cpus				=      0;
 static unsigned int		page_size;
@@ -45,7 +45,7 @@ static int			output;
 static int			pipe_output			=      0;
 static const char		*output_name			= "perf.data";
 static int			group				=      0;
-static unsigned int		realtime_prio			=      0;
+static int			realtime_prio			=      0;
 static bool			raw_samples			=  false;
 static bool			system_wide			=  false;
 static int			profile_cpu			=     -1;
@@ -54,7 +54,7 @@ static pid_t			target_tid			=     -1;
 static pid_t			*all_tids			=      NULL;
 static int			thread_num			=      0;
 static pid_t			child_pid			=     -1;
-static bool			inherit				=   true;
+static bool			no_inherit			=  false;
 static enum write_mode_t	write_mode			= WRITE_FORCE;
 static bool			call_graph			=  false;
 static bool			inherit_stat			=  false;
@@ -268,7 +268,7 @@ static void create_counter(int counter, int cpu)
 	 * it a weak assumption overridable by the user.
 	 */
 	if (!attr->sample_period || (user_freq != UINT_MAX &&
-				     user_interval != UINT_MAX)) {
+				     user_interval != ULLONG_MAX)) {
 		if (freq) {
 			attr->sample_type	|= PERF_SAMPLE_PERIOD;
 			attr->freq		= 1;
@@ -298,8 +298,8 @@ static void create_counter(int counter, int cpu)
 
 	attr->mmap		= track;
 	attr->comm		= track;
-	attr->inherit		= inherit;
-	if (target_pid == -1 && !system_wide) {
+	attr->inherit		= !no_inherit;
+	if (target_pid == -1 && target_tid == -1 && !system_wide) {
 		attr->disabled = 1;
 		attr->enable_on_exec = 1;
 	}
@@ -446,24 +446,17 @@ static void atexit_header(void)
 
 		process_buildids();
 		perf_header__write(&session->header, output, true);
-	} else {
-		int err;
-
-		err = event__synthesize_build_ids(process_synthesized_event,
-						  session);
-		if (err < 0)
-			pr_err("Couldn't synthesize build ids.\n");
 	}
 }
 
-static void event__synthesize_guest_os(struct kernel_info *kerninfo,
-		void *data __attribute__((unused)))
+static void event__synthesize_guest_os(struct machine *machine, void *data)
 {
 	int err;
 	char *guest_kallsyms;
 	char path[PATH_MAX];
+	struct perf_session *psession = data;
 
-	if (is_host_kernel(kerninfo))
+	if (machine__is_host(machine))
 		return;
 
 	/*
@@ -475,16 +468,15 @@ static void event__synthesize_guest_os(struct kernel_info *kerninfo,
 	 *in module instead of in guest kernel.
 	 */
 	err = event__synthesize_modules(process_synthesized_event,
-			session,
-			kerninfo);
+					psession, machine);
 	if (err < 0)
 		pr_err("Couldn't record guest kernel [%d]'s reference"
-			" relocation symbol.\n", kerninfo->pid);
+		       " relocation symbol.\n", machine->pid);
 
-	if (is_default_guest(kerninfo))
+	if (machine__is_default_guest(machine))
 		guest_kallsyms = (char *) symbol_conf.default_guest_kallsyms;
 	else {
-		sprintf(path, "%s/proc/kallsyms", kerninfo->root_dir);
+		sprintf(path, "%s/proc/kallsyms", machine->root_dir);
 		guest_kallsyms = path;
 	}
 
@@ -493,13 +485,36 @@ static void event__synthesize_guest_os(struct kernel_info *kerninfo,
 	 * have no _text sometimes.
 	 */
 	err = event__synthesize_kernel_mmap(process_synthesized_event,
-			session, kerninfo, "_text");
+					    psession, machine, "_text");
 	if (err < 0)
 		err = event__synthesize_kernel_mmap(process_synthesized_event,
-				session, kerninfo, "_stext");
+						    psession, machine, "_stext");
 	if (err < 0)
 		pr_err("Couldn't record guest kernel [%d]'s reference"
-			" relocation symbol.\n", kerninfo->pid);
+		       " relocation symbol.\n", machine->pid);
+}
+
+static struct perf_event_header finished_round_event = {
+	.size = sizeof(struct perf_event_header),
+	.type = PERF_RECORD_FINISHED_ROUND,
+};
+
+static void mmap_read_all(void)
+{
+	int i, counter, thread;
+
+	for (i = 0; i < nr_cpu; i++) {
+		for (counter = 0; counter < nr_counters; counter++) {
+			for (thread = 0; thread < thread_num; thread++) {
+				if (mmap_array[i][counter][thread].base)
+					mmap_read(&mmap_array[i][counter][thread]);
+			}
+
+		}
+	}
+
+	if (perf_header__has_feat(&session->header, HEADER_TRACE_INFO))
+		write_output(&finished_round_event, sizeof(finished_round_event));
 }
 
 static int __cmd_record(int argc, const char **argv)
@@ -513,7 +528,7 @@ static int __cmd_record(int argc, const char **argv)
 	int child_ready_pipe[2], go_pipe[2];
 	const bool forks = argc > 0;
 	char buf;
-	struct kernel_info *kerninfo;
+	struct machine *machine;
 
 	page_size = sysconf(_SC_PAGE_SIZE);
 
@@ -556,7 +571,7 @@ static int __cmd_record(int argc, const char **argv)
 	}
 
 	session = perf_session__new(output_name, O_WRONLY,
-				    write_mode == WRITE_FORCE);
+				    write_mode == WRITE_FORCE, false);
 	if (session == NULL) {
 		pr_err("Not enough memory for reading perf file header\n");
 		return -1;
@@ -568,16 +583,8 @@ static int __cmd_record(int argc, const char **argv)
 			return err;
 	}
 
-	if (raw_samples) {
+	if (have_tracepoints(attrs, nr_counters))
 		perf_header__set_feat(&session->header, HEADER_TRACE_INFO);
-	} else {
-		for (i = 0; i < nr_counters; i++) {
-			if (attrs[i].sample_type & PERF_SAMPLE_RAW) {
-				perf_header__set_feat(&session->header, HEADER_TRACE_INFO);
-				break;
-			}
-		}
-	}
 
 	atexit(atexit_header);
 
@@ -634,7 +641,7 @@ static int __cmd_record(int argc, const char **argv)
 		close(child_ready_pipe[0]);
 	}
 
-	if ((!system_wide && !inherit) || profile_cpu != -1) {
+	if ((!system_wide && no_inherit) || profile_cpu != -1) {
 		open_counters(profile_cpu);
 	} else {
 		nr_cpus = read_cpu_map();
@@ -670,43 +677,51 @@ static int __cmd_record(int argc, const char **argv)
 			return err;
 		}
 
-		err = event__synthesize_tracing_data(output, attrs,
-						     nr_counters,
-						     process_synthesized_event,
-						     session);
-		if (err <= 0) {
-			pr_err("Couldn't record tracing data.\n");
-			return err;
+		if (have_tracepoints(attrs, nr_counters)) {
+			/*
+			 * FIXME err <= 0 here actually means that
+			 * there were no tracepoints so its not really
+			 * an error, just that we don't need to
+			 * synthesize anything.  We really have to
+			 * return this more properly and also
+			 * propagate errors that now are calling die()
+			 */
+			err = event__synthesize_tracing_data(output, attrs,
+							     nr_counters,
+							     process_synthesized_event,
+							     session);
+			if (err <= 0) {
+				pr_err("Couldn't record tracing data.\n");
+				return err;
+			}
+			advance_output(err);
 		}
-
-		advance_output(err);
 	}
 
-	kerninfo = kerninfo__findhost(&session->kerninfo_root);
-	if (!kerninfo) {
+	machine = perf_session__find_host_machine(session);
+	if (!machine) {
 		pr_err("Couldn't find native kernel information.\n");
 		return -1;
 	}
 
 	err = event__synthesize_kernel_mmap(process_synthesized_event,
-			session, kerninfo, "_text");
+					    session, machine, "_text");
 	if (err < 0)
 		err = event__synthesize_kernel_mmap(process_synthesized_event,
-				session, kerninfo, "_stext");
+						    session, machine, "_stext");
 	if (err < 0) {
 		pr_err("Couldn't record kernel reference relocation symbol.\n");
 		return err;
 	}
 
 	err = event__synthesize_modules(process_synthesized_event,
-				session, kerninfo);
+					session, machine);
 	if (err < 0) {
 		pr_err("Couldn't record kernel reference relocation symbol.\n");
 		return err;
 	}
 	if (perf_guest)
-		kerninfo__process_allkernels(&session->kerninfo_root,
-			event__synthesize_guest_os, session);
+		perf_session__process_machines(session, event__synthesize_guest_os);
 
 	if (!system_wide && profile_cpu == -1)
 		event__synthesize_thread(target_tid, process_synthesized_event,
@@ -734,16 +749,7 @@ static int __cmd_record(int argc, const char **argv)
 		int hits = samples;
 		int thread;
 
-		for (i = 0; i < nr_cpu; i++) {
-			for (counter = 0; counter < nr_counters; counter++) {
-				for (thread = 0;
-					thread < thread_num; thread++) {
-					if (mmap_array[i][counter][thread].base)
-						mmap_read(&mmap_array[i][counter][thread]);
-				}
-
-			}
-		}
+		mmap_read_all();
 
 		if (hits == samples) {
 			if (done)
@@ -811,16 +817,13 @@ static const struct option options[] = {
 			    "CPU to profile on"),
 	OPT_BOOLEAN('f', "force", &force,
 			"overwrite existing data file (deprecated)"),
-	OPT_LONG('c', "count", &user_interval,
-		    "event period to sample"),
+	OPT_U64('c', "count", &user_interval, "event period to sample"),
 	OPT_STRING('o', "output", &output_name, "file",
 		    "output file name"),
-	OPT_BOOLEAN('i', "inherit", &inherit,
-		    "child tasks inherit counters"),
-	OPT_INTEGER('F', "freq", &user_freq,
-		    "profile at this frequency"),
-	OPT_INTEGER('m', "mmap-pages", &mmap_pages,
-		    "number of mmap data pages"),
+	OPT_BOOLEAN('i', "no-inherit", &no_inherit,
+		    "child tasks do not inherit counters"),
+	OPT_UINTEGER('F', "freq", &user_freq, "profile at this frequency"),
+	OPT_UINTEGER('m', "mmap-pages", &mmap_pages, "number of mmap data pages"),
 	OPT_BOOLEAN('g', "call-graph", &call_graph,
 		    "do call-graph (stack chain/backtrace) recording"),
 	OPT_INCR('v', "verbose", &verbose,
@@ -895,7 +898,7 @@ int cmd_record(int argc, const char **argv, const char *prefix __used)
 	if (!event_array)
 		return -ENOMEM;
 
-	if (user_interval != UINT_MAX)
+	if (user_interval != ULLONG_MAX)
 		default_interval = user_interval;
 	if (user_freq != UINT_MAX)
 		freq = user_freq;

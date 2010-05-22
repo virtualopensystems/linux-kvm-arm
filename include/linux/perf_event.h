@@ -203,9 +203,19 @@ struct perf_event_attr {
 				enable_on_exec :  1, /* next exec enables     */
 				task           :  1, /* trace fork/exit       */
 				watermark      :  1, /* wakeup_watermark      */
-				precise        :  1, /* OoO invariant counter */
+				/*
+				 * precise_ip:
+				 *
+				 *  0 - SAMPLE_IP can have arbitrary skid
+				 *  1 - SAMPLE_IP must have constant skid
+				 *  2 - SAMPLE_IP requested to have 0 skid
+				 *  3 - SAMPLE_IP must have 0 skid
+				 *
+				 *  See also PERF_RECORD_MISC_EXACT_IP
+				 */
+				precise_ip     :  2, /* skid constraint       */
 
-				__reserved_1   : 48;
+				__reserved_1   : 47;
 
 	union {
 		__u32		wakeup_events;	  /* wakeup every n events */
@@ -296,7 +306,12 @@ struct perf_event_mmap_page {
 #define PERF_RECORD_MISC_GUEST_KERNEL		(4 << 0)
 #define PERF_RECORD_MISC_GUEST_USER		(5 << 0)
 
-#define PERF_RECORD_MISC_EXACT			(1 << 14)
+/*
+ * Indicates that the content of PERF_SAMPLE_IP points to
+ * the actual instruction that triggered the event. See also
+ * perf_event_attr::precise_ip.
+ */
+#define PERF_RECORD_MISC_EXACT_IP		(1 << 14)
 /*
  * Reserve the last bit to indicate some extended misc field
  */
@@ -532,6 +547,8 @@ struct hw_perf_event {
 
 struct perf_event;
 
+#define PERF_EVENT_TXN_STARTED 1
+
 /**
  * struct pmu - generic performance monitoring unit
  */
@@ -542,6 +559,16 @@ struct pmu {
 	void (*stop)			(struct perf_event *event);
 	void (*read)			(struct perf_event *event);
 	void (*unthrottle)		(struct perf_event *event);
+
+	/*
+	 * group events scheduling is treated as a transaction,
+	 * add group events as a whole and perform one schedulability test.
+	 * If test fails, roll back the whole group
+	 */
+
+	void (*start_txn)	(const struct pmu *pmu);
+	void (*cancel_txn)	(const struct pmu *pmu);
+	int  (*commit_txn)	(const struct pmu *pmu);
 };
 
 /**
@@ -807,9 +834,6 @@ extern void perf_disable(void);
 extern void perf_enable(void);
 extern int perf_event_task_disable(void);
 extern int perf_event_task_enable(void);
-extern int hw_perf_group_sched_in(struct perf_event *group_leader,
-	       struct perf_cpu_context *cpuctx,
-	       struct perf_event_context *ctx);
 extern void perf_event_update_userpage(struct perf_event *event);
 extern int perf_event_release_kernel(struct perf_event *event);
 extern struct perf_event *

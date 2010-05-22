@@ -113,7 +113,6 @@ struct cpuinfo_x86 {
 	/* Index into per_cpu list: */
 	u16			cpu_index;
 #endif
-	unsigned int		x86_hyper_vendor;
 } __attribute__((__aligned__(SMP_CACHE_BYTES)));
 
 #define X86_VENDOR_INTEL	0
@@ -126,9 +125,6 @@ struct cpuinfo_x86 {
 #define X86_VENDOR_NUM		9
 
 #define X86_VENDOR_UNKNOWN	0xff
-
-#define X86_HYPER_VENDOR_NONE  0
-#define X86_HYPER_VENDOR_VMWARE 1
 
 /*
  * capabilities of CPUs
@@ -792,6 +788,8 @@ static inline void wbinvd_halt(void)
 
 extern void enable_sep_cpu(void);
 extern int sysenter_setup(void);
+
+extern void early_trap_init(void);
 
 /* Defined in head.S */
 extern struct desc_ptr		early_gdt_descr;

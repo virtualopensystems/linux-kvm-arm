@@ -51,6 +51,13 @@ static int long_size;
 static unsigned long	page_size;
 
 static ssize_t calc_data_size;
+static bool repipe;
+
+/* If it fails, the next read will report it */
+static void skip(int size)
+{
+	lseek(input_fd, size, SEEK_CUR);
+}
 
 static int do_read(int fd, void *buf, int size)
 {
@@ -61,6 +68,13 @@ static int do_read(int fd, void *buf, int size)
 
 		if (ret <= 0)
 			return -1;
+
+		if (repipe) {
+			int retw = write(STDOUT_FILENO, buf, ret);
+
+			if (retw <= 0 || retw != ret)
+				die("repiping input file");
+		}
 
 		size -= ret;
 		buf += ret;
@@ -116,6 +130,13 @@ static char *read_string(void)
 		if (!r)
 			die("no data");
 
+		if (repipe) {
+			int retw = write(STDOUT_FILENO, &c, 1);
+
+			if (retw <= 0 || retw != r)
+				die("repiping input file string");
+		}
+
 		buf[size++] = c;
 
 		if (!c)
@@ -169,7 +190,6 @@ static void read_ftrace_printk(void)
 static void read_header_files(void)
 {
 	unsigned long long size;
-	char *header_page;
 	char *header_event;
 	char buf[BUFSIZ];
 
@@ -179,10 +199,7 @@ static void read_header_files(void)
 		die("did not read header page");
 
 	size = read8();
-	header_page = malloc_or_die(size);
-	read_or_die(header_page, size);
-	parse_header_page(header_page, size);
-	free(header_page);
+	skip(size);
 
 	/*
 	 * The size field in the page is of type long,
@@ -454,7 +471,7 @@ struct record *trace_read_data(int cpu)
 	return data;
 }
 
-ssize_t trace_report(int fd)
+ssize_t trace_report(int fd, bool __repipe)
 {
 	char buf[BUFSIZ];
 	char test[] = { 23, 8, 68 };
@@ -465,6 +482,7 @@ ssize_t trace_report(int fd)
 	ssize_t size;
 
 	calc_data_size = 1;
+	repipe = __repipe;
 
 	input_fd = fd;
 
@@ -499,6 +517,7 @@ ssize_t trace_report(int fd)
 
 	size = calc_data_size - 1;
 	calc_data_size = 0;
+	repipe = false;
 
 	if (show_funcs) {
 		print_funcs();

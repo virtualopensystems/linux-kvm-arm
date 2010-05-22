@@ -26,7 +26,7 @@ returns : ebx, ecx, edx = 0
 flag                               || value || meaning
 =============================================================================
 KVM_FEATURE_CLOCKSOURCE            ||     0 || kvmclock available at msrs
-                                   ||       || 0x11 and 0x12. 
+                                   ||       || 0x11 and 0x12.
 ------------------------------------------------------------------------------
 KVM_FEATURE_NOP_IO_DELAY           ||     1 || not necessary to perform delays
                                    ||       || on PIO operations.
@@ -40,5 +40,3 @@ KVM_FEATURE_CLOCKSOURCE_STABLE_BIT ||    24 || host will warn if no guest-side
                                    ||       || per-cpu warps are expected in
                                    ||       || kvmclock.
 ------------------------------------------------------------------------------
-
-

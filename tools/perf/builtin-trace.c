@@ -11,6 +11,8 @@
 
 static char const		*script_name;
 static char const		*generate_script_lang;
+static bool			debug_ordering;
+static u64			last_timestamp;
 
 static int default_start_script(const char *script __unused,
 				int argc __unused,
@@ -51,6 +53,8 @@ static void setup_scripting(void)
 
 static int cleanup_scripting(void)
 {
+	pr_debug("\nperf trace script stopped\n");
+
 	return scripting_ops->stop_script();
 }
 
@@ -87,6 +91,14 @@ static int process_sample_event(event_t *event, struct perf_session *session)
 	}
 
 	if (session->sample_type & PERF_SAMPLE_RAW) {
+		if (debug_ordering) {
+			if (data.time < last_timestamp) {
+				pr_err("Samples misordered, previous: %llu "
+					"this: %llu\n", last_timestamp,
+					data.time);
+			}
+			last_timestamp = data.time;
+		}
 		/*
 		 * FIXME: better resolve from pid from the struct trace_entry
 		 * field, although it should be the same than this perf
@@ -97,7 +109,7 @@ static int process_sample_event(event_t *event, struct perf_session *session)
 					     data.time, thread->comm);
 	}
 
-	session->events_stats.total += data.period;
+	session->hists.stats.total_period += data.period;
 	return 0;
 }
 
@@ -108,6 +120,7 @@ static struct perf_event_ops event_ops = {
 	.event_type = event__process_event_type,
 	.tracing_data = event__process_tracing_data,
 	.build_id = event__process_build_id,
+	.ordered_samples = true,
 };
 
 extern volatile int session_done;
@@ -531,6 +544,8 @@ static const struct option options[] = {
 		   "generate perf-trace.xx script in specified language"),
 	OPT_STRING('i', "input", &input_name, "file",
 		    "input file name"),
+	OPT_BOOLEAN('d', "debug-ordering", &debug_ordering,
+		   "check that samples time ordering is monotonic"),
 
 	OPT_END()
 };
@@ -648,7 +663,7 @@ int cmd_trace(int argc, const char **argv, const char *prefix __used)
 	if (!script_name)
 		setup_pager();
 
-	session = perf_session__new(input_name, O_RDONLY, 0);
+	session = perf_session__new(input_name, O_RDONLY, 0, false);
 	if (session == NULL)
 		return -ENOMEM;
 
@@ -690,6 +705,7 @@ int cmd_trace(int argc, const char **argv, const char *prefix __used)
 		err = scripting_ops->start_script(script_name, argc, argv);
 		if (err)
 			goto out;
+		pr_debug("perf trace started with script %s\n\n", script_name);
 	}
 
 	err = __cmd_trace(session);

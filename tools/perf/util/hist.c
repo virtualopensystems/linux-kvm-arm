@@ -1,3 +1,4 @@
+#include "util.h"
 #include "hist.h"
 #include "session.h"
 #include "sort.h"
@@ -8,24 +9,21 @@ struct callchain_param	callchain_param = {
 	.min_percent = 0.5
 };
 
-void __perf_session__add_count(struct hist_entry *he,
-			struct addr_location *al,
-			u64 count)
+static void hist_entry__add_cpumode_period(struct hist_entry *self,
+					   unsigned int cpumode, u64 period)
 {
-	he->count += count;
-
-	switch (al->cpumode) {
+	switch (cpumode) {
 	case PERF_RECORD_MISC_KERNEL:
-		he->count_sys += count;
+		self->period_sys += period;
 		break;
 	case PERF_RECORD_MISC_USER:
-		he->count_us += count;
+		self->period_us += period;
 		break;
 	case PERF_RECORD_MISC_GUEST_KERNEL:
-		he->count_guest_sys += count;
+		self->period_guest_sys += period;
 		break;
 	case PERF_RECORD_MISC_GUEST_USER:
-		he->count_guest_us += count;
+		self->period_guest_us += period;
 		break;
 	default:
 		break;
@@ -33,15 +31,36 @@ void __perf_session__add_count(struct hist_entry *he,
 }
 
 /*
- * histogram, sorted on item, collects counts
+ * histogram, sorted on item, collects periods
  */
 
-struct hist_entry *__perf_session__add_hist_entry(struct rb_root *hists,
-						  struct addr_location *al,
-						  struct symbol *sym_parent,
-						  u64 count, bool *hit)
+static struct hist_entry *hist_entry__new(struct hist_entry *template)
 {
-	struct rb_node **p = &hists->rb_node;
+	size_t callchain_size = symbol_conf.use_callchain ? sizeof(struct callchain_node) : 0;
+	struct hist_entry *self = malloc(sizeof(*self) + callchain_size);
+
+	if (self != NULL) {
+		*self = *template;
+		self->nr_events = 1;
+		if (symbol_conf.use_callchain)
+			callchain_init(self->callchain);
+	}
+
+	return self;
+}
+
+static void hists__inc_nr_entries(struct hists *self, struct hist_entry *entry)
+{
+	if (entry->ms.sym && self->max_sym_namelen < entry->ms.sym->namelen)
+		self->max_sym_namelen = entry->ms.sym->namelen;
+	++self->nr_entries;
+}
+
+struct hist_entry *__hists__add_entry(struct hists *self,
+				      struct addr_location *al,
+				      struct symbol *sym_parent, u64 period)
+{
+	struct rb_node **p = &self->entries.rb_node;
 	struct rb_node *parent = NULL;
 	struct hist_entry *he;
 	struct hist_entry entry = {
@@ -52,7 +71,7 @@ struct hist_entry *__perf_session__add_hist_entry(struct rb_root *hists,
 		},
 		.ip	= al->addr,
 		.level	= al->level,
-		.count	= count,
+		.period	= period,
 		.parent = sym_parent,
 	};
 	int cmp;
@@ -64,8 +83,9 @@ struct hist_entry *__perf_session__add_hist_entry(struct rb_root *hists,
 		cmp = hist_entry__cmp(&entry, he);
 
 		if (!cmp) {
-			*hit = true;
-			return he;
+			he->period += period;
+			++he->nr_events;
+			goto out;
 		}
 
 		if (cmp < 0)
@@ -74,14 +94,14 @@ struct hist_entry *__perf_session__add_hist_entry(struct rb_root *hists,
 			p = &(*p)->rb_right;
 	}
 
-	he = malloc(sizeof(*he) + (symbol_conf.use_callchain ?
-				    sizeof(struct callchain_node) : 0));
+	he = hist_entry__new(&entry);
 	if (!he)
 		return NULL;
-	*he = entry;
 	rb_link_node(&he->rb_node, parent, p);
-	rb_insert_color(&he->rb_node, hists);
-	*hit = false;
+	rb_insert_color(&he->rb_node, &self->entries);
+	hists__inc_nr_entries(self, he);
+out:
+	hist_entry__add_cpumode_period(he, al->cpumode, period);
 	return he;
 }
 
@@ -128,7 +148,7 @@ void hist_entry__free(struct hist_entry *he)
  * collapse the histogram
  */
 
-static void collapse__insert_entry(struct rb_root *root, struct hist_entry *he)
+static bool collapse__insert_entry(struct rb_root *root, struct hist_entry *he)
 {
 	struct rb_node **p = &root->rb_node;
 	struct rb_node *parent = NULL;
@@ -142,9 +162,9 @@ static void collapse__insert_entry(struct rb_root *root, struct hist_entry *he)
 		cmp = hist_entry__collapse(iter, he);
 
 		if (!cmp) {
-			iter->count += he->count;
+			iter->period += he->period;
 			hist_entry__free(he);
-			return;
+			return false;
 		}
 
 		if (cmp < 0)
@@ -155,9 +175,10 @@ static void collapse__insert_entry(struct rb_root *root, struct hist_entry *he)
 
 	rb_link_node(&he->rb_node, parent, p);
 	rb_insert_color(&he->rb_node, root);
+	return true;
 }
 
-void perf_session__collapse_resort(struct rb_root *hists)
+void hists__collapse_resort(struct hists *self)
 {
 	struct rb_root tmp;
 	struct rb_node *next;
@@ -167,28 +188,31 @@ void perf_session__collapse_resort(struct rb_root *hists)
 		return;
 
 	tmp = RB_ROOT;
-	next = rb_first(hists);
+	next = rb_first(&self->entries);
+	self->nr_entries = 0;
+	self->max_sym_namelen = 0;
 
 	while (next) {
 		n = rb_entry(next, struct hist_entry, rb_node);
 		next = rb_next(&n->rb_node);
 
-		rb_erase(&n->rb_node, hists);
-		collapse__insert_entry(&tmp, n);
+		rb_erase(&n->rb_node, &self->entries);
+		if (collapse__insert_entry(&tmp, n))
+			hists__inc_nr_entries(self, n);
 	}
 
-	*hists = tmp;
+	self->entries = tmp;
 }
 
 /*
- * reverse the map, sort on count.
+ * reverse the map, sort on period.
  */
 
-static void perf_session__insert_output_hist_entry(struct rb_root *root,
-						   struct hist_entry *he,
-						   u64 min_callchain_hits)
+static void __hists__insert_output_entry(struct rb_root *entries,
+					 struct hist_entry *he,
+					 u64 min_callchain_hits)
 {
-	struct rb_node **p = &root->rb_node;
+	struct rb_node **p = &entries->rb_node;
 	struct rb_node *parent = NULL;
 	struct hist_entry *iter;
 
@@ -200,42 +224,41 @@ static void perf_session__insert_output_hist_entry(struct rb_root *root,
 		parent = *p;
 		iter = rb_entry(parent, struct hist_entry, rb_node);
 
-		if (he->count > iter->count)
+		if (he->period > iter->period)
 			p = &(*p)->rb_left;
 		else
 			p = &(*p)->rb_right;
 	}
 
 	rb_link_node(&he->rb_node, parent, p);
-	rb_insert_color(&he->rb_node, root);
+	rb_insert_color(&he->rb_node, entries);
 }
 
-u64 perf_session__output_resort(struct rb_root *hists, u64 total_samples)
+void hists__output_resort(struct hists *self)
 {
 	struct rb_root tmp;
 	struct rb_node *next;
 	struct hist_entry *n;
 	u64 min_callchain_hits;
-	u64 nr_hists = 0;
 
-	min_callchain_hits =
-		total_samples * (callchain_param.min_percent / 100);
+	min_callchain_hits = self->stats.total_period * (callchain_param.min_percent / 100);
 
 	tmp = RB_ROOT;
-	next = rb_first(hists);
+	next = rb_first(&self->entries);
+
+	self->nr_entries = 0;
+	self->max_sym_namelen = 0;
 
 	while (next) {
 		n = rb_entry(next, struct hist_entry, rb_node);
 		next = rb_next(&n->rb_node);
 
-		rb_erase(&n->rb_node, hists);
-		perf_session__insert_output_hist_entry(&tmp, n,
-						       min_callchain_hits);
-		++nr_hists;
+		rb_erase(&n->rb_node, &self->entries);
+		__hists__insert_output_entry(&tmp, n, min_callchain_hits);
+		hists__inc_nr_entries(self, n);
 	}
 
-	*hists = tmp;
-	return nr_hists;
+	self->entries = tmp;
 }
 
 static size_t callchain__fprintf_left_margin(FILE *fp, int left_margin)
@@ -267,7 +290,7 @@ static size_t ipchain__fprintf_graph_line(FILE *fp, int depth, int depth_mask,
 }
 
 static size_t ipchain__fprintf_graph(FILE *fp, struct callchain_list *chain,
-				     int depth, int depth_mask, int count,
+				     int depth, int depth_mask, int period,
 				     u64 total_samples, int hits,
 				     int left_margin)
 {
@@ -280,7 +303,7 @@ static size_t ipchain__fprintf_graph(FILE *fp, struct callchain_list *chain,
 			ret += fprintf(fp, "|");
 		else
 			ret += fprintf(fp, " ");
-		if (!count && i == depth - 1) {
+		if (!period && i == depth - 1) {
 			double percent;
 
 			percent = hits * 100.0 / total_samples;
@@ -323,6 +346,7 @@ static size_t __callchain__fprintf_graph(FILE *fp, struct callchain_node *self,
 	u64 remaining;
 	size_t ret = 0;
 	int i;
+	uint entries_printed = 0;
 
 	if (callchain_param.mode == CHAIN_GRAPH_REL)
 		new_total = self->children_hit;
@@ -369,6 +393,8 @@ static size_t __callchain__fprintf_graph(FILE *fp, struct callchain_node *self,
 						  new_depth_mask | (1 << depth),
 						  left_margin);
 		node = next;
+		if (++entries_printed == callchain_param.print_limit)
+			break;
 	}
 
 	if (callchain_param.mode == CHAIN_GRAPH_REL &&
@@ -394,6 +420,7 @@ static size_t callchain__fprintf_graph(FILE *fp, struct callchain_node *self,
 	bool printed = false;
 	int i = 0;
 	int ret = 0;
+	u32 entries_printed = 0;
 
 	list_for_each_entry(chain, &self->val, list) {
 		if (!i++ && sort__first_dimension == SORT_SYM)
@@ -414,6 +441,9 @@ static size_t callchain__fprintf_graph(FILE *fp, struct callchain_node *self,
 			ret += fprintf(fp, " %s\n", chain->ms.sym->name);
 		else
 			ret += fprintf(fp, " %p\n", (void *)(long)chain->ip);
+
+		if (++entries_printed == callchain_param.print_limit)
+			break;
 	}
 
 	ret += __callchain__fprintf_graph(fp, self, total_samples, 1, 1, left_margin);
@@ -452,6 +482,7 @@ static size_t hist_entry_callchain__fprintf(FILE *fp, struct hist_entry *self,
 	struct rb_node *rb_node;
 	struct callchain_node *chain;
 	size_t ret = 0;
+	u32 entries_printed = 0;
 
 	rb_node = rb_first(&self->sorted_chain);
 	while (rb_node) {
@@ -474,89 +505,88 @@ static size_t hist_entry_callchain__fprintf(FILE *fp, struct hist_entry *self,
 			break;
 		}
 		ret += fprintf(fp, "\n");
+		if (++entries_printed == callchain_param.print_limit)
+			break;
 		rb_node = rb_next(rb_node);
 	}
 
 	return ret;
 }
 
-int hist_entry__snprintf(struct hist_entry *self,
-			   char *s, size_t size,
-			   struct perf_session *pair_session,
-			   bool show_displacement,
-			   long displacement, bool color,
-			   u64 session_total)
+int hist_entry__snprintf(struct hist_entry *self, char *s, size_t size,
+			 struct hists *pair_hists, bool show_displacement,
+			 long displacement, bool color, u64 session_total)
 {
 	struct sort_entry *se;
-	u64 count, total, count_sys, count_us, count_guest_sys, count_guest_us;
+	u64 period, total, period_sys, period_us, period_guest_sys, period_guest_us;
 	const char *sep = symbol_conf.field_sep;
 	int ret;
 
 	if (symbol_conf.exclude_other && !self->parent)
 		return 0;
 
-	if (pair_session) {
-		count = self->pair ? self->pair->count : 0;
-		total = pair_session->events_stats.total;
-		count_sys = self->pair ? self->pair->count_sys : 0;
-		count_us = self->pair ? self->pair->count_us : 0;
-		count_guest_sys = self->pair ? self->pair->count_guest_sys : 0;
-		count_guest_us = self->pair ? self->pair->count_guest_us : 0;
+	if (pair_hists) {
+		period = self->pair ? self->pair->period : 0;
+		total = pair_hists->stats.total_period;
+		period_sys = self->pair ? self->pair->period_sys : 0;
+		period_us = self->pair ? self->pair->period_us : 0;
+		period_guest_sys = self->pair ? self->pair->period_guest_sys : 0;
+		period_guest_us = self->pair ? self->pair->period_guest_us : 0;
 	} else {
-		count = self->count;
+		period = self->period;
 		total = session_total;
-		count_sys = self->count_sys;
-		count_us = self->count_us;
-		count_guest_sys = self->count_guest_sys;
-		count_guest_us = self->count_guest_us;
+		period_sys = self->period_sys;
+		period_us = self->period_us;
+		period_guest_sys = self->period_guest_sys;
+		period_guest_us = self->period_guest_us;
 	}
 
 	if (total) {
 		if (color)
 			ret = percent_color_snprintf(s, size,
 						     sep ? "%.2f" : "   %6.2f%%",
-						     (count * 100.0) / total);
+						     (period * 100.0) / total);
 		else
 			ret = snprintf(s, size, sep ? "%.2f" : "   %6.2f%%",
-				       (count * 100.0) / total);
+				       (period * 100.0) / total);
 		if (symbol_conf.show_cpu_utilization) {
 			ret += percent_color_snprintf(s + ret, size - ret,
 					sep ? "%.2f" : "   %6.2f%%",
-					(count_sys * 100.0) / total);
+					(period_sys * 100.0) / total);
 			ret += percent_color_snprintf(s + ret, size - ret,
 					sep ? "%.2f" : "   %6.2f%%",
-					(count_us * 100.0) / total);
+					(period_us * 100.0) / total);
 			if (perf_guest) {
 				ret += percent_color_snprintf(s + ret,
 						size - ret,
 						sep ? "%.2f" : "   %6.2f%%",
-						(count_guest_sys * 100.0) /
+						(period_guest_sys * 100.0) /
 								total);
 				ret += percent_color_snprintf(s + ret,
 						size - ret,
 						sep ? "%.2f" : "   %6.2f%%",
-						(count_guest_us * 100.0) /
+						(period_guest_us * 100.0) /
 								total);
 			}
 		}
 	} else
-		ret = snprintf(s, size, sep ? "%lld" : "%12lld ", count);
+		ret = snprintf(s, size, sep ? "%lld" : "%12lld ", period);
 
 	if (symbol_conf.show_nr_samples) {
 		if (sep)
-			ret += snprintf(s + ret, size - ret, "%c%lld", *sep, count);
+			ret += snprintf(s + ret, size - ret, "%c%lld", *sep, period);
 		else
-			ret += snprintf(s + ret, size - ret, "%11lld", count);
+			ret += snprintf(s + ret, size - ret, "%11lld", period);
 	}
 
-	if (pair_session) {
+	if (pair_hists) {
 		char bf[32];
 		double old_percent = 0, new_percent = 0, diff;
 
 		if (total > 0)
-			old_percent = (count * 100.0) / total;
+			old_percent = (period * 100.0) / total;
 		if (session_total > 0)
-			new_percent = (self->count * 100.0) / session_total;
+			new_percent = (self->period * 100.0) / session_total;
 
 		diff = new_percent - old_percent;
 
@@ -595,14 +625,12 @@ int hist_entry__snprintf(struct hist_entry *self,
 	return ret;
 }
 
-int hist_entry__fprintf(struct hist_entry *self,
-			struct perf_session *pair_session,
-			bool show_displacement,
-			long displacement, FILE *fp,
+int hist_entry__fprintf(struct hist_entry *self, struct hists *pair_hists,
+			bool show_displacement, long displacement, FILE *fp,
 			u64 session_total)
 {
 	char bf[512];
-	hist_entry__snprintf(self, bf, sizeof(bf), pair_session,
+	hist_entry__snprintf(self, bf, sizeof(bf), pair_hists,
 			     show_displacement, displacement,
 			     true, session_total);
 	return fprintf(fp, "%s\n", bf);
@@ -624,10 +652,8 @@ static size_t hist_entry__fprintf_callchain(struct hist_entry *self, FILE *fp,
 					     left_margin);
 }
 
-size_t perf_session__fprintf_hists(struct rb_root *hists,
-				   struct perf_session *pair,
-				   bool show_displacement, FILE *fp,
-				   u64 session_total)
+size_t hists__fprintf(struct hists *self, struct hists *pair,
+		      bool show_displacement, FILE *fp)
 {
 	struct sort_entry *se;
 	struct rb_node *nd;
@@ -636,7 +662,7 @@ size_t perf_session__fprintf_hists(struct rb_root *hists,
 	long displacement = 0;
 	unsigned int width;
 	const char *sep = symbol_conf.field_sep;
-	char *col_width = symbol_conf.col_width_list_str;
+	const char *col_width = symbol_conf.col_width_list_str;
 
 	init_rem_hits();
 
@@ -733,7 +759,7 @@ size_t perf_session__fprintf_hists(struct rb_root *hists,
 	fprintf(fp, "\n#\n");
 
 print_entries:
-	for (nd = rb_first(hists); nd; nd = rb_next(nd)) {
+	for (nd = rb_first(&self->entries); nd; nd = rb_next(nd)) {
 		struct hist_entry *h = rb_entry(nd, struct hist_entry, rb_node);
 
 		if (show_displacement) {
@@ -745,10 +771,10 @@ print_entries:
 			++position;
 		}
 		ret += hist_entry__fprintf(h, pair, show_displacement,
-					   displacement, fp, session_total);
+					   displacement, fp, self->stats.total_period);
 
 		if (symbol_conf.use_callchain)
-			ret += hist_entry__fprintf_callchain(h, fp, session_total);
+			ret += hist_entry__fprintf_callchain(h, fp, self->stats.total_period);
 
 		if (h->ms.map == NULL && verbose > 1) {
 			__map_groups__fprintf_maps(&h->thread->mg,
@@ -758,6 +784,274 @@ print_entries:
 	}
 
 	free(rem_sq_bracket);
+
+	return ret;
+}
+
+enum hist_filter {
+	HIST_FILTER__DSO,
+	HIST_FILTER__THREAD,
+};
+
+void hists__filter_by_dso(struct hists *self, const struct dso *dso)
+{
+	struct rb_node *nd;
+
+	self->nr_entries = self->stats.total_period = 0;
+	self->stats.nr_events[PERF_RECORD_SAMPLE] = 0;
+	self->max_sym_namelen = 0;
+
+	for (nd = rb_first(&self->entries); nd; nd = rb_next(nd)) {
+		struct hist_entry *h = rb_entry(nd, struct hist_entry, rb_node);
+
+		if (symbol_conf.exclude_other && !h->parent)
+			continue;
+
+		if (dso != NULL && (h->ms.map == NULL || h->ms.map->dso != dso)) {
+			h->filtered |= (1 << HIST_FILTER__DSO);
+			continue;
+		}
+
+		h->filtered &= ~(1 << HIST_FILTER__DSO);
+		if (!h->filtered) {
+			++self->nr_entries;
+			self->stats.total_period += h->period;
+			self->stats.nr_events[PERF_RECORD_SAMPLE] += h->nr_events;
+			if (h->ms.sym &&
+			    self->max_sym_namelen < h->ms.sym->namelen)
+				self->max_sym_namelen = h->ms.sym->namelen;
+		}
+	}
+}
+
+void hists__filter_by_thread(struct hists *self, const struct thread *thread)
+{
+	struct rb_node *nd;
+
+	self->nr_entries = self->stats.total_period = 0;
+	self->stats.nr_events[PERF_RECORD_SAMPLE] = 0;
+	self->max_sym_namelen = 0;
+
+	for (nd = rb_first(&self->entries); nd; nd = rb_next(nd)) {
+		struct hist_entry *h = rb_entry(nd, struct hist_entry, rb_node);
+
+		if (thread != NULL && h->thread != thread) {
+			h->filtered |= (1 << HIST_FILTER__THREAD);
+			continue;
+		}
+		h->filtered &= ~(1 << HIST_FILTER__THREAD);
+		if (!h->filtered) {
+			++self->nr_entries;
+			self->stats.total_period += h->period;
+			self->stats.nr_events[PERF_RECORD_SAMPLE] += h->nr_events;
+			if (h->ms.sym &&
+			    self->max_sym_namelen < h->ms.sym->namelen)
+				self->max_sym_namelen = h->ms.sym->namelen;
+		}
+	}
+}
+
+static int symbol__alloc_hist(struct symbol *self)
+{
+	struct sym_priv *priv = symbol__priv(self);
+	const int size = (sizeof(*priv->hist) +
+			  (self->end - self->start) * sizeof(u64));
+
+	priv->hist = zalloc(size);
+	return priv->hist == NULL ? -1 : 0;
+}
+
+int hist_entry__inc_addr_samples(struct hist_entry *self, u64 ip)
+{
+	unsigned int sym_size, offset;
+	struct symbol *sym = self->ms.sym;
+	struct sym_priv *priv;
+	struct sym_hist *h;
+
+	if (!sym || !self->ms.map)
+		return 0;
+
+	priv = symbol__priv(sym);
+	if (priv->hist == NULL && symbol__alloc_hist(sym) < 0)
+		return -ENOMEM;
+
+	sym_size = sym->end - sym->start;
+	offset = ip - sym->start;
+
+	pr_debug3("%s: ip=%#Lx\n", __func__, self->ms.map->unmap_ip(self->ms.map, ip));
+
+	if (offset >= sym_size)
+		return 0;
+
+	h = priv->hist;
+	h->sum++;
+	h->ip[offset]++;
+
+	pr_debug3("%#Lx %s: period++ [ip: %#Lx, %#Lx] => %Ld\n", self->ms.sym->start,
+		  self->ms.sym->name, ip, ip - self->ms.sym->start, h->ip[offset]);
+	return 0;
+}
+
+static struct objdump_line *objdump_line__new(s64 offset, char *line)
+{
+	struct objdump_line *self = malloc(sizeof(*self));
+
+	if (self != NULL) {
+		self->offset = offset;
+		self->line = line;
+	}
+
+	return self;
+}
+
+void objdump_line__free(struct objdump_line *self)
+{
+	free(self->line);
+	free(self);
+}
+
+static void objdump__add_line(struct list_head *head, struct objdump_line *line)
+{
+	list_add_tail(&line->node, head);
+}
+
+struct objdump_line *objdump__get_next_ip_line(struct list_head *head,
+					       struct objdump_line *pos)
+{
+	list_for_each_entry_continue(pos, head, node)
+		if (pos->offset >= 0)
+			return pos;
+
+	return NULL;
+}
+
+static int hist_entry__parse_objdump_line(struct hist_entry *self, FILE *file,
+					  struct list_head *head)
+{
+	struct symbol *sym = self->ms.sym;
+	struct objdump_line *objdump_line;
+	char *line = NULL, *tmp, *tmp2, *c;
+	size_t line_len;
+	s64 line_ip, offset = -1;
+
+	if (getline(&line, &line_len, file) < 0)
+		return -1;
+
+	if (!line)
+		return -1;
+
+	while (line_len != 0 && isspace(line[line_len - 1]))
+		line[--line_len] = '\0';
+
+	c = strchr(line, '\n');
+	if (c)
+		*c = 0;
+
+	line_ip = -1;
+
+	/*
+	 * Strip leading spaces:
+	 */
+	tmp = line;
+	while (*tmp) {
+		if (*tmp != ' ')
+			break;
+		tmp++;
+	}
+
+	if (*tmp) {
+		/*
+		 * Parse hexa addresses followed by ':'
+		 */
+		line_ip = strtoull(tmp, &tmp2, 16);
+		if (*tmp2 != ':')
+			line_ip = -1;
+	}
+
+	if (line_ip != -1) {
+		u64 start = map__rip_2objdump(self->ms.map, sym->start);
+		offset = line_ip - start;
+	}
+
+	objdump_line = objdump_line__new(offset, line);
+	if (objdump_line == NULL) {
+		free(line);
+		return -1;
+	}
+	objdump__add_line(head, objdump_line);
+
+	return 0;
+}
+
+int hist_entry__annotate(struct hist_entry *self, struct list_head *head)
+{
+	struct symbol *sym = self->ms.sym;
+	struct map *map = self->ms.map;
+	struct dso *dso = map->dso;
+	const char *filename = dso->long_name;
+	char command[PATH_MAX * 2];
+	FILE *file;
+	u64 len;
+
+	if (!filename)
+		return -1;
+
+	if (dso->origin == DSO__ORIG_KERNEL) {
+		if (dso->annotate_warned)
+			return 0;
+		dso->annotate_warned = 1;
+		pr_err("Can't annotate %s: No vmlinux file was found in the "
+		       "path:\n", sym->name);
+		vmlinux_path__fprintf(stderr);
+		return -1;
+	}
+
+	pr_debug("%s: filename=%s, sym=%s, start=%#Lx, end=%#Lx\n", __func__,
+		 filename, sym->name, map->unmap_ip(map, sym->start),
+		 map->unmap_ip(map, sym->end));
+
+	len = sym->end - sym->start;
+
+	pr_debug("annotating [%p] %30s : [%p] %30s\n",
+		 dso, dso->long_name, sym, sym->name);
+
+	snprintf(command, sizeof(command),
+		 "objdump --start-address=0x%016Lx --stop-address=0x%016Lx -dS %s|grep -v %s|expand",
+		 map__rip_2objdump(map, sym->start),
+		 map__rip_2objdump(map, sym->end),
+		 filename, filename);
+
+	pr_debug("Executing: %s\n", command);
+
+	file = popen(command, "r");
+	if (!file)
+		return -1;
+
+	while (!feof(file))
+		if (hist_entry__parse_objdump_line(self, file, head) < 0)
+			break;
+
+	pclose(file);
+	return 0;
+}
+
+void hists__inc_nr_events(struct hists *self, u32 type)
+{
+	++self->stats.nr_events[0];
+	++self->stats.nr_events[type];
+}
+
+size_t hists__fprintf_nr_events(struct hists *self, FILE *fp)
+{
+	int i;
+	size_t ret = 0;
+
+	for (i = 0; i < PERF_RECORD_HEADER_MAX; ++i) {
+		if (!event__name[i])
+			continue;
+		ret += fprintf(fp, "%10s events: %10d\n",
+			       event__name[i], self->stats.nr_events[i]);
+	}
 
 	return ret;
 }

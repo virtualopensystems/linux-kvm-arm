@@ -110,6 +110,8 @@ struct cpu_hw_events {
 	u64			tags[X86_PMC_IDX_MAX];
 	struct perf_event	*event_list[X86_PMC_IDX_MAX]; /* in enabled order */
 
+	unsigned int		group_flag;
+
 	/*
 	 * Intel DebugStore bits
 	 */
@@ -170,7 +172,7 @@ struct cpu_hw_events {
 	EVENT_CONSTRAINT(0, 0, 0)
 
 #define for_each_event_constraint(e, c)	\
-	for ((e) = (c); (e)->cmask; (e)++)
+	for ((e) = (c); (e)->weight; (e)++)
 
 union perf_capabilities {
 	struct {
@@ -426,70 +428,11 @@ set_ext_hw_attr(struct hw_perf_event *hwc, struct perf_event_attr *attr)
 	return 0;
 }
 
-static int x86_pmu_hw_config(struct perf_event *event)
-{
-	/*
-	 * Generate PMC IRQs:
-	 * (keep 'enabled' bit clear for now)
-	 */
-	event->hw.config = ARCH_PERFMON_EVENTSEL_INT;
-
-	/*
-	 * Count user and OS events unless requested not to
-	 */
-	if (!event->attr.exclude_user)
-		event->hw.config |= ARCH_PERFMON_EVENTSEL_USR;
-	if (!event->attr.exclude_kernel)
-		event->hw.config |= ARCH_PERFMON_EVENTSEL_OS;
-
-	if (event->attr.type == PERF_TYPE_RAW)
-		event->hw.config |= event->attr.config & X86_RAW_EVENT_MASK;
-
-	return 0;
-}
-
-/*
- * Setup the hardware configuration for a given attr_type
- */
-static int __hw_perf_event_init(struct perf_event *event)
+static int x86_setup_perfctr(struct perf_event *event)
 {
 	struct perf_event_attr *attr = &event->attr;
 	struct hw_perf_event *hwc = &event->hw;
 	u64 config;
-	int err;
-
-	if (!x86_pmu_initialized())
-		return -ENODEV;
-
-	err = 0;
-	if (!atomic_inc_not_zero(&active_events)) {
-		mutex_lock(&pmc_reserve_mutex);
-		if (atomic_read(&active_events) == 0) {
-			if (!reserve_pmc_hardware())
-				err = -EBUSY;
-			else {
-				err = reserve_ds_buffers();
-				if (err)
-					release_pmc_hardware();
-			}
-		}
-		if (!err)
-			atomic_inc(&active_events);
-		mutex_unlock(&pmc_reserve_mutex);
-	}
-	if (err)
-		return err;
-
-	event->destroy = hw_perf_event_destroy;
-
-	hwc->idx = -1;
-	hwc->last_cpu = -1;
-	hwc->last_tag = ~0ULL;
-
-	/* Processor specifics */
-	err = x86_pmu.hw_config(event);
-	if (err)
-		return err;
 
 	if (!hwc->sample_period) {
 		hwc->sample_period = x86_pmu.max_period;
@@ -543,6 +486,81 @@ static int __hw_perf_event_init(struct perf_event *event)
 	hwc->config |= config;
 
 	return 0;
+}
+
+static int x86_pmu_hw_config(struct perf_event *event)
+{
+	if (event->attr.precise_ip) {
+		int precise = 0;
+
+		/* Support for constant skid */
+		if (x86_pmu.pebs)
+			precise++;
+
+		/* Support for IP fixup */
+		if (x86_pmu.lbr_nr)
+			precise++;
+
+		if (event->attr.precise_ip > precise)
+			return -EOPNOTSUPP;
+	}
+
+	/*
+	 * Generate PMC IRQs:
+	 * (keep 'enabled' bit clear for now)
+	 */
+	event->hw.config = ARCH_PERFMON_EVENTSEL_INT;
+
+	/*
+	 * Count user and OS events unless requested not to
+	 */
+	if (!event->attr.exclude_user)
+		event->hw.config |= ARCH_PERFMON_EVENTSEL_USR;
+	if (!event->attr.exclude_kernel)
+		event->hw.config |= ARCH_PERFMON_EVENTSEL_OS;
+
+	if (event->attr.type == PERF_TYPE_RAW)
+		event->hw.config |= event->attr.config & X86_RAW_EVENT_MASK;
+
+	return x86_setup_perfctr(event);
+}
+
+/*
+ * Setup the hardware configuration for a given attr_type
+ */
+static int __hw_perf_event_init(struct perf_event *event)
+{
+	int err;
+
+	if (!x86_pmu_initialized())
+		return -ENODEV;
+
+	err = 0;
+	if (!atomic_inc_not_zero(&active_events)) {
+		mutex_lock(&pmc_reserve_mutex);
+		if (atomic_read(&active_events) == 0) {
+			if (!reserve_pmc_hardware())
+				err = -EBUSY;
+			else {
+				err = reserve_ds_buffers();
+				if (err)
+					release_pmc_hardware();
+			}
+		}
+		if (!err)
+			atomic_inc(&active_events);
+		mutex_unlock(&pmc_reserve_mutex);
+	}
+	if (err)
+		return err;
+
+	event->destroy = hw_perf_event_destroy;
+
+	event->hw.idx = -1;
+	event->hw.last_cpu = -1;
+	event->hw.last_tag = ~0ULL;
+
+	return x86_pmu.hw_config(event);
 }
 
 static void x86_pmu_disable_all(void)
@@ -843,10 +861,10 @@ void hw_perf_enable(void)
 	x86_pmu.enable_all(added);
 }
 
-static inline void __x86_pmu_enable_event(struct hw_perf_event *hwc)
+static inline void __x86_pmu_enable_event(struct hw_perf_event *hwc,
+					  u64 enable_mask)
 {
-	wrmsrl(hwc->config_base + hwc->idx,
-			      hwc->config | ARCH_PERFMON_EVENTSEL_ENABLE);
+	wrmsrl(hwc->config_base + hwc->idx, hwc->config | enable_mask);
 }
 
 static inline void x86_pmu_disable_event(struct perf_event *event)
@@ -918,7 +936,8 @@ static void x86_pmu_enable_event(struct perf_event *event)
 {
 	struct cpu_hw_events *cpuc = &__get_cpu_var(cpu_hw_events);
 	if (cpuc->enabled)
-		__x86_pmu_enable_event(&event->hw);
+		__x86_pmu_enable_event(&event->hw,
+				       ARCH_PERFMON_EVENTSEL_ENABLE);
 }
 
 /*
@@ -944,6 +963,14 @@ static int x86_pmu_enable(struct perf_event *event)
 	if (n < 0)
 		return n;
 
+	/*
+	 * If group events scheduling transaction was started,
+	 * skip the schedulability test here, it will be peformed
+	 * at commit time(->commit_txn) as a whole
+	 */
+	if (cpuc->group_flag & PERF_EVENT_TXN_STARTED)
+		goto out;
+
 	ret = x86_pmu.schedule_events(cpuc, n, assign);
 	if (ret)
 		return ret;
@@ -953,6 +980,7 @@ static int x86_pmu_enable(struct perf_event *event)
 	 */
 	memcpy(cpuc->assign, assign, n*sizeof(int));
 
+out:
 	cpuc->n_events = n;
 	cpuc->n_added += n - n0;
 
@@ -1210,119 +1238,6 @@ x86_get_event_constraints(struct cpu_hw_events *cpuc, struct perf_event *event)
 	return &unconstrained;
 }
 
-static int x86_event_sched_in(struct perf_event *event,
-			  struct perf_cpu_context *cpuctx)
-{
-	int ret = 0;
-
-	event->state = PERF_EVENT_STATE_ACTIVE;
-	event->oncpu = smp_processor_id();
-	event->tstamp_running += event->ctx->time - event->tstamp_stopped;
-
-	if (!is_x86_event(event))
-		ret = event->pmu->enable(event);
-
-	if (!ret && !is_software_event(event))
-		cpuctx->active_oncpu++;
-
-	if (!ret && event->attr.exclusive)
-		cpuctx->exclusive = 1;
-
-	return ret;
-}
-
-static void x86_event_sched_out(struct perf_event *event,
-			    struct perf_cpu_context *cpuctx)
-{
-	event->state = PERF_EVENT_STATE_INACTIVE;
-	event->oncpu = -1;
-
-	if (!is_x86_event(event))
-		event->pmu->disable(event);
-
-	event->tstamp_running -= event->ctx->time - event->tstamp_stopped;
-
-	if (!is_software_event(event))
-		cpuctx->active_oncpu--;
-
-	if (event->attr.exclusive || !cpuctx->active_oncpu)
-		cpuctx->exclusive = 0;
-}
-
-/*
- * Called to enable a whole group of events.
- * Returns 1 if the group was enabled, or -EAGAIN if it could not be.
- * Assumes the caller has disabled interrupts and has
- * frozen the PMU with hw_perf_save_disable.
- *
- * called with PMU disabled. If successful and return value 1,
- * then guaranteed to call perf_enable() and hw_perf_enable()
- */
-int hw_perf_group_sched_in(struct perf_event *leader,
-	       struct perf_cpu_context *cpuctx,
-	       struct perf_event_context *ctx)
-{
-	struct cpu_hw_events *cpuc = &__get_cpu_var(cpu_hw_events);
-	struct perf_event *sub;
-	int assign[X86_PMC_IDX_MAX];
-	int n0, n1, ret;
-
-	if (!x86_pmu_initialized())
-		return 0;
-
-	/* n0 = total number of events */
-	n0 = collect_events(cpuc, leader, true);
-	if (n0 < 0)
-		return n0;
-
-	ret = x86_pmu.schedule_events(cpuc, n0, assign);
-	if (ret)
-		return ret;
-
-	ret = x86_event_sched_in(leader, cpuctx);
-	if (ret)
-		return ret;
-
-	n1 = 1;
-	list_for_each_entry(sub, &leader->sibling_list, group_entry) {
-		if (sub->state > PERF_EVENT_STATE_OFF) {
-			ret = x86_event_sched_in(sub, cpuctx);
-			if (ret)
-				goto undo;
-			++n1;
-		}
-	}
-	/*
-	 * copy new assignment, now we know it is possible
-	 * will be used by hw_perf_enable()
-	 */
-	memcpy(cpuc->assign, assign, n0*sizeof(int));
-
-	cpuc->n_events  = n0;
-	cpuc->n_added  += n1;
-	ctx->nr_active += n1;
-
-	/*
-	 * 1 means successful and events are active
-	 * This is not quite true because we defer
-	 * actual activation until hw_perf_enable() but
-	 * this way we* ensure caller won't try to enable
-	 * individual events
-	 */
-	return 1;
-undo:
-	x86_event_sched_out(leader, cpuctx);
-	n0  = 1;
-	list_for_each_entry(sub, &leader->sibling_list, group_entry) {
-		if (sub->state == PERF_EVENT_STATE_ACTIVE) {
-			x86_event_sched_out(sub, cpuctx);
-			if (++n0 == n1)
-				break;
-		}
-	}
-	return ret;
-}
-
 #include "perf_event_amd.c"
 #include "perf_event_p6.c"
 #include "perf_event_p4.c"
@@ -1454,6 +1369,59 @@ static inline void x86_pmu_read(struct perf_event *event)
 	x86_perf_event_update(event);
 }
 
+/*
+ * Start group events scheduling transaction
+ * Set the flag to make pmu::enable() not perform the
+ * schedulability test, it will be performed at commit time
+ */
+static void x86_pmu_start_txn(const struct pmu *pmu)
+{
+	struct cpu_hw_events *cpuc = &__get_cpu_var(cpu_hw_events);
+
+	cpuc->group_flag |= PERF_EVENT_TXN_STARTED;
+}
+
+/*
+ * Stop group events scheduling transaction
+ * Clear the flag and pmu::enable() will perform the
+ * schedulability test.
+ */
+static void x86_pmu_cancel_txn(const struct pmu *pmu)
+{
+	struct cpu_hw_events *cpuc = &__get_cpu_var(cpu_hw_events);
+
+	cpuc->group_flag &= ~PERF_EVENT_TXN_STARTED;
+}
+
+/*
+ * Commit group events scheduling transaction
+ * Perform the group schedulability test as a whole
+ * Return 0 if success
+ */
+static int x86_pmu_commit_txn(const struct pmu *pmu)
+{
+	struct cpu_hw_events *cpuc = &__get_cpu_var(cpu_hw_events);
+	int assign[X86_PMC_IDX_MAX];
+	int n, ret;
+
+	n = cpuc->n_events;
+
+	if (!x86_pmu_initialized())
+		return -EAGAIN;
+
+	ret = x86_pmu.schedule_events(cpuc, n, assign);
+	if (ret)
+		return ret;
+
+	/*
+	 * copy new assignment, now we know it is possible
+	 * will be used by hw_perf_enable()
+	 */
+	memcpy(cpuc->assign, assign, n*sizeof(int));
+
+	return 0;
+}
+
 static const struct pmu pmu = {
 	.enable		= x86_pmu_enable,
 	.disable	= x86_pmu_disable,
@@ -1461,6 +1429,9 @@ static const struct pmu pmu = {
 	.stop		= x86_pmu_stop,
 	.read		= x86_pmu_read,
 	.unthrottle	= x86_pmu_unthrottle,
+	.start_txn	= x86_pmu_start_txn,
+	.cancel_txn	= x86_pmu_cancel_txn,
+	.commit_txn	= x86_pmu_commit_txn,
 };
 
 /*
@@ -1778,7 +1749,7 @@ unsigned long perf_misc_flags(struct pt_regs *regs)
 	}
 
 	if (regs->flags & PERF_EFLAGS_EXACT)
-		misc |= PERF_RECORD_MISC_EXACT;
+		misc |= PERF_RECORD_MISC_EXACT_IP;
 
 	return misc;
 }

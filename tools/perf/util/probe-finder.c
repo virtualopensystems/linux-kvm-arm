@@ -31,6 +31,7 @@
 #include <string.h>
 #include <stdarg.h>
 #include <ctype.h>
+#include <dwarf-regs.h>
 
 #include "string.h"
 #include "event.h"
@@ -38,60 +39,8 @@
 #include "util.h"
 #include "probe-finder.h"
 
-
-/*
- * Generic dwarf analysis helpers
- */
-
-#define X86_32_MAX_REGS 8
-const char *x86_32_regs_table[X86_32_MAX_REGS] = {
-	"%ax",
-	"%cx",
-	"%dx",
-	"%bx",
-	"$stack",	/* Stack address instead of %sp */
-	"%bp",
-	"%si",
-	"%di",
-};
-
-#define X86_64_MAX_REGS 16
-const char *x86_64_regs_table[X86_64_MAX_REGS] = {
-	"%ax",
-	"%dx",
-	"%cx",
-	"%bx",
-	"%si",
-	"%di",
-	"%bp",
-	"%sp",
-	"%r8",
-	"%r9",
-	"%r10",
-	"%r11",
-	"%r12",
-	"%r13",
-	"%r14",
-	"%r15",
-};
-
-/* TODO: switching by dwarf address size */
-#ifdef __x86_64__
-#define ARCH_MAX_REGS X86_64_MAX_REGS
-#define arch_regs_table x86_64_regs_table
-#else
-#define ARCH_MAX_REGS X86_32_MAX_REGS
-#define arch_regs_table x86_32_regs_table
-#endif
-
 /* Kprobe tracer basic type is up to u64 */
 #define MAX_BASIC_TYPE_BITS	64
-
-/* Return architecture dependent register string (for kprobe-tracer) */
-static const char *get_arch_regstr(unsigned int n)
-{
-	return (n <= ARCH_MAX_REGS) ? arch_regs_table[n] : NULL;
-}
 
 /*
  * Compare the tail of two strings.
@@ -447,7 +396,7 @@ static int convert_location(Dwarf_Op *op, struct probe_finder *pf)
 
 	regs = get_arch_regstr(regn);
 	if (!regs) {
-		pr_warning("%u exceeds max register number.\n", regn);
+		pr_warning("Mapping for DWARF register number %u missing on this architecture.", regn);
 		return -ERANGE;
 	}
 
@@ -677,8 +626,9 @@ static int convert_probe_point(Dwarf_Die *sp_die, struct probe_finder *pf)
 	Dwarf_Attribute fb_attr;
 	size_t nops;
 
-	if (pf->ntevs == MAX_PROBES) {
-		pr_warning("Too many( > %d) probe point found.\n", MAX_PROBES);
+	if (pf->ntevs == pf->max_tevs) {
+		pr_warning("Too many( > %d) probe point found.\n",
+			   pf->max_tevs);
 		return -ERANGE;
 	}
 	tev = &pf->tevs[pf->ntevs++];
@@ -922,6 +872,8 @@ static int probe_point_inline_cb(Dwarf_Die *in_die, void *data)
 			 (uintmax_t)pf->addr);
 
 		param->retval = convert_probe_point(in_die, pf);
+		if (param->retval < 0)
+			return DWARF_CB_ABORT;
 	}
 
 	return DWARF_CB_OK;
@@ -981,9 +933,9 @@ static int find_probe_point_by_func(struct probe_finder *pf)
 
 /* Find kprobe_trace_events specified by perf_probe_event from debuginfo */
 int find_kprobe_trace_events(int fd, struct perf_probe_event *pev,
-			     struct kprobe_trace_event **tevs)
+			     struct kprobe_trace_event **tevs, int max_tevs)
 {
-	struct probe_finder pf = {.pev = pev};
+	struct probe_finder pf = {.pev = pev, .max_tevs = max_tevs};
 	struct perf_probe_point *pp = &pev->point;
 	Dwarf_Off off, noff;
 	size_t cuhl;
@@ -991,7 +943,7 @@ int find_kprobe_trace_events(int fd, struct perf_probe_event *pev,
 	Dwarf *dbg;
 	int ret = 0;
 
-	pf.tevs = zalloc(sizeof(struct kprobe_trace_event) * MAX_PROBES);
+	pf.tevs = zalloc(sizeof(struct kprobe_trace_event) * max_tevs);
 	if (pf.tevs == NULL)
 		return -ENOMEM;
 	*tevs = pf.tevs;
@@ -1157,6 +1109,8 @@ static int line_range_funcdecl_cb(Dwarf_Die *sp_die, void *data)
 		return DWARF_CB_OK;
 
 	param->retval = line_range_add_line(src, lineno, lf->lr);
+	if (param->retval < 0)
+		return DWARF_CB_ABORT;
 	return DWARF_CB_OK;
 }
 

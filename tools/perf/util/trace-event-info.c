@@ -487,6 +487,17 @@ get_tracepoints_path(struct perf_event_attr *pattrs, int nb_events)
 	return nr_tracepoints > 0 ? path.next : NULL;
 }
 
+bool have_tracepoints(struct perf_event_attr *pattrs, int nb_events)
+{
+	int i;
+
+	for (i = 0; i < nb_events; i++)
+		if (pattrs[i].type == PERF_TYPE_TRACEPOINT)
+			return true;
+
+	return false;
+}
+
 int read_tracing_data(int fd, struct perf_event_attr *pattrs, int nb_events)
 {
 	char buf[BUFSIZ];
