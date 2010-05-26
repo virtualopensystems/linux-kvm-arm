@@ -1456,7 +1456,7 @@ static bool is_erratum_383(void)
 	/* Bit 62 may or may not be set for this mce */
 	value &= ~(1ULL << 62);
 
-	if (value != 0xb600000000010015)
+	if (value != 0xb600000000010015ULL)
 		return false;
 
 	/* Clear MCi_STATUS registers */
