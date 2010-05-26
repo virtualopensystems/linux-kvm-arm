@@ -1487,8 +1487,6 @@ static void svm_handle_mce(struct vcpu_svm *svm)
 		 * Erratum 383 triggered. Guest state is corrupt so kill the
 		 * guest.
 		 */
-		struct kvm_run *kvm_run = svm->vcpu.run;
-
 		pr_err("KVM: Guest triggered AMD Erratum 383\n");
 
 		set_bit(KVM_REQ_TRIPLE_FAULT, &svm->vcpu.requests);
