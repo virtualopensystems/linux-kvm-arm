@@ -102,7 +102,9 @@ apply_relocate(Elf32_Shdr *sechdrs, const char *strtab, unsigned int symindex,
 		unsigned long loc;
 		Elf32_Sym *sym;
 		s32 offset;
+#ifdef CONFIG_THUMB2_KERNEL
 		u32 upper, lower, sign, j1, j2;
+#endif
 
 		offset = ELF32_R_SYM(rel->r_info);
 		if (offset < 0 || offset > (symsec->sh_size / sizeof(Elf32_Sym))) {
