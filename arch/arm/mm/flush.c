@@ -215,6 +215,21 @@ static void __flush_dcache_aliases(struct address_space *mapping, struct page *p
 	flush_dcache_mmap_unlock(mapping);
 }
 
+#ifdef CONFIG_SMP
+void __sync_icache_dcache(pte_t pteval)
+{
+	unsigned long pfn = pte_pfn(pteval);
+
+	if (pfn_valid(pfn) && pte_present_exec_user(pteval)) {
+		struct page *page = pfn_to_page(pfn);
+
+		if (!test_and_set_bit(PG_dcache_clean, &page->flags))
+			__flush_dcache_page(NULL, page);
+		__flush_icache_all();
+	}
+}
+#endif
+
 /*
  * Ensure cache coherency between kernel mapping and userspace mapping
  * of this page.
