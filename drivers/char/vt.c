@@ -304,7 +304,7 @@ static void scrup(struct vc_data *vc, unsigned int t, unsigned int b, int nr)
 	d = (unsigned short *)(vc->vc_origin + vc->vc_size_row * t);
 	s = (unsigned short *)(vc->vc_origin + vc->vc_size_row * (t + nr));
 	scr_memmovew(d, s, (b - t - nr) * vc->vc_size_row);
-	scr_memsetw(d + (b - t - nr) * vc->vc_cols, vc->vc_video_erase_char,
+	scr_memsetw(d + (b - t - nr) * vc->vc_size_row, vc->vc_video_erase_char,
 		    vc->vc_size_row * nr);
 }
 
@@ -3967,13 +3967,9 @@ static int con_font_set(struct vc_data *vc, struct console_font_op *op)
 	font.charcount = op->charcount;
 	font.height = op->height;
 	font.width = op->width;
-	font.data = kmalloc(size, GFP_KERNEL);
-	if (!font.data)
-		return -ENOMEM;
-	if (copy_from_user(font.data, op->data, size)) {
-		kfree(font.data);
-		return -EFAULT;
-	}
+	font.data = memdup_user(op->data, size);
+	if (IS_ERR(font.data))
+		return PTR_ERR(font.data);
 	acquire_console_sem();
 	if (vc->vc_sw->con_font_set)
 		rc = vc->vc_sw->con_font_set(vc, &font, op->flags);

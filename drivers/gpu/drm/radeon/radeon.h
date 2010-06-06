@@ -176,6 +176,7 @@ void radeon_pm_suspend(struct radeon_device *rdev);
 void radeon_pm_resume(struct radeon_device *rdev);
 void radeon_combios_get_power_modes(struct radeon_device *rdev);
 void radeon_atombios_get_power_modes(struct radeon_device *rdev);
+void radeon_atom_set_voltage(struct radeon_device *rdev, u16 level);
 
 /*
  * Fences.
@@ -576,6 +577,7 @@ typedef int (*radeon_packet3_check_t)(struct radeon_cs_parser *p,
  */
 int radeon_agp_init(struct radeon_device *rdev);
 void radeon_agp_resume(struct radeon_device *rdev);
+void radeon_agp_suspend(struct radeon_device *rdev);
 void radeon_agp_fini(struct radeon_device *rdev);
 
 
