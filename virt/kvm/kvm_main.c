@@ -773,6 +773,30 @@ int kvm_vm_ioctl_set_memory_region(struct kvm *kvm,
 	return kvm_set_memory_region(kvm, mem, user_alloc);
 }
 
+static int kvm_vm_ioctl_get_dirty_log(struct kvm *kvm,
+				      struct kvm_dirty_log *log)
+{
+	struct kvm_memory_slot *memslot;
+	int r;
+
+	mutex_lock(&kvm->slots_lock);
+
+	r = -EINVAL;
+	if (log->slot >= KVM_MEMORY_SLOTS)
+		goto out;
+
+	memslot = &kvm->memslots->memslots[log->slot];
+	r = -ENOENT;
+	if (!memslot->dirty_bitmap)
+		goto out;
+
+	r = kvm_arch_vm_ioctl_get_dirty_log(kvm, log);
+
+out:
+	mutex_unlock(&kvm->slots_lock);
+	return r;
+}
+
 void kvm_disable_largepages(void)
 {
 	largepages_enabled = false;
