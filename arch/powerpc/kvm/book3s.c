@@ -1185,43 +1185,28 @@ int kvm_vm_ioctl_get_dirty_log(struct kvm *kvm,
 	struct kvm_memory_slot *memslot;
 	struct kvm_vcpu *vcpu;
 	ulong ga, ga_end;
-	unsigned long is_dirty = 0;
-	int r, i;
+	int is_dirty = 0;
+	int r;
 	unsigned long n;
 
 	mutex_lock(&kvm->slots_lock);
 
-	r = -EINVAL;
-	if (log->slot >= KVM_MEMORY_SLOTS)
+	r = kvm_get_dirty_log(kvm, log, &is_dirty);
+	if (r)
 		goto out;
-
-	memslot = &kvm->memslots->memslots[log->slot];
-	r = -ENOENT;
-	if (!memslot->dirty_bitmap)
-		goto out;
-
-	n = kvm_dirty_bitmap_bytes(memslot);
-
-	for (i = 0; !is_dirty && i < n/sizeof(long); ++i)
-		is_dirty = memslot->dirty_bitmap[i];
 
 	/* If nothing is dirty, don't bother messing with page tables. */
 	if (is_dirty) {
+		memslot = &kvm->memslots->memslots[log->slot];
+
 		ga = memslot->base_gfn << PAGE_SHIFT;
 		ga_end = ga + (memslot->npages << PAGE_SHIFT);
 
 		kvm_for_each_vcpu(n, vcpu, kvm)
 			kvmppc_mmu_pte_pflush(vcpu, ga, ga_end);
 
-		r = -EFAULT;
-		if (copy_to_user(log->dirty_bitmap, memslot->dirty_bitmap, n))
-			goto out;
-
+		n = kvm_dirty_bitmap_bytes(memslot);
 		memset(memslot->dirty_bitmap, 0, n);
-	} else {
-		r = -EFAULT;
-		if (clear_user(log->dirty_bitmap, n))
-			goto out;
 	}
 
 	r = 0;

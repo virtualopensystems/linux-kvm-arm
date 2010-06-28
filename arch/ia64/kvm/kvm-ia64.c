@@ -1818,10 +1818,10 @@ static void kvm_ia64_sync_dirty_log(struct kvm *kvm,
 int kvm_vm_ioctl_get_dirty_log(struct kvm *kvm,
 		struct kvm_dirty_log *log)
 {
-	int r, i;
+	int r;
 	unsigned long n;
 	struct kvm_memory_slot *memslot;
-	unsigned long is_dirty = 0;
+	int is_dirty = 0;
 
 	mutex_lock(&kvm->slots_lock);
 
@@ -1835,23 +1835,15 @@ int kvm_vm_ioctl_get_dirty_log(struct kvm *kvm,
 		goto out;
 
 	kvm_ia64_sync_dirty_log(kvm, memslot);
-
-	n = kvm_dirty_bitmap_bytes(memslot);
-
-	for (i = 0; !is_dirty && i < n/sizeof(long); ++i)
-		is_dirty = memslot->dirty_bitmap[i];
+	r = kvm_get_dirty_log(kvm, log, &is_dirty);
+	if (r)
+		goto out;
 
 	/* If nothing is dirty, don't bother messing with page tables. */
 	if (is_dirty) {
 		kvm_flush_remote_tlbs(kvm);
-		r = -EFAULT;
-		if (copy_to_user(log->dirty_bitmap, memslot->dirty_bitmap, n))
-			goto out;
+		n = kvm_dirty_bitmap_bytes(memslot);
 		memset(memslot->dirty_bitmap, 0, n);
-	} else {
-		r = -EFAULT;
-		if (clear_user(log->dirty_bitmap, n))
-			goto out;
 	}
 	r = 0;
 out:
