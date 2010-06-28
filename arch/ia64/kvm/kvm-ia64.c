@@ -1815,15 +1815,24 @@ static void kvm_ia64_sync_dirty_log(struct kvm *kvm,
 	spin_unlock(&kvm->arch.dirty_log_lock);
 }
 
-int kvm_arch_vm_ioctl_get_dirty_log(struct kvm *kvm,
-				    struct kvm_dirty_log *log)
+int kvm_vm_ioctl_get_dirty_log(struct kvm *kvm,
+		struct kvm_dirty_log *log)
 {
 	int r, i;
 	unsigned long n;
 	struct kvm_memory_slot *memslot;
 	unsigned long is_dirty = 0;
 
+	mutex_lock(&kvm->slots_lock);
+
+	r = -EINVAL;
+	if (log->slot >= KVM_MEMORY_SLOTS)
+		goto out;
+
 	memslot = &kvm->memslots->memslots[log->slot];
+	r = -ENOENT;
+	if (!memslot->dirty_bitmap)
+		goto out;
 
 	kvm_ia64_sync_dirty_log(kvm, memslot);
 
@@ -1846,6 +1855,7 @@ int kvm_arch_vm_ioctl_get_dirty_log(struct kvm *kvm,
 	}
 	r = 0;
 out:
+	mutex_unlock(&kvm->slots_lock);
 	return r;
 }
 

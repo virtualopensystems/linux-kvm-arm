@@ -336,8 +336,8 @@ long kvm_arch_vcpu_ioctl(struct file *filp,
 
 int kvm_dev_ioctl_check_extension(long ext);
 
-int kvm_arch_vm_ioctl_get_dirty_log(struct kvm *kvm,
-				    struct kvm_dirty_log *log);
+int kvm_vm_ioctl_get_dirty_log(struct kvm *kvm,
+				struct kvm_dirty_log *log);
 
 int kvm_vm_ioctl_set_memory_region(struct kvm *kvm,
 				   struct

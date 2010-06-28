@@ -2861,15 +2861,24 @@ static int kvm_vm_ioctl_reinject(struct kvm *kvm,
 /*
  * Get (and clear) the dirty memory log for a memory slot.
  */
-int kvm_arch_vm_ioctl_get_dirty_log(struct kvm *kvm,
-				    struct kvm_dirty_log *log)
+int kvm_vm_ioctl_get_dirty_log(struct kvm *kvm,
+				      struct kvm_dirty_log *log)
 {
 	int r, i;
 	struct kvm_memory_slot *memslot;
 	unsigned long n;
 	unsigned long is_dirty = 0;
 
+	mutex_lock(&kvm->slots_lock);
+
+	r = -EINVAL;
+	if (log->slot >= KVM_MEMORY_SLOTS)
+		goto out;
+
 	memslot = &kvm->memslots->memslots[log->slot];
+	r = -ENOENT;
+	if (!memslot->dirty_bitmap)
+		goto out;
 
 	n = kvm_dirty_bitmap_bytes(memslot);
 
@@ -2920,6 +2929,7 @@ int kvm_arch_vm_ioctl_get_dirty_log(struct kvm *kvm,
 
 	r = 0;
 out:
+	mutex_unlock(&kvm->slots_lock);
 	return r;
 }
 

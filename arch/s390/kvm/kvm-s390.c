@@ -134,8 +134,8 @@ int kvm_dev_ioctl_check_extension(long ext)
 /*
  * Get (and clear) the dirty memory log for a memory slot.
  */
-int kvm_arch_vm_ioctl_get_dirty_log(struct kvm *kvm,
-				    struct kvm_dirty_log *log)
+int kvm_vm_ioctl_get_dirty_log(struct kvm *kvm,
+			       struct kvm_dirty_log *log)
 {
 	return 0;
 }
