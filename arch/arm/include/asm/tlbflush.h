@@ -554,10 +554,10 @@ extern void flush_tlb_kernel_range(unsigned long start, unsigned long end);
 /*
  * If PG_dcache_clean is not set for the page, we need to ensure that any
  * cache entries for the kernels virtual memory range are written
- * back to the page. On SMP systems, the cache coherency is handled in the
- * set_pte_at() function.
+ * back to the page. On ARMv6 and later, the cache coherency is handled via
+ * the set_pte_at() function.
  */
-#ifndef CONFIG_SMP
+#if __LINUX_ARM_ARCH__ < 6
 extern void update_mmu_cache(struct vm_area_struct *vma, unsigned long addr,
 	pte_t *ptep);
 #else

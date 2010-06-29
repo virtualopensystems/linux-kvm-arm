@@ -512,7 +512,7 @@ void ___dma_page_dev_to_cpu(struct page *page, unsigned long off,
 	/*
 	 * Mark the D-cache clean for this page to avoid extra flushing.
 	 */
-	if (dir != DMA_TO_DEVICE)
+	if (dir != DMA_TO_DEVICE && off == 0 && size >= PAGE_SIZE)
 		set_bit(PG_dcache_clean, &page->flags);
 }
 EXPORT_SYMBOL(___dma_page_dev_to_cpu);
