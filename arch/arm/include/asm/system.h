@@ -141,12 +141,8 @@ extern unsigned int user_debug;
 
 #ifdef CONFIG_ARCH_HAS_BARRIERS
 #include <mach/barriers.h>
-#elif defined(CONFIG_ARM_DMA_MEM_BUFFERABLE)
+#elif defined(CONFIG_ARM_DMA_MEM_BUFFERABLE) || defined(CONFIG_SMP)
 #define mb()		do { dsb(); outer_sync(); } while (0)
-#define rmb()		dmb()
-#define wmb()		mb()
-#elif defined(CONFIG_SMP)
-#define mb()		dsb()
 #define rmb()		dmb()
 #define wmb()		mb()
 #else
