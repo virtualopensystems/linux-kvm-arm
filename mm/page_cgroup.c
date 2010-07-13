@@ -126,6 +126,12 @@ static int __init_refok init_section_page_cgroup(unsigned long pfn)
 			if (!base)
 				base = vmalloc(table_size);
 		}
+		/*
+		 * The value stored in section->page_cgroup is (base - pfn)
+		 * and it does not point to the memory block allocated above,
+		 * causing kmemleak false positives.
+		 */
+		kmemleak_not_leak(base);
 	} else {
 		/*
  		 * We don't have to allocate page_cgroup again, but
