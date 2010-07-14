@@ -186,20 +186,20 @@ extern void _memset_io(volatile void __iomem *, int, size_t);
 #define readl_relaxed(c) ({ u32 __v = le32_to_cpu((__force __le32) \
 					__raw_readl(__mem_pci(c))); __v; })
 
-#define writeb_relaxed(v,c)	__raw_writeb(v,__mem_pci(c))
-#define writew_relaxed(v,c)	__raw_writew((__force u16) \
-					cpu_to_le16(v),__mem_pci(c))
-#define writel_relaxed(v,c)	__raw_writel((__force u32) \
-					cpu_to_le32(v),__mem_pci(c))
+#define writeb_relaxed(v,c)	((void)__raw_writeb(v,__mem_pci(c)))
+#define writew_relaxed(v,c)	((void)__raw_writew((__force u16) \
+					cpu_to_le16(v),__mem_pci(c)))
+#define writel_relaxed(v,c)	((void)__raw_writel((__force u32) \
+					cpu_to_le32(v),__mem_pci(c)))
 
 #ifdef CONFIG_ARM_DMA_MEM_BUFFERABLE
 #define readb(c)		({ u8  __v = readb_relaxed(c); rmb(); __v; })
 #define readw(c)		({ u16 __v = readw_relaxed(c); rmb(); __v; })
 #define readl(c)		({ u32 __v = readl_relaxed(c); rmb(); __v; })
 
-#define writeb(v,c)		do { wmb(); writeb_relaxed(v,c); } while (0)
-#define writew(v,c)		do { wmb(); writew_relaxed(v,c); } while (0)
-#define writel(v,c)		do { wmb(); writel_relaxed(v,c); } while (0)
+#define writeb(v,c)		({ wmb(); writeb_relaxed(v,c); })
+#define writew(v,c)		({ wmb(); writew_relaxed(v,c); })
+#define writel(v,c)		({ wmb(); writel_relaxed(v,c); })
 #else
 #define readb(c)		readb_relaxed(c)
 #define readw(c)		readw_relaxed(c)
