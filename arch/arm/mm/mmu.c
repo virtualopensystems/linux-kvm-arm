@@ -488,7 +488,7 @@ static void __init build_mem_type_table(void)
 	}
 }
 
-#if __LINUX_ARM_ARCH__ >= 7
+#ifdef CONFIG_ARM_DMA_MEM_BUFFERABLE
 pgprot_t phys_mem_access_prot(struct file *file, unsigned long pfn,
 			      unsigned long size, pgprot_t vma_prot)
 {
