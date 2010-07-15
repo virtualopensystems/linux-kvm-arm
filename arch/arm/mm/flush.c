@@ -119,8 +119,8 @@ void flush_ptrace_access(struct vm_area_struct *vma, struct page *page,
 
 	/* VIPT non-aliasing cache */
 	if (vma->vm_flags & VM_EXEC) {
-		unsigned long addr = (unsigned long)kaddr;
-		__cpuc_coherent_kern_range(addr, addr + len);
+		__cpuc_flush_dcache_area(kaddr, len);
+		__flush_icache_all();
 		if (cache_ops_need_broadcast())
 			smp_call_function(flush_ptrace_access_other,
 					  NULL, 1);
