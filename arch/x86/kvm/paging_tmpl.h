@@ -374,12 +374,12 @@ static u64 *FNAME(fetch)(struct kvm_vcpu *vcpu, gva_t addr,
 	     shadow_walk_next(&it)) {
 		gfn_t direct_gfn;
 
+		validate_direct_spte(vcpu, it.sptep, direct_access);
+
 		drop_large_spte(vcpu, it.sptep);
 
 		if (is_shadow_present_pte(*it.sptep))
 			continue;
-
-		validate_direct_spte(vcpu, it.sptep, direct_access);
 
 		direct_gfn = gw->gfn & ~(KVM_PAGES_PER_HPAGE(it.level) - 1);
 
