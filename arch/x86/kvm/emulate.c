@@ -3029,6 +3029,8 @@ special_insn:
 		if (c->modrm_reg == 5)
 			goto jump_far;
 		goto grp45;
+	default:
+		goto cannot_emulate;
 	}
 
 writeback:
@@ -3354,6 +3356,8 @@ twobyte_insn:
 		if (rc != X86EMUL_CONTINUE)
 			goto done;
 		break;
+	default:
+		goto cannot_emulate;
 	}
 	goto writeback;
 
