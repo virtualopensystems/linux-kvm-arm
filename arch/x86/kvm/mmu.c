@@ -2904,8 +2904,8 @@ void kvm_mmu_pte_write(struct kvm_vcpu *vcpu, gpa_t gpa,
 			entry = *spte;
 			mmu_pte_write_zap_pte(vcpu, sp, spte);
 			if (gentry &&
-			      !(sp->role.word ^ vcpu->arch.mmu.base_role.word)
-			      & mask.word)
+			      !((sp->role.word ^ vcpu->arch.mmu.base_role.word)
+			      & mask.word))
 				mmu_pte_write_new_pte(vcpu, sp, spte, &gentry);
 			if (!remote_flush && need_remote_flush(entry, *spte))
 				remote_flush = true;
