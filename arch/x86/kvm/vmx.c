@@ -3333,6 +3333,7 @@ static int handle_wrmsr(struct kvm_vcpu *vcpu)
 
 static int handle_tpr_below_threshold(struct kvm_vcpu *vcpu)
 {
+	kvm_make_request(KVM_REQ_EVENT, vcpu);
 	return 1;
 }
 
@@ -3344,6 +3345,8 @@ static int handle_interrupt_window(struct kvm_vcpu *vcpu)
 	cpu_based_vm_exec_control = vmcs_read32(CPU_BASED_VM_EXEC_CONTROL);
 	cpu_based_vm_exec_control &= ~CPU_BASED_VIRTUAL_INTR_PENDING;
 	vmcs_write32(CPU_BASED_VM_EXEC_CONTROL, cpu_based_vm_exec_control);
+
+	kvm_make_request(KVM_REQ_EVENT, vcpu);
 
 	++vcpu->stat.irq_window_exits;
 
@@ -3601,6 +3604,7 @@ static int handle_nmi_window(struct kvm_vcpu *vcpu)
 	cpu_based_vm_exec_control &= ~CPU_BASED_VIRTUAL_NMI_PENDING;
 	vmcs_write32(CPU_BASED_VM_EXEC_CONTROL, cpu_based_vm_exec_control);
 	++vcpu->stat.nmi_window_exits;
+	kvm_make_request(KVM_REQ_EVENT, vcpu);
 
 	return 1;
 }
@@ -3833,6 +3837,8 @@ static void vmx_complete_interrupts(struct vcpu_vmx *vmx)
 
 	if (!idtv_info_valid)
 		return;
+
+	kvm_make_request(KVM_REQ_EVENT, &vmx->vcpu);
 
 	vector = idt_vectoring_info & VECTORING_INFO_VECTOR_MASK;
 	type = idt_vectoring_info & VECTORING_INFO_TYPE_MASK;
