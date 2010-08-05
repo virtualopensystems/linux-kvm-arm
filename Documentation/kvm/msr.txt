@@ -43,7 +43,7 @@ MSR_KVM_WALL_CLOCK_NEW:   0x4b564d00
 	particular MSR is global.
 
 	Availability of this MSR must be checked via bit 3 in 0x4000001 cpuid
-	leaf prior to usage. 
+	leaf prior to usage.
 
 MSR_KVM_SYSTEM_TIME_NEW:  0x4b564d01
 
@@ -96,7 +96,7 @@ MSR_KVM_SYSTEM_TIME_NEW:  0x4b564d01
 		doing:
 
 			time = (current_tsc - tsc_timestamp)
-			time = (time * tsc_to_system_mul) >> tsc_shift 
+			time = (time * tsc_to_system_mul) >> tsc_shift
 			time = time + system_time
 
 		flags: bits in this field indicate extended capabilities
@@ -123,7 +123,7 @@ MSR_KVM_WALL_CLOCK:  0x11
 	future. Its usage is deprecated.
 
 	Availability of this MSR must be checked via bit 0 in 0x4000001 cpuid
-	leaf prior to usage. 
+	leaf prior to usage.
 
 MSR_KVM_SYSTEM_TIME: 0x12
 
