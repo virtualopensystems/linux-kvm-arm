@@ -72,6 +72,7 @@
 #define SrcImmFAddr (0xb<<4)	/* Source is immediate far address */
 #define SrcMemFAddr (0xc<<4)	/* Source is far address in memory */
 #define SrcAcc      (0xd<<4)	/* Source Accumulator */
+#define SrcImmU16   (0xe<<4)    /* Immediate operand, unsigned, 16 bits */
 #define SrcMask     (0xf<<4)
 /* Generic ModRM decode. */
 #define ModRM       (1<<8)
@@ -2679,13 +2680,17 @@ done_prefixes:
 	srcmem_common:
 		c->src = memop;
 		break;
+	case SrcImmU16:
+		c->src.bytes = 2;
+		goto srcimm;
 	case SrcImm:
 	case SrcImmU:
-		c->src.type = OP_IMM;
-		c->src.addr.mem = c->eip;
 		c->src.bytes = (c->d & ByteOp) ? 1 : c->op_bytes;
 		if (c->src.bytes == 8)
 			c->src.bytes = 4;
+	srcimm:
+		c->src.type = OP_IMM;
+		c->src.addr.mem = c->eip;
 		/* NB. Immediates are sign-extended as necessary. */
 		switch (c->src.bytes) {
 		case 1:
@@ -2698,7 +2703,8 @@ done_prefixes:
 			c->src.val = insn_fetch(s32, 4, c->eip);
 			break;
 		}
-		if ((c->d & SrcMask) == SrcImmU) {
+		if ((c->d & SrcMask) == SrcImmU
+		    || (c->d & SrcMask) == SrcImmU16) {
 			switch (c->src.bytes) {
 			case 1:
 				c->src.val &= 0xff;
