@@ -285,6 +285,33 @@ void ktime_get_ts(struct timespec *ts)
 }
 EXPORT_SYMBOL_GPL(ktime_get_ts);
 
+
+/**
+ * getnsboottime - get the bootbased clock in nsec format
+ *
+ * The function calculates the bootbased clock from the realtime
+ * clock and the wall_to_monotonic offset and stores the result
+ * in normalized timespec format in the variable pointed to by @ts.
+ */
+s64 getnsboottime(void)
+{
+	unsigned int seq;
+	s64 secs, nsecs;
+
+	WARN_ON(timekeeping_suspended);
+
+	do {
+		seq = read_seqbegin(&xtime_lock);
+		secs = xtime.tv_sec + wall_to_monotonic.tv_sec;
+		secs += total_sleep_time.tv_sec;
+		nsecs = xtime.tv_nsec + wall_to_monotonic.tv_nsec;
+		nsecs += total_sleep_time.tv_nsec + timekeeping_get_ns();
+
+	} while (read_seqretry(&xtime_lock, seq));
+	return nsecs + (secs * NSEC_PER_SEC);
+}
+EXPORT_SYMBOL_GPL(getnsboottime);
+
 /**
  * do_gettimeofday - Returns the time of day in a timeval
  * @tv:		pointer to the timeval to be set
