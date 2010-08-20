@@ -2582,7 +2582,7 @@ static int svm_set_msr(struct kvm_vcpu *vcpu, unsigned ecx, u64 data)
 
 	switch (ecx) {
 	case MSR_IA32_TSC:
-		svm_write_tsc_offset(vcpu, data - native_read_tsc());
+		kvm_write_tsc(vcpu, data);
 		break;
 	case MSR_K6_STAR:
 		svm->vmcb->save.star = data;
@@ -3547,6 +3547,8 @@ static struct kvm_x86_ops svm_x86_ops = {
 	.set_supported_cpuid = svm_set_supported_cpuid,
 
 	.has_wbinvd_exit = svm_has_wbinvd_exit,
+
+	.write_tsc_offset = svm_write_tsc_offset,
 };
 
 static int __init svm_init(void)
