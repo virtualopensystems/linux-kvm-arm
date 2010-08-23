@@ -3189,6 +3189,7 @@ static void mmu_destroy_caches(void)
 void kvm_mmu_module_exit(void)
 {
 	mmu_destroy_caches();
+	percpu_counter_destroy(&kvm_total_used_mmu_pages);
 	unregister_shrinker(&mmu_shrinker);
 }
 
@@ -3211,7 +3212,9 @@ int kvm_mmu_module_init(void)
 	if (!mmu_page_header_cache)
 		goto nomem;
 
-	percpu_counter_init(&kvm_total_used_mmu_pages, 0);
+	if (percpu_counter_init(&kvm_total_used_mmu_pages, 0))
+		goto nomem;
+
 	register_shrinker(&mmu_shrinker);
 
 	return 0;
