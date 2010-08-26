@@ -153,13 +153,17 @@ struct x86_emulate_ops {
 struct operand {
 	enum { OP_REG, OP_MEM, OP_IMM, OP_NONE } type;
 	unsigned int bytes;
-	unsigned long orig_val;
+	union {
+		unsigned long orig_val;
+		u64 orig_val64;
+	};
 	union {
 		unsigned long *reg;
 		unsigned long mem;
 	} addr;
 	union {
 		unsigned long val;
+		u64 val64;
 		char valptr[sizeof(unsigned long) + 2];
 	};
 };
