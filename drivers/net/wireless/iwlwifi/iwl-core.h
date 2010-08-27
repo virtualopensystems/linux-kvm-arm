@@ -104,8 +104,9 @@ struct iwl_hcmd_utils_ops {
 			u32 min_average_noise,
 			u8 default_chain);
 	void (*chain_noise_reset)(struct iwl_priv *priv);
-	void (*rts_tx_cmd_flag)(struct ieee80211_tx_info *info,
-			__le32 *tx_flags);
+	void (*tx_cmd_protection)(struct iwl_priv *priv,
+				  struct ieee80211_tx_info *info,
+				  __le16 fc, __le32 *tx_flags);
 	int  (*calc_rssi)(struct iwl_priv *priv,
 			  struct iwl_rx_phy_res *rx_resp);
 	void (*request_scan)(struct iwl_priv *priv, struct ieee80211_vif *vif);
@@ -249,7 +250,7 @@ struct iwl_mod_params {
  * @led_compensation: compensate on the led on/off time per HW according
  *	to the deviation to achieve the desired led frequency.
  *	The detail algorithm is described in iwl-led.c
- * @use_rts_for_ht: use rts/cts protection for HT traffic
+ * @use_rts_for_aggregation: use rts/cts protection for HT traffic
  * @chain_noise_num_beacons: number of beacons used to compute chain noise
  * @adv_thermal_throttle: support advance thermal throttle
  * @support_ct_kill_exit: support ct kill exit condition
@@ -318,7 +319,7 @@ struct iwl_cfg {
 	const bool ht_greenfield_support;
 	u16 led_compensation;
 	const bool broken_powersave;
-	bool use_rts_for_ht;
+	bool use_rts_for_aggregation;
 	int chain_noise_num_beacons;
 	const bool supports_idle;
 	bool adv_thermal_throttle;
@@ -371,9 +372,6 @@ int iwl_set_decrypted_flag(struct iwl_priv *priv,
 			   u32 decrypt_res,
 			   struct ieee80211_rx_status *stats);
 void iwl_irq_handle_error(struct iwl_priv *priv);
-void iwl_configure_filter(struct ieee80211_hw *hw,
-			  unsigned int changed_flags,
-			  unsigned int *total_flags, u64 multicast);
 int iwl_set_hw_params(struct iwl_priv *priv);
 void iwl_post_associate(struct iwl_priv *priv, struct ieee80211_vif *vif);
 void iwl_bss_info_changed(struct ieee80211_hw *hw,
@@ -390,8 +388,9 @@ void iwl_config_ap(struct iwl_priv *priv, struct ieee80211_vif *vif);
 void iwl_mac_reset_tsf(struct ieee80211_hw *hw);
 int iwl_alloc_txq_mem(struct iwl_priv *priv);
 void iwl_free_txq_mem(struct iwl_priv *priv);
-void iwlcore_rts_tx_cmd_flag(struct ieee80211_tx_info *info,
-				__le32 *tx_flags);
+void iwlcore_tx_cmd_protection(struct iwl_priv *priv,
+			       struct ieee80211_tx_info *info,
+			       __le16 fc, __le32 *tx_flags);
 #ifdef CONFIG_IWLWIFI_DEBUGFS
 int iwl_alloc_traffic_mem(struct iwl_priv *priv);
 void iwl_free_traffic_mem(struct iwl_priv *priv);

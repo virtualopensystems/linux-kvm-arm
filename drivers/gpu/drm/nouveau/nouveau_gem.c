@@ -137,8 +137,6 @@ nouveau_gem_ioctl_new(struct drm_device *dev, void *data,
 	uint32_t flags = 0;
 	int ret = 0;
 
-	NOUVEAU_CHECK_INITIALISED_WITH_RETURN;
-
 	if (unlikely(dev_priv->ttm.bdev.dev_mapping == NULL))
 		dev_priv->ttm.bdev.dev_mapping = dev_priv->dev->dev_mapping;
 
@@ -286,7 +284,7 @@ retry:
 		if (!gem) {
 			NV_ERROR(dev, "Unknown handle 0x%08x\n", b->handle);
 			validate_fini(op, NULL);
-			return -EINVAL;
+			return -ENOENT;
 		}
 		nvbo = gem->driver_private;
 
@@ -363,16 +361,11 @@ validate_list(struct nouveau_channel *chan, struct list_head *list,
 
 	list_for_each_entry(nvbo, list, entry) {
 		struct drm_nouveau_gem_pushbuf_bo *b = &pbbo[nvbo->pbbo_index];
-		struct nouveau_fence *prev_fence = nvbo->bo.sync_obj;
 
-		if (prev_fence && nouveau_fence_channel(prev_fence) != chan) {
-			spin_lock(&nvbo->bo.lock);
-			ret = ttm_bo_wait(&nvbo->bo, false, false, false);
-			spin_unlock(&nvbo->bo.lock);
-			if (unlikely(ret)) {
-				NV_ERROR(dev, "fail wait other chan\n");
-				return ret;
-			}
+		ret = nouveau_bo_sync_gpu(nvbo, chan);
+		if (unlikely(ret)) {
+			NV_ERROR(dev, "fail pre-validate sync\n");
+			return ret;
 		}
 
 		ret = nouveau_gem_set_domain(nvbo->gem, b->read_domains,
@@ -383,12 +376,18 @@ validate_list(struct nouveau_channel *chan, struct list_head *list,
 			return ret;
 		}
 
-		nvbo->channel = chan;
+		nvbo->channel = (b->read_domains & (1 << 31)) ? NULL : chan;
 		ret = ttm_bo_validate(&nvbo->bo, &nvbo->placement,
 				      false, false, false);
 		nvbo->channel = NULL;
 		if (unlikely(ret)) {
 			NV_ERROR(dev, "fail ttm_validate\n");
+			return ret;
+		}
+
+		ret = nouveau_bo_sync_gpu(nvbo, chan);
+		if (unlikely(ret)) {
+			NV_ERROR(dev, "fail post-validate sync\n");
 			return ret;
 		}
 
@@ -577,10 +576,9 @@ nouveau_gem_ioctl_pushbuf(struct drm_device *dev, void *data,
 	struct drm_nouveau_gem_pushbuf_bo *bo;
 	struct nouveau_channel *chan;
 	struct validate_op op;
-	struct nouveau_fence *fence = 0;
+	struct nouveau_fence *fence = NULL;
 	int i, j, ret = 0, do_reloc = 0;
 
-	NOUVEAU_CHECK_INITIALISED_WITH_RETURN;
 	NOUVEAU_GET_USER_CHANNEL_WITH_RETURN(req->channel, file_priv, chan);
 
 	req->vram_available = dev_priv->fb_aper_free;
@@ -617,6 +615,21 @@ nouveau_gem_ioctl_pushbuf(struct drm_device *dev, void *data,
 	}
 
 	mutex_lock(&dev->struct_mutex);
+
+	/* Mark push buffers as being used on PFIFO, the validation code
+	 * will then make sure that if the pushbuf bo moves, that they
+	 * happen on the kernel channel, which will in turn cause a sync
+	 * to happen before we try and submit the push buffer.
+	 */
+	for (i = 0; i < req->nr_push; i++) {
+		if (push[i].bo_index >= req->nr_buffers) {
+			NV_ERROR(dev, "push %d buffer not in list\n", i);
+			ret = -EINVAL;
+			goto out;
+		}
+
+		bo[push[i].bo_index].read_domains |= (1 << 31);
+	}
 
 	/* Validate buffer list */
 	ret = nouveau_gem_pushbuf_validate(chan, file_priv, bo, req->buffers,
@@ -760,11 +773,9 @@ nouveau_gem_ioctl_cpu_prep(struct drm_device *dev, void *data,
 	bool no_wait = !!(req->flags & NOUVEAU_GEM_CPU_PREP_NOWAIT);
 	int ret = -EINVAL;
 
-	NOUVEAU_CHECK_INITIALISED_WITH_RETURN;
-
 	gem = drm_gem_object_lookup(dev, file_priv, req->handle);
 	if (!gem)
-		return ret;
+		return -ENOENT;
 	nvbo = nouveau_gem_object(gem);
 
 	if (nvbo->cpu_filp) {
@@ -800,11 +811,9 @@ nouveau_gem_ioctl_cpu_fini(struct drm_device *dev, void *data,
 	struct nouveau_bo *nvbo;
 	int ret = -EINVAL;
 
-	NOUVEAU_CHECK_INITIALISED_WITH_RETURN;
-
 	gem = drm_gem_object_lookup(dev, file_priv, req->handle);
 	if (!gem)
-		return ret;
+		return -ENOENT;
 	nvbo = nouveau_gem_object(gem);
 
 	if (nvbo->cpu_filp != file_priv)
@@ -827,11 +836,9 @@ nouveau_gem_ioctl_info(struct drm_device *dev, void *data,
 	struct drm_gem_object *gem;
 	int ret;
 
-	NOUVEAU_CHECK_INITIALISED_WITH_RETURN;
-
 	gem = drm_gem_object_lookup(dev, file_priv, req->handle);
 	if (!gem)
-		return -EINVAL;
+		return -ENOENT;
 
 	ret = nouveau_gem_info(gem, req);
 	drm_gem_object_unreference_unlocked(gem);

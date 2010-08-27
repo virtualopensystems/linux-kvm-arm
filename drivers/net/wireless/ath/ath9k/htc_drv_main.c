@@ -125,6 +125,7 @@ static int ath9k_htc_set_channel(struct ath9k_htc_priv *priv,
 	struct ieee80211_conf *conf = &common->hw->conf;
 	bool fastcc = true;
 	struct ieee80211_channel *channel = hw->conf.channel;
+	struct ath9k_hw_cal_data *caldata;
 	enum htc_phymode mode;
 	__be16 htc_mode;
 	u8 cmd_rsp;
@@ -149,7 +150,8 @@ static int ath9k_htc_set_channel(struct ath9k_htc_priv *priv,
 		  priv->ah->curchan->channel,
 		  channel->center_freq, conf_is_ht(conf), conf_is_ht40(conf));
 
-	ret = ath9k_hw_reset(ah, hchan, fastcc);
+	caldata = &priv->caldata[channel->hw_value];
+	ret = ath9k_hw_reset(ah, hchan, caldata, fastcc);
 	if (ret) {
 		ath_print(common, ATH_DBG_FATAL,
 			  "Unable to reset channel (%u Mhz) "
@@ -364,7 +366,8 @@ static void ath9k_htc_setup_rate(struct ath9k_htc_priv *priv,
 		caps = WLAN_RC_HT_FLAG;
 		if (sta->ht_cap.mcs.rx_mask[1])
 			caps |= WLAN_RC_DS_FLAG;
-		if (sta->ht_cap.cap & IEEE80211_HT_CAP_SUP_WIDTH_20_40)
+		if ((sta->ht_cap.cap & IEEE80211_HT_CAP_SUP_WIDTH_20_40) &&
+		     (conf_is_ht40(&priv->hw->conf)))
 			caps |= WLAN_RC_40_FLAG;
 		if (conf_is_ht40(&priv->hw->conf) &&
 		    (sta->ht_cap.cap & IEEE80211_HT_CAP_SGI_40))
@@ -1028,7 +1031,7 @@ static void ath9k_htc_radio_enable(struct ieee80211_hw *hw)
 		ah->curchan = ath9k_cmn_get_curchannel(hw, ah);
 
 	/* Reset the HW */
-	ret = ath9k_hw_reset(ah, ah->curchan, false);
+	ret = ath9k_hw_reset(ah, ah->curchan, ah->caldata, false);
 	if (ret) {
 		ath_print(common, ATH_DBG_FATAL,
 			  "Unable to reset hardware; reset status %d "
@@ -1091,7 +1094,7 @@ static void ath9k_htc_radio_disable(struct ieee80211_hw *hw)
 		ah->curchan = ath9k_cmn_get_curchannel(hw, ah);
 
 	/* Reset the HW */
-	ret = ath9k_hw_reset(ah, ah->curchan, false);
+	ret = ath9k_hw_reset(ah, ah->curchan, ah->caldata, false);
 	if (ret) {
 		ath_print(common, ATH_DBG_FATAL,
 			  "Unable to reset hardware; reset status %d "
@@ -1179,7 +1182,7 @@ static int ath9k_htc_start(struct ieee80211_hw *hw)
 	ath9k_hw_configpcipowersave(ah, 0, 0);
 
 	ath9k_hw_htc_resetinit(ah);
-	ret = ath9k_hw_reset(ah, init_channel, false);
+	ret = ath9k_hw_reset(ah, init_channel, ah->caldata, false);
 	if (ret) {
 		ath_print(common, ATH_DBG_FATAL,
 			  "Unable to reset hardware; reset status %d "
