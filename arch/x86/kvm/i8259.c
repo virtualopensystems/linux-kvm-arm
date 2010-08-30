@@ -275,7 +275,7 @@ void kvm_pic_reset(struct kvm_kpic_state *s)
 
 	s->last_irr = 0;
 	s->irr = 0;
-	s->imr = 0;
+	s->imr = 0xff;
 	s->isr = 0;
 	s->isr_ack = 0xff;
 	s->priority_add = 0;
