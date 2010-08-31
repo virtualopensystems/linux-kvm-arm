@@ -23,6 +23,7 @@
 #include <linux/proc_fs.h>
 #include <linux/sched.h>
 #include <linux/syscalls.h>
+#include <linux/perf_event.h>
 
 #include <asm/traps.h>
 #include <asm/uaccess.h>
@@ -177,6 +178,8 @@ static int swp_handler(struct pt_regs *regs, unsigned int instr)
 {
 	unsigned int address, destreg, data, type;
 	unsigned int res = 0;
+
+       perf_sw_event(PERF_COUNT_SW_EMULATION_FAULTS, 1, 0, regs, regs->ARM_pc);
 
 	if (current->pid != previous_pid) {
 		pr_debug("\"%s\" (%ld) uses deprecated SWP{B} instruction\n",
