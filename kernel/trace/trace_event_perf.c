@@ -146,6 +146,7 @@ void perf_trace_destroy(struct perf_event *p_event)
 		}
 	}
 out:
+	module_put(tp_event->mod);
 	mutex_unlock(&event_mutex);
 }
 
