@@ -17,6 +17,7 @@
 #include <linux/kvm_host.h>
 #include <linux/err.h>
 #include <linux/slab.h>
+#include "trace.h"
 
 #include <asm/reg.h>
 #include <asm/cputable.h>
@@ -35,7 +36,6 @@
 #define VCPU_STAT(x) offsetof(struct kvm_vcpu, stat.x), KVM_STAT_VCPU
 
 /* #define EXIT_DEBUG */
-/* #define EXIT_DEBUG_SIMPLE */
 /* #define DEBUG_EXT */
 
 static int kvmppc_handle_ext(struct kvm_vcpu *vcpu, unsigned int exit_nr,
@@ -105,14 +105,6 @@ void kvmppc_core_vcpu_put(struct kvm_vcpu *vcpu)
 	kvmppc_giveup_ext(vcpu, MSR_VSX);
 }
 
-#if defined(EXIT_DEBUG)
-static u32 kvmppc_get_dec(struct kvm_vcpu *vcpu)
-{
-	u64 jd = mftb() - vcpu->arch.dec_jiffies;
-	return vcpu->arch.dec - jd;
-}
-#endif
-
 static void kvmppc_recalc_shadow_msr(struct kvm_vcpu *vcpu)
 {
 	ulong smsr = vcpu->arch.shared->msr;
@@ -142,10 +134,14 @@ void kvmppc_set_msr(struct kvm_vcpu *vcpu, u64 msr)
 	vcpu->arch.shared->msr = msr;
 	kvmppc_recalc_shadow_msr(vcpu);
 
-	if (msr & (MSR_WE|MSR_POW)) {
+	if (msr & MSR_POW) {
 		if (!vcpu->arch.pending_exceptions) {
 			kvm_vcpu_block(vcpu);
 			vcpu->stat.halt_wakeup++;
+
+			/* Unset POW bit after we woke up */
+			msr &= ~MSR_POW;
+			vcpu->arch.shared->msr = msr;
 		}
 	}
 
@@ -153,6 +149,16 @@ void kvmppc_set_msr(struct kvm_vcpu *vcpu, u64 msr)
 		   (old_msr & (MSR_PR|MSR_IR|MSR_DR))) {
 		kvmppc_mmu_flush_segments(vcpu);
 		kvmppc_mmu_map_segment(vcpu, kvmppc_get_pc(vcpu));
+
+		/* Preload magic page segment when in kernel mode */
+		if (!(msr & MSR_PR) && vcpu->arch.magic_page_pa) {
+			struct kvm_vcpu_arch *a = &vcpu->arch;
+
+			if (msr & MSR_DR)
+				kvmppc_mmu_map_segment(vcpu, a->magic_page_ea);
+			else
+				kvmppc_mmu_map_segment(vcpu, a->magic_page_pa);
+		}
 	}
 
 	/* Preload FPU if it's enabled */
@@ -180,6 +186,7 @@ static int kvmppc_book3s_vec2irqprio(unsigned int vec)
 	case 0x400: prio = BOOK3S_IRQPRIO_INST_STORAGE;		break;
 	case 0x480: prio = BOOK3S_IRQPRIO_INST_SEGMENT;		break;
 	case 0x500: prio = BOOK3S_IRQPRIO_EXTERNAL;		break;
+	case 0x501: prio = BOOK3S_IRQPRIO_EXTERNAL_LEVEL;	break;
 	case 0x600: prio = BOOK3S_IRQPRIO_ALIGNMENT;		break;
 	case 0x700: prio = BOOK3S_IRQPRIO_PROGRAM;		break;
 	case 0x800: prio = BOOK3S_IRQPRIO_FP_UNAVAIL;		break;
@@ -199,6 +206,9 @@ static void kvmppc_book3s_dequeue_irqprio(struct kvm_vcpu *vcpu,
 {
 	clear_bit(kvmppc_book3s_vec2irqprio(vec),
 		  &vcpu->arch.pending_exceptions);
+
+	if (!vcpu->arch.pending_exceptions)
+		vcpu->arch.shared->int_pending = 0;
 }
 
 void kvmppc_book3s_queue_irqprio(struct kvm_vcpu *vcpu, unsigned int vec)
@@ -237,13 +247,19 @@ void kvmppc_core_dequeue_dec(struct kvm_vcpu *vcpu)
 void kvmppc_core_queue_external(struct kvm_vcpu *vcpu,
                                 struct kvm_interrupt *irq)
 {
-	kvmppc_book3s_queue_irqprio(vcpu, BOOK3S_INTERRUPT_EXTERNAL);
+	unsigned int vec = BOOK3S_INTERRUPT_EXTERNAL;
+
+	if (irq->irq == KVM_INTERRUPT_SET_LEVEL)
+		vec = BOOK3S_INTERRUPT_EXTERNAL_LEVEL;
+
+	kvmppc_book3s_queue_irqprio(vcpu, vec);
 }
 
 void kvmppc_core_dequeue_external(struct kvm_vcpu *vcpu,
                                   struct kvm_interrupt *irq)
 {
 	kvmppc_book3s_dequeue_irqprio(vcpu, BOOK3S_INTERRUPT_EXTERNAL);
+	kvmppc_book3s_dequeue_irqprio(vcpu, BOOK3S_INTERRUPT_EXTERNAL_LEVEL);
 }
 
 int kvmppc_book3s_irqprio_deliver(struct kvm_vcpu *vcpu, unsigned int priority)
@@ -272,6 +288,7 @@ int kvmppc_book3s_irqprio_deliver(struct kvm_vcpu *vcpu, unsigned int priority)
 		vec = BOOK3S_INTERRUPT_DECREMENTER;
 		break;
 	case BOOK3S_IRQPRIO_EXTERNAL:
+	case BOOK3S_IRQPRIO_EXTERNAL_LEVEL:
 		deliver = (vcpu->arch.shared->msr & MSR_EE) && !crit;
 		vec = BOOK3S_INTERRUPT_EXTERNAL;
 		break;
@@ -334,6 +351,23 @@ int kvmppc_book3s_irqprio_deliver(struct kvm_vcpu *vcpu, unsigned int priority)
 	return deliver;
 }
 
+/*
+ * This function determines if an irqprio should be cleared once issued.
+ */
+static bool clear_irqprio(struct kvm_vcpu *vcpu, unsigned int priority)
+{
+	switch (priority) {
+		case BOOK3S_IRQPRIO_DECREMENTER:
+			/* DEC interrupts get cleared by mtdec */
+			return false;
+		case BOOK3S_IRQPRIO_EXTERNAL_LEVEL:
+			/* External interrupts get cleared by userspace */
+			return false;
+	}
+
+	return true;
+}
+
 void kvmppc_core_deliver_interrupts(struct kvm_vcpu *vcpu)
 {
 	unsigned long *pending = &vcpu->arch.pending_exceptions;
@@ -347,8 +381,7 @@ void kvmppc_core_deliver_interrupts(struct kvm_vcpu *vcpu)
 	priority = __ffs(*pending);
 	while (priority < BOOK3S_IRQPRIO_MAX) {
 		if (kvmppc_book3s_irqprio_deliver(vcpu, priority) &&
-		    (priority != BOOK3S_IRQPRIO_DECREMENTER)) {
-			/* DEC interrupts get cleared by mtdec */
+		    clear_irqprio(vcpu, priority)) {
 			clear_bit(priority, &vcpu->arch.pending_exceptions);
 			break;
 		}
@@ -850,16 +883,8 @@ int kvmppc_handle_exit(struct kvm_run *run, struct kvm_vcpu *vcpu,
 
 	run->exit_reason = KVM_EXIT_UNKNOWN;
 	run->ready_for_interrupt_injection = 1;
-#ifdef EXIT_DEBUG
-	printk(KERN_EMERG "exit_nr=0x%x | pc=0x%lx | dar=0x%lx | dec=0x%x | msr=0x%lx\n",
-		exit_nr, kvmppc_get_pc(vcpu), kvmppc_get_fault_dar(vcpu),
-		kvmppc_get_dec(vcpu), to_svcpu(vcpu)->shadow_srr1);
-#elif defined (EXIT_DEBUG_SIMPLE)
-	if ((exit_nr != 0x900) && (exit_nr != 0x500))
-		printk(KERN_EMERG "exit_nr=0x%x | pc=0x%lx | dar=0x%lx | msr=0x%lx\n",
-			exit_nr, kvmppc_get_pc(vcpu), kvmppc_get_fault_dar(vcpu),
-			vcpu->arch.shared->msr);
-#endif
+
+	trace_kvm_book3s_exit(exit_nr, vcpu);
 	kvm_resched(vcpu);
 	switch (exit_nr) {
 	case BOOK3S_INTERRUPT_INST_STORAGE:
@@ -893,7 +918,6 @@ int kvmppc_handle_exit(struct kvm_run *run, struct kvm_vcpu *vcpu,
 			vcpu->arch.shared->msr |=
 				to_svcpu(vcpu)->shadow_srr1 & 0x58000000;
 			kvmppc_book3s_queue_irqprio(vcpu, exit_nr);
-			kvmppc_mmu_pte_flush(vcpu, kvmppc_get_pc(vcpu), ~0xFFFUL);
 			r = RESUME_GUEST;
 		}
 		break;
@@ -919,7 +943,6 @@ int kvmppc_handle_exit(struct kvm_run *run, struct kvm_vcpu *vcpu,
 			vcpu->arch.shared->dar = dar;
 			vcpu->arch.shared->dsisr = to_svcpu(vcpu)->fault_dsisr;
 			kvmppc_book3s_queue_irqprio(vcpu, exit_nr);
-			kvmppc_mmu_pte_flush(vcpu, dar, ~0xFFFUL);
 			r = RESUME_GUEST;
 		}
 		break;
@@ -1091,9 +1114,7 @@ program_interrupt:
 		}
 	}
 
-#ifdef EXIT_DEBUG
-	printk(KERN_EMERG "KVM exit: vcpu=0x%p pc=0x%lx r=0x%x\n", vcpu, kvmppc_get_pc(vcpu), r);
-#endif
+	trace_kvm_book3s_reenter(r, vcpu);
 
 	return r;
 }
@@ -1171,10 +1192,9 @@ int kvm_arch_vcpu_ioctl_get_sregs(struct kvm_vcpu *vcpu,
 			sregs->u.s.ppc64.slb[i].slbv = vcpu3s->slb[i].origv;
 		}
 	} else {
-		for (i = 0; i < 16; i++) {
-			sregs->u.s.ppc32.sr[i] = vcpu3s->sr[i].raw;
-			sregs->u.s.ppc32.sr[i] = vcpu3s->sr[i].raw;
-		}
+		for (i = 0; i < 16; i++)
+			sregs->u.s.ppc32.sr[i] = vcpu->arch.shared->sr[i];
+
 		for (i = 0; i < 8; i++) {
 			sregs->u.s.ppc32.ibat[i] = vcpu3s->ibat[i].raw;
 			sregs->u.s.ppc32.dbat[i] = vcpu3s->dbat[i].raw;

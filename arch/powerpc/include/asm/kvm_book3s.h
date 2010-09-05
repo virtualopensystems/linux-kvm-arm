@@ -38,15 +38,6 @@ struct kvmppc_slb {
 	bool class	: 1;
 };
 
-struct kvmppc_sr {
-	u32 raw;
-	u32 vsid;
-	bool Ks		: 1;
-	bool Kp		: 1;
-	bool nx		: 1;
-	bool valid	: 1;
-};
-
 struct kvmppc_bat {
 	u64 raw;
 	u32 bepi;
@@ -69,6 +60,13 @@ struct kvmppc_sid_map {
 #define SID_MAP_NUM     (1 << SID_MAP_BITS)
 #define SID_MAP_MASK    (SID_MAP_NUM - 1)
 
+#ifdef CONFIG_PPC_BOOK3S_64
+#define SID_CONTEXTS	1
+#else
+#define SID_CONTEXTS	128
+#define VSID_POOL_SIZE	(SID_CONTEXTS * 16)
+#endif
+
 struct kvmppc_vcpu_book3s {
 	struct kvm_vcpu vcpu;
 	struct kvmppc_book3s_shadow_vcpu *shadow_vcpu;
@@ -79,7 +77,6 @@ struct kvmppc_vcpu_book3s {
 		u64 vsid;
 	} slb_shadow[64];
 	u8 slb_shadow_max;
-	struct kvmppc_sr sr[16];
 	struct kvmppc_bat ibat[8];
 	struct kvmppc_bat dbat[8];
 	u64 hid[6];
@@ -88,10 +85,14 @@ struct kvmppc_vcpu_book3s {
 	u64 sdr1;
 	u64 hior;
 	u64 msr_mask;
-	u64 vsid_first;
 	u64 vsid_next;
+#ifdef CONFIG_PPC_BOOK3S_32
+	u32 vsid_pool[VSID_POOL_SIZE];
+#else
+	u64 vsid_first;
 	u64 vsid_max;
-	int context_id;
+#endif
+	int context_id[SID_CONTEXTS];
 	ulong prog_flags; /* flags to inject when giving a 700 trap */
 };
 

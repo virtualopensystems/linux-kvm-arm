@@ -66,6 +66,8 @@ int kvmppc_kvm_pv(struct kvm_vcpu *vcpu)
 		vcpu->arch.magic_page_pa = param1;
 		vcpu->arch.magic_page_ea = param2;
 
+		r2 = KVM_MAGIC_FEAT_SR;
+
 		r = HC_EV_SUCCESS;
 		break;
 	}
@@ -76,12 +78,13 @@ int kvmppc_kvm_pv(struct kvm_vcpu *vcpu)
 #endif
 
 		/* Second return value is in r4 */
-		kvmppc_set_gpr(vcpu, 4, r2);
 		break;
 	default:
 		r = HC_EV_UNIMPLEMENTED;
 		break;
 	}
+
+	kvmppc_set_gpr(vcpu, 4, r2);
 
 	return r;
 }
@@ -189,6 +192,7 @@ int kvm_dev_ioctl_check_extension(long ext)
 	case KVM_CAP_PPC_SEGSTATE:
 	case KVM_CAP_PPC_PAIRED_SINGLES:
 	case KVM_CAP_PPC_UNSET_IRQ:
+	case KVM_CAP_PPC_IRQ_LEVEL:
 	case KVM_CAP_ENABLE_CAP:
 	case KVM_CAP_PPC_OSI:
 	case KVM_CAP_PPC_GET_PVINFO:

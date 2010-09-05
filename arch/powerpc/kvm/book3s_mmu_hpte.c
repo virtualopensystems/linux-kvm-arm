@@ -21,6 +21,7 @@
 #include <linux/kvm_host.h>
 #include <linux/hash.h>
 #include <linux/slab.h>
+#include "trace.h"
 
 #include <asm/kvm_ppc.h>
 #include <asm/kvm_book3s.h>
@@ -29,14 +30,6 @@
 #include <asm/hw_irq.h>
 
 #define PTE_SIZE	12
-
-/* #define DEBUG_MMU */
-
-#ifdef DEBUG_MMU
-#define dprintk_mmu(a, ...) printk(KERN_INFO a, __VA_ARGS__)
-#else
-#define dprintk_mmu(a, ...) do { } while(0)
-#endif
 
 static struct kmem_cache *hpte_cache;
 
@@ -65,6 +58,8 @@ static inline u64 kvmppc_mmu_hash_vpte_long(u64 vpage)
 void kvmppc_mmu_hpte_cache_map(struct kvm_vcpu *vcpu, struct hpte_cache *pte)
 {
 	u64 index;
+
+	trace_kvm_book3s_mmu_map(pte);
 
 	spin_lock(&vcpu->arch.mmu_lock);
 
@@ -97,29 +92,30 @@ static void free_pte_rcu(struct rcu_head *head)
 
 static void invalidate_pte(struct kvm_vcpu *vcpu, struct hpte_cache *pte)
 {
-	/* pte already invalidated? */
-	if (hlist_unhashed(&pte->list_pte))
-		return;
-
-	dprintk_mmu("KVM: Flushing SPT: 0x%lx (0x%llx) -> 0x%llx\n",
-		    pte->pte.eaddr, pte->pte.vpage, pte->host_va);
+	trace_kvm_book3s_mmu_invalidate(pte);
 
 	/* Different for 32 and 64 bit */
 	kvmppc_mmu_invalidate_pte(vcpu, pte);
 
 	spin_lock(&vcpu->arch.mmu_lock);
 
+	/* pte already invalidated in between? */
+	if (hlist_unhashed(&pte->list_pte)) {
+		spin_unlock(&vcpu->arch.mmu_lock);
+		return;
+	}
+
 	hlist_del_init_rcu(&pte->list_pte);
 	hlist_del_init_rcu(&pte->list_pte_long);
 	hlist_del_init_rcu(&pte->list_vpte);
 	hlist_del_init_rcu(&pte->list_vpte_long);
 
-	spin_unlock(&vcpu->arch.mmu_lock);
-
 	if (pte->pte.may_write)
 		kvm_release_pfn_dirty(pte->pfn);
 	else
 		kvm_release_pfn_clean(pte->pfn);
+
+	spin_unlock(&vcpu->arch.mmu_lock);
 
 	vcpu->arch.hpte_cache_count--;
 	call_rcu(&pte->rcu_head, free_pte_rcu);
@@ -184,9 +180,7 @@ static void kvmppc_mmu_pte_flush_long(struct kvm_vcpu *vcpu, ulong guest_ea)
 
 void kvmppc_mmu_pte_flush(struct kvm_vcpu *vcpu, ulong guest_ea, ulong ea_mask)
 {
-	dprintk_mmu("KVM: Flushing %d Shadow PTEs: 0x%lx & 0x%lx\n",
-		    vcpu->arch.hpte_cache_count, guest_ea, ea_mask);
-
+	trace_kvm_book3s_mmu_flush("", vcpu, guest_ea, ea_mask);
 	guest_ea &= ea_mask;
 
 	switch (ea_mask) {
@@ -249,8 +243,7 @@ static void kvmppc_mmu_pte_vflush_long(struct kvm_vcpu *vcpu, u64 guest_vp)
 
 void kvmppc_mmu_pte_vflush(struct kvm_vcpu *vcpu, u64 guest_vp, u64 vp_mask)
 {
-	dprintk_mmu("KVM: Flushing %d Shadow vPTEs: 0x%llx & 0x%llx\n",
-		    vcpu->arch.hpte_cache_count, guest_vp, vp_mask);
+	trace_kvm_book3s_mmu_flush("v", vcpu, guest_vp, vp_mask);
 	guest_vp &= vp_mask;
 
 	switch(vp_mask) {
@@ -272,8 +265,7 @@ void kvmppc_mmu_pte_pflush(struct kvm_vcpu *vcpu, ulong pa_start, ulong pa_end)
 	struct hpte_cache *pte;
 	int i;
 
-	dprintk_mmu("KVM: Flushing %d Shadow pPTEs: 0x%lx - 0x%lx\n",
-		    vcpu->arch.hpte_cache_count, pa_start, pa_end);
+	trace_kvm_book3s_mmu_flush("p", vcpu, pa_start, pa_end);
 
 	rcu_read_lock();
 

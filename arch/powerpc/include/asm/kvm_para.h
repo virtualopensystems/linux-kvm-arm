@@ -21,7 +21,6 @@
 #define __POWERPC_KVM_PARA_H__
 
 #include <linux/types.h>
-#include <linux/of.h>
 
 struct kvm_vcpu_arch_shared {
 	__u64 scratch1;
@@ -38,6 +37,7 @@ struct kvm_vcpu_arch_shared {
 	__u64 msr;
 	__u32 dsisr;
 	__u32 int_pending;	/* Tells the guest if we have an interrupt */
+	__u32 sr[16];
 };
 
 #define KVM_SC_MAGIC_R0		0x4b564d21 /* "KVM!" */
@@ -47,9 +47,13 @@ struct kvm_vcpu_arch_shared {
 
 #define KVM_FEATURE_MAGIC_PAGE	1
 
+#define KVM_MAGIC_FEAT_SR	(1 << 0)
+
 #ifdef __KERNEL__
 
 #ifdef CONFIG_KVM_GUEST
+
+#include <linux/of.h>
 
 static inline int kvm_para_available(void)
 {

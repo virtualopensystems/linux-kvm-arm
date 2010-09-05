@@ -42,6 +42,8 @@
 #define KVM_INST_B_MAX		0x01ffffff
 
 #define KVM_MASK_RT		0x03e00000
+#define KVM_RT_30		0x03c00000
+#define KVM_MASK_RB		0x0000f800
 #define KVM_INST_MFMSR		0x7c0000a6
 #define KVM_INST_MFSPR_SPRG0	0x7c1042a6
 #define KVM_INST_MFSPR_SPRG1	0x7c1142a6
@@ -69,6 +71,8 @@
 #define KVM_INST_WRTEEI_0	0x7c000146
 #define KVM_INST_WRTEEI_1	0x7c008146
 
+#define KVM_INST_MTSRIN		0x7c0001e4
+
 static bool kvm_patching_worked = true;
 static char kvm_tmp[1024 * 1024];
 static int kvm_tmp_index;
@@ -77,6 +81,15 @@ static inline void kvm_patch_ins(u32 *inst, u32 new_inst)
 {
 	*inst = new_inst;
 	flush_icache_range((ulong)inst, (ulong)inst + 4);
+}
+
+static void kvm_patch_ins_ll(u32 *inst, long addr, u32 rt)
+{
+#ifdef CONFIG_64BIT
+	kvm_patch_ins(inst, KVM_INST_LD | rt | (addr & 0x0000fffc));
+#else
+	kvm_patch_ins(inst, KVM_INST_LWZ | rt | (addr & 0x0000fffc));
+#endif
 }
 
 static void kvm_patch_ins_ld(u32 *inst, long addr, u32 rt)
@@ -145,6 +158,7 @@ static u32 *kvm_alloc(int len)
 
 extern u32 kvm_emulate_mtmsrd_branch_offs;
 extern u32 kvm_emulate_mtmsrd_reg_offs;
+extern u32 kvm_emulate_mtmsrd_orig_ins_offs;
 extern u32 kvm_emulate_mtmsrd_len;
 extern u32 kvm_emulate_mtmsrd[];
 
@@ -173,7 +187,21 @@ static void kvm_patch_ins_mtmsrd(u32 *inst, u32 rt)
 	/* Modify the chunk to fit the invocation */
 	memcpy(p, kvm_emulate_mtmsrd, kvm_emulate_mtmsrd_len * 4);
 	p[kvm_emulate_mtmsrd_branch_offs] |= distance_end & KVM_INST_B_MASK;
-	p[kvm_emulate_mtmsrd_reg_offs] |= rt;
+	switch (get_rt(rt)) {
+	case 30:
+		kvm_patch_ins_ll(&p[kvm_emulate_mtmsrd_reg_offs],
+				 magic_var(scratch2), KVM_RT_30);
+		break;
+	case 31:
+		kvm_patch_ins_ll(&p[kvm_emulate_mtmsrd_reg_offs],
+				 magic_var(scratch1), KVM_RT_30);
+		break;
+	default:
+		p[kvm_emulate_mtmsrd_reg_offs] |= rt;
+		break;
+	}
+
+	p[kvm_emulate_mtmsrd_orig_ins_offs] = *inst;
 	flush_icache_range((ulong)p, (ulong)p + kvm_emulate_mtmsrd_len * 4);
 
 	/* Patch the invocation */
@@ -183,7 +211,6 @@ static void kvm_patch_ins_mtmsrd(u32 *inst, u32 rt)
 extern u32 kvm_emulate_mtmsr_branch_offs;
 extern u32 kvm_emulate_mtmsr_reg1_offs;
 extern u32 kvm_emulate_mtmsr_reg2_offs;
-extern u32 kvm_emulate_mtmsr_reg3_offs;
 extern u32 kvm_emulate_mtmsr_orig_ins_offs;
 extern u32 kvm_emulate_mtmsr_len;
 extern u32 kvm_emulate_mtmsr[];
@@ -213,9 +240,27 @@ static void kvm_patch_ins_mtmsr(u32 *inst, u32 rt)
 	/* Modify the chunk to fit the invocation */
 	memcpy(p, kvm_emulate_mtmsr, kvm_emulate_mtmsr_len * 4);
 	p[kvm_emulate_mtmsr_branch_offs] |= distance_end & KVM_INST_B_MASK;
-	p[kvm_emulate_mtmsr_reg1_offs] |= rt;
-	p[kvm_emulate_mtmsr_reg2_offs] |= rt;
-	p[kvm_emulate_mtmsr_reg3_offs] |= rt;
+
+	/* Make clobbered registers work too */
+	switch (get_rt(rt)) {
+	case 30:
+		kvm_patch_ins_ll(&p[kvm_emulate_mtmsr_reg1_offs],
+				 magic_var(scratch2), KVM_RT_30);
+		kvm_patch_ins_ll(&p[kvm_emulate_mtmsr_reg2_offs],
+				 magic_var(scratch2), KVM_RT_30);
+		break;
+	case 31:
+		kvm_patch_ins_ll(&p[kvm_emulate_mtmsr_reg1_offs],
+				 magic_var(scratch1), KVM_RT_30);
+		kvm_patch_ins_ll(&p[kvm_emulate_mtmsr_reg2_offs],
+				 magic_var(scratch1), KVM_RT_30);
+		break;
+	default:
+		p[kvm_emulate_mtmsr_reg1_offs] |= rt;
+		p[kvm_emulate_mtmsr_reg2_offs] |= rt;
+		break;
+	}
+
 	p[kvm_emulate_mtmsr_orig_ins_offs] = *inst;
 	flush_icache_range((ulong)p, (ulong)p + kvm_emulate_mtmsr_len * 4);
 
@@ -264,14 +309,67 @@ static void kvm_patch_ins_wrteei(u32 *inst)
 
 #endif
 
-static void kvm_map_magic_page(void *data)
+#ifdef CONFIG_PPC_BOOK3S_32
+
+extern u32 kvm_emulate_mtsrin_branch_offs;
+extern u32 kvm_emulate_mtsrin_reg1_offs;
+extern u32 kvm_emulate_mtsrin_reg2_offs;
+extern u32 kvm_emulate_mtsrin_orig_ins_offs;
+extern u32 kvm_emulate_mtsrin_len;
+extern u32 kvm_emulate_mtsrin[];
+
+static void kvm_patch_ins_mtsrin(u32 *inst, u32 rt, u32 rb)
 {
-	kvm_hypercall2(KVM_HC_PPC_MAP_MAGIC_PAGE,
-		       KVM_MAGIC_PAGE,  /* Physical Address */
-		       KVM_MAGIC_PAGE); /* Effective Address */
+	u32 *p;
+	int distance_start;
+	int distance_end;
+	ulong next_inst;
+
+	p = kvm_alloc(kvm_emulate_mtsrin_len * 4);
+	if (!p)
+		return;
+
+	/* Find out where we are and put everything there */
+	distance_start = (ulong)p - (ulong)inst;
+	next_inst = ((ulong)inst + 4);
+	distance_end = next_inst - (ulong)&p[kvm_emulate_mtsrin_branch_offs];
+
+	/* Make sure we only write valid b instructions */
+	if (distance_start > KVM_INST_B_MAX) {
+		kvm_patching_worked = false;
+		return;
+	}
+
+	/* Modify the chunk to fit the invocation */
+	memcpy(p, kvm_emulate_mtsrin, kvm_emulate_mtsrin_len * 4);
+	p[kvm_emulate_mtsrin_branch_offs] |= distance_end & KVM_INST_B_MASK;
+	p[kvm_emulate_mtsrin_reg1_offs] |= (rb << 10);
+	p[kvm_emulate_mtsrin_reg2_offs] |= rt;
+	p[kvm_emulate_mtsrin_orig_ins_offs] = *inst;
+	flush_icache_range((ulong)p, (ulong)p + kvm_emulate_mtsrin_len * 4);
+
+	/* Patch the invocation */
+	kvm_patch_ins_b(inst, distance_start);
 }
 
-static void kvm_check_ins(u32 *inst)
+#endif
+
+static void kvm_map_magic_page(void *data)
+{
+	u32 *features = data;
+
+	ulong in[8];
+	ulong out[8];
+
+	in[0] = KVM_MAGIC_PAGE;
+	in[1] = KVM_MAGIC_PAGE;
+
+	kvm_hypercall(in, out, HC_VENDOR_KVM | KVM_HC_PPC_MAP_MAGIC_PAGE);
+
+	*features = out[0];
+}
+
+static void kvm_check_ins(u32 *inst, u32 features)
 {
 	u32 _inst = *inst;
 	u32 inst_no_rt = _inst & ~KVM_MASK_RT;
@@ -340,16 +438,24 @@ static void kvm_check_ins(u32 *inst)
 
 	/* Rewrites */
 	case KVM_INST_MTMSRD_L1:
-		/* We use r30 and r31 during the hook */
-		if (get_rt(inst_rt) < 30)
-			kvm_patch_ins_mtmsrd(inst, inst_rt);
+		kvm_patch_ins_mtmsrd(inst, inst_rt);
 		break;
 	case KVM_INST_MTMSR:
 	case KVM_INST_MTMSRD_L0:
-		/* We use r30 and r31 during the hook */
-		if (get_rt(inst_rt) < 30)
-			kvm_patch_ins_mtmsr(inst, inst_rt);
+		kvm_patch_ins_mtmsr(inst, inst_rt);
 		break;
+	}
+
+	switch (inst_no_rt & ~KVM_MASK_RB) {
+#ifdef CONFIG_PPC_BOOK3S_32
+	case KVM_INST_MTSRIN:
+		if (features & KVM_MAGIC_FEAT_SR) {
+			u32 inst_rb = _inst & KVM_MASK_RB;
+			kvm_patch_ins_mtsrin(inst, inst_rt, inst_rb);
+		}
+		break;
+		break;
+#endif
 	}
 
 	switch (_inst) {
@@ -367,9 +473,10 @@ static void kvm_use_magic_page(void)
 	u32 *p;
 	u32 *start, *end;
 	u32 tmp;
+	u32 features;
 
 	/* Tell the host to map the magic page to -4096 on all CPUs */
-	on_each_cpu(kvm_map_magic_page, NULL, 1);
+	on_each_cpu(kvm_map_magic_page, &features, 1);
 
 	/* Quick self-test to see if the mapping works */
 	if (__get_user(tmp, (u32*)KVM_MAGIC_PAGE)) {
@@ -382,7 +489,7 @@ static void kvm_use_magic_page(void)
 	end = (void*)_etext;
 
 	for (p = start; p < end; p++)
-		kvm_check_ins(p);
+		kvm_check_ins(p, features);
 
 	printk(KERN_INFO "KVM: Live patching for a fast VM %s\n",
 			 kvm_patching_worked ? "worked" : "failed");
@@ -474,6 +581,11 @@ static int __init kvm_guest_init(void)
 
 	if (kvm_para_has_feature(KVM_FEATURE_MAGIC_PAGE))
 		kvm_use_magic_page();
+
+#ifdef CONFIG_PPC_BOOK3S_64
+	/* Enable napping */
+	powersave_nap = 1;
+#endif
 
 free_tmp:
 	kvm_free_tmp();

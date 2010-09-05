@@ -78,7 +78,8 @@ kvm_emulate_mtmsrd:
 
 	/* OR the register's (MSR_EE|MSR_RI) on MSR */
 kvm_emulate_mtmsrd_reg:
-	andi.	r30, r0, (MSR_EE|MSR_RI)
+	ori	r30, r0, 0
+	andi.	r30, r30, (MSR_EE|MSR_RI)
 	or	r31, r31, r30
 
 	/* Put MSR back into magic page */
@@ -96,6 +97,7 @@ kvm_emulate_mtmsrd_reg:
 	SCRATCH_RESTORE
 
 	/* Nag hypervisor */
+kvm_emulate_mtmsrd_orig_ins:
 	tlbsync
 
 	b	kvm_emulate_mtmsrd_branch
@@ -117,6 +119,10 @@ kvm_emulate_mtmsrd_branch_offs:
 kvm_emulate_mtmsrd_reg_offs:
 	.long (kvm_emulate_mtmsrd_reg - kvm_emulate_mtmsrd) / 4
 
+.global kvm_emulate_mtmsrd_orig_ins_offs
+kvm_emulate_mtmsrd_orig_ins_offs:
+	.long (kvm_emulate_mtmsrd_orig_ins - kvm_emulate_mtmsrd) / 4
+
 .global kvm_emulate_mtmsrd_len
 kvm_emulate_mtmsrd_len:
 	.long (kvm_emulate_mtmsrd_end - kvm_emulate_mtmsrd) / 4
@@ -135,7 +141,8 @@ kvm_emulate_mtmsr:
 
 	/* Find the changed bits between old and new MSR */
 kvm_emulate_mtmsr_reg1:
-	xor	r31, r0, r31
+	ori	r30, r0, 0
+	xor	r31, r30, r31
 
 	/* Check if we need to really do mtmsr */
 	LOAD_REG_IMMEDIATE(r30, MSR_CRITICAL_BITS)
@@ -156,14 +163,17 @@ kvm_emulate_mtmsr_orig_ins:
 
 maybe_stay_in_guest:
 
+	/* Get the target register in r30 */
+kvm_emulate_mtmsr_reg2:
+	ori	r30, r0, 0
+
 	/* Check if we have to fetch an interrupt */
 	lwz	r31, (KVM_MAGIC_PAGE + KVM_MAGIC_INT)(0)
 	cmpwi	r31, 0
 	beq+	no_mtmsr
 
 	/* Check if we may trigger an interrupt */
-kvm_emulate_mtmsr_reg2:
-	andi.	r31, r0, MSR_EE
+	andi.	r31, r30, MSR_EE
 	beq	no_mtmsr
 
 	b	do_mtmsr
@@ -171,8 +181,7 @@ kvm_emulate_mtmsr_reg2:
 no_mtmsr:
 
 	/* Put MSR into magic page because we don't call mtmsr */
-kvm_emulate_mtmsr_reg3:
-	STL64(r0, KVM_MAGIC_PAGE + KVM_MAGIC_MSR, 0)
+	STL64(r30, KVM_MAGIC_PAGE + KVM_MAGIC_MSR, 0)
 
 	SCRATCH_RESTORE
 
@@ -192,10 +201,6 @@ kvm_emulate_mtmsr_reg1_offs:
 .global kvm_emulate_mtmsr_reg2_offs
 kvm_emulate_mtmsr_reg2_offs:
 	.long (kvm_emulate_mtmsr_reg2 - kvm_emulate_mtmsr) / 4
-
-.global kvm_emulate_mtmsr_reg3_offs
-kvm_emulate_mtmsr_reg3_offs:
-	.long (kvm_emulate_mtmsr_reg3 - kvm_emulate_mtmsr) / 4
 
 .global kvm_emulate_mtmsr_orig_ins_offs
 kvm_emulate_mtmsr_orig_ins_offs:
@@ -245,3 +250,53 @@ kvm_emulate_wrteei_ee_offs:
 .global kvm_emulate_wrteei_len
 kvm_emulate_wrteei_len:
 	.long (kvm_emulate_wrteei_end - kvm_emulate_wrteei) / 4
+
+
+.global kvm_emulate_mtsrin
+kvm_emulate_mtsrin:
+
+	SCRATCH_SAVE
+
+	LL64(r31, KVM_MAGIC_PAGE + KVM_MAGIC_MSR, 0)
+	andi.	r31, r31, MSR_DR | MSR_IR
+	beq	kvm_emulate_mtsrin_reg1
+
+	SCRATCH_RESTORE
+
+kvm_emulate_mtsrin_orig_ins:
+	nop
+	b	kvm_emulate_mtsrin_branch
+
+kvm_emulate_mtsrin_reg1:
+	/* rX >> 26 */
+	rlwinm  r30,r0,6,26,29
+
+kvm_emulate_mtsrin_reg2:
+	stw	r0, (KVM_MAGIC_PAGE + KVM_MAGIC_SR)(r30)
+
+	SCRATCH_RESTORE
+
+	/* Go back to caller */
+kvm_emulate_mtsrin_branch:
+	b	.
+kvm_emulate_mtsrin_end:
+
+.global kvm_emulate_mtsrin_branch_offs
+kvm_emulate_mtsrin_branch_offs:
+	.long (kvm_emulate_mtsrin_branch - kvm_emulate_mtsrin) / 4
+
+.global kvm_emulate_mtsrin_reg1_offs
+kvm_emulate_mtsrin_reg1_offs:
+	.long (kvm_emulate_mtsrin_reg1 - kvm_emulate_mtsrin) / 4
+
+.global kvm_emulate_mtsrin_reg2_offs
+kvm_emulate_mtsrin_reg2_offs:
+	.long (kvm_emulate_mtsrin_reg2 - kvm_emulate_mtsrin) / 4
+
+.global kvm_emulate_mtsrin_orig_ins_offs
+kvm_emulate_mtsrin_orig_ins_offs:
+	.long (kvm_emulate_mtsrin_orig_ins - kvm_emulate_mtsrin) / 4
+
+.global kvm_emulate_mtsrin_len
+kvm_emulate_mtsrin_len:
+	.long (kvm_emulate_mtsrin_end - kvm_emulate_mtsrin) / 4
