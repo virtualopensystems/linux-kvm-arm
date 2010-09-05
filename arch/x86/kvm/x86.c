@@ -1020,7 +1020,7 @@ static int kvm_write_guest_time(struct kvm_vcpu *v)
 	 * it is possible such a time value has already been observed by the
 	 * guest.  To protect against this, we must compute the system time as
 	 * observed by the guest and ensure the new system time is greater.
- 	 */
+	 */
 	max_kernel_ns = 0;
 	if (vcpu->hv_clock.tsc_timestamp && vcpu->last_guest_tsc) {
 		max_kernel_ns = vcpu->last_guest_tsc -
@@ -2289,7 +2289,7 @@ static int kvm_dev_ioctl_get_supported_cpuid(struct kvm_cpuid2 *cpuid,
 		do_cpuid_ent(&cpuid_entries[nent], func, 0,
 			     &nent, cpuid->nent);
 
-	
+
 
 	r = -E2BIG;
 	if (nent >= cpuid->nent)

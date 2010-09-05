@@ -52,12 +52,12 @@ available, but not all modes are available to all timers, as only timer 2
 has a connected gate input, required for modes 1 and 5.  The gate line is
 controlled by port 61h, bit 0, as illustrated in the following diagram.
 
- --------------             ---------------- 
+ --------------             ----------------
 |              |           |                |
 |  1.1932 MHz  |---------->| CLOCK      OUT | ---------> IRQ 0
 |    Clock     |   |       |                |
  --------------    |    +->| GATE  TIMER 0  |
-                   |        ---------------- 
+                   |        ----------------
                    |
                    |        ----------------
                    |       |                |
@@ -66,7 +66,7 @@ controlled by port 61h, bit 0, as illustrated in the following diagram.
                    |    +->| GATE  TIMER 1  |
                    |        ----------------
                    |
-                   |        ---------------- 
+                   |        ----------------
                    |       |                |
                    |------>| CLOCK      OUT | ---------> Port 61h, bit 5
                            |                |      |
@@ -134,7 +134,7 @@ Command table:
 0001 - Set Timer 0 LSB mode for port 0x40
 	set timer to read LSB only and force MSB to zero;
 	mode bits set timer mode
-	
+
 0010 - Set Timer 0 MSB mode for port 0x40
 	set timer to read MSB only and force LSB to zero;
 	mode bits set timer mode
@@ -167,7 +167,7 @@ Command table:
 	Bit 1 = Counter 0
 
 	The output of ports 0x40-0x42 following this command will be:
-	
+
 	Bit 7 = Output pin
 	Bit 6 = Count loaded (0 if timer has expired)
 	Bit 5-4 = Read / Write mode
@@ -610,4 +610,3 @@ by using CPU utilization itself as a signalling channel.  Preventing such
 problems would require completely isolated virtual time which may not track
 real time any longer.  This may be useful in certain security or QA contexts,
 but in general isn't recommended for real-world deployment scenarios.
-
