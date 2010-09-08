@@ -155,6 +155,9 @@ int v2m_cfg_read(u32 devfn, u32 *data);
  * Core tile IDs
  */
 #define V2M_CT_ID_CA9		0x0c000191
+#define V2M_CT_ID_CA15		0x0c000000 /* FIXME: this is almost certainly
+					      wrong, but is what the model
+					      currently provides. */
 #define V2M_CT_ID_UNSUPPORTED	0xff000191
 #define V2M_CT_ID_MASK		0xff000fff
 
