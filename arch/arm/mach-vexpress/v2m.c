@@ -24,6 +24,7 @@
 #include <asm/hardware/sp810.h>
 
 #include <mach/ct-ca9x4.h>
+#include <mach/ct-ca15x4.h>
 #include <mach/motherboard.h>
 
 #include <plat/sched_clock.h>
@@ -349,6 +350,9 @@ struct ct_desc *ct_desc;
 static struct ct_desc *ct_descs[] __initdata = {
 #ifdef CONFIG_ARCH_VEXPRESS_CA9X4
 	&ct_ca9x4_desc,
+#endif
+#ifdef CONFIG_ARCH_VEXPRESS_CA15X4
+	&ct_ca15x4_desc,
 #endif
 };
 
