@@ -178,6 +178,31 @@ static struct platform_device v2m_eth_device = {
 	.dev.platform_data = &v2m_eth_config,
 };
 
+static struct platform_device v2m_eth_deprecated_device = {
+	.name		= "smc91x",
+	.id		= -1,
+	.resource	= v2m_eth_resources,
+	.num_resources	= ARRAY_SIZE(v2m_eth_resources),
+};
+
+static struct platform_device *v2m_eth_device_probe(void)
+{
+	u32 idrev;
+	void __iomem *eth_addr = ioremap(V2M_LAN9118, SZ_4K);
+	struct platform_device *eth_dev = NULL;
+
+	if (eth_addr) {
+		idrev = readl(eth_addr + 0x50);
+		if ((idrev & 0xffff0000) == 0x01180000)
+			eth_dev = &v2m_eth_device;
+		else
+			eth_dev = &v2m_eth_deprecated_device;
+		iounmap(eth_addr);
+	}
+
+	return eth_dev;
+}
+
 static struct resource v2m_usb_resources[] = {
 	{
 		.start	= V2M_ISP1761,
@@ -502,13 +527,17 @@ static void __init v2m_init_irq(void)
 static void __init v2m_init(void)
 {
 	int i;
+	struct platform_device *eth_dev;
 
 	platform_device_register(&v2m_pcie_i2c_device);
 	platform_device_register(&v2m_ddc_i2c_device);
 	platform_device_register(&v2m_flash_device);
 	platform_device_register(&v2m_cf_device);
-	platform_device_register(&v2m_eth_device);
 	platform_device_register(&v2m_usb_device);
+
+	eth_dev = v2m_eth_device_probe();
+	if (eth_dev)
+		platform_device_register(eth_dev);
 
 	for (i = 0; i < ARRAY_SIZE(v2m_amba_devs); i++)
 		amba_device_register(v2m_amba_devs[i], &iomem_resource);
