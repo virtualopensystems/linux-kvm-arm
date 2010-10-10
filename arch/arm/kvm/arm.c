@@ -1345,7 +1345,10 @@ static inline int handle_abort(struct kvm_vcpu *vcpu, u32 interrupt)
 		instr_addr = vcpu->arch.regs[15];
 		fsr = vcpu->arch.host_fsr;
 	} else {
-		fsr = vcpu->arch.host_ifsr;
+		if (cpu_architecture() >= CPU_ARCH_ARMv6)
+			fsr = vcpu->arch.host_ifsr;
+		else
+			fsr = vcpu->arch.host_fsr;
 		instr_addr = fault_addr = vcpu->arch.regs[15];
 	}
 
@@ -1378,7 +1381,7 @@ static inline int handle_abort(struct kvm_vcpu *vcpu, u32 interrupt)
 	default:
 		ret = -EINVAL;
 		kvm_msg("Unknown data abort reason: FSR: 0x%08x\n",
-				  (unsigned int) vcpu->arch.host_fsr);
+				  (unsigned int) fsr);
 	}	
 
 	return ret;

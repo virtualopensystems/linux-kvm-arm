@@ -621,7 +621,13 @@ static int emulate_mcr_cache(struct coproc_params *params)
 					: [zero] "r" (0));
 			break;
 		case 1:	/* Invalidate i-cache line - MVA */
+			asm volatile("mcr	p15, 0, %[mva], c7, c5, 1":
+				: [mva] "r" (VCPU_REG(vcpu, params->rd_reg)));
+			break;
 		case 2:	/* Invalidate i-cache line - set */
+			asm volatile("mcr	p15, 0, %[set], c7, c5, 2":
+				: [set] "r" (VCPU_REG(vcpu, params->rd_reg)));
+			break;
 		case 4:	/* Flush prefetch buffer */
 		case 6:	/* Flush entire branch target cache */
 		case 7:	/* Flush branch target cache - MVA */
@@ -636,12 +642,17 @@ static int emulate_mcr_cache(struct coproc_params *params)
 	case 6:
 		switch (params->opcode2) {
 		case 0:	/* Invalidate entire data cache */
+			asm volatile("mcr	p15, 0, %[zero], c7, c6, 0":
+					: [zero] "r" (0));
+			break;
 		case 1:	/* Invalidate data cache line - MVA */
+			asm volatile("mcr	p15, 0, %[mva], c7, c6, 1":
+				: [mva] "r" (VCPU_REG(vcpu, params->rd_reg)));
+			break;
 		case 2:	/* Invalidate data cache line - set */
-			//return kvm_init_l1_shadow(vcpu, vcpu->arch.shadow_pgtable);
-			kvm_msg("not implemented operation: CRm (%d), Op2 (%d)",
-					params->CRm, params->opcode2);
-			KVMARM_NOT_IMPLEMENTED();
+			asm volatile("mcr	p15, 0, %[set], c7, c6, 2":
+				: [set] "r" (VCPU_REG(vcpu, params->rd_reg)));
+			break;
 		default:
 			ret = -EINVAL;
 		}
@@ -679,6 +690,9 @@ static int emulate_mcr_cache(struct coproc_params *params)
 		case 2:	/* Clean data cache line - set */
 		case 3:	/* test and clean */
 		case 4:	/* Data synchronization barrier */
+			asm volatile("mcr	p15, 0, %[zero], c7, c10, 4":
+					: [zero] "r" (0));
+			break;
 		case 5:	/* Data memory barrier */
 			//return kvm_init_l1_shadow(vcpu, vcpu->arch.shadow_pgtable);
 			kvm_msg("not implemented operation: CRm (%d), Op2 (%d)",
@@ -771,6 +785,16 @@ static int emulate_mrc_cache(struct coproc_params *params)
 	case 10:
 		if (params->opcode2 == 6) {
 			KVMARM_NOT_IMPLEMENTED();
+#if CONFIG_CPU_32v5
+		} else if (params->opcode2 == 3) {
+			/* 
+			 * Caches are completely flushed on world-switches
+			 * for ARMv5 so we just update the condition flag
+			 * and let the guest continue.
+			 */
+			params->vcpu->arch.cpsr |= PSR_Z_BIT;
+			params->vcpu->arch.cpsr &= ~PSR_N_BIT;
+#endif
 		} else {
 			ret = -EINVAL;
 		}
@@ -782,8 +806,23 @@ static int emulate_mrc_cache(struct coproc_params *params)
 			ret = -EINVAL;
 		}
 		break;
+#if CONFIG_CPU_32v5
+	case 14: /* Test-and-clean operation on ARMv5 */
+		if (params->opcode2 == 3) {
+			/* 
+			 * Caches are completely flushed on world-switches
+			 * for ARMv5 so we just update the condition flag
+			 * and let the guest continue.
+			 */
+			params->vcpu->arch.cpsr |= PSR_Z_BIT;
+			params->vcpu->arch.cpsr &= ~PSR_N_BIT;
+		} else {
+			ret = -EINVAL;
+		}
+		break;
+#endif
 	default:
-		return -EINVAL;
+		ret = -EINVAL;
 	}
 
 	if (ret)
