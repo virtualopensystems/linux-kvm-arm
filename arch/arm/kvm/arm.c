@@ -28,15 +28,16 @@
 #include <asm/uaccess.h>
 #include <asm/ptrace.h>
 #include <asm/mman.h>
+
+u8 guest_debug = 0;
+u8 page_debug = 0;
+u32 irq_return = 0;
+u32 irq_suppress = 0;
+
 #include <asm/kvm_arm.h>
 #include <asm/kvm_asm.h>
 #include <asm/kvm_mmu.h>
 #include <asm/kvm_emulate.h>
-
-u8 guest_debug = 1;
-u8 page_debug = 0;
-u32 irq_return = 0;
-u32 irq_suppress = 0;
 
 static u32        handle_exit(struct kvm_vcpu *vcpu, u32 interrupt);
 static int        pre_guest_switch(struct kvm_vcpu *vcpu);
@@ -48,16 +49,41 @@ static inline int handle_shadow_fault(struct kvm_vcpu *vcpu,
 static char __tmp_log_data[TMP_LOG_LEN];
 DEFINE_MUTEX(__tmp_log_lock);
 
+#define WS_TRACE_ITEMS 15
+static u32 ws_trace_enter[WS_TRACE_ITEMS];
+static int ws_trace_enter_index = 0;
+static u32 ws_trace_exit[WS_TRACE_ITEMS];
+static int ws_trace_exit_index = 0;
+
 static const u32 bp_instr = 0xef00babe;
 static unsigned int bp_offset = 4;
 
+void print_ws_trace(void)
+{
+	int i;
+	
+	if (ws_trace_enter_index != ws_trace_exit_index) {
+		printk(KERN_ERR "enter and exit WS trace count differ:"
+			       "cannot write trace\n");
+		return;
+	}
 
-extern void print_guest_mapping(struct kvm_vcpu *vcpu, gva_t gva);
+	if (ws_trace_enter_index == WS_TRACE_ITEMS)
+		return; // Avoid potential endless loop
+
+	for (i = ws_trace_enter_index - 1; i != ws_trace_enter_index; i--) {
+		if (i < 0)
+			i = WS_TRACE_ITEMS - 1;
+
+		printk(KERN_ERR "Enter: %08x    Exit: %08x\n",
+			ws_trace_enter[i],
+			ws_trace_exit[i]);
+	}
+}
 
 void __kvm_print_msg(char *fmt, ...)
 {
 	va_list ap;
-	int ret = 0;
 	unsigned int size;
 
 	mutex_lock(&__tmp_log_lock);
@@ -67,9 +93,9 @@ void __kvm_print_msg(char *fmt, ...)
 	va_end(ap);
 
 	if (size >= TMP_LOG_LEN)
-		printk(KERN_ERR "kvm_msg exceeded possible temporary buffer size\n");
+		printk("Message exceeded log length!\n");
 	else
-		printk(KERN_ERR "%s", __tmp_log_data);
+		printk("%s", __tmp_log_data);
 
 	mutex_unlock(&__tmp_log_lock);
 }
@@ -96,6 +122,19 @@ u32 get_shadow_l2_entry(struct kvm_vcpu *vcpu, gva_t gva)
 	l2_entry = *(l2_base + ((gva >> 12) & 0xff));
 
 	return l2_entry;
+}
+
+void print_shadow_mapping(struct kvm_vcpu *vcpu, gva_t gva)
+{
+	u32 l1_entry;
+
+	l1_entry = get_shadow_l1_entry(vcpu, gva);
+	kvm_msg("shadow l1_entry: %08x", l1_entry);
+	if ((l1_entry & L1_TYPE_MASK) == L1_TYPE_COARSE)
+	{
+		u32 l2_entry = get_shadow_l2_entry(vcpu, gva);
+		kvm_msg("shadow l2_entry: %08x", l2_entry);
+	}
 }
 
 static int guest_wrote_vec = 0;
@@ -181,25 +220,6 @@ int kvm_dev_ioctl_check_extension(long ext)
 	return r;
 }
 
-static int dump_kvm_log(void __user *buffer)
-{
-	int size, ret;
-	
-	if (kfifo_len(__kvm_log) == 0) {
-		ret = wait_event_interruptible(__kvm_log_wait_queue,
-					       kfifo_len(__kvm_log) > 0);
-		if (ret < 0)
-			return ret;
-	}
-
-	size = kfifo_get(__kvm_log, __tmp_log, KVM_LOG_LEN);
-	ret = copy_to_user(buffer, __tmp_log, size);
-	if (ret)
-		return -EFAULT;
-
-	return size;
-}
-
 long kvm_arch_dev_ioctl(struct file *filp,
                         unsigned int ioctl, unsigned long arg)
 {
@@ -210,9 +230,6 @@ long kvm_arch_dev_ioctl(struct file *filp,
 		//guest_debug = guest_debug ? 0 : 1;
 		bp_offset = arg;
 		ret = bp_offset;
-		break;
-	case KVM_ARM_DUMP_LOG:
-		ret = dump_kvm_log((void *) arg);
 		break;
 	default:
 		ret = -EINVAL;
@@ -921,6 +938,10 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 		}
 		*/
 
+		ws_trace_enter[ws_trace_enter_index++] = vcpu->arch.regs[15];
+		if (ws_trace_enter_index >= WS_TRACE_ITEMS)
+			ws_trace_enter_index = 0;
+
 		if (guest_debug) {
 			__kvm_msg("ENTER VCPU: %08x ---->  ", vcpu->arch.regs[15]);
 			pending_write = 1;
@@ -944,6 +965,10 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 
 		vcpu->arch.guest_exception = excpt_idx;
 		post_guest_switch(vcpu); 
+
+		ws_trace_exit[ws_trace_exit_index++] = vcpu->arch.regs[15];
+		if (ws_trace_exit_index >= WS_TRACE_ITEMS)
+			ws_trace_exit_index = 0;
 
 		if (pending_write) {
 			debug_exit_print(vcpu, excpt_idx);
@@ -1041,7 +1066,7 @@ static inline int handle_swi(struct kvm_vcpu *vcpu)
 		//} else if ((instr & 0xffff) >= 0xde00 && (instr & 0xffff) < 0xdf00) {
 
 		} else if ((instr & 0xffff) == 0xcafe) {
-			kvm_switch_host_vectors(vcpu, 0);
+			kvm_msg("doing nothing on 0xcafe");
 		} else if ((instr & 0xffff) == 0xbabe) {
 			return -EINVAL;
 		} else if ((instr & 0xffff) == 0xbeef) {
@@ -1224,6 +1249,11 @@ static inline int handle_shadow_fault(struct kvm_vcpu *vcpu,
 			kvm_msg("        happened at: 0x%08x", instr_addr);
 			kvm_msg("        address:     0x%08x", fault_addr);
 			kvm_msg("        fault:       %d", fault);
+			print_ws_trace();
+			trace_gva_to_gfn = true;
+			fault = gva_to_gfn(vcpu, fault_addr, &gfn, uaccess, &map_info);
+			trace_gva_to_gfn = false;
+			return -EINVAL;
 			kvm_generate_mmu_fault(vcpu, fault_addr, fault,
 					       map_info.domain_number);
 			return 0;
@@ -1241,7 +1271,7 @@ static inline int handle_shadow_fault(struct kvm_vcpu *vcpu,
 	}
 }
 
-static inline int handle_shadow_perm(struct kvm_vcpu *vcpu,
+int handle_shadow_perm(struct kvm_vcpu *vcpu,
 				      gva_t fault_addr, gva_t instr_addr)
 {
 	int high;
@@ -1249,12 +1279,52 @@ static inline int handle_shadow_perm(struct kvm_vcpu *vcpu,
 	u8 uaccess;
 	struct map_info map_info;
 	int ret = 0;
+	u32 fsr;
 
 	if (!vcpu->arch.host_vectors_high &&
 		(fault_addr >> PAGE_SHIFT) == (0xffff0000 >> PAGE_SHIFT) &&
 		VCPU_MODE_PRIV(vcpu)) {
+<<<<<<< HEAD
 		kvm_msg("Privileged mode cannot access vector page. "
 			"Guest must be broken or we have a bug");
+=======
+
+		kvm_msg("Privileged mode cannot access vector page. "
+			"Guest must be broken or we have a bug.");
+		kvm_msg("    guest PC was: 0x%08x", VCPU_REG(vcpu, 15));
+		kvm_msg("    fault_addr:   0x%08x", fault_addr);
+
+		fsr = vcpu->arch.host_ifsr;
+		kvm_msg("    ifsr: 0x%08x", fsr);
+		fsr = vcpu->arch.host_fsr;
+		kvm_msg("    fsr: 0x%08x", fsr);
+
+		kvm_msg("    guest_exception: %d", vcpu->arch.guest_exception);
+		print_ws_trace();
+
+		/********** Print guest mapping info *********/
+		kvm_msg("\n");
+		kvm_msg("Guest mapping info:");
+
+		trace_gva_to_gfn = true;
+		ret = gva_to_gfn(vcpu, fault_addr, &gfn, 0, &map_info);
+		trace_gva_to_gfn = false;
+
+		if (kvm_is_visible_gfn(vcpu->kvm, gfn))
+			kvm_msg("     gfn: %u", gfn);
+		else
+			kvm_msg("     gfn: invisible");
+
+		kvm_msg("\n");
+		kvm_msg("Shadow mapping info:");
+		print_shadow_mapping(vcpu, fault_addr);
+
+		kvm_msg("     return val: %d", ret);
+		/*********************************************/
+
+		return -EINVAL;
+
+>>>>>>> e6e7b84... kvm: Added some logging and tracing functionality
 		//XXX Try to map page again.....
 		ret = handle_shadow_fault(vcpu, fault_addr, instr_addr);
 		goto out;
@@ -1267,7 +1337,6 @@ static inline int handle_shadow_perm(struct kvm_vcpu *vcpu,
 		high = vcpu->arch.host_vectors_high ? 0 : 1;
 		kvm_msg("switching vectors...");
 		kvm_switch_host_vectors(vcpu, high);
-		kvm_msg("handling shadow fault...");
 		ret = handle_shadow_fault(vcpu, fault_addr, instr_addr);
 		goto out;
 	}
@@ -1482,7 +1551,6 @@ void kvm_arch_exit(void)
 static int arm_init(void)
 {
 	int rc = kvm_init(NULL, sizeof(struct kvm_vcpu), THIS_MODULE);
-	__kvm_log = kfifo_alloc(KVM_LOG_LEN, GFP_KERNEL, &__kvm_log_lock);
 	return rc;
 }
 

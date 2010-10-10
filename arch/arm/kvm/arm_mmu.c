@@ -13,7 +13,6 @@
  * Foundation, 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  *
  */
-
 #include <linux/kvm_types.h>
 #include <linux/kvm_host.h>
 #include <linux/highmem.h>
@@ -27,6 +26,11 @@
 #include <asm/mmu_context.h>
 #include <asm/domain.h>
 #include <asm/uaccess.h>
+
+/********* Trace and debug definitions ***********/
+bool trace_gva_to_gfn = false;
+/*************************************************/
+
 #include <asm/kvm_arm.h>
 #include <asm/kvm_asm.h>
 #include <asm/kvm_mmu.h>
@@ -356,6 +360,9 @@ int gva_to_gfn(struct kvm_vcpu *vcpu, gva_t gva, gfn_t *gfn, u8 uaccess,
 	if (err < 0)
 		return err;
 
+	if (trace_gva_to_gfn) 
+		kvm_msg("l1_entry: %08x", l1_entry);
+
 	switch (l1_entry & L1_TYPE_MASK) {
 	case (L1_TYPE_FAULT): {
 		/*printk(KERN_DEBUG "     guest section fault at 0x%08x on GVA: 0x%08x\n",
@@ -386,6 +393,9 @@ int gva_to_gfn(struct kvm_vcpu *vcpu, gva_t gva, gfn_t *gfn, u8 uaccess,
 		if (err < 0)
 			return err;
 
+		if (trace_gva_to_gfn) 
+			kvm_msg("l2_entry: %08x", l2_entry);
+
 #if __LINUX_ARM_ARCH__ >= 6
 		if (kvm_mmu_xp(vcpu))
 			err = trans_coarse_entry_xp(vcpu, gva, l2_entry, gfn,
@@ -401,10 +411,12 @@ int gva_to_gfn(struct kvm_vcpu *vcpu, gva_t gva, gfn_t *gfn, u8 uaccess,
 			return err;
  
 		if (ret == 0 && err > 0) {
-			kvm_msg("l1 entry for 0x%08x: 0x%08x", gva, l1_entry);
-			kvm_msg("l2 entry for 0x%08x: 0x%08x", gva, l2_entry);
-			kvm_msg("err: %d", err);
-			kvm_msg("xp: %u", kvm_mmu_xp(vcpu));
+			if (trace_gva_to_gfn) {
+				kvm_msg("l1 entry for 0x%08x: 0x%08x", gva, l1_entry);
+				kvm_msg("l2 entry for 0x%08x: 0x%08x", gva, l2_entry);
+				kvm_msg("err: %d", err);
+				kvm_msg("xp: %u", kvm_mmu_xp(vcpu));
+			}
 			return err; /* Maybe AP denied on the 2nd level */
 		} else
 			return ret;
@@ -470,6 +482,7 @@ int gva_to_gfn(struct kvm_vcpu *vcpu, gva_t gva, gfn_t *gfn, u8 uaccess,
 	return 0;
 }
 
+#if 0
 void print_guest_mapping(struct kvm_vcpu *vcpu, gva_t gva)
 {
 	gpa_t l1_base, l2_base;
@@ -515,6 +528,7 @@ void print_guest_mapping(struct kvm_vcpu *vcpu, gva_t gva)
 	BUG();
 	return;
 }
+#endif
 
 /*
  * Guest virtual to host virtual.
@@ -1286,6 +1300,7 @@ int kvm_restore_low_vector_domain(struct kvm_vcpu *vcpu, u32 *pgd)
 void kvm_generate_mmu_fault(struct kvm_vcpu *vcpu, gva_t fault_addr,
 			    u32 source, u8 domain)
 {
+	kvm_msg("Injecting interrupt at: %08x", vcpu->arch.regs[15]);
 	/*
 	 * The vcpu->arch.guest_exception is set upon exit from the guest
 	 * as this is the only way to know if the fault was due to an instruction

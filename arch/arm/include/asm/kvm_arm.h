@@ -21,16 +21,20 @@
 #include <linux/kvm_host.h>
 #include <asm/kvm_asm.h>
 
+/*
+ * Debugging and tracing functions and definitions
+ */
 
 void __kvm_print_msg(char *_fmt, ...);
 
 #define kvm_err(err, fmt, args...) do {			\
-	__kvm_print_msg("KVM error [%s:%d]: (%d) ", __FUNCTION__, __LINE__, err); \
+	__kvm_print_msg(KERN_ERR "KVM error [%s:%d]: (%d) ", \
+			__FUNCTION__, __LINE__, err); \
 	__kvm_print_msg(fmt "\n", ##args); \
 } while (0)
 
 #define __kvm_msg(fmt, args...) do {			\
-	__kvm_print_msg("KVM [%s:%d]: ", __FUNCTION__, __LINE__); \
+	__kvm_print_msg(KERN_ERR "KVM [%s:%d]: ", __FUNCTION__, __LINE__); \
 	__kvm_print_msg(fmt, ##args); \
 } while (0)
 
@@ -43,6 +47,9 @@ void __kvm_print_msg(char *_fmt, ...);
 		   __FILE__, __LINE__, __FUNCTION__); \
 		 return -EINVAL; \
    }
+
+extern bool trace_gva_to_gfn;
+void print_shadow_mapping(struct kvm_vcpu *vcpu, gva_t gva);
 
 
 /*
