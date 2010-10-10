@@ -33,7 +33,7 @@
 #include <asm/kvm_mmu.h>
 #include <asm/kvm_emulate.h>
 
-u8 guest_debug = 0;
+u8 guest_debug = 1;
 u8 page_debug = 0;
 u32 irq_return = 0;
 u32 irq_suppress = 0;
@@ -46,18 +46,7 @@ static inline int handle_shadow_fault(struct kvm_vcpu *vcpu,
 
 #define TMP_LOG_LEN 512
 static char __tmp_log_data[TMP_LOG_LEN];
-
 DEFINE_MUTEX(__tmp_log_lock);
-DEFINE_MUTEX(__kvm_log_read_lock);
-DEFINE_MUTEX(__kvm_loggers_lock);
-DECLARE_WAIT_QUEUE_HEAD(__kvm_log_wait_queue);
-
-#define KVM_LOG_LEN 2048
-static spinlock_t __kvm_log_lock;
-static struct kfifo *__kvm_log;
-static char __tmp_log[KVM_LOG_LEN];
-
-
 
 static const u32 bp_instr = 0xef00babe;
 static unsigned int bp_offset = 4;
@@ -84,61 +73,6 @@ void __kvm_print_msg(char *fmt, ...)
 
 	mutex_unlock(&__tmp_log_lock);
 }
-
-#if 0
-void __kvm_print_msg(char *fmt, ...)
-{
-	va_list ap;
-	int ret = 0;
-	unsigned int size;
-	bool should_wake_up = false;
-
-	if (kfifo_len(__kvm_log) == 0)
-		should_wake_up = true;
-
-	mutex_lock(&__tmp_log_lock);
-
-	va_start(ap, fmt);
-	size = vsnprintf(__tmp_log_data, TMP_LOG_LEN, fmt, ap);
-	va_end(ap);
-
-	if (size >= TMP_LOG_LEN) {
-		if (kfifo_put(__kvm_log, "???\n", 4) != 4) {
-			ret = -EFAULT;
-			goto out;
-		}
-	} else {
-		ret = kfifo_put(__kvm_log, __tmp_log_data, size);
-		if (ret != size) {
-			mutex_lock(&__kvm_log_read_lock);
-			size = size - ret;
-			__kvm_log->out += size;
-			mutex_unlock(&__kvm_log_read_lock);
-			ret = kfifo_put(__kvm_log,
-					__tmp_log_data + ret,
-					size);
-			if (ret != size) {
-				ret = -EFAULT;
-				goto out;
-			}
-		}
-	}
-
-	if (should_wake_up)
-		wake_up(&__kvm_log_wait_queue);
-
-#ifdef CONFIG_KVM_ARM_WAIT_FOR_LOGGER
-	/* Make sure the log gets printed immediately */
-	while (kfifo_len(__kvm_log) > 0)
-		schedule();
-#endif
-
-out:
-	mutex_unlock(&__tmp_log_lock);
-	if (ret < 0)
-		printk(KERN_ERR "Error in __kvm_print_msg: %d\n", ret);
-}
-#endif
 
 u32 get_shadow_l1_entry(struct kvm_vcpu *vcpu, gva_t gva)
 {
@@ -633,10 +567,10 @@ static inline int kvm_switch_mode(struct kvm_vcpu *vcpu, u8 new_cpsr)
 	vcpu->arch.mode = new_mode;
 
 	if (new_mode == MODE_USER) {
-		//printk(KERN_DEBUG "    warning: Guest switched to user mode!\n");
+		//printk(KERN_ERR "    warning: Guest switched to user mode!\n");
 		//guest_debug = 1;
 	} else if (new_mode != MODE_USER && old_mode == MODE_USER) {
-		//printk(KERN_DEBUG "    warning: Guest switched to privileged mode!\n");
+		//printk(KERN_ERR "    warning: Guest switched to privileged mode!\n");
 	}
 
 	return ret;
@@ -732,7 +666,7 @@ static int inject_guest_exception(struct kvm_vcpu *vcpu)
 	}
 
 	if (vcpu->arch.exception_pending & EXCEPTION_SOFTWARE) {
-		kvm_msg("inject swi");
+		//kvm_msg("inject swi");
 		vcpu->arch.banked_r14[MODE_SVC] = vcpu->arch.regs[15] + 4;
 		vcpu->arch.banked_spsr[MODE_SVC] = vcpu->arch.cpsr;
 
@@ -741,7 +675,15 @@ static int inject_guest_exception(struct kvm_vcpu *vcpu)
 	}
 	
 	if (vcpu->arch.exception_pending & EXCEPTION_PREFETCH) {
+<<<<<<< HEAD
 		kvm_msg("inject prefetch abort");
+=======
+		u32 l2_pte;
+
+		//kvm_msg("inject prefetch abort");
+		l2_pte = get_shadow_l2_entry(vcpu, 0xffff0000);
+		//kvm_msg("    l2_pte: 0x%08x\n", l2_pte);
+>>>>>>> 3605bc3... Changed debugging back to simple printk
 		vcpu->arch.banked_r14[MODE_ABORT] = vcpu->arch.regs[15] + 4;
 		vcpu->arch.banked_spsr[MODE_ABORT] = vcpu->arch.cpsr;
 
@@ -750,7 +692,7 @@ static int inject_guest_exception(struct kvm_vcpu *vcpu)
 	}
 
 	if (vcpu->arch.exception_pending & EXCEPTION_DATA) {
-		kvm_msg("inject data abort");
+		//kvm_msg("inject data abort");
 		vcpu->arch.banked_r14[MODE_ABORT] = vcpu->arch.regs[15] + 8;
 		vcpu->arch.banked_spsr[MODE_ABORT] = vcpu->arch.cpsr;
 
@@ -858,7 +800,7 @@ static int pre_guest_switch(struct kvm_vcpu *vcpu)
 
 	/*
 	if (guest_debug) {
-		printk(KERN_DEBUG "  ********0xffff0000 l2 mapping: 0x%08x\n",
+		printk(KERN_ERR "  ********0xffff0000 l2 mapping: 0x%08x\n",
 			get_shadow_l2_entry(vcpu, 0xffff0000));
 	}
 	*/
@@ -1133,7 +1075,7 @@ static inline int handle_swi(struct kvm_vcpu *vcpu)
 		if (copy_from_user(&orig_instr, (void *)hva, sizeof(u32)))
 			return -EFAULT;
 
-		/*printk(KERN_DEBUG "Emulating instruction %08x (at 0x%08x)\n",
+		/*printk(KERN_ERR "Emulating instruction %08x (at 0x%08x)\n",
 				  orig_instr, (unsigned int)addr + 4);*/
 
 		ret = kvm_emulate_sensitive(vcpu, orig_instr);
