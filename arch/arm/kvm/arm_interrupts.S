@@ -383,8 +383,8 @@ save_data_far_fsr:
 	b	load_host_regs
 save_instr_far_fsr:
 #if defined(CONFIG_CPU_32v5)
-	mrc	p15, 0, r2, c5, c0, 0	@get the fault status register
-	str	r2, [r1, #VCPU_HOST_FSR]	
+	mrc	p15, 0, r2, c5, c0, 1	@get the instr fault status register
+	str	r2, [r1, #VCPU_HOST_IFSR]	
 #elif defined(CONFIG_CPU_32v6)
 	mrc	p15, 0, r2, c5, c0, 1	@get the instr fault status register
 	str	r2, [r1, #VCPU_HOST_IFSR]	

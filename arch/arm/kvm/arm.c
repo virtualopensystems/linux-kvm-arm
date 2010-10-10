@@ -1378,10 +1378,15 @@ static inline int handle_abort(struct kvm_vcpu *vcpu, u32 interrupt)
 		instr_addr = vcpu->arch.regs[15];
 		fsr = vcpu->arch.host_fsr;
 	} else {
-		if (cpu_architecture() >= CPU_ARCH_ARMv6)
-			fsr = vcpu->arch.host_ifsr;
-		else
-			fsr = vcpu->arch.host_fsr;
+		/*
+		 * WARNING: The Android emulator stores the reason for a fault
+		 * in the IFSR, but that's actually implementation defined
+		 * before ARMv6, so if we plan on continue support for this
+		 * older architecture, this logic should really be based on
+		 * something else (like checking the shadow page table
+		 * entry)
+		 */
+		fsr = vcpu->arch.host_ifsr;
 		instr_addr = fault_addr = vcpu->arch.regs[15];
 	}
 
