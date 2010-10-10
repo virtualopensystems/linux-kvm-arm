@@ -92,5 +92,20 @@ calc_vm_flag_bits(unsigned long flags)
 	       _calc_vm_trans(flags, MAP_EXECUTABLE, VM_EXECUTABLE) |
 	       _calc_vm_trans(flags, MAP_LOCKED,     VM_LOCKED    );
 }
+
+#ifdef CONFIG_KVM
+struct vm_area_struct *
+find_vma_prepare(struct mm_struct *mm, unsigned long addr,
+		struct vm_area_struct **pprev, struct rb_node ***rb_link,
+		struct rb_node ** rb_parent);
+
+void vma_link(struct mm_struct *mm, struct vm_area_struct *vma,
+			struct vm_area_struct *prev, struct rb_node **rb_link,
+			struct rb_node *rb_parent);
+
+inline int remap_pud_range(struct mm_struct *mm, pgd_t *pgd,
+			unsigned long addr, unsigned long end,
+			unsigned long pfn, pgprot_t prot);
+#endif
 #endif /* __KERNEL__ */
 #endif /* _LINUX_MMAN_H */

@@ -350,7 +350,7 @@ void validate_mm(struct mm_struct *mm)
 #define validate_mm(mm) do { } while (0)
 #endif
 
-static struct vm_area_struct *
+struct vm_area_struct *
 find_vma_prepare(struct mm_struct *mm, unsigned long addr,
 		struct vm_area_struct **pprev, struct rb_node ***rb_link,
 		struct rb_node ** rb_parent)
@@ -443,7 +443,7 @@ __vma_link(struct mm_struct *mm, struct vm_area_struct *vma,
 	__anon_vma_link(vma);
 }
 
-static void vma_link(struct mm_struct *mm, struct vm_area_struct *vma,
+void vma_link(struct mm_struct *mm, struct vm_area_struct *vma,
 			struct vm_area_struct *prev, struct rb_node **rb_link,
 			struct rb_node *rb_parent)
 {

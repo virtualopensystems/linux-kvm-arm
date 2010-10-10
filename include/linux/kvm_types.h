@@ -31,11 +31,19 @@
  */
 
 typedef unsigned long  gva_t;
+#ifdef CONFIG_KVM_ARM_HOST
+typedef u32            gpa_t;
+#else
 typedef u64            gpa_t;
+#endif
 typedef unsigned long  gfn_t;
 
 typedef unsigned long  hva_t;
+#ifdef CONFIG_KVM_ARM_HOST
+typedef u32            hpa_t;
+#else
 typedef u64            hpa_t;
+#endif
 typedef unsigned long  hfn_t;
 
 typedef hfn_t pfn_t;

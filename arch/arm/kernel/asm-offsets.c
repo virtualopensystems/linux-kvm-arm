@@ -17,6 +17,9 @@
 #include <asm/memory.h>
 #include <asm/procinfo.h>
 #include <linux/kbuild.h>
+#ifdef CONFIG_KVM
+  #include <linux/kvm_host.h>
+#endif
 
 /*
  * Make sure that the compiler and target are compatible.
@@ -39,6 +42,7 @@
 int main(void)
 {
   DEFINE(TSK_ACTIVE_MM,		offsetof(struct task_struct, active_mm));
+  DEFINE(TSK_FLAGS,		offsetof(struct task_struct, flags));
   BLANK();
   DEFINE(TI_FLAGS,		offsetof(struct thread_info, flags));
   DEFINE(TI_PREEMPT,		offsetof(struct thread_info, preempt_count));
@@ -89,7 +93,7 @@ int main(void)
   DEFINE(VMA_VM_MM,		offsetof(struct vm_area_struct, vm_mm));
   DEFINE(VMA_VM_FLAGS,		offsetof(struct vm_area_struct, vm_flags));
   BLANK();
-  DEFINE(VM_EXEC,	       	VM_EXEC);
+  DEFINE(VM_EXEC,	       	VM_EXEC); 
   BLANK();
   DEFINE(PAGE_SZ,	       	PAGE_SIZE);
   BLANK();
@@ -112,5 +116,27 @@ int main(void)
 #ifdef MULTI_PABORT
   DEFINE(PROCESSOR_PABT_FUNC,	offsetof(struct processor, _prefetch_abort));
 #endif
+
+#ifdef CONFIG_KVM
+  DEFINE(VCPU_SHADOW_PGD_ADDR,  offsetof(struct kvm_vcpu, arch.shadow_pgd_addr));
+  DEFINE(VCPU_HOST_PGD_ADDR,    offsetof(struct kvm_vcpu, arch.host_pgd_addr));
+  DEFINE(VCPU_HOST_FAR,         offsetof(struct kvm_vcpu, arch.host_far));
+  DEFINE(VCPU_HOST_FSR,         offsetof(struct kvm_vcpu, arch.host_fsr));
+  DEFINE(VCPU_HOST_VEC_HIGH,    offsetof(struct kvm_vcpu, arch.host_vectors_high));
+
+  DEFINE(SHARED_SP,             offsetof(struct shared_page, shared_sp));
+  DEFINE(SHARED_RET_PTR,        offsetof(struct shared_page, return_ptr));
+  DEFINE(SHARED_HOST_SP,        offsetof(struct shared_page, host_sp));
+  DEFINE(SHARED_EXCEPTION_IDX,  offsetof(struct shared_page, exception_index));
+  DEFINE(SHARED_GUEST_REGS,     offsetof(struct shared_page, guest_regs));
+  DEFINE(SHARED_GUEST_CPSR,     offsetof(struct shared_page, guest_CPSR));
+  DEFINE(SHARED_HOST_REGS,      offsetof(struct shared_page, host_regs));
+  DEFINE(SHARED_HOST_CPSR,      offsetof(struct shared_page, host_CPSR));
+  DEFINE(SHARED_HOST_SPSR,      offsetof(struct shared_page, host_SPSR));
+  DEFINE(SHARED_HOST_TTBR,      offsetof(struct shared_page, host_ttbr));
+  DEFINE(SHARED_SHADOW_TTBR,    offsetof(struct shared_page, shadow_ttbr));
+  DEFINE(SHARED_GUST_DAC,       offsetof(struct shared_page, guest_dac));
+#endif
+
   return 0; 
 }

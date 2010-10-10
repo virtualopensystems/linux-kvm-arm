@@ -41,6 +41,8 @@
 
 #ifdef __KERNEL__
 
+#ifndef __ASSEMBLY__
+
 struct sched_param {
 	int sched_priority;
 };
@@ -1598,6 +1600,8 @@ extern cputime_t task_utime(struct task_struct *p);
 extern cputime_t task_stime(struct task_struct *p);
 extern cputime_t task_gtime(struct task_struct *p);
 
+#endif /* __ASSEMBLER__ */
+
 /*
  * Per process flags
  */
@@ -1630,6 +1634,8 @@ extern cputime_t task_gtime(struct task_struct *p);
 #define PF_MUTEX_TESTER	0x20000000	/* Thread belongs to the rt mutex tester */
 #define PF_FREEZER_SKIP	0x40000000	/* Freezer should not count it as freezeable */
 #define PF_FREEZER_NOSIG 0x80000000	/* Freezer won't send signals to it */
+
+#ifndef __ASSEMBLER__
 
 /*
  * Only the _current_ task can read/write to tsk->flags, but other
@@ -2357,6 +2363,8 @@ static inline void mm_init_owner(struct mm_struct *mm, struct task_struct *p)
 #endif /* CONFIG_MM_OWNER */
 
 #define TASK_STATE_TO_CHAR_STR "RSDTtZX"
+
+#endif /* __ASSEMBLER__ */
 
 #endif /* __KERNEL__ */
 
