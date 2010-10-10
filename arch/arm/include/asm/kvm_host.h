@@ -30,9 +30,11 @@
 #define KVM_MAX_VCPUS 1
 #define KVM_MEMORY_SLOTS 32
 #define KVM_PRIVATE_MEM_SLOTS 4
+
 /* We don't currently support large pages. */
-#define KVM_PAGES_PER_HPAGE (1<<31)
-#define KVM_COALESCED_MMIO_PAGE_OFFSET 1
+#define KVM_NR_PAGE_SIZES		1
+#define KVM_PAGES_PER_HPAGE(x)		(1<<31)
+#define KVM_COALESCED_MMIO_PAGE_OFFSET	1
 
 struct kvm_arch {
 };
@@ -230,12 +232,6 @@ struct kvm_vcpu_stat {
         u32 dec_exits;
         u32 ext_intr_exits;
         u32 halt_wakeup;
-};
-
-struct kvm_guest_debug {
-        int enabled;
-        unsigned long bp[4];
-        int singlestep;
 };
 
 /*

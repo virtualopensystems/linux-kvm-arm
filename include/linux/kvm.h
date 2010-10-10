@@ -374,16 +374,6 @@ struct kvm_trace_rec {
 #define KVM_TRACE_PAUSE           _IO(KVMIO,  0x07)
 #define KVM_TRACE_DISABLE         _IO(KVMIO,  0x08)
 /*
- * ioctls for kvm trace
- */
-#define KVM_TRACE_ENABLE          _IOW(KVMIO, 0x06, struct kvm_user_trace_setup)
-#define KVM_TRACE_PAUSE           _IO(KVMIO,  0x07)
-#define KVM_TRACE_DISABLE         _IO(KVMIO,  0x08)
-
-#define KVM_ARM_DEBUG_GUEST       _IO(KVMIO,  0x09)
-#define KVM_ARM_DUMP_LOG	  _IO(KVMIO,  0x10)
-
-/*
  * Extension capability list.
  */
 #define KVM_CAP_IRQCHIP	  0

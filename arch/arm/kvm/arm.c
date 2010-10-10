@@ -14,7 +14,6 @@
  *
  */
 
-#include <linux/autoconf.h>
 #include <linux/errno.h>
 #include <linux/err.h>
 #include <linux/kvm_host.h>
@@ -28,6 +27,8 @@
 #include <asm/uaccess.h>
 #include <asm/ptrace.h>
 #include <asm/mman.h>
+
+#define DEBUG_INSTR (0xef00babe)
 
 u8 guest_debug = 0;
 u8 page_debug = 0;
@@ -54,9 +55,6 @@ static u32 ws_trace_enter[WS_TRACE_ITEMS];
 static int ws_trace_enter_index = 0;
 static u32 ws_trace_exit[WS_TRACE_ITEMS];
 static int ws_trace_exit_index = 0;
-
-static const u32 bp_instr = 0xef00babe;
-static unsigned int bp_offset = 4;
 
 void print_ws_trace(void)
 {
@@ -154,8 +152,10 @@ int kvm_arch_vcpu_runnable(struct kvm_vcpu *v)
 	return 1;
 }
 
-void kvm_arch_hardware_enable(void *garbage)
+int kvm_arch_hardware_enable(void *garbage)
 {
+	/* No virtualization hardware on ARM yet */
+	return 0;
 }
 
 void kvm_arch_hardware_disable(void *garbage)
@@ -185,6 +185,10 @@ struct kvm *kvm_arch_create_vm(void)
 		return ERR_PTR(-ENOMEM);
 
 	return kvm;
+}
+
+void kvm_arch_sync_events(struct kvm *kvm)
+{
 }
 
 void kvm_arch_destroy_vm(struct kvm *kvm)
@@ -226,11 +230,6 @@ long kvm_arch_dev_ioctl(struct file *filp,
 	int ret = 0;
 
 	switch (ioctl) {
-	case KVM_ARM_DEBUG_GUEST:
-		//guest_debug = guest_debug ? 0 : 1;
-		bp_offset = arg;
-		ret = bp_offset;
-		break;
 	default:
 		ret = -EINVAL;
 	}
@@ -692,15 +691,9 @@ static int inject_guest_exception(struct kvm_vcpu *vcpu)
 	}
 	
 	if (vcpu->arch.exception_pending & EXCEPTION_PREFETCH) {
-<<<<<<< HEAD
-		kvm_msg("inject prefetch abort");
-=======
-		u32 l2_pte;
-
 		//kvm_msg("inject prefetch abort");
-		l2_pte = get_shadow_l2_entry(vcpu, 0xffff0000);
+		//l2_pte = get_shadow_l2_entry(vcpu, 0xffff0000);
 		//kvm_msg("    l2_pte: 0x%08x\n", l2_pte);
->>>>>>> 3605bc3... Changed debugging back to simple printk
 		vcpu->arch.banked_r14[MODE_ABORT] = vcpu->arch.regs[15] + 4;
 		vcpu->arch.banked_spsr[MODE_ABORT] = vcpu->arch.cpsr;
 
@@ -881,9 +874,19 @@ void debug_exit_print(struct kvm_vcpu *vcpu, u32 interrupt)
 	return;
 }
 
-static inline int insert_breakpoint(struct kvm_vcpu *vcpu, gva_t gva)
+int kvm_arch_vcpu_ioctl_set_guest_debug(struct kvm_vcpu *vcpu,
+					struct kvm_guest_debug *dbg)
 {
+	/*
+	 * This test implementation is not stable as it doesn't consider
+	 * user space enabling several breakpoints and thereby doesn't save
+	 * the original instructions and doesn't support disabling the
+	 * breakpoints again - if that at all is the idea between the ioctl!
+	 */
+#if 0
 	int ret;
+	u32 guest_instr;
+	gva_t gva = (gva_t)(dbg->arch.bp);
 	gfn_t gfn;
 	gpa_t gpa;
 
@@ -899,12 +902,14 @@ static inline int insert_breakpoint(struct kvm_vcpu *vcpu, gva_t gva)
 	}
 
 	gpa = (gfn << PAGE_SHIFT) | (gva & ~PAGE_MASK);
+
+	if (kvm_debug_enabled && !dbg->arch.enabled)
 	ret = kvm_write_guest(vcpu->kvm, gpa, &bp_instr, 4);
 	if (ret) {
 		kvm_err(ret, "could not write guest breakpoint!");
 		return ret;
 	}
-
+#endif
 	return 0;
 }
 
@@ -1284,10 +1289,6 @@ int handle_shadow_perm(struct kvm_vcpu *vcpu,
 	if (!vcpu->arch.host_vectors_high &&
 		(fault_addr >> PAGE_SHIFT) == (0xffff0000 >> PAGE_SHIFT) &&
 		VCPU_MODE_PRIV(vcpu)) {
-<<<<<<< HEAD
-		kvm_msg("Privileged mode cannot access vector page. "
-			"Guest must be broken or we have a bug");
-=======
 
 		kvm_msg("Privileged mode cannot access vector page. "
 			"Guest must be broken or we have a bug.");
@@ -1321,10 +1322,8 @@ int handle_shadow_perm(struct kvm_vcpu *vcpu,
 
 		kvm_msg("     return val: %d", ret);
 		/*********************************************/
-
 		return -EINVAL;
 
->>>>>>> e6e7b84... kvm: Added some logging and tracing functionality
 		//XXX Try to map page again.....
 		ret = handle_shadow_fault(vcpu, fault_addr, instr_addr);
 		goto out;

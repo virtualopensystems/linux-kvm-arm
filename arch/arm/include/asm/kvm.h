@@ -62,4 +62,11 @@ struct kvm_sregs {
 struct kvm_fpu {
 };
 
+/* for KVM_SET_GUEST_DEBUG */
+struct kvm_guest_debug_arch {
+	int enabled;
+	unsigned long bp;
+	int singlestep;
+};
+
 #endif /* __ARM_KVM_H__ */

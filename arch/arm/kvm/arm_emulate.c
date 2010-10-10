@@ -785,7 +785,7 @@ static int emulate_mrc_cache(struct coproc_params *params)
 	case 10:
 		if (params->opcode2 == 6) {
 			KVMARM_NOT_IMPLEMENTED();
-#if CONFIG_CPU_32v5
+#ifdef CONFIG_CPU_32v5
 		} else if (params->opcode2 == 3) {
 			/* 
 			 * Caches are completely flushed on world-switches
@@ -806,7 +806,7 @@ static int emulate_mrc_cache(struct coproc_params *params)
 			ret = -EINVAL;
 		}
 		break;
-#if CONFIG_CPU_32v5
+#ifdef CONFIG_CPU_32v5
 	case 14: /* Test-and-clean operation on ARMv5 */
 		if (params->opcode2 == 3) {
 			/* 
