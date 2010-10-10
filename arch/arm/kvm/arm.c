@@ -42,8 +42,28 @@ static void       post_guest_switch(struct kvm_vcpu *vcpu);
 static inline int handle_shadow_fault(struct kvm_vcpu *vcpu,
 				      gva_t fault_addr, gva_t instr_addr);
 
+#define KVM_LOG_DATA_LEN 512
+static char __tmp_log_data[KVM_LOG_DATA_LEN];
+
 
 extern void print_guest_mapping(struct kvm_vcpu *vcpu, gva_t gva);
+
+void __kvm_print_msg(char *parent_fmt, const char *function,
+		     unsigned int line, int err, char *fmt, ...)
+{
+	va_list ap;
+	int ret;
+
+	va_start(ap, fmt);
+	ret = vsnprintf(__tmp_log_data, KVM_LOG_DATA_LEN, fmt, ap);
+	va_end(ap);
+
+	if (ret >= KVM_LOG_DATA_LEN) {
+		printk(parent_fmt, function, line, "???", err);
+	} else {
+		printk(parent_fmt, function, line, __tmp_log_data, err);
+	}
+}
 
 u32 get_shadow_l1_entry(struct kvm_vcpu *vcpu, gva_t gva)
 {

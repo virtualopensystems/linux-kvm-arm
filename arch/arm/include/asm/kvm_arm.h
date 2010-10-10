@@ -28,6 +28,22 @@
 	 BUG(); \
    }
 
+
+void __kvm_print_msg(char *parent_fmt, const char *function,
+		     unsigned int line, int err, char *fmt, ...);
+
+#define kvm_err(err, fmt, args...) do {			\
+	__kvm_print_msg(KERN_ERR "KVM error [%s:%d]: %s (%d)\n", \
+			__FUNCTION__, __LINE__, err, fmt, ##args); \
+} while (0)
+
+
+#define kvm_msg(fmt, args...) do {			\
+	__kvm_print_msg(KERN_DEBUG "KVM       [%s:%d]: %s (%d)\n", \
+			__FUNCTION__, __LINE__, 0, fmt, ##args); \
+} while (0)
+
+
 /*
  * Assembly globals
  */
