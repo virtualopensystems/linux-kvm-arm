@@ -36,7 +36,6 @@ bool trace_gva_to_gfn = false;
 #include <asm/kvm_mmu.h>
 
 extern u8 guest_debug;
-extern u8 page_debug;
 
 /******************************************************************************
  * ARM common defines
@@ -579,7 +578,7 @@ kvm_shadow_pgtable* kvm_alloc_l1_shadow(struct kvm_vcpu *vcpu,
 		return ERR_PTR(-ENOMEM);
 	
 	/* Allocate contigous aligned pages */
-	shadow->pgd = (u32*)__get_free_pages(GFP_KERNEL, 2);
+	shadow->pgd = (u32*)__get_free_pages(GFP_KERNEL, L1_TABLE_ORDER);
 	if (!shadow->pgd)
 		return ERR_PTR(-ENOMEM);
 
@@ -652,11 +651,11 @@ static void inline release_l2_shadow_entry(struct kvm_vcpu *vcpu, u8 domain,
 			kvm_release_pfn_dirty(pfn);
 		else
 			kvm_release_pfn_clean(pfn);
+
 		break;
 	default:
 		/* Large pages not supported in shadow page tables */
-		// TODO: Fix this erroe message on < ARMv6
-		kvm_msg("large page in shadow page table not supported");
+		kvm_msg("shadow page table entry type not supported");
 		BUG();
 	}
 
@@ -693,17 +692,9 @@ static void free_l2_shadow(struct kvm_vcpu *vcpu, u32 l1_pte, u32 gva_base)
 
 	for (i = 0; i < L2_TABLE_ENTRIES; i++) {
 		domain = (l1_pte & L1_DOMAIN_MASK) >> L1_DOMAIN_SHIFT;
-		release_l2_shadow_entry(vcpu, domain, *pte,
-					gva_base | (i << 12));
+		release_l2_shadow_entry(vcpu, domain, *pte, gva_base | (i << 12));
 		pte++;
 	}
-
-#if 0
-	kvm_msg("first table entry: 0x%08x", *pte);
-	kvm_msg("page_address:          0x%08x", (unsigned int)page_address(page));
-	kvm_msg("l1_pte:                0x%08x", (unsigned int)l1_pte);
-	kvm_msg("l1_pte & 0xc00:        0x%08x", (unsigned int)(l1_pte & 0xc00));
-#endif
 
 	BUG_ON(page_private(page) == 0);
 
@@ -726,7 +717,6 @@ static void __free_l1_shadow_children(struct kvm_vcpu *vcpu, u32 *pgd)
 		if ((l1_pte & L1_TYPE_MASK) != L1_TYPE_COARSE)
 			BUG();
 		
-		//kvm_msg("l1_pte: 0x%08x", l1_pte);
 		free_l2_shadow(vcpu, l1_pte, i << 20);
 
 		pgd[i] = 0;
@@ -777,10 +767,7 @@ int kvm_init_l1_shadow(struct kvm_vcpu *vcpu, u32 *pgd)
 	int ret = 0;
 	gva_t exception_base;
 
-	if (page_debug) {
-		printk(KERN_DEBUG "Flushing shadow page table at: 0x%08x!\n",
-			vcpu->arch.regs[15]);
-	}
+	kvm_msg("flushing shadow page table at: 0x%08x!", vcpu->arch.regs[15]);
 
 	if (pgd == NULL) {
 		kvm_msg("Weird pgd == NULL!");
@@ -951,13 +938,6 @@ int __map_gva_to_pfn(struct kvm_vcpu *vcpu, u32 *pgd, gva_t gva, pfn_t pfn,
 	u8 nG = 1;
 	int ret;
 
-	if (page_debug) {
-		printk(KERN_DEBUG "   Map gva to pfn at: 0x%08x!\n", vcpu->arch.regs[15]);
-		printk(KERN_DEBUG "                 gva: 0x%08x\n", (unsigned int)gva);
-		printk(KERN_DEBUG "                 pfn: 0x%08x\n", (unsigned int)pfn);
-		printk(KERN_DEBUG "         ap (domain): 0x%x (%u)\n", ap, domain);
-	}
-
 	l1_index = gva >> 20;
 
 	/*
@@ -984,9 +964,6 @@ int __map_gva_to_pfn(struct kvm_vcpu *vcpu, u32 *pgd, gva_t gva, pfn_t pfn,
 		*/
 
 		ap = dom_to_ap(vcpu, domain, ap, &apx);
-		if (page_debug) {
-			printk(KERN_DEBUG "               ap: 0x%x\n", ap);
-		}
 		domain = KVM_SPECIAL_DOMAIN;
 	} else if (l1_index == (VCPU_HOST_EXCP_BASE(vcpu) >> 20)) {
 		/* This L1 mapping coincides with that of the vector page */
@@ -997,9 +974,6 @@ int __map_gva_to_pfn(struct kvm_vcpu *vcpu, u32 *pgd, gva_t gva, pfn_t pfn,
 		vcpu->arch.vector_page_shadow_ap[(gva >> 12) & 0xff] = ap;
 		*/
 		ap = dom_to_ap(vcpu, domain, ap, &apx);
-		if (page_debug) {
-			printk(KERN_DEBUG "               ap: 0x%x\n", ap);
-		}
 		domain = KVM_SPECIAL_DOMAIN;
 	}
 
@@ -1054,10 +1028,6 @@ skip_domain_check:
 		*l2_pte &= ~(0x00000ff0);
 		*l2_pte |= ap << 4;
 #endif
-
-	if (page_debug) {
-		printk(KERN_DEBUG "        l2_pte: 0x%08x\n", *l2_pte);
-	}
 
 	return 0;
 }
@@ -1233,13 +1203,6 @@ int kvm_update_special_region_ap(struct kvm_vcpu *vcpu, u32 *pgd, u8 domain)
 	u8 vector_dom = vcpu->arch.vector_page_guest_domain;
 
 
-	if (page_debug) {
-		printk(KERN_DEBUG "Updating special region ap at: 0x%08x!\n",
-			vcpu->arch.regs[15]);
-		printk(KERN_DEBUG "              pgd: 0x%08x\n", (unsigned int)pgd);
-		printk(KERN_DEBUG "           domain: %u\n", domain);
-	}
-
 	if (domain == shared_dom) {
 		ret = update_l2_aps(vcpu, pgd, SHARED_PAGE_BASE,
 				    vcpu->arch.shared_page_shadow_ap,
@@ -1274,12 +1237,6 @@ int kvm_restore_low_vector_domain(struct kvm_vcpu *vcpu, u32 *pgd)
 	gva_t exception_base = EXCEPTION_VECTOR_LOW;
 	BUG_ON(vcpu->arch.host_vectors_high);
 
-	if (page_debug) {
-		printk(KERN_DEBUG "Restoring low vector domain at: 0x%08x!\n",
-			vcpu->arch.regs[15]);
-		printk(KERN_DEBUG "              pgd: 0x%08x\n", (unsigned int)pgd);
-	}
-
 	/* Update the domain to use the native guest domain */
 	l1_pte = (pgd + (exception_base >> 20));
 	*l1_pte &= ~L1_DOMAIN_MASK;
@@ -1302,7 +1259,6 @@ int kvm_restore_low_vector_domain(struct kvm_vcpu *vcpu, u32 *pgd)
 void kvm_generate_mmu_fault(struct kvm_vcpu *vcpu, gva_t fault_addr,
 			    u32 source, u8 domain)
 {
-	kvm_msg("Injecting interrupt at: %08x", vcpu->arch.regs[15]);
 	/*
 	 * The vcpu->arch.guest_exception is set upon exit from the guest
 	 * as this is the only way to know if the fault was due to an instruction

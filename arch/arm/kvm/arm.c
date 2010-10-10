@@ -31,7 +31,6 @@
 #define DEBUG_INSTR (0xef00babe)
 
 u8 guest_debug = 0;
-u8 page_debug = 0;
 u32 irq_return = 0;
 u32 irq_suppress = 0;
 
@@ -582,13 +581,6 @@ static inline int kvm_switch_mode(struct kvm_vcpu *vcpu, u8 new_cpsr)
 	}
 	vcpu->arch.mode = new_mode;
 
-	if (new_mode == MODE_USER) {
-		kvm_msg("guest switched to user mode: 0x%08x", VCPU_REG(vcpu, 15));
-		//guest_debug = 1;
-	} else if (new_mode != MODE_USER && old_mode == MODE_USER) {
-		kvm_msg("guest switched to priv. mode: 0x%08x", VCPU_REG(vcpu, 15));
-	}
-
 	return ret;
 }
 
@@ -948,11 +940,11 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 		if (ws_trace_enter_index >= WS_TRACE_ITEMS)
 			ws_trace_enter_index = 0;
 
+
 		if (guest_debug) {
 			__kvm_msg("ENTER VCPU: %08x ---->  ", vcpu->arch.regs[15]);
 			pending_write = 1;
 		}
-
 
 		/*
 		 * vcpu->arch.run(...) function pointer value is setup in
@@ -1027,8 +1019,6 @@ static inline int handle_swi(struct kvm_vcpu *vcpu)
 	gva_t addr;
 	u32 instr, orig_instr;
 	int ret;
-	gfn_t gfn;
-	u32 val;
 
 	addr = vcpu->arch.regs[15];
 
@@ -1238,16 +1228,7 @@ static inline int handle_shadow_fault(struct kvm_vcpu *vcpu,
 		 * fault, we simply inject that fault to the guest.
 		 */
 		if (fault > 0) {
-			kvm_msg("mapping to io address without permissions?");
-			kvm_msg("        Guest kernel BUG() ?");
-			kvm_msg("        happened at: 0x%08x", instr_addr);
-			kvm_msg("        address:     0x%08x", fault_addr);
-			kvm_msg("        fault:       %d", fault);
-			print_ws_trace();
-			trace_gva_to_gfn = true;
 			fault = gva_to_gfn(vcpu, fault_addr, &gfn, uaccess, &map_info);
-			trace_gva_to_gfn = false;
-			return -EINVAL;
 			kvm_generate_mmu_fault(vcpu, fault_addr, fault,
 					       map_info.domain_number);
 			return 0;
@@ -1312,10 +1293,6 @@ int handle_shadow_perm(struct kvm_vcpu *vcpu,
 		kvm_msg("     return val: %d", ret);
 		/*********************************************/
 		return -EINVAL;
-
-		//XXX Try to map page again.....
-		ret = handle_shadow_fault(vcpu, fault_addr, instr_addr);
-		goto out;
 	}
 
 	if ((fault_addr >> PAGE_SHIFT) ==
@@ -1326,6 +1303,8 @@ int handle_shadow_perm(struct kvm_vcpu *vcpu,
 		kvm_msg("switching vectors...");
 		kvm_switch_host_vectors(vcpu, high);
 		ret = handle_shadow_fault(vcpu, fault_addr, instr_addr);
+		if (ret)
+			kvm_msg("error in handle_shadow_fault");
 		goto out;
 	}
 
@@ -1340,6 +1319,7 @@ int handle_shadow_perm(struct kvm_vcpu *vcpu,
 	uaccess = VCPU_MODE_PRIV(vcpu) ? 0 : 1;
 	ret = gva_to_gfn(vcpu, fault_addr, &gfn, uaccess, &map_info);
 	if (ret < 0) {
+		kvm_msg("error in gva_to_gfn");
 		goto out;
 	}
 	//BUG_ON(!write && ret == 0); //Why did we take a permission fault then?
