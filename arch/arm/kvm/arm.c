@@ -539,7 +539,7 @@ static int emulate_exception(struct kvm_vcpu *vcpu, u32 new_mode, u32 vector_off
 	 * where we are about to execute guest exception handler.
 	 */
 	if (host_high == guest_high) {
-		printk(KERN_DEBUG "   switching vectors from inject_guest_exception\n");
+		kvm_msg("switching vectors...");
 		ret = kvm_switch_host_vectors(vcpu, guest_high ? 0 : 1);
 		if (ret)
 			return ret;
@@ -771,8 +771,9 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 		}
 
 		if (guest_debug) {
-			printk(KERN_DEBUG "ENTER VCPU: %08x  ---->  ",
-					vcpu->arch.shared_page->guest_regs[15]);
+			printk(KERN_DEBUG "KVM       [%s:%d]: "
+					  "ENTER VCPU: %08x  ---->  ",
+				__FUNCTION__, __LINE__, vcpu->arch.regs[15]);
 			pending_write = 1;
 		}
 
@@ -784,7 +785,7 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 		kvm_guest_enter();
 		if ((vcpu->arch.shared_page->guest_CPSR & MODE_MASK)
 				!= USR_MODE) {
-			printk(KERN_ERR "Trying to execute guest in priv. mode!\n");
+			kvm_err(-EINVAL, "Trying to execute guest in priv. mode");
 			return -EINVAL;
 		}
 		excpt_idx = vcpu->arch.run(vcpu);
@@ -831,8 +832,7 @@ static inline int get_exception_instr(struct kvm_vcpu *vcpu, gva_t addr,
 {
 	hva_t hva = gva_to_hva(vcpu, addr, 0);
 	if (kvm_is_error_hva(hva)) {
-		printk(KERN_ERR "KVM (get_exception_instr): Instruction "
-				"generated at bad address: %08x\n",
+		kvm_err(-EINVAL, "Instruction generated at bad address: 0x%08x",
 				vcpu->arch.regs[15] - 4);
 		return -EINVAL;
 	}
@@ -865,7 +865,8 @@ static inline int handle_swi(struct kvm_vcpu *vcpu)
 
 	ret = get_exception_instr(vcpu, addr, &instr);
 	if (ret) {
-		if (guest_debug) printk(KERN_ERR "   could not get_excp_instr!\n");
+		if (guest_debug)
+			kvm_err(ret, "could not get_excp_instr!");
 		return ret;
 	}
 	if (guest_debug) printk(KERN_DEBUG "   instr: 0x%08x\n", instr);
@@ -875,23 +876,12 @@ static inline int handle_swi(struct kvm_vcpu *vcpu)
 	if ((instr & 0xffff) == 0xdead || (instr & 0xffff) == 0xbabe ||
 	    (instr & 0xffff) == 0xcafe || (instr & 0xffff) == 0xbeef) {
 
-		printk("SWI Instruction: 0x%08x at 0x%08x\n",
+		kvm_msg("swi instr: 0x%08x at 0x%08x",
 				(unsigned int)instr,
 				(unsigned int)addr);
 
-		//dump_stack_hole(vcpu);
-		/*
-		printk(KERN_DEBUG "      ---- r0:   0x%08x (%u)\n", VCPU_REG(vcpu, 0),
-								    VCPU_REG(vcpu, 0));
-		printk(KERN_DEBUG "      ---- r1:   0x%08x (%u)\n", VCPU_REG(vcpu, 1),
-								    VCPU_REG(vcpu, 1));
-		printk(KERN_DEBUG "      ---- r2:   0x%08x (%u)\n", VCPU_REG(vcpu, 2),
-								    VCPU_REG(vcpu, 2));
-		printk(KERN_DEBUG "      ---- cpsr: 0x%08x (I-bit: %u)\n", vcpu->arch.cpsr,
-				(vcpu->arch.cpsr & PSR_I_BIT) ? 1 : 0);
-				*/
 
-		printk(KERN_DEBUG "    XXXXXXXXXXX    Exit point found    XXXXXXXXXXXXX!\n");
+		kvm_msg("XXXXXXXXXXX    Exit point found    XXXXXXXXXXXXX!\n");
 
 		if ((instr & 0xffff) == 0xdead) {
 			return -EINVAL;
@@ -914,8 +904,7 @@ static inline int handle_swi(struct kvm_vcpu *vcpu)
 		/* This is an actual guest SWI instruction */
 		vcpu->arch.exception_pending |= EXCEPTION_SOFTWARE;
 		if (guest_debug)
-			printk(KERN_DEBUG "Guest needs SWI at: 0x%08x\n",
-					vcpu->arch.regs[15]);
+			kvm_msg("Guest needs SWI at: 0x%08x\n", vcpu->arch.regs[15]);
 		if (vcpu->arch.regs[15] == 0x8df8) {
 			guest_debug = 1;
 		}
@@ -924,9 +913,8 @@ static inline int handle_swi(struct kvm_vcpu *vcpu)
 		/* An instruction that needs to be emulated */
 		hva_t hva = gva_to_hva(vcpu, addr + 4, 0);
 		if (kvm_is_error_hva(hva)) {
-			printk(KERN_ERR "KVM (handle_swi): Instruction generated "
-					 "at bad address: %08x\n",
-					 vcpu->arch.regs[15]);
+			kvm_err(-EINVAL, "Instruction generated at "
+					 "bad address: %08x", vcpu->arch.regs[15]);
 			return -EINVAL;
 		}
 
@@ -963,10 +951,10 @@ static inline int user_mem_abort(struct kvm_vcpu *vcpu,
 	up_write(&current->mm->mmap_sem);
 
 	if (pfn == bad_pfn) {
-		printk(KERN_ERR "Guest gfn %u (0x%08x) does not have "
-				"corresponding host mapping.\n",
+		kvm_err(-EFAULT, "Guest gfn %u (0x%08x) does not have "
+				"corresponding host mapping",
 				(unsigned int)gfn,
-				(unsigned int)gfn<<PAGE_SHIFT);
+				(unsigned int)gfn << PAGE_SHIFT);
 		return -EFAULT;
 	}
 
@@ -1014,8 +1002,10 @@ static inline int io_mem_abort(struct kvm_vcpu *vcpu,
 	int write = 0;
 
 	ret = get_exception_instr(vcpu, instr_addr, &fault_instr);
-	if (ret) 
+	if (ret) {
+		kvm_err(ret, "could not get exception instr");
 		return ret;
+	}
 
 	write = kvm_ls_is_write(vcpu, fault_instr);
 	rd = kvm_ls_get_rd(vcpu, fault_instr);
@@ -1025,7 +1015,7 @@ static inline int io_mem_abort(struct kvm_vcpu *vcpu,
 	len = kvm_ls_length(vcpu, fault_instr);
 
 	if (guest_debug) {
-		printk(KERN_DEBUG "     MMIO at 0x%08x: 0x%08x (len: %u)\n",
+		kvm_msg("MMIO at 0x%08x: 0x%08x (len: %u)",
 				vcpu->arch.regs[15], mmio_addr, len);
 	}
 
@@ -1089,38 +1079,20 @@ static inline int handle_shadow_fault(struct kvm_vcpu *vcpu,
 static inline int handle_shadow_perm(struct kvm_vcpu *vcpu,
 				      gva_t fault_addr, gva_t instr_addr)
 {
-	int ret;
 	int high;
 	gfn_t gfn;
 	u8 uaccess;
 	struct map_info map_info;
-
-	if (guest_debug) {
-		/*
-		printk(KERN_DEBUG "    Page permission fault at 0x%08x: 0x%08x (%x)\n",
-				(unsigned int)instr_addr,
-				(unsigned int)fault_addr,
-				(unsigned int)(vcpu->arch.host_fsr));
-		printk(KERN_DEBUG "                    shadow l1 entry: 0x%08x\n",
-				get_shadow_l1_entry(vcpu, fault_addr));
-		printk(KERN_DEBUG "                    shadow l2 entry: 0x%08x\n",
-				get_shadow_l2_entry(vcpu, fault_addr));
-		printk(KERN_DEBUG "                               DACR: 0x%08x\n",
-				vcpu->arch.cp15.c3_DACR);
-		printk(KERN_DEBUG "                                FSR: 0x%08x\n",
-				vcpu->arch.host_fsr & FSR_TYPE_MASK);
-		print_guest_mapping(vcpu, fault_addr);
-		*/
-	}
+	int ret = 0;
 
 	if (!vcpu->arch.host_vectors_high &&
 		(fault_addr >> PAGE_SHIFT) == (0xffff0000 >> PAGE_SHIFT) &&
 		VCPU_MODE_PRIV(vcpu)) {
-		printk(KERN_DEBUG "    Privileged mode cannot access vector page. "
-				  " Guest must be broken or we have a bug!\n");
+		kvm_msg("Privileged mode cannot access vector page. "
+			"Guest must be broken or we have a bug");
 		//XXX Try to map page again.....
 		ret = handle_shadow_fault(vcpu, fault_addr, instr_addr);
-		return ret;
+		goto out;
 	}
 
 	if ((fault_addr >> PAGE_SHIFT) ==
@@ -1128,10 +1100,10 @@ static inline int handle_shadow_perm(struct kvm_vcpu *vcpu,
 
 		/* The guest tried to access the host interrupt page */
 		high = vcpu->arch.host_vectors_high ? 0 : 1;
-		printk(KERN_DEBUG "    switching vectors from handle_shadow_perm\n");
+		kvm_msg("switching vectors...");
 		kvm_switch_host_vectors(vcpu, high);
-		handle_shadow_fault(vcpu, fault_addr, instr_addr);
-		return 0;
+		ret = handle_shadow_fault(vcpu, fault_addr, instr_addr);
+		goto out;
 	}
 
 	/* Guest should never access the shared page */
@@ -1145,7 +1117,7 @@ static inline int handle_shadow_perm(struct kvm_vcpu *vcpu,
 	uaccess = VCPU_MODE_PRIV(vcpu) ? 0 : 1;
 	ret = gva_to_gfn(vcpu, fault_addr, &gfn, uaccess, &map_info);
 	if (ret < 0) {
-		return ret;
+		goto out;
 	}
 	//BUG_ON(!write && ret == 0); //Why did we take a permission fault then?
 
@@ -1153,11 +1125,15 @@ static inline int handle_shadow_perm(struct kvm_vcpu *vcpu,
 	 * should take a fault here! */
 	kvm_generate_mmu_fault(vcpu, fault_addr, vcpu->arch.host_fsr,
 			       map_info.domain_number);
-	return 0;
+out:
+	if (ret)
+		kvm_err(ret, "error handling shadow page table permissions");
+	return ret;
 }
 
 static inline int handle_abort(struct kvm_vcpu *vcpu, u32 interrupt)
 {
+	int ret;
 	gva_t fault_addr;
 	gva_t instr_addr;
 
@@ -1170,31 +1146,36 @@ static inline int handle_abort(struct kvm_vcpu *vcpu, u32 interrupt)
 
 	switch (vcpu->arch.host_fsr & FSR_TYPE_MASK) {
 	case (FSR_ALIGN_FAULT):
-		printk(KERN_DEBUG "Modified virtual address alignment fault\n");
-		KVMARM_NOT_IMPLEMENTED();
+		ret = -EINVAL;
+		kvm_err(ret, "Modified virtual address alignment fault\n");
+		return ret;
 	case (FSR_PERM_SEC):
 	case (FSR_PERM_PAGE):
-		return handle_shadow_perm(vcpu, fault_addr, instr_addr);
+		ret = handle_shadow_perm(vcpu, fault_addr, instr_addr);
+		break;
 	case (FSR_DOMAIN_SEC):
 	case (FSR_DOMAIN_PAG):
-		return handle_shadow_perm(vcpu, fault_addr, instr_addr);
+		ret = handle_shadow_perm(vcpu, fault_addr, instr_addr);
+		break;
 	case (FSR_TRANS_SEC):
 	case (FSR_TRANS_PAGE):
 		/*
 		 * This would be caused by a missing shadow page table entry
 		 */
-		return handle_shadow_fault(vcpu, fault_addr, instr_addr);
+		ret =  handle_shadow_fault(vcpu, fault_addr, instr_addr);
+		break;
 	case (FSR_EXT_ABORT_L1):
 	case (FSR_EXT_ABORT_L2):
-		printk(KERN_DEBUG "External abort\n");
-		KVMARM_NOT_IMPLEMENTED();
+		ret = -EINVAL;
+		kvm_err(ret, "External abort: Not supported");
+		return ret;
 	default:
-		printk(KERN_DEBUG "Unknown data abort reason: FSR: 0x%08x\n",
+		ret = -EINVAL;
+		kvm_msg("Unknown data abort reason: FSR: 0x%08x\n",
 				  (unsigned int) vcpu->arch.host_fsr);
-		return -EINVAL;
 	}	
 
-	return 0;
+	return ret;
 }
 
 static u32 handle_exit(struct kvm_vcpu *vcpu, u32 interrupt)
@@ -1227,7 +1208,7 @@ static u32 handle_exit(struct kvm_vcpu *vcpu, u32 interrupt)
 	case ARM_EXCEPTION_IRQ:
 		break;
 	default:
-		printk(KERN_DEBUG "   VCPU: Bad interrupt code\n");
+		kvm_err(-EINVAL, "VCPU: Bad exception code: %d", interrupt);
 		return -EINVAL;
 	}
 
