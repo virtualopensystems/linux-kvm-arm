@@ -58,10 +58,10 @@
 struct map_info {
 	u8 domain_number;
 	u8 ap;
+	u8 cache_bits;
 #if __LINUX_ARM_ARCH__ >= 6
 	u8 apx;
 	u8 xn;
-	u8 cache_bits;
 #endif
 };
 

@@ -244,7 +244,7 @@ set_dacr:
 	orr	r0, r0, r1
 	mcr	p15, 0, r0, c3, c0, 0	@ set with KVM domain set to min. client
 
-#if __LINUX_ARM_ARCH__ >= 6
+#ifdef CONFIG_CPU_HAS_ASID
 	ldr	r1, __guest_asid
 	mcr	p15, 0, r1, c13, c0, 1		@ set context ID
 #endif
@@ -268,7 +268,12 @@ set_dacr:
 	mcr	p15, 0, r2, c7, c10, 4		@ drain write buffer
 	mcr	p15, 0, r0, c2, c0, 0		@ set TTB 0
 #if defined(CONFIG_CPU_CACHE_VIVT) && !defined(CONFIG_CPU_CACHE_VIPT)
-#error "In this case we must flush the caches!"
+#ifdef HARVARD_CACHE
+	mcr	p15, 0, r2, c7, c14, 0		@ D cache clean+invalidate
+	mcr	p15, 0, r2, c7, c5, 0		@ I+BTB cache invalidate
+#else
+	mcr	p15, 0, r2, c7, c15, 0		@ Cache clean+invalidate
+#endif
 #endif
 
 	@ TEMP: Clean caches
@@ -331,7 +336,7 @@ __exception_return:
 	mcr	p15, 0, r2, c7, c10, 4		@ drain write buffer
 	mcr	p15, 0, r1, c2, c0, 0		@ set TTB 0
 
-#if __LINUX_ARM_ARCH__ >= 6
+#ifdef CONFIG_CPU_HAS_ASID
 	ldr	r1, __host_asid
 	mcr	p15, 0, r1, c13, c0, 1		@ set context ID
 #endif

@@ -106,9 +106,11 @@ void __kvm_print_msg(char *fmt, ...)
 	if (should_wake_up)
 		wake_up(&__kvm_log_wait_queue);
 
+#ifdef CONFIG_KVM_ARM_WAIT_FOR_LOGGER
 	/* Make sure the log gets printed immediately */
 	while (kfifo_len(__kvm_log) > 0)
 		schedule();
+#endif
 
 out:
 	mutex_unlock(&__tmp_log_lock);
@@ -808,13 +810,13 @@ static int pre_guest_switch(struct kvm_vcpu *vcpu)
 	shared->guest_CPSR = (shared->guest_CPSR & ~0xf1000000) |
 		                (vcpu->arch.cpsr &  0xf1000000);
 
-	if (cpu_architecture() >= CPU_ARCH_ARMv6) {
+#ifdef CONFIG_CPU_HAS_ASID
 		/* Set the shadow ASID and copy the TTBR */
 		if (unlikely((shadow->id ^ cpu_last_asid) >> ASID_BITS))
 			shadow->id = __new_asid();
 		shared->guest_asid = shadow->id;
 		shared->host_asid = current->mm->context.id;
-	}
+#endif
 	shared->shadow_ttbr = shadow->pa;
 
 	/* Make sure that interrupts are enabled and guest is in user mode */

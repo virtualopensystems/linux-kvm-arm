@@ -271,10 +271,12 @@ static int trans_coarse_entry(struct kvm_vcpu *vcpu, gva_t gva,
 	return ret;
 }
 
+#if __LINUX_ARM_ARCH__ >= 6
 static inline int is_supersection(u32 l1_entry)
 {
 	return !((l1_entry & L1_SECTION_TYPE_MASK) == L1_SECTION_TYPE_SECTION);
 }
+#endif
 
 /*
  * Checks if the domain setting on an ARM level 1 descriptor allows the
@@ -286,10 +288,14 @@ static int l1_domain_access(struct kvm_vcpu *vcpu, u32 l1_entry,
 	u8 domain;
 	u8 type;
 
+
+#if __LINUX_ARM_ARCH__ >= 6
 	if (is_supersection(l1_entry))
 		domain = 0;
 	else
+#endif
 		domain = (l1_entry & L1_DOMAIN_MASK) >> L1_DOMAIN_SHIFT;
+
 	map_info->domain_number = domain;
 
 	type = vcpu->arch.cp15.c3_DACR & domain_val(domain, DOMAIN_MANAGER);
@@ -407,10 +413,12 @@ int gva_to_gfn(struct kvm_vcpu *vcpu, gva_t gva, gfn_t *gfn, u8 uaccess,
 		/* Get guest mapping info */
 		ap = (l1_entry & L1_SECTION_AP_MASK) >> L1_SECTION_AP_SHIFT;
 		map_info->ap = ap | (ap<<2) | (ap<<4) | (ap<<6);
+#if __LINUX_ARM_ARCH__ >= 6
 		if (kvm_mmu_xp(vcpu)) {
 			map_info->apx = (l1_entry >> 14) & 1;
 			map_info->xn = (l1_entry >> 4) & 1;
 		}
+#endif
 		map_info->cache_bits = l1_entry & 0xc; /* C and B bits */
 		map_info->cache_bits |= (l1_entry >> 6) & 0x70; /* TEX bits */
 
@@ -425,6 +433,7 @@ int gva_to_gfn(struct kvm_vcpu *vcpu, gva_t gva, gfn_t *gfn, u8 uaccess,
 		}
 
 		/* Finally, calculate address */
+#if __LINUX_ARM_ARCH__ >= 6
 		if (kvm_mmu_xp(vcpu) && is_supersection(l1_entry)) {
 			/* TODO: Base address [39:36] on non arm1136? */
 			if (((l1_entry >> L1_SUP_BASE_LOW_SHIFT) & 0xf) ||
@@ -442,6 +451,11 @@ int gva_to_gfn(struct kvm_vcpu *vcpu, gva_t gva, gfn_t *gfn, u8 uaccess,
 				(gva & SECTION_BASE_INDEX_MASK);
 			*gfn = (gpa >> PAGE_SHIFT);
 		}
+#else
+			gpa = (l1_entry & SECTION_BASE_MASK) |
+				(gva & SECTION_BASE_INDEX_MASK);
+			*gfn = (gpa >> PAGE_SHIFT);
+#endif
 		if (ret > 0) {
 			kvm_msg("l1 entry for 0x%08x: 0x%08x", gva, l1_entry);
 			kvm_msg("ret: %d", ret);
@@ -557,7 +571,9 @@ kvm_shadow_pgtable* kvm_alloc_l1_shadow(struct kvm_vcpu *vcpu,
 
 	memset(shadow->pgd, 0, L1_TABLE_SIZE);
 	shadow->pa = page_to_phys(virt_to_page(shadow->pgd));
+#ifdef CONFIG_CPU_HAS_ASID
 	shadow->id = __new_asid();
+#endif
 	shadow->guest_ttbr = guest_ttbr;
 
 	list_add_tail(&shadow->list, &vcpu->arch.shadow_pgtable_list);
@@ -606,9 +622,13 @@ static void inline release_l2_shadow_entry(struct kvm_vcpu *vcpu, u8 domain,
 	switch (pte & L2_TYPE_MASK) {
 	case L2_TYPE_FAULT:
 		return;
+#if __LINUX_ARM_ARCH__ >= 6
 	case (L2_XP_TYPE_EXT_SMALL):		/* XN-bit not set */
 	case (L2_XP_TYPE_EXT_SMALL | 0x1):	/* XN-bit set */
-		pfn = __phys_to_pfn(pte & L2_EXT_SMALL_BASE_MASK);
+#else
+	case (L2_TYPE_SMALL):
+#endif
+		pfn = __phys_to_pfn(pte & L2_SMALL_BASE_MASK);
 
 		if (pfn_valid(pfn))
 			kvm_msg("releasing page with count: %u (pfn: %u) (gva: 0x%08x)",
@@ -624,6 +644,7 @@ static void inline release_l2_shadow_entry(struct kvm_vcpu *vcpu, u8 domain,
 		break;
 	default:
 		/* Large pages not supported in shadow page tables */
+		// TODO: Fix this erroe message on < ARMv6
 		kvm_msg("large page in shadow page table not supported");
 		BUG();
 	}
