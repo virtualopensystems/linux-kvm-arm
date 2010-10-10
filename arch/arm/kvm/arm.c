@@ -1328,9 +1328,12 @@ int handle_shadow_perm(struct kvm_vcpu *vcpu,
 	 * should take a fault here! */
 	kvm_generate_mmu_fault(vcpu, fault_addr, vcpu->arch.host_fsr,
 			       map_info.domain_number);
+	ret = 0;
 out:
-	if (ret)
+	if (ret) {
 		kvm_err(ret, "error handling shadow page table permissions");
+		BUG();
+	}
 	return ret;
 }
 
