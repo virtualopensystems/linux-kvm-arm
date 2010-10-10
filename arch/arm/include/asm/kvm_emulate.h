@@ -63,11 +63,11 @@ int kvm_ls_emulate_writeback(struct kvm_vcpu *vcpu, u32 instr);
 #define INSTR_DP_SBC	10   
 #define INSTR_DP_SUB	11   
 
-#define INSTR_PSR_MRS	 0
-#define INSTR_PSR_MSR_IMM	 1
-#define INSTR_PSR_MSR_REG	 2
-#define INSTR_PSR_CPS	 3
-#define INSTR_PSR_SETEND	 4
+#define INSTR_PSR_CPS	 	0
+#define INSTR_PSR_SETEND	1
+#define INSTR_PSR_MRS		2
+#define INSTR_PSR_MSR_IMM	3
+#define INSTR_PSR_MSR_REG	4
 
 #define INSTR_LS_LDRBT	 0
 #define INSTR_LS_LDRT	 1

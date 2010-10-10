@@ -1866,11 +1866,11 @@ static inline int get_arm_privdp_instr_index(u32 instr)
 
 #define NUM_PSR_INSTR 5
 static u32 psr_instr[NUM_PSR_INSTR][2] = {
-	 {0x01000000, 0x0fb00000} /* MRS              */
+	 {0xf1000000, 0xfff10020} /* CPS              */
+	,{0xf1010000, 0xffff00f0} /* SETEND           */
+	,{0x01000000, 0x0fb00000} /* MRS              */
 	,{0x03200000, 0x0fb00000} /* MSR (immediate)  */
 	,{0x01200000, 0x0fb000f0} /* MSR (register)   */
-	,{0xf1000000, 0xfff10020} /* CPS              */
-	,{0xf1010000, 0xffff00f0} /* SETEND           */
 };
 
 static inline int get_arm_psr_instr_index(u32 instr)
@@ -1882,7 +1882,7 @@ static inline int get_arm_psr_instr_index(u32 instr)
 #define CPS_IMOD_EN	0x00080000
 #define CPS_IMOD_DIS	0x000c0000
 #define CPS_IBITS_MASK	0x000001c0
-#define CPS_MMOD_MASK	0x000c0000
+#define CPS_MMOD_MASK	0x00020000
 #define CPS_MBITS_MASK	0x0000001f
 static int emulate_cps(struct kvm_vcpu *vcpu, u32 instr)
 {
