@@ -70,6 +70,27 @@ void __kvm_print_msg(char *fmt, ...)
 	va_list ap;
 	int ret = 0;
 	unsigned int size;
+
+	mutex_lock(&__tmp_log_lock);
+
+	va_start(ap, fmt);
+	size = vsnprintf(__tmp_log_data, TMP_LOG_LEN, fmt, ap);
+	va_end(ap);
+
+	if (size >= TMP_LOG_LEN)
+		printk(KERN_ERR "kvm_msg exceeded possible temporary buffer size\n");
+	else
+		printk(KERN_ERR "%s", __tmp_log_data);
+
+	mutex_unlock(&__tmp_log_lock);
+}
+
+#if 0
+void __kvm_print_msg(char *fmt, ...)
+{
+	va_list ap;
+	int ret = 0;
+	unsigned int size;
 	bool should_wake_up = false;
 
 	if (kfifo_len(__kvm_log) == 0)
@@ -117,6 +138,7 @@ out:
 	if (ret < 0)
 		printk(KERN_ERR "Error in __kvm_print_msg: %d\n", ret);
 }
+#endif
 
 u32 get_shadow_l1_entry(struct kvm_vcpu *vcpu, gva_t gva)
 {
