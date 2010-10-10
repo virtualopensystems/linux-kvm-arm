@@ -761,6 +761,12 @@ static int emulate_mrc_cache(struct coproc_params *params)
 {
 	int ret = 0;
 
+	if (params->opcode1 != 0) {
+		kvm_err(-EINVAL, "unsupported opcode1 (%d)",
+				params->opcode1);
+		return -EINVAL;
+	}
+
 	switch (params->CRm) {
 	case 10:
 		if (params->opcode2 == 6) {

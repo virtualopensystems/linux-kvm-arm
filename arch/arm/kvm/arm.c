@@ -711,7 +711,6 @@ static int inject_guest_exception(struct kvm_vcpu *vcpu)
 
 	if (vcpu->arch.exception_pending & EXCEPTION_SOFTWARE) {
 		kvm_msg("inject swi");
-		return -EINVAL;
 		vcpu->arch.banked_r14[MODE_SVC] = vcpu->arch.regs[15] + 4;
 		vcpu->arch.banked_spsr[MODE_SVC] = vcpu->arch.cpsr;
 
@@ -721,7 +720,6 @@ static int inject_guest_exception(struct kvm_vcpu *vcpu)
 	
 	if (vcpu->arch.exception_pending & EXCEPTION_PREFETCH) {
 		kvm_msg("inject prefetch abort");
-		return -EINVAL;
 		vcpu->arch.banked_r14[MODE_ABORT] = vcpu->arch.regs[15] + 4;
 		vcpu->arch.banked_spsr[MODE_ABORT] = vcpu->arch.cpsr;
 
@@ -731,7 +729,6 @@ static int inject_guest_exception(struct kvm_vcpu *vcpu)
 
 	if (vcpu->arch.exception_pending & EXCEPTION_DATA) {
 		kvm_msg("inject data abort");
-		return -EINVAL;
 		vcpu->arch.banked_r14[MODE_ABORT] = vcpu->arch.regs[15] + 8;
 		vcpu->arch.banked_spsr[MODE_ABORT] = vcpu->arch.cpsr;
 
@@ -741,7 +738,6 @@ static int inject_guest_exception(struct kvm_vcpu *vcpu)
 
 	if (vcpu->arch.exception_pending & EXCEPTION_IRQ) {
 		kvm_msg("inject irq");
-		return -EINVAL;
 		//if ((vcpu->arch.cpsr & PSR_I_BIT) || guest_debug || irq_suppress)
 		if (vcpu->arch.cpsr & PSR_I_BIT) {
 			return 0;
@@ -755,11 +751,9 @@ static int inject_guest_exception(struct kvm_vcpu *vcpu)
 
 	if (vcpu->arch.exception_pending & EXCEPTION_FIQ) {
 		kvm_msg("inject fiq");
-		return -EINVAL;
 		if (vcpu->arch.cpsr & PSR_F_BIT)
 			return 0;
 		
-
 		KVMARM_NOT_IMPLEMENTED();
 		return -EINVAL;
 	}

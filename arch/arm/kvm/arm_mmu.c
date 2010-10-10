@@ -630,10 +630,7 @@ static void inline release_l2_shadow_entry(struct kvm_vcpu *vcpu, u8 domain,
 #endif
 		pfn = __phys_to_pfn(pte & L2_SMALL_BASE_MASK);
 
-		if (pfn_valid(pfn))
-			kvm_msg("releasing page with count: %u (pfn: %u) (gva: 0x%08x)",
-					pfn_to_page(pfn)->_count, pfn, gva);
-		else
+		if (!pfn_valid(pfn))
 			kvm_msg("invalid pfn: %u (pte: 0x%08x) (gva: 0x%08x)",
 					pfn, pte, gva);
 
@@ -730,13 +727,11 @@ static void __free_l1_shadow_children(struct kvm_vcpu *vcpu, u32 *pgd)
  */
 static void free_l1_shadow_children(struct kvm_vcpu *vcpu, u32 *pgd)
 {
-	//BUG_ON(pgd == NULL);
 	if (pgd == NULL) {
 		kvm_msg("Weird pgd == NULL!");
 		return;
 	}
 	__free_l1_shadow_children(vcpu, pgd);
-	//kvm_msg("done");
 	vcpu->arch.l2_unused_pt = NULL;
 }
 
@@ -750,9 +745,9 @@ static void free_l1_shadow_children(struct kvm_vcpu *vcpu, u32 *pgd)
 void kvm_free_l1_shadow(struct kvm_vcpu *vcpu, kvm_shadow_pgtable *shadow)
 {
 	free_l1_shadow_children(vcpu, shadow->pgd);
-	//free_pages((ulong) shadow->pgd, L1_TABLE_ORDER);
+	free_pages((ulong) shadow->pgd, L1_TABLE_ORDER);
 	list_del(&shadow->list);
-	//kfree(shadow);
+	kfree(shadow);
 }
 
 /*
@@ -773,7 +768,6 @@ int kvm_init_l1_shadow(struct kvm_vcpu *vcpu, u32 *pgd)
 			vcpu->arch.regs[15]);
 	}
 
-	//BUG_ON(pgd == NULL);
 	if (pgd == NULL) {
 		kvm_msg("Weird pgd == NULL!");
 		return -EINVAL;
@@ -991,8 +985,6 @@ int __map_gva_to_pfn(struct kvm_vcpu *vcpu, u32 *pgd, gva_t gva, pfn_t pfn,
 			printk(KERN_DEBUG "               ap: 0x%x\n", ap);
 		}
 		domain = KVM_SPECIAL_DOMAIN;
-	} else {
-		kvm_msg("mapping 0x%08x to pfn: %u", gva, pfn);
 	}
 
 skip_domain_check:
