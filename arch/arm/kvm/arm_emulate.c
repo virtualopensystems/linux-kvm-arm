@@ -121,6 +121,8 @@ int kvm_handle_undefined(struct kvm_vcpu *vcpu, u32 instr)
 
 	/* The instruction was emulated, proceed to next one */
 	vcpu->arch.regs[15] += 4;
+	if (ret)
+		kvm_err(ret, "error when handling undefined exception");
 	return ret;
 handle_in_guest:
 	printk(KERN_DEBUG "  handle undefined in guest: 0x%08x\n",
@@ -226,34 +228,58 @@ static inline int get_coproc_op(u32 instr)
 struct coproc_params {
 	struct kvm_vcpu *vcpu;
 	u32 instr;
-	int opcode2;
-	int coproc_reg1;
-	int coproc_reg2;
+	int opcode1;
 	int rd_reg;
+	int CRn;
+	int CRm;
+	int opcode2;
 	int is_write;
 };
 
-#define COPROC_ID_MAIN			0
-#define COPROC_ID_CACHE_TYPE		1
-#define COPROC_ID_TIGHT_MEM_TYPE	2
 static int emulate_mrc_idcodes(struct coproc_params *params)
 {
 	struct kvm_vcpu *vcpu = params->vcpu;
 	int rd_reg = params->rd_reg;
+	int ret = 0;
 
-	switch (params->coproc_reg2) {
-	case COPROC_ID_MAIN:
-		VCPU_REG(vcpu, rd_reg) = vcpu->arch.cp15.c0_MIDR;
-		break;
-	case COPROC_ID_CACHE_TYPE:
-		VCPU_REG(vcpu, rd_reg) = vcpu->arch.cp15.c0_CTR;
-		break;
-	case COPROC_ID_TIGHT_MEM_TYPE:
-		VCPU_REG(vcpu, rd_reg) = vcpu->arch.cp15.c0_TCMTR;
-		break;
+	if (params->opcode1 != 0) {
+		kvm_err(-EINVAL, "unsupported opcode1 (%d)", params->opcode1);
+		return -EINVAL;
 	}
 
-	return 0;
+	switch (params->CRm) {
+	case 0:
+		switch (params->opcode2) {
+		case 0:
+			VCPU_REG(vcpu, rd_reg) = vcpu->arch.cp15.c0_MIDR;
+			break;
+		case 1:
+			VCPU_REG(vcpu, rd_reg) = vcpu->arch.cp15.c0_CTR;
+			break;
+		case 2:
+			VCPU_REG(vcpu, rd_reg) = vcpu->arch.cp15.c0_TCMTR;
+			break;
+		case 3:
+			VCPU_REG(vcpu, rd_reg) = vcpu->arch.cp15.c0_TLBTR;
+			break;
+		default:
+			ret = -EINVAL;
+		}
+		break;
+	case 1:
+		KVMARM_NOT_IMPLEMENTED();
+		break;
+	case 2:
+		KVMARM_NOT_IMPLEMENTED();
+		break;
+	default:
+		ret = -EINVAL;
+	}
+
+	if (ret)
+		kvm_err(ret, "invalid operation: CRm (%d), Op2 (%d)",
+				params->CRm, params->opcode2);
+	return ret;
 }
 
 static int emulate_mcr_sysconf(struct coproc_params *params)
@@ -262,13 +288,26 @@ static int emulate_mcr_sysconf(struct coproc_params *params)
 	int rd_reg = params->rd_reg;
 	u32 rd_val = VCPU_REG(vcpu, rd_reg);
 
-	switch (params->coproc_reg2) {
+	if (params->CRm != 0 || params->opcode1 != 0) {
+		kvm_err(-EINVAL, "unsupported CRm (%d) or opcode1 (%d)",
+				params->CRm, params->opcode1);
+		return -EINVAL;
+	}
+
+	switch (params->opcode2) {
 	case 0: {
 		/* Control Register */
 		if ((rd_val & 0x1) != (vcpu->arch.cp15.c1_CR & 0x1)) {
-			kvm_init_l1_shadow(vcpu, vcpu->arch.shadow_pgtable);
+			kvm_init_l1_shadow(vcpu, vcpu->arch.shadow_pgtable->pgd);
+			if (rd_val & 0x1)
+				kvm_msg("guest enabled MMU at: %08x",
+						VCPU_REG(vcpu, 15));
+			else
+				kvm_msg("guest disabled MMU at: %08x",
+						VCPU_REG(vcpu, 15));
 		}
-		vcpu->arch.cp15.c1_CR = VCPU_REG(vcpu, rd_reg);
+
+		vcpu->arch.cp15.c1_CR = rd_val;
 		break;
 	}
 	case 1:
@@ -280,6 +319,7 @@ static int emulate_mcr_sysconf(struct coproc_params *params)
 		vcpu->arch.cp15.c1_CAR = VCPU_REG(vcpu, rd_reg);
 		break;
 	default:
+		kvm_err(-EINVAL, "unknown opcode2: %d", params->opcode2);
 		return -EINVAL;
 	}
 
@@ -291,7 +331,13 @@ static int emulate_mrc_sysconf(struct coproc_params *params)
 	struct kvm_vcpu *vcpu = params->vcpu;
 	int rd_reg = params->rd_reg;
 
-	switch (params->coproc_reg2) {
+	if (params->CRm != 0 || params->opcode1 != 0) {
+		kvm_err(-EINVAL, "unsupported CRm (%d) or opcode1 (%d)",
+				params->CRm, params->opcode1);
+		return -EINVAL;
+	}
+
+	switch (params->opcode2) {
 	case 0:
 		/* Control Register */
 		VCPU_REG(vcpu, rd_reg) = vcpu->arch.cp15.c1_CR;
@@ -305,6 +351,7 @@ static int emulate_mrc_sysconf(struct coproc_params *params)
 		VCPU_REG(vcpu, rd_reg) = vcpu->arch.cp15.c1_CAR;
 		break;
 	default:
+		kvm_err(-EINVAL, "unknown opcode2: %d", params->opcode2);
 		return -EINVAL;
 	}
 
@@ -316,20 +363,43 @@ static int emulate_mcr_pgtable(struct coproc_params *params)
 	struct kvm_vcpu *vcpu = params->vcpu;
 	u32 rd_val = VCPU_REG(vcpu, params->rd_reg);
 
-	switch (params->coproc_reg2) {
+	if (params->CRm != 0 || params->opcode1 != 0) {
+		kvm_err(-EINVAL, "unsupported CRm (%d) or opcode1 (%d)",
+				params->CRm, params->opcode1);
+		return -EINVAL;
+	}
+
+	switch (params->opcode2) {
 	case 0: {
-		gpa_t prev_base = vcpu->arch.cp15.c2_TTBR;
-		vcpu->arch.cp15.c2_TTBR = rd_val;
-		//printk(KERN_DEBUG "    Guest changed TTBR to: %08x\n", rd_val);
+		gpa_t prev_base = vcpu->arch.cp15.c2_TTBR0;
+		vcpu->arch.cp15.c2_TTBR0 = rd_val;
+		kvm_msg("guest changed TTBR0 to: 0x%08x", rd_val);
 		if (kvm_mmu_enabled(vcpu) && prev_base != rd_val) {
-			return kvm_init_l1_shadow(vcpu, vcpu->arch.shadow_pgtable);
+			return kvm_init_l1_shadow(vcpu,
+						  vcpu->arch.shadow_pgtable->pgd);
 		}
 		break;
 	}
-	case 1:
+	case 1: {
+		gpa_t prev_base = vcpu->arch.cp15.c2_TTBR1;
+		vcpu->arch.cp15.c2_TTBR1 = rd_val;
+		kvm_msg("guest changed TTBR1 to: 0x%08x", rd_val);
+		if (kvm_mmu_enabled(vcpu) && prev_base != rd_val) {
+			return kvm_init_l1_shadow(vcpu,
+						  vcpu->arch.shadow_pgtable->pgd);
+		}
+		break;
+	}
 	case 2:
-		/* TODO: (ARMv6) error, undefined exception */
+		BUG_ON((rd_val & ~0x7) != 0);
+		vcpu->arch.cp15.c2_TTBR_CR = rd_val;
+		if ((rd_val & 0x7) != 0) {
+			kvm_err(-EINVAL, "dont' support use of TTBR1 yet");
+			return -EINVAL;
+		}
+		break;
 	default:
+		kvm_err(-EINVAL, "unknown opcode2: %d", params->opcode2);
 		return -EINVAL;
 	}
 
@@ -340,15 +410,25 @@ static int emulate_mrc_pgtable(struct coproc_params *params)
 {
 	struct kvm_vcpu *vcpu = params->vcpu;
 
-	switch (params->coproc_reg2) {
+	if (params->CRm != 0 || params->opcode1 != 0) {
+		kvm_err(-EINVAL, "unsupported CRm (%d) or opcode1 (%d)",
+				params->CRm, params->opcode1);
+		return -EINVAL;
+	}
+
+	switch (params->opcode2) {
 	case 0:
-		VCPU_REG(vcpu, params->rd_reg) = vcpu->arch.cp15.c2_TTBR;
+		VCPU_REG(vcpu, params->rd_reg) = vcpu->arch.cp15.c2_TTBR0;
 		break;
 	case 1:
-		/* TODO: (ARMv6) error, undefined exception */
+		VCPU_REG(vcpu, params->rd_reg) = vcpu->arch.cp15.c2_TTBR1;
+		break;
 	case 2:
 		/* TODO: (ARMv6) error, undefined exception */
+		VCPU_REG(vcpu, params->rd_reg) = vcpu->arch.cp15.c2_TTBR_CR;
+		break;
 	default:
+		kvm_err(-EINVAL, "unknown opcode2: %d", params->opcode2);
 		return -EINVAL;
 	}
 
@@ -362,9 +442,16 @@ static int emulate_mcr_dac(struct coproc_params *params)
 	u32 old = vcpu->arch.cp15.c3_DACR;
 	u32 new = VCPU_REG(vcpu, params->rd_reg);
 
+	if (params->CRm != 0 || params->opcode1 != 0 || params->opcode2 != 0) {
+		kvm_err(-EINVAL, "unsupported CRm (%d) or opcode1 (%d) "
+				 "or opcode2 (%d)", params->CRm,
+				 params->opcode1, params->opcode2);
+		return -EINVAL;
+	}
+
 	vcpu->arch.cp15.c3_DACR = new;
 	if (guest_debug) {
-		printk(KERN_DEBUG "    Guest wrote DACR at 0x%08x from register %u: 0x%08x...\n",
+		kvm_msg("guest wrote DACR at 0x%08x from register %u: 0x%08x",
 			VCPU_REG(vcpu, 15) - 4,
 			params->rd_reg,
 			vcpu->arch.cp15.c3_DACR);
@@ -373,7 +460,7 @@ static int emulate_mcr_dac(struct coproc_params *params)
 	/* Check if we need to update L2 ap's for special pages L1 domains */
 	for (i = 0; i < 16; i++) {
 		if (((old >> (i*2)) & 0x3) != ((new >> (i*2)) & 0x3)) {
-			kvm_init_l1_shadow(vcpu, vcpu->arch.shadow_pgtable);
+			kvm_init_l1_shadow(vcpu, vcpu->arch.shadow_pgtable->pgd);
 			/*
 			kvm_update_special_region_ap(vcpu,
 						     vcpu->arch.shadow_pgtable,
@@ -389,9 +476,16 @@ static int emulate_mrc_dac(struct coproc_params *params)
 {
 	struct kvm_vcpu *vcpu = params->vcpu;
 
+	if (params->CRm != 0 || params->opcode1 != 0 || params->opcode2 != 0) {
+		kvm_err(-EINVAL, "unsupported CRm (%d) or opcode1 (%d) "
+				 "or opcode2 (%d)", params->CRm,
+				 params->opcode1, params->opcode2);
+		return -EINVAL;
+	}
+
 	VCPU_REG(vcpu, params->rd_reg) = vcpu->arch.cp15.c3_DACR;
 	if (guest_debug) {
-		printk(KERN_DEBUG "    Guest read DACR...\n");
+		kvm_msg("guest read DACR: 0x%08x", vcpu->arch.cp15.c3_DACR);
 	}
 	return 0;
 }
@@ -400,13 +494,25 @@ static int emulate_mcr_fsr(struct coproc_params *params)
 {
 	struct kvm_vcpu *vcpu = params->vcpu;
 
-	switch (params->coproc_reg2) {
+	if (params->CRm != 0 || params->opcode1 != 0) {
+		kvm_err(-EINVAL, "unsupported CRm (%d) or opcode1 (%d)",
+				params->CRm, params->opcode1);
+		return -EINVAL;
+	}
+
+	switch (params->opcode2) {
 	case 0:   
 		vcpu->arch.cp15.c5_DFSR = VCPU_REG(vcpu, params->rd_reg);
 		break;
 	case 1:
-		/* TODO: (ARMv6) error, undefined exception */
+		if (cpu_architecture() < CPU_ARCH_ARMv6) {
+			kvm_msg("unsupported write IFSR on pre v6 archs");
+			return -EINVAL;
+		}
+		vcpu->arch.cp15.c5_IFSR = VCPU_REG(vcpu, params->rd_reg);
+		break;
 	default:
+		kvm_err(-EINVAL, "unknown opcode2: %d", params->opcode2);
 		return -EINVAL;
 	}
 
@@ -417,13 +523,20 @@ static int emulate_mrc_fsr(struct coproc_params *params)
 {
 	struct kvm_vcpu *vcpu = params->vcpu;
 
-	switch (params->coproc_reg2) {
+	if (params->CRm != 0 || params->opcode1 != 0) {
+		kvm_err(-EINVAL, "unsupported CRm (%d) or opcode1 (%d)",
+				params->CRm, params->opcode1);
+		return -EINVAL;
+	}
+
+	switch (params->opcode2) {
 	case 0:   
 		VCPU_REG(vcpu, params->rd_reg) = vcpu->arch.cp15.c5_DFSR;
 		break;
 	case 1:
 		/* TODO: (ARMv6) error, undefined exception */
 	default:
+		kvm_err(-EINVAL, "unknown opcode2: %d", params->opcode2);
 		return -EINVAL;
 	}
 
@@ -434,15 +547,21 @@ static int emulate_mcr_far(struct coproc_params *params)
 {
 	struct kvm_vcpu *vcpu = params->vcpu;
 
-	switch (params->coproc_reg2){
+	if (params->CRm != 0 || params->opcode1 != 0) {
+		kvm_err(-EINVAL, "unsupported CRm (%d) or opcode1 (%d)",
+				params->CRm, params->opcode1);
+		return -EINVAL;
+	}
+
+	switch (params->opcode2){
 	case 0:
 		vcpu->arch.cp15.c6_FAR = VCPU_REG(vcpu, params->rd_reg);
 		break;
 	case 1:
 		/* TODO: (ARMv6) error, undefined exception */
-	case 2:
-		/* TODO: (ARMv6) error, undefined exception */
+		KVMARM_NOT_IMPLEMENTED();
 	default:
+		kvm_err(-EINVAL, "unknown opcode2: %d", params->opcode2);
 		return -EINVAL;
 	}
 
@@ -453,306 +572,360 @@ static int emulate_mrc_far(struct coproc_params *params)
 {
 	struct kvm_vcpu *vcpu = params->vcpu;
 
-	switch (params->coproc_reg2){
+	if (params->CRm != 0 || params->opcode1 != 0) {
+		kvm_err(-EINVAL, "unsupported CRm (%d) or opcode1 (%d)",
+				params->CRm, params->opcode1);
+		return -EINVAL;
+	}
+
+	switch (params->opcode2){
 	case 0:
 		VCPU_REG(vcpu, params->rd_reg) = vcpu->arch.cp15.c6_FAR;
 		break;
 	case 1:
 		/* TODO: (ARMv6) error, undefined exception */
-	case 2:
-		/* TODO: (ARMv6) error, undefined exception */
+		KVMARM_NOT_IMPLEMENTED();
 	default:
+		kvm_err(-EINVAL, "unknown opcode2: %d", params->opcode2);
 		return -EINVAL;
 	}
 
 	return 0;
 }
 
+extern void v6_flush_kern_cache_all(void);
 static int emulate_mcr_cache(struct coproc_params *params)
 {
 	struct kvm_vcpu *vcpu = params->vcpu;
+	int ret = 0;
 
-	switch (params->coproc_reg2) {
+	if (params->opcode1 != 0) {
+		kvm_err(-EINVAL, "unsupported opcode1 (%d)", params->opcode1);
+		return -EINVAL;
+	}
+
+	switch (params->CRm) {
 	case 0:
 		if (params->opcode2 == 4) {
 			/* Wait for interrupt */
 			vcpu->arch.wait_for_interrupts = 1;
 			return 0;
 		} else {
-			return 0;
+			ret = -EINVAL;
 		}
+		break;
 	case 5:
 		switch (params->opcode2) {
 		case 0:	/* Invalidate entire i-cache */
+			asm volatile("mcr	p15, 0, %[zero], c7, c5, 0":
+					: [zero] "r" (0));
+			break;
 		case 1:	/* Invalidate i-cache line - MVA */
 		case 2:	/* Invalidate i-cache line - set */
 		case 4:	/* Flush prefetch buffer */
 		case 6:	/* Flush entire branch target cache */
 		case 7:	/* Flush branch target cache - MVA */
 			//return kvm_init_l1_shadow(vcpu, vcpu->arch.shadow_pgtable);
-			return 0;
+			kvm_msg("not implemented operation: CRm (%d), Op2 (%d)",
+					params->CRm, params->opcode2);
+			KVMARM_NOT_IMPLEMENTED();
 		default:
-			return -EINVAL;
+			ret = -EINVAL;
 		}
+		break;
 	case 6:
 		switch (params->opcode2) {
 		case 0:	/* Invalidate entire data cache */
 		case 1:	/* Invalidate data cache line - MVA */
 		case 2:	/* Invalidate data cache line - set */
 			//return kvm_init_l1_shadow(vcpu, vcpu->arch.shadow_pgtable);
-			return 0;
+			kvm_msg("not implemented operation: CRm (%d), Op2 (%d)",
+					params->CRm, params->opcode2);
+			KVMARM_NOT_IMPLEMENTED();
 		default:
-			return -EINVAL;
+			ret = -EINVAL;
 		}
+		break;
 	case 7:
 		switch (params->opcode2) {
 		case 0:	/* Invalidate both i-cache and d-cache */
+			asm volatile("mcr	p15, 0, %[zero], c7, c5, 0":
+					: [zero] "r" (0));
+			asm volatile("mcr	p15, 0, %[zero], c7, c14, 0":
+					: [zero] "r" (0));
+			/*asm volatile("mcr	p15, 0, %[zero], c7, c7, 0":
+					: [zero] "r" (0));*/
+			break;
 		case 1:	/* Invalidate unified cache line - MVA */
 		case 2: /* Invalidate unified cache line - set */
 			//return kvm_init_l1_shadow(vcpu, vcpu->arch.shadow_pgtable);
-			return 0;
+			kvm_msg("not implemented operation: CRm (%d), Op2 (%d)",
+					params->CRm, params->opcode2);
+			KVMARM_NOT_IMPLEMENTED();
 		default:
-			return -EINVAL;
+			ret = -EINVAL;
 		}
+		break;
 	case 10:
 		switch (params->opcode2) {
 		case 0:	/* Clean entire data cache */
+			kvm_msg("not implemented operation: CRm (%d), Op2 (%d)",
+					params->CRm, params->opcode2);
+			KVMARM_NOT_IMPLEMENTED();
 		case 1:	/* Clean data cache line - MVA */
+			asm volatile("mcr	p15, 0, %[mva], c7, c10, 1":
+					: [mva] "r" (VCPU_REG(vcpu, params->rd_reg)));
+			break;
 		case 2:	/* Clean data cache line - set */
 		case 3:	/* test and clean */
 		case 4:	/* Data synchronization barrier */
 		case 5:	/* Data memory barrier */
 			//return kvm_init_l1_shadow(vcpu, vcpu->arch.shadow_pgtable);
-			return 0;
+			kvm_msg("not implemented operation: CRm (%d), Op2 (%d)",
+					params->CRm, params->opcode2);
+			KVMARM_NOT_IMPLEMENTED();
 		default:
-			return -EINVAL;
+			ret = -EINVAL;
 		}
+		break;
 	case 11:
 		switch (params->opcode2) {
 		case 0:	/* Clean entire unified cache */
 		case 1:	/* Clean unified cache line - MVA */
 		case 2:	/* Clean unified cache line - set */
 			//return kvm_init_l1_shadow(vcpu, vcpu->arch.shadow_pgtable);
-			return 0;
+			kvm_msg("not implemented operation: CRm (%d), Op2 (%d)",
+					params->CRm, params->opcode2);
+			KVMARM_NOT_IMPLEMENTED();
 		}
+		break;
 	case 13:
 		if (params->opcode2 == 1) {
 			/* Prefetch i-cache line */
+			kvm_msg("not implemented operation: CRm (%d), Op2 (%d)",
+					params->CRm, params->opcode2);
 			KVMARM_NOT_IMPLEMENTED();
 		} else {
-			return 0;
+			ret = -EINVAL;
 		}
 		break;
 	case 14:
 		switch (params->opcode2) {
 		case 0:	/* Clean and invalidate entire d-cache */
+			asm volatile("mcr	p15, 0, %[zero], c7, c14, 0":
+					: [zero] "r" (0));
+			break;
 		case 1:	/* Clean and invalidate d-cache line - MVA */
+			asm volatile("mcr	p15, 0, %[mva], c7, c14, 2":
+					: [mva] "r" (VCPU_REG(vcpu, params->rd_reg)));
+			break;
 		case 2:	/* Clean and invalidate d-cache line - set */
 		case 3:	/* Test, clean, and invalidate */
+			kvm_msg("not implemented operation: CRm (%d), Op2 (%d)",
+					params->CRm, params->opcode2);
+			KVMARM_NOT_IMPLEMENTED();
 			//return kvm_init_l1_shadow(vcpu, vcpu->arch.shadow_pgtable);
-			
-			return 0;
+			//v6_flush_kern_cache_all();
+			break;
 		default:
-			return -EINVAL;
+			ret = -EINVAL;
 		}
+		break;
 	case 15:
 		switch (params->opcode2) {
 		case 0:	/* Clean and invalidate entire unified cache */
+			asm volatile("mcr	p15, 0, %[zero], c7, c15, 0":
+					: [zero] "r" (0));
+			break;
 		case 1:	/* Clean and invalidate unified cache line - MVA */
 		case 2:	/* Clean and invalidate unified cache line - set */
 			//return kvm_init_l1_shadow(vcpu, vcpu->arch.shadow_pgtable);
-			return 0;
+			kvm_msg("not implemented operation: CRm (%d), Op2 (%d)",
+					params->CRm, params->opcode2);
+			KVMARM_NOT_IMPLEMENTED();
 		default:
-			return -EINVAL;
+			ret = -EINVAL;
 		}
+		break;
 	default:
-		return -EINVAL;
+		ret = -EINVAL;
 	}
+
+	if (ret)
+		kvm_err(ret, "invalid operation: CRm (%d), Op2 (%d)",
+				params->CRm, params->opcode2);
+	return ret;
 }
 
 static int emulate_mrc_cache(struct coproc_params *params)
 {
-	struct kvm_vcpu *vcpu = params->vcpu;
+	int ret = 0;
 
-	switch (params->coproc_reg2) {
-	case 0:
-		if (params->opcode2 == 4) {
-			/* Wait for interrupt */
-			KVMARM_NOT_IMPLEMENTED();
-		} else {
-			return 0;
-		}
-	case 5:
-		switch (params->opcode2) {
-		case 0:	/* Invalidate entire i-cache */
-		case 1:	/* Invalidate i-cache line - MVA */
-		case 2:	/* Invalidate i-cache line - set */
-		case 4:	/* Flush prefetch buffer */
-		case 6:	/* Flush entire branch target cache */
-		case 7:	/* Flush branch target cache - MVA */
-			return 0;
-		default:
-			return -EINVAL;
-		}
-	case 6:
-		switch (params->opcode2) {
-		case 0:	/* Invalidate entire data cache */
-		case 1:	/* Invalidate data cache line - MVA */
-		case 2:	/* Invalidate data cache line - set */
-			return 0;
-		default:
-			return -EINVAL;
-		}
-	case 7:
-		switch (params->opcode2) {
-		case 0:	/* Invalidate both i-cache and d-cache */
-		case 1:	/* Invalidate unified cache line - MVA */
-		case 2: /* Invalidate unified cache line - set */
-			//return kvm_init_l1_shadow(vcpu, vcpu->arch.shadow_pgtable);
-			return 0;
-		default:
-			return -EINVAL;
-		}
+	switch (params->CRm) {
 	case 10:
-		switch (params->opcode2) {
-		case 0:	/* Clean entire data cache */
-		case 1:	/* Clean data cache line - MVA */
-		case 2:	/* Clean data cache line - set */
-		case 3:	/* test and clean */
-		case 4:	/* Data synchronization barrier */
-		case 5:	/* Data memory barrier */
-			return 0;
-		default:
-			return -EINVAL;
-		}
-	case 11:
-		switch (params->opcode2) {
-		case 0:	/* Clean entire unified cache */
-		case 1:	/* Clean unified cache line - MVA */
-		case 2:	/* Clean unified cache line - set */
-			return 0;
-		}
-	case 13:
-		if (params->opcode2 == 1) {
-			/* Prefetch i-cache line */
+		if (params->opcode2 == 6) {
 			KVMARM_NOT_IMPLEMENTED();
 		} else {
-			return 0;
+			ret = -EINVAL;
 		}
 		break;
-	case 14:
-		switch (params->opcode2) {
-		case 0:	/* Clean and invalidate entire d-cache */
-		case 1:	/* Clean and invalidate d-cache line - MVA */
-		case 2:	/* Clean and invalidate d-cache line - set */
-			return 0;
-		case 3:	/* Test, clean, and invalidate */
-			/*
-			 * As the entire cached is currently cleaned on ARMv5
-			 * before switching back to the guest, we can simply
-			 * clear the Z-bit in the CPSR so that test and clean
-			 * operations work as expected if rd == r15.
-			 */
-			if (params->rd_reg == 15) {
-				kvm_cpsr_write(vcpu,
-					(vcpu->arch.cpsr & ~PSR_N_BIT)
-					| PSR_Z_BIT);
-			}
-			return 0;
-		default:
-			return -EINVAL;
+	case 12: /* Read Block Transfer Status Register */
+		if (params->opcode2 == 4) {
+			KVMARM_NOT_IMPLEMENTED();
+		} else {
+			ret = -EINVAL;
 		}
-	case 15:
-		switch (params->opcode2) {
-		case 0:	/* Clean and invalidate entire unified cache */
-		case 1:	/* Clean and invalidate unified cache line - MVA */
-		case 2:	/* Clean and invalidate unified cache line - set */
-			//return kvm_init_l1_shadow(vcpu, vcpu->arch.shadow_pgtable);
-			return 0;
-		default:
-			return -EINVAL;
-		}
+		break;
 	default:
 		return -EINVAL;
 	}
+
+	if (ret)
+		kvm_err(ret, "invalid operation: CRm (%d), Op2 (%d)",
+				params->CRm, params->opcode2);
+	return ret;
 }
 
 static int emulate_mcr_mmu_tlb(struct coproc_params *params)
 {
 	struct kvm_vcpu *vcpu = params->vcpu;
+	int ret = 0;
 
-	switch (params->coproc_reg2) {
+	switch (params->CRm) {
 	case 5:
 		switch (params->opcode2) {
 		case 0:	/* Invalidate entire instruction TLB */
 		case 1:	/* Invalidate instruction single entry - MVA */
 		case 2:	/* Invalidate on ASID match instruction TLB - ASID */
-			return kvm_init_l1_shadow(vcpu, vcpu->arch.shadow_pgtable);
+			ret = kvm_init_l1_shadow(vcpu,
+						 vcpu->arch.shadow_pgtable->pgd);
+			break;
 		default:
-			return -EINVAL;
+			ret = -EINVAL;
 		}
+		break;
 	case 6:
 		switch (params->opcode2) {
 		case 0: /* Invalidate entire data TLB */
 		case 1: /* Invalidate instruction single entry */
 		case 2: /* Invalidate on ASID match data TLB - ASID */
-			return kvm_init_l1_shadow(vcpu, vcpu->arch.shadow_pgtable);
+			return kvm_init_l1_shadow(vcpu,
+						  vcpu->arch.shadow_pgtable->pgd);
 		default:
-			return -EINVAL;
+			ret = -EINVAL;
 		}
+		break;
 	case 7:
 		switch (params->opcode2) {
 		case 0:	/* Invalidate entire unified TLB */
 		case 1:	/* Invalidate unified single entry - MVA */
 		case 2:	/* Invalidate on AISD match unfied TLB - ASID */
-			return kvm_init_l1_shadow(vcpu, vcpu->arch.shadow_pgtable);
+			ret= kvm_init_l1_shadow(vcpu,
+						vcpu->arch.shadow_pgtable->pgd);
+			break;
 		default:
-			return -EINVAL;
+			ret = -EINVAL;
 		}
+		break;
 	default:
-		return -EINVAL;
+		ret = -EINVAL;
 	}
+
+	if (ret)
+		kvm_err(ret, "invalid operation: CRm (%d), Op2 (%d)",
+				params->CRm, params->opcode2);
+	return ret;
 }
 
 static int emulate_mcr_cache_lck(struct coproc_params *params)
 {
 	struct kvm_vcpu *vcpu = params->vcpu;
+	int rd = params->rd_reg;
+	int ret = 0;
 
-	switch (params->coproc_reg2) {
-	case 0:
-		vcpu->arch.cp15.c9_DCLR = VCPU_REG(vcpu, params->rd_reg);
-		break;
-	case 1:
-		vcpu->arch.cp15.c9_ICLR = VCPU_REG(vcpu, params->rd_reg);
-		break;
-	default:
+	if (params->opcode1 != 0) {
+		kvm_err(-EINVAL, "unsupported opcode1 (%d)", params->opcode1);
 		return -EINVAL;
 	}
 
-	return 0;
+	switch (params->CRm) {
+	case 0:
+		if (params->opcode2 == 0)
+			vcpu->arch.cp15.c9_DCLR = VCPU_REG(vcpu, rd);
+		else if (params->opcode2 == 1)
+			vcpu->arch.cp15.c9_ICLR = VCPU_REG(vcpu, rd);
+		else
+			ret = -EINVAL;
+		break;
+	case 1:
+		if (params->opcode2 == 0) 
+			vcpu->arch.cp15.c9_DTCMR = VCPU_REG(vcpu, rd);
+		else if (params->opcode2 == 1)
+			vcpu->arch.cp15.c9_ITCMR = VCPU_REG(vcpu, rd);
+		else
+			ret = -EINVAL;
+		break;
+	default:
+		ret = -EINVAL;
+	}
+
+	if (ret)
+		kvm_err(ret, "invalid operation: CRm (%d), Op2 (%d)",
+				params->CRm, params->opcode2);
+	return ret;
 }
 
 static int emulate_mrc_cache_lck(struct coproc_params *params)
 {
 	struct kvm_vcpu *vcpu = params->vcpu;
+	int rd = params->rd_reg;
+	int ret = 0;
 
-	switch (params->coproc_reg2) {
-	case 0:
-		VCPU_REG(vcpu, params->rd_reg) = vcpu->arch.cp15.c9_DCLR;
-		break;
-	case 1:
-		VCPU_REG(vcpu, params->rd_reg) = vcpu->arch.cp15.c9_ICLR;
-		break;
-	default:
+	if (params->opcode1 != 0) {
+		kvm_err(-EINVAL, "unsupported opcode1 (%d)", params->opcode1);
 		return -EINVAL;
 	}
 
-	return 0;
+	switch (params->CRm) {
+	case 0:
+		if (params->opcode2 == 0)
+			VCPU_REG(vcpu, rd) = vcpu->arch.cp15.c9_DCLR;
+		else if (params->opcode2 == 1)
+			VCPU_REG(vcpu, rd) = vcpu->arch.cp15.c9_ICLR;
+		else
+			ret = -EINVAL;
+		break;
+	case 1:
+		if (params->opcode2 == 0)
+			VCPU_REG(vcpu, rd) = vcpu->arch.cp15.c9_DTCMR;
+		else if (params->opcode2 == 1)
+			VCPU_REG(vcpu, rd) = vcpu->arch.cp15.c9_ITCMR;
+		else
+			ret = -EINVAL;
+		break;
+	default:
+		ret = -EINVAL;
+	}
+
+	if (ret)
+		kvm_err(ret, "invalid operation: CRm (%d), Op2 (%d)",
+				params->CRm, params->opcode2);
+	return ret;
 }
 
-static int emulate_mcr_tlb_lck(struct coproc_params *params)
+int emulate_mcr_tlb_lck(struct coproc_params *params)
 {
-	switch (params->coproc_reg2) {
+	int ret = 0;
+
+	/* XXX: This code is not valid for ARM1136 processors! */
+	KVMARM_NOT_IMPLEMENTED();
+
+	if (params->opcode1 != 0) {
+		kvm_err(-EINVAL, "unsupported opcode1 (%d)", params->opcode1);
+		return -EINVAL;
+	}
+
+	switch (params->CRm) {
 	case 0:
 		switch (params->opcode2){
 		case 0:	/* Data lockdown register */
@@ -760,7 +933,7 @@ static int emulate_mcr_tlb_lck(struct coproc_params *params)
 		case 1:	/* Instruction lockdown register */
 			break;
 		default:
-			return -EINVAL;
+			ret = -EINVAL;
 		}
 		break;
 	case 4:
@@ -770,7 +943,7 @@ static int emulate_mcr_tlb_lck(struct coproc_params *params)
 		case 1:	/* Unlock I TLB */
 			break;
 		default:
-			return -EINVAL;
+			ret = -EINVAL;
 		}
 		break;
 	case 8:
@@ -780,26 +953,44 @@ static int emulate_mcr_tlb_lck(struct coproc_params *params)
 		case 1:	/* Unlock D TLB */
 			break;
 		default:
-			return -EINVAL;
+			ret = -EINVAL;
 		}
 		break;
 	default:
-		return -EINVAL;
+		ret = -EINVAL;
 	}
 
-	return 0;
+	if (ret)
+		kvm_err(ret, "invalid operation: CRm (%d), Op2 (%d)",
+				params->CRm, params->opcode2);
+	return ret;
 }
 
 static int emulate_mcr_proc_id(struct coproc_params *params)
 {
 	struct kvm_vcpu *vcpu = params->vcpu;
 
-	switch (params->coproc_reg2) {
+	if (params->CRm != 0 || params->opcode1 != 0) {
+		kvm_err(-EINVAL, "unsupported CRm (%d) or opcode1 (%d)",
+				params->CRm, params->opcode1);
+		return -EINVAL;
+	}
+
+	switch (params->opcode2) {
 	case 0:
 		vcpu->arch.cp15.c13_FCSER = VCPU_REG(vcpu, params->rd_reg);
 		break;
 	case 1:
 		vcpu->arch.cp15.c13_CID = VCPU_REG(vcpu, params->rd_reg);
+		break;
+	case 2:
+		vcpu->arch.cp15.c13_TIDURW = VCPU_REG(vcpu, params->rd_reg);
+		break;
+	case 3:
+		vcpu->arch.cp15.c13_TIDURO = VCPU_REG(vcpu, params->rd_reg);
+		break;
+	case 4:
+		vcpu->arch.cp15.c13_TIDPO = VCPU_REG(vcpu, params->rd_reg);
 		break;
 	default:
 		return -EINVAL;
@@ -812,14 +1003,30 @@ static int emulate_mrc_proc_id(struct coproc_params *params)
 {
 	struct kvm_vcpu *vcpu = params->vcpu;
 
-	switch (params->coproc_reg2) {
+	if (params->CRm != 0 || params->opcode1 != 0) {
+		kvm_err(-EINVAL, "unsupported CRm (%d) or opcode1 (%d)",
+				params->CRm, params->opcode1);
+		return -EINVAL;
+	}
+
+	switch (params->opcode2) {
 	case 0:
 		VCPU_REG(vcpu, params->rd_reg) = vcpu->arch.cp15.c13_FCSER;
 		break;
 	case 1:
 		VCPU_REG(vcpu, params->rd_reg) = vcpu->arch.cp15.c13_CID;
 		break;
+	case 2:
+		VCPU_REG(vcpu, params->rd_reg) = vcpu->arch.cp15.c13_TIDURW;
+		break;
+	case 3:
+		VCPU_REG(vcpu, params->rd_reg) = vcpu->arch.cp15.c13_TIDURO;
+		break;
+	case 4:
+		VCPU_REG(vcpu, params->rd_reg) = vcpu->arch.cp15.c13_TIDPO;
+		break;
 	default:
+		kvm_err(-EINVAL, "unknown opcode2: %d", params->opcode2);
 		return -EINVAL;
 	}
 
@@ -831,10 +1038,11 @@ static void init_coproc_params(struct kvm_vcpu *vcpu, u32 instr,
 {
 	params->vcpu = vcpu;
 	params->instr = instr;
-	params->coproc_reg1 = (instr >>16) & 0x0000000F;
-	params->opcode2 = (instr >>5)  & 0x00000007;
-	params->coproc_reg2 = (instr & 0x0000000F);
-	params->rd_reg = (instr >>12) & 0x0000000F;
+	params->opcode1 = (instr >>21)  & 0x7;
+	params->rd_reg = (instr >>12) & 0xf;
+	params->CRn = (instr >>16) & 0xf;
+	params->CRm = (instr & 0xf);
+	params->opcode2 = (instr >>5)  & 0x7;
 }
 
 static int emulate_mcr(struct kvm_vcpu *vcpu, u32 instr)
@@ -844,31 +1052,34 @@ static int emulate_mcr(struct kvm_vcpu *vcpu, u32 instr)
 	init_coproc_params(vcpu, instr, p);
 
 
-	switch (params.coproc_reg1) {
-	case COPROC_REG1_IDCODES:
+	switch (params.CRn) {
+	case 0: /* Processor ID Codes */
 		/* Not allowed to set anything in CR0 */
+		kvm_msg("guest tried to write to ID register at: %08x",
+				VCPU_REG(vcpu, 15));
 		return 0;
-	case COPROC_REG1_SYSCONF:
+	case 1: /* System configuration */
 		return emulate_mcr_sysconf(p);
-	case COPROC_REG1_PGTABLE:
+	case 2: /* Page table */
 		return emulate_mcr_pgtable(p);
-	case COPROC_REG1_DAC:
+	case 3: /* Domain access control */
 		return emulate_mcr_dac(p);
-	case COPROC_REG1_FSR:
+	case 5: /* Instruction fault status register */
 		return emulate_mcr_fsr(p);
-	case COPROC_REG1_FAR:
+	case 6: /* Fault address register */
 		return emulate_mcr_far(p);
-	case COPROC_REG1_CACHE:
+	case 7: /* Cache management functions */
 		return emulate_mcr_cache(p);
-	case COPROC_REG1_MMU_TLB:
+	case 8: /* MMU TLB Control */
 		return emulate_mcr_mmu_tlb(p);
-	case COPROC_REG1_CACHE_LCK:
+	case 9: /* Cache lockdown functions */
 		return emulate_mcr_cache_lck(p);
-	case COPROC_REG1_TLB_LCK:
-		return emulate_mcr_tlb_lck(p);
-	case COPROC_REG1_PROC_ID:
+	case 10: /* TLB Lockdown functions */
+		KVMARM_NOT_IMPLEMENTED();
+	case 13: /* Process ID Register */
 		return emulate_mcr_proc_id(p);
 	default:
+		kvm_err(-EINVAL, "unsupported CRn: %d", params.CRn);
 		return -EINVAL;
 	}
 }
@@ -880,30 +1091,32 @@ static int emulate_mrc(struct kvm_vcpu *vcpu, u32 instr)
 	init_coproc_params(vcpu, instr, p);
 
 
-	switch (params.coproc_reg1) {
-	case COPROC_REG1_IDCODES:
+	switch (params.CRn) {
+	case 0: /* Processor ID Codes */
 		return emulate_mrc_idcodes(p);
-	case COPROC_REG1_SYSCONF:
+	case 1: /* System configuration */
 		return emulate_mrc_sysconf(p);
-	case COPROC_REG1_PGTABLE:
+	case 2: /* Page table */
 		return emulate_mrc_pgtable(p);
-	case COPROC_REG1_DAC:
+	case 3: /* Domain access control */
 		return emulate_mrc_dac(p);
-	case COPROC_REG1_FSR:
+	case 5: /* Instruction fault status register */
 		return emulate_mrc_fsr(p);
-	case COPROC_REG1_FAR:
+	case 6: /* Fault address register */
 		return emulate_mrc_far(p);
-	case COPROC_REG1_CACHE:
+	case 7: /* Cache management functions */
 		return emulate_mrc_cache(p);
-	case COPROC_REG1_MMU_TLB:
-		return 0;
-	case COPROC_REG1_CACHE_LCK:
+	case 8: /* MMU TLB Control */
+		kvm_err(-EINVAL, "unsupported read from TLB control register");
+		return -EINVAL;
+	case 9: /* Cache lockdown functions */
 		return emulate_mrc_cache_lck(p);
-	case COPROC_REG1_TLB_LCK:
-		return 0;
-	case COPROC_REG1_PROC_ID:
+	case 10: /* TLB Lockdown functions */
+		KVMARM_NOT_IMPLEMENTED();
+	case 13: /* Process ID Register */
 		return emulate_mrc_proc_id(p);
 	default:
+		kvm_err(-EINVAL, "unsupported CRn: %d", params.CRn);
 		return -EINVAL;
 	}
 
@@ -914,12 +1127,14 @@ static int emulate_mcrr(struct kvm_vcpu *vcpu, u32 instr)
 {
 	/* MCRR only defined in ARM v6 */
 	KVMARM_NOT_IMPLEMENTED();
+	return 0; /* GCC is braindead */
 }
 
 static int emulate_mrrc(struct kvm_vcpu *vcpu, u32 instr)
 {
 	/* MCRR only defined in ARM v6 */
 	KVMARM_NOT_IMPLEMENTED();
+	return 0; /* GCC is braindead */
 }
 
 
@@ -1112,6 +1327,7 @@ int kvm_ls_length(struct kvm_vcpu *vcpu, u32 instr)
 	}
 
 	BUG();
+	return 0; /* GCC is braindead */
 }
 
 int kvm_ls_is_write(struct kvm_vcpu *vcpu, u32 instr)
@@ -1135,6 +1351,7 @@ int kvm_ls_is_write(struct kvm_vcpu *vcpu, u32 instr)
 	}
 
 	BUG();
+	return 0; /* GCC is braindead */
 }
 
 int kvm_ls_get_rd(struct kvm_vcpu *vcpu, u32 instr)
@@ -1152,6 +1369,7 @@ int kvm_ls_get_rd(struct kvm_vcpu *vcpu, u32 instr)
 	}
 
 	BUG();
+	return 0; /* GCC is braindead */
 }
 
 int kvm_ls_get_rn(struct kvm_vcpu *vcpu, u32 instr)
@@ -1165,6 +1383,7 @@ int kvm_ls_get_rn(struct kvm_vcpu *vcpu, u32 instr)
 	}
 
 	BUG();
+	return 0; /* GCC is braindead */
 }
 
 static inline gva_t ls_word_calc_offset(struct kvm_vcpu *vcpu, u32 instr)
@@ -1280,6 +1499,7 @@ int kvm_ls_get_address(struct kvm_vcpu *vcpu, u32 instr)
 	}
 
 	BUG();
+	return 0; /* GCC is braindead */
 }
 
 /*

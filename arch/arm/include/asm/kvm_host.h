@@ -22,6 +22,8 @@
 
 #include <linux/string.h>
 #include <linux/types.h>
+#include <linux/list.h>
+#include <asm/mmu_context.h>
 #include <asm/ptrace.h>
 #include <asm/kvm.h>
 
@@ -71,11 +73,13 @@ struct kvm_trans_orig {
 	struct list_head list;
 };
 
-struct shadow_table {
-	struct mm_struct *mm;
-	gpa_t  guest_base;
+typedef struct kvm_shadow_pgtable {
+	u32 *pgd; /* Pointer to first level-1 descriptor */
+	hpa_t pa; /* Host physical address */
+	unsigned int id; /* Process id, genereated by __new_asid() */
+	gva_t guest_ttbr; /* The guest TTBR, NULL == guest MMU disabled */
 	struct list_head list;
-};
+} kvm_shadow_pgtable;
 
 #define EXCEPTION_NONE      0
 #define EXCEPTION_RESET     0x80
@@ -91,18 +95,22 @@ struct shadow_table {
  * Shared page layout
  */
 struct shared_page {
-	u32 shared_sp;
-	u32 return_ptr;
-	u32 host_sp;
-	u32 exception_index;
-	u32 guest_regs[16];
-	u32 guest_CPSR;
-	u32 host_regs[16];
-	u32 host_CPSR;
-	u32 host_SPSR;
-	u32 host_ttbr;
-	u32 shadow_ttbr;
-	u32 guest_dac;
+	unsigned long shared_sp;
+	unsigned long return_ptr;
+	unsigned long host_sp;
+	unsigned long exception_index;
+	unsigned long guest_regs[16];
+	unsigned long guest_CPSR;
+	unsigned long host_regs[16];
+	unsigned long host_CPSR;
+	unsigned long host_SPSR;
+	unsigned long host_ttbr;
+	unsigned long shadow_ttbr;
+	unsigned long guest_dac;
+	unsigned long guest_asid;
+	unsigned long host_dac;
+	unsigned long host_asid;
+	unsigned long guest_instr;
 };
 
 struct kvm_vcpu_arch {
@@ -126,10 +134,13 @@ struct kvm_vcpu_arch {
 		u32 c0_MIDR;		/* Main ID Register */
 		u32 c0_CTR;		/* Cache Type Register */
 		u32 c0_TCMTR;   	/* Tightly Coupled Memory Type Register */
+		u32 c0_TLBTR;   	/* TLB Type Register */
 		u32 c1_CR;		/* Control Register */
 		u32 c1_ACR;		/* Auxilliary Control Register */
 		u32 c1_CAR;		/* Coprocessor Access Register */
-		u32 c2_TTBR;		/* Translation Table Base Register */
+		u32 c2_TTBR0;		/* Translation Table Base Register 0 */
+		u32 c2_TTBR1;		/* Translation Table Base Register 1 */
+		u32 c2_TTBR_CR;		/* Translation Table Base Register Control */
 		u32 c3_DACR;		/* Domain Access Control Register */
 		u32 c5_DFSR;		/* Fault Status Register */
 		u32 c5_IFSR;		/* Fault Status Register */
@@ -138,9 +149,14 @@ struct kvm_vcpu_arch {
 		u32 c7_RBTSR;		/* Read Block Transfer Status Register */
 		u32 c9_DCLR;		/* Data Cache Lockdown Register */
 		u32 c9_ICLR;		/* Instruction Cachce Lockdown Register */
+		u32 c9_DTCMR;		/* Data TCM Region */
+		u32 c9_ITCMR;		/* Instruction TCM Region */
 		u32 c10_TLBLR;		/* TLB Lockdown Register */
 		u32 c13_FCSER;		/* Fast Context Switch Extension Register */
 		u32 c13_CID;		/* Context ID Register */
+		u32 c13_TIDURW;		/* User Read/Write Thread and Process ID */
+		u32 c13_TIDURO;		/* User Read-only Thread and Process ID */
+		u32 c13_TIDPO;		/* Privileged only Thread and Process ID */
 	} cp15;
 
 #ifdef KVMARM_BIN_TRANSLATE 
@@ -157,18 +173,16 @@ struct kvm_vcpu_arch {
 	/* Host status */
 	u32 host_far;		/* Fault access register */
 	u32 host_fsr;		/* Fault status register */
+	u32 host_ifsr;		/* Fault status register */
 
 	/* MMU related fields */
 	u32 *shared_page_alloc;
 	struct shared_page *shared_page;
 	u32 *guest_vectors;
 
-	u32 *priv_shadow_pgtable;
-	u32 *user_shadow_pgtable;
-
-	u32 *shadow_pgtable;
-	hpa_t shadow_pgd_addr;
-	hpa_t host_pgd_addr;
+	kvm_shadow_pgtable *shadow_pgtable;
+	struct list_head shadow_pgtable_list;
+	hpa_t host_pgd_pa;
 	int host_vectors_high;
 
 	/* 
@@ -243,8 +257,26 @@ static inline u32* kvm_vcpu_reg(struct kvm_vcpu_arch *vcpu_arch,
 	return &(vcpu_arch->regs[reg_num]);
 }
 
+/*
+ * Pre ARMv5: Return CP 15, TTBR
+ * ARMv6 and higher: Return the TTBR based on the MVA and the value in
+ * the TTBR control register
+ */
+static inline gpa_t kvm_guest_ttbr(struct kvm_vcpu_arch *vcpu_arch, gva_t gva)
+{
+	unsigned int n = 0;
 
+	if (cpu_architecture() >= CPU_ARCH_ARMv6) {
+		BUG_ON(vcpu_arch->cp15.c2_TTBR_CR & ~0x7);
+		n = vcpu_arch->cp15.c2_TTBR_CR & 0x7;
 
+		if (n != 0 && (gva >> (32-n)) == 0)
+			return vcpu_arch->cp15.c2_TTBR1 & (~0 << 14);
+
+		return vcpu_arch->cp15.c2_TTBR0 & (~0 << (14 - n));
+	}
+	return vcpu_arch->cp15.c2_TTBR0 & (~0 << 14);
+}
 
 /*
  * Dump virtual CPU state into kernel log buffer

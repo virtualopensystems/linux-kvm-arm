@@ -24,6 +24,7 @@
 #include <asm/page.h>
 #include <asm/pgtable.h>
 #include <asm/mman.h>
+#include <asm/mmu_context.h>
 #include <asm/domain.h>
 #include <asm/uaccess.h>
 #include <asm/kvm_arm.h>
@@ -32,11 +33,15 @@
 
 extern u8 guest_debug;
 extern u8 page_debug;
-/*
- * ARM v5 defines
- * (should probably be more complex and conditional #ifdefs
- * when more architecures are supported).
- */
+
+/******************************************************************************
+ * ARM common defines
+ *****************************************************************************/
+#define SECTION_BASE_MASK     		0xfff00000
+#define SECTION_BASE_INDEX_MASK       	0x000fffff
+#define SUP_BASE_INDEX_MASK       	0x00ffffff
+#define PAGES_PER_SECTION     		(SECTION_SIZE >> PAGE_SHIFT)
+
 #define VA_L1_IDX_MASK	      (0xfff << 20)
 #define VA_L1_IDX_SHIFT	      18 /* 2 extra bits for word index */
 #define VA_L2_IDX_MASK	      (0xff << 12)
@@ -46,26 +51,60 @@ extern u8 page_debug;
 #define L1_TABLE_SIZE         (L1_TABLE_ENTRIES << 2)
 #define L1_TABLE_PAGES        (L1_TABLE_SIZE / PAGE_SIZE)
 #define L1_TABLE_ORDER        2
-#define L1_COARSE_MASK        (~0x2ff)
+#define L1_COARSE_SHIFT	      10
+#define L1_COARSE_MASK        (~0x3ff)
 #define L1_DOMAIN_SHIFT	      5
 #define L1_DOMAIN_MASK        (0xf << L1_DOMAIN_SHIFT)
 #define L1_SECTION_AP_SHIFT   10
 #define L1_SECTION_AP_MASK    (0x3 << L1_SECTION_AP_SHIFT)
 
-#define L2_TABLE_ENTRIES      ENTRIES_PER_PAGE   (PAGE_SIZE / sizeof(hva_t))
 #define L2_TABLE_SHIFT        10
+#define L2_TABLE_ENTRIES      256
 #define L2_TABLE_SIZE         (1UL << L2_TABLE_SHIFT)
 #define L2_TABLES_PER_PAGE    L2_TABLE_SIZE / PAGE_SIZE
+
 #define L2_TYPE_MASK          0x3
 #define L2_TYPE_FAULT         0x0
 #define L2_TYPE_LARGE         0x1
-#define L2_TYPE_SMALL         0x2
-#define L2_TYPE_TINY          0x3
-#define L2_TYPE_EXT_SMALL     0x3
 
 #define L2_LARGE_BASE_SHIFT   16
 #define L2_LARGE_BASE_MASK    (0xffff << L2_LARGE_BASE_SHIFT) 
 #define VA_LARGE_INDEX_MASK   (0xffff)
+
+
+/******************************************************************************
+ * ARM v6 (VMSAv6) defines
+ *****************************************************************************/
+#if __LINUX_ARM_ARCH__ >= 6
+
+#define L1_SECTION_TYPE_SHIFT		18
+#define L1_SECTION_TYPE_MASK		(1 << L1_SECTION_TYPE_SHIFT)
+#define L1_SECTION_TYPE_SECTION		(0 << L1_SECTION_TYPE_SHIFT)
+#define L1_SECTION_TYPE_SUPERSECTION	(1 << L1_SECTION_TYPE_SHIFT)
+
+#define L1_SUP_BASE_SHIFT		24
+#define L1_SUP_BASE_MASK		(0xff << L1_SUP_BASE_SHIFT)
+#define L1_SUP_BASE_LOW_SHIFT	20
+#define L1_SUP_BASE_LOW_MASK		(0xf << L1_SUP_BASE_LOW_SHIFT)
+#define L1_SUP_BASE_HIGH_SHIFT	5
+#define L1_SUP_BASE_HIGH_MASK	(0xf << L1_SUP_BASE_HIGH_SHIFT)
+
+
+#define L2_EXT_SMALL_BASE_SHIFT   	12
+#define L2_EXT_SMALL_BASE_MASK    	(0xfffff << L2_EXT_SMALL_BASE_SHIFT) 
+#define VA_EXT_SMALL_INDEX_MASK   	(0xfff)
+
+#define L2_TYPE_EXT_SMALL     		0x3
+#define L2_XP_TYPE_EXT_SMALL     	0x2
+
+#endif /* __LINUX_ARM_ARCH__ >= 6 */
+
+
+/******************************************************************************
+ * ARM v5 defines (VMSAv6, subpages enabled)
+ *****************************************************************************/
+#define L2_TYPE_SMALL         0x2
+#define L2_TYPE_TINY          0x3
 
 #define L2_SMALL_BASE_SHIFT   12
 #define L2_SMALL_BASE_MASK    (0xfffff << L2_SMALL_BASE_SHIFT) 
@@ -76,13 +115,11 @@ extern u8 page_debug;
 #define VA_TINY_INDEX_MASK    (0x3ff)
 
 
-#define TRANSLATION_BASE_MASK 0xffffc000
-#define SECTION_BASE_MASK     0xfff00000
-#define BASE_INDEX_MASK       0x000fffff
-#define PAGES_PER_SECTION     (SECTION_SIZE >> PAGE_SHIFT)
 
-
-static gfn_t __invisible_gfn(struct kvm *kvm)
+/**
+ * Returns a gfn known not to be visible to the guest
+ */
+static gfn_t invisible_gfn(struct kvm *kvm)
 {
 	gfn_t gfn = 0xffffff;
 	int i;
@@ -105,89 +142,124 @@ static gfn_t __invisible_gfn(struct kvm *kvm)
  *
  * The function will acquire current->mm_mmap_sem() and realease it again.
  */
-static int get_guest_pgtable_entry(struct kvm_vcpu *vcpu, u32 *entry,
+static inline int get_guest_pgtable_entry(struct kvm_vcpu *vcpu, u32 *entry,
 				   gpa_t table_entry)
 {
-	hva_t host_base, host_entry;
-	u32 table_page_offset;
-	struct page *entry_page;
-	u32 *mapping;
-	int ret;
-
-	host_base = gfn_to_hva(vcpu->kvm, table_entry >> PAGE_SHIFT);
-	if (kvm_is_error_hva(host_base)) {
-		printk(KERN_ERR "Guest page table address invalid: %08x\n",
-				(unsigned int)table_entry);
-		return -EFAULT;
-	}
-	table_page_offset = table_entry % PAGE_SIZE;
-	host_entry = host_base + table_page_offset;
-
-	down_write(&current->mm->mmap_sem);
-	ret = get_user_pages(current, current->mm, host_entry, 1, 0, 0,
-			               &entry_page, NULL);
-	if (ret != 1) {
-		up_write(&current->mm->mmap_sem);
-		BUG();
-	}
-
-	mapping = (u32 *)kmap(entry_page);
-	*entry = *(mapping + (table_page_offset / sizeof(u32)));
-	kunmap(entry_page);
-	put_page(entry_page);
-
-	up_write(&current->mm->mmap_sem);
+	return kvm_read_guest(vcpu->kvm, table_entry, (void *)entry,
+				sizeof(u32));
 
 	return 0;
 }
 
-static int translate_coarse_descriptor(struct kvm_vcpu *vcpu, gva_t gva,
-					 u32 desc, gfn_t *gfn, u8 domain_type,
-					 u8 uaccess, struct map_info *map_info)
+#if __LINUX_ARM_ARCH__ >= 6
+static int trans_coarse_entry_xp(struct kvm_vcpu *vcpu, gva_t gva,
+				 u32 desc, gfn_t *gfn, u8 domain_type,
+				 u8 uaccess, struct map_info *map_info)
 {
 	gpa_t page_base;
 	u32 page_index;
 	int ret = 0;
 
 	switch (desc & L2_TYPE_MASK) {
-	case L2_TYPE_FAULT: {
+	case L2_TYPE_FAULT:
 		/*printk(KERN_DEBUG "     guest page fault at 0x%08x on GVA: 0x%08x\n",
 				vcpu->arch.regs[15],
 				(unsigned int)gva);*/
-		*gfn = __invisible_gfn(vcpu->kvm);
+		*gfn = invisible_gfn(vcpu->kvm);
 		return FSR_TRANS_PAGE;
-	}
-	case L2_TYPE_LARGE: {
+	case L2_TYPE_LARGE:
 		KVMARM_NOT_IMPLEMENTED();
 		page_base = desc & L2_LARGE_BASE_MASK;
 		page_index = gva & VA_LARGE_INDEX_MASK;
 		break;
+	case (L2_XP_TYPE_EXT_SMALL):		/* XN-bit not set */
+	case (L2_XP_TYPE_EXT_SMALL | 0x1):	/* XN-bit set */
+		map_info->ap = (desc >> 4) & 0x3;
+		map_info->apx = (desc >> 9) & 0x1;
+		map_info->xn = desc & 0x1;
+		map_info->cache_bits = (desc & 0xc) | ((desc >> 2) & 0x70);
+
+		if (domain_type == DOMAIN_CLIENT) {
+			u8 ap = map_info->ap;
+			if (kvm_decode_ap(vcpu, ap, uaccess) == KVM_AP_NONE)
+				ret = FSR_PERM_PAGE;
+		}
+		page_base = desc & L2_EXT_SMALL_BASE_MASK;
+		page_index = gva & VA_EXT_SMALL_INDEX_MASK;
+		break;
+	default:
+		kvm_err(-EINVAL, "unknown L2 descriptor type");
+		return -EINVAL;
+		
 	}
+	
+	*gfn = (page_base | page_index) >> PAGE_SHIFT;
+	return ret;
+}
+#endif
+
+static int trans_coarse_entry(struct kvm_vcpu *vcpu, gva_t gva,
+			      u32 desc, gfn_t *gfn, u8 domain_type,
+			      u8 uaccess, struct map_info *map_info)
+{
+	gpa_t page_base;
+	u32 page_index;
+	int ret = 0;
+
+	switch (desc & L2_TYPE_MASK) {
+	case L2_TYPE_FAULT:
+		/*printk(KERN_DEBUG "     guest page fault at 0x%08x on GVA: 0x%08x\n",
+				vcpu->arch.regs[15],
+				(unsigned int)gva);*/
+		*gfn = invisible_gfn(vcpu->kvm);
+		return FSR_TRANS_PAGE;
+	case L2_TYPE_LARGE:
+		KVMARM_NOT_IMPLEMENTED();
+		page_base = desc & L2_LARGE_BASE_MASK;
+		page_index = gva & VA_LARGE_INDEX_MASK;
+		break;
 	case L2_TYPE_SMALL: {
-		map_info->ap = (desc >> 4) & 0xff;
+		u8 ap = (desc >> 4) & 0xff;
+		if (kvm_mmu_xp(vcpu))
+			return -EINVAL;
+
+		map_info->ap = ap;
+#if __LINUX_ARM_ARCH__ >=6
+		/* 
+		 * We currently do not support different subpage permissions
+		 * as we always use extended page table format on ARMv6.
+		 */
+		if ((ap & 0x3) != ((ap >> 2) & 0x3) ||
+		    (ap & 0x3) != ((ap >> 4) & 0x3) ||
+		    (ap & 0x3) != ((ap >> 6) & 0x3)) {
+			printk(KERN_INFO "Guest uses different subpage permissions.\n");
+			return -EINVAL;
+		}
+#endif
+		map_info->cache_bits = (desc & 0xc);
 
 		if (domain_type == DOMAIN_CLIENT) {
 			u8 subpage = (gva >> 10) & 0x3;
 			u8 ap = (desc >> (4 + (subpage*2))) & 0x3;
-			if (kvm_decode_ap(vcpu, ap, uaccess) == KVM_AP_NONE) {
+			if (kvm_decode_ap(vcpu, ap, uaccess) == KVM_AP_NONE)
 				ret = FSR_PERM_PAGE;
-			}
 		}
 		page_base = desc & L2_SMALL_BASE_MASK;
 		page_index = gva & VA_SMALL_INDEX_MASK;
 		break;
 	}
-#ifdef CONFIG_CPU_32v5
-	case L2_TYPE_TINY: {
-		KVMARM_NOT_IMPLEMENTED();
-		page_base = desc & L2_TINY_BASE_MASK;
-		page_index = gva & VA_TINY_INDEX_MASK;
-		break;
-	}
-#endif
-#if defined CONFIG_CPU_32v6 || defined CONFIG_CPU_32v7
+#if __LINUX_ARM_ARCH__ >= 6
 	case L2_TYPE_EXT_SMALL: {
-		KVMARM_NOT_IMPLEMENTED();
+		u8 ap = (desc >> 4) & 0x3;
+		map_info->ap = ap | (ap<<2) | (ap<<4) | (ap<<6);
+		map_info->cache_bits = (desc & 0xc) | ((desc >> 2) & 0x70);
+
+		if (domain_type == DOMAIN_CLIENT) {
+			if (kvm_decode_ap(vcpu, ap, uaccess) == KVM_AP_NONE)
+				ret = FSR_PERM_PAGE;
+		}
+		page_base = desc & L2_EXT_SMALL_BASE_MASK;
+		page_index = gva & VA_EXT_SMALL_INDEX_MASK;
 		break;
 	}
 #endif
@@ -197,6 +269,11 @@ static int translate_coarse_descriptor(struct kvm_vcpu *vcpu, gva_t gva,
 	
 	*gfn = (page_base | page_index) >> PAGE_SHIFT;
 	return ret;
+}
+
+static inline int is_supersection(u32 l1_entry)
+{
+	return !((l1_entry & L1_SECTION_TYPE_MASK) == L1_SECTION_TYPE_SECTION);
 }
 
 /*
@@ -209,7 +286,10 @@ static int l1_domain_access(struct kvm_vcpu *vcpu, u32 l1_entry,
 	u8 domain;
 	u8 type;
 
-	domain = (l1_entry & L1_DOMAIN_MASK) >> L1_DOMAIN_SHIFT;
+	if (is_supersection(l1_entry))
+		domain = 0;
+	else
+		domain = (l1_entry & L1_DOMAIN_MASK) >> L1_DOMAIN_SHIFT;
 	map_info->domain_number = domain;
 
 	type = vcpu->arch.cp15.c3_DACR & domain_val(domain, DOMAIN_MANAGER);
@@ -241,7 +321,7 @@ int gva_to_gfn(struct kvm_vcpu *vcpu, gva_t gva, gfn_t *gfn, u8 uaccess,
 	u32 l1_index, l2_index;
 	u32 l1_entry, l2_entry;
 	gpa_t gpa;
-	u8 domain_type;
+	u8 ap, domain_type;
 	int err;
 	struct map_info tmp_map_info;
 	int ret = 0;
@@ -249,16 +329,22 @@ int gva_to_gfn(struct kvm_vcpu *vcpu, gva_t gva, gfn_t *gfn, u8 uaccess,
 	if (!map_info)
 		map_info = &tmp_map_info;
 
+
 	/* GVA == GPA when guest MMU is disabled */
 	if (!kvm_mmu_enabled(vcpu)) {
 		map_info->domain_number = 0;
 		map_info->ap = 0xff;
+#if __LINUX_ARM_ARCH__ >= 6
+		map_info->apx = 0;
+		map_info->xn = 0;
+		map_info->cache_bits = 0x0c;
+#endif
 		*gfn = (gva >> PAGE_SHIFT);
 		return 0;
 	}
 
 	/* Get the L1 descriptor */
-	l1_base = vcpu->arch.cp15.c2_TTBR & TRANSLATION_BASE_MASK;
+	l1_base = kvm_guest_ttbr(&vcpu->arch, gva);
 	l1_index = (gva & VA_L1_IDX_MASK) >> VA_L1_IDX_SHIFT; 
 	err = get_guest_pgtable_entry(vcpu, &l1_entry, l1_base | l1_index);
 	if (err < 0)
@@ -269,13 +355,22 @@ int gva_to_gfn(struct kvm_vcpu *vcpu, gva_t gva, gfn_t *gfn, u8 uaccess,
 		/*printk(KERN_DEBUG "     guest section fault at 0x%08x on GVA: 0x%08x\n",
 				vcpu->arch.regs[15],
 				(unsigned int)gva);*/
-		*gfn = __invisible_gfn(vcpu->kvm);
+		*gfn = invisible_gfn(vcpu->kvm);
+		if (gva == 0xf1600018) {
+			kvm_msg("l1 entry for 0xf1600018: 0x%08x", l1_entry);
+			kvm_msg("FSR_TRANS_SEC");
+		}
+
 		return FSR_TRANS_SEC;
 	}
 	case (L1_TYPE_COARSE): {
 		domain_type =  l1_domain_access(vcpu, l1_entry, map_info);
 		if (domain_type == DOMAIN_NOACCESS) {
 			ret = FSR_DOMAIN_PAG;
+			if (gva == 0xf1600018) {
+				kvm_msg("l1 entry for 0xf1600018: 0x%08x", l1_entry);
+				kvm_msg("FSR_DOMAIN_PAG");
+			}
 		}
 
 		l2_base = l1_entry & L1_COARSE_MASK;
@@ -285,21 +380,42 @@ int gva_to_gfn(struct kvm_vcpu *vcpu, gva_t gva, gfn_t *gfn, u8 uaccess,
 		if (err < 0)
 			return err;
 
-		err = translate_coarse_descriptor(vcpu, gva, l2_entry, gfn,
-						  domain_type, uaccess, map_info);
+#if __LINUX_ARM_ARCH__ >= 6
+		if (kvm_mmu_xp(vcpu))
+			err = trans_coarse_entry_xp(vcpu, gva, l2_entry, gfn,
+						    domain_type, uaccess,
+						    map_info);
+		else
+#endif
+			err = trans_coarse_entry(vcpu, gva, l2_entry, gfn,
+						 domain_type, uaccess,
+						 map_info);
+
 		if (err < 0)
 			return err;
-
-		if (ret == 0 && err > 0)
+ 
+		if (ret == 0 && err > 0) {
+			kvm_msg("l1 entry for 0x%08x: 0x%08x", gva, l1_entry);
+			kvm_msg("l2 entry for 0x%08x: 0x%08x", gva, l2_entry);
+			kvm_msg("err: %d", err);
+			kvm_msg("xp: %u", kvm_mmu_xp(vcpu));
 			return err; /* Maybe AP denied on the 2nd level */
-		else
+		} else
 			return ret;
 	}
 	case (L1_TYPE_SECTION): {
-		//u8 ap = (l1_entry >> L1_SECTION_AP_SHIFT) & 0x3);
-		u8 ap = (l1_entry & L1_SECTION_AP_MASK) >> L1_SECTION_AP_SHIFT;
-		domain_type = l1_domain_access(vcpu, l1_entry, map_info);
+		/* Get guest mapping info */
+		ap = (l1_entry & L1_SECTION_AP_MASK) >> L1_SECTION_AP_SHIFT;
 		map_info->ap = ap | (ap<<2) | (ap<<4) | (ap<<6);
+		if (kvm_mmu_xp(vcpu)) {
+			map_info->apx = (l1_entry >> 14) & 1;
+			map_info->xn = (l1_entry >> 4) & 1;
+		}
+		map_info->cache_bits = l1_entry & 0xc; /* C and B bits */
+		map_info->cache_bits |= (l1_entry >> 6) & 0x70; /* TEX bits */
+
+		/* Get and check guest domain mapping info */
+		domain_type = l1_domain_access(vcpu, l1_entry, map_info);
 		if (domain_type == DOMAIN_NOACCESS) {
 			ret = FSR_DOMAIN_SEC;
 		} else if (domain_type == DOMAIN_CLIENT) {
@@ -308,8 +424,28 @@ int gva_to_gfn(struct kvm_vcpu *vcpu, gva_t gva, gfn_t *gfn, u8 uaccess,
 			}
 		}
 
-		gpa = (l1_entry & SECTION_BASE_MASK) | (gva & BASE_INDEX_MASK);
-		*gfn = (gpa >> PAGE_SHIFT);
+		/* Finally, calculate address */
+		if (kvm_mmu_xp(vcpu) && is_supersection(l1_entry)) {
+			/* TODO: Base address [39:36] on non arm1136? */
+			if (((l1_entry >> L1_SUP_BASE_LOW_SHIFT) & 0xf) ||
+			    ((l1_entry >> L1_SUP_BASE_HIGH_SHIFT) & 0xf)) {
+				kvm_err(-EINVAL, "larger physical address space "
+					"than 32 bits not supported");
+				return -EINVAL;
+			}
+
+			gpa = (l1_entry & L1_SUP_BASE_MASK) |
+				(gva & SUP_BASE_INDEX_MASK);
+			*gfn = (gpa >> PAGE_SHIFT);
+		} else {
+			gpa = (l1_entry & SECTION_BASE_MASK) |
+				(gva & SECTION_BASE_INDEX_MASK);
+			*gfn = (gpa >> PAGE_SHIFT);
+		}
+		if (ret > 0) {
+			kvm_msg("l1 entry for 0x%08x: 0x%08x", gva, l1_entry);
+			kvm_msg("ret: %d", ret);
+		}
 		return ret;
 	}
 	default:
@@ -332,7 +468,7 @@ void print_guest_mapping(struct kvm_vcpu *vcpu, gva_t gva)
 	}
 
 	/* Get the L1 descriptor */
-	l1_base = vcpu->arch.cp15.c2_TTBR & TRANSLATION_BASE_MASK;
+	l1_base = kvm_guest_ttbr(&vcpu->arch, gva);
 	l1_index = (gva & VA_L1_IDX_MASK) >> VA_L1_IDX_SHIFT; 
 	err = get_guest_pgtable_entry(vcpu, &l1_entry, l1_base | l1_index);
 	BUG_ON(err < 0);
@@ -402,56 +538,166 @@ hva_t gva_to_hva(struct kvm_vcpu *vcpu, gva_t gva, u8 uaccess)
  * ============================================================================
  */
 
-/*
+/**
  * Allocate a new blank shadow page table where all addresses are unmapped.
  * You must call another function actually initialize this table, if necessary.
  */
-u32* kvm_alloc_l1_shadow(struct kvm_vcpu *vcpu)
+kvm_shadow_pgtable* kvm_alloc_l1_shadow(struct kvm_vcpu *vcpu,
+					gva_t guest_ttbr)
 {
-	u32 *pgd;
+	kvm_shadow_pgtable *shadow;
+
+	if (!(shadow = kmalloc(sizeof(kvm_shadow_pgtable), GFP_KERNEL)))
+		return ERR_PTR(-ENOMEM);
 	
 	/* Allocate contigous aligned pages */
-	pgd = (u32*)__get_free_pages(GFP_KERNEL, 2);
-	if (!pgd) {
-		printk(KERN_ERR "Could not allocate first-level shadow page table.\n");
+	shadow->pgd = (u32*)__get_free_pages(GFP_KERNEL, 2);
+	if (!shadow->pgd)
 		return ERR_PTR(-ENOMEM);
-	}
-	memset(pgd, 0, L1_TABLE_SIZE);
 
-	return pgd;
+	memset(shadow->pgd, 0, L1_TABLE_SIZE);
+	shadow->pa = page_to_phys(virt_to_page(shadow->pgd));
+	shadow->id = __new_asid();
+	shadow->guest_ttbr = guest_ttbr;
+
+	list_add_tail(&shadow->list, &vcpu->arch.shadow_pgtable_list);
+
+	return shadow;
 }
 
-/*
+static bool mapping_is_guest_writable(struct kvm_vcpu *vcpu,
+				      u8 domain,
+				      u32 pte)
+{
+	u8 ap;
+	u32 dacr = (vcpu->arch.cp15.c3_DACR & 0x3fffffff)
+		   | domain_val(KVM_SPECIAL_DOMAIN, DOMAIN_CLIENT);
+
+	/* TODO: Enforce shadow page table version */
+	BUG_ON(domain > 15);
+	switch (dacr >> (domain*2)) {
+	case DOMAIN_MANAGER:
+		return true;
+	case DOMAIN_CLIENT:
+		ap = (pte >> 4) & 0x3;
+		if (kvm_decode_ap(vcpu, ap, 0) == KVM_AP_RDWRITE)
+			return true;
+		else
+			return false;
+	case DOMAIN_NOACCESS:
+		return false;
+	}
+
+	return false; /* GCC is braindead */
+}
+
+/**
+ * Release a page pointed to by a shadow page table
+ *
+ * @vcpu:   The vcpu pointer for the VCPU on which the shadow page table runs
+ * @domain: The domain to which the coarse mapping belongs
+ * @pte:    The level-2 shadow page table entry
+ */
+static void inline release_l2_shadow_entry(struct kvm_vcpu *vcpu, u8 domain,
+					   u32 pte, gva_t gva)
+{
+	pfn_t pfn;
+
+	switch (pte & L2_TYPE_MASK) {
+	case L2_TYPE_FAULT:
+		return;
+	case (L2_XP_TYPE_EXT_SMALL):		/* XN-bit not set */
+	case (L2_XP_TYPE_EXT_SMALL | 0x1):	/* XN-bit set */
+		pfn = __phys_to_pfn(pte & L2_EXT_SMALL_BASE_MASK);
+
+		if (pfn_valid(pfn))
+			kvm_msg("releasing page with count: %u (pfn: %u) (gva: 0x%08x)",
+					pfn_to_page(pfn)->_count, pfn, gva);
+		else
+			kvm_msg("invalid pfn: %u (pte: 0x%08x) (gva: 0x%08x)",
+					pfn, pte, gva);
+
+		if (mapping_is_guest_writable(vcpu, domain, pte))
+			kvm_release_pfn_dirty(pfn);
+		else
+			kvm_release_pfn_clean(pfn);
+		break;
+	default:
+		/* Large pages not supported in shadow page tables */
+		kvm_msg("large page in shadow page table not supported");
+		BUG();
+	}
+
+}
+
+/**
+ * Free a level-2 shadow page table.
+ *
  * Decrease the use count of a 1-kilobyte L2 shadow table. The max value of this
  * count is four (meaning 4 L2 tables per 4KB Linux page frame. If the value
  * hits zero, the linux page that contains that descriptor is also freed.
+ *
+ * The guest pages allocated by user space and mapped in this shadow
+ * page table are also released throught the architecture generic KVM interface.
+ *
+ * @vcpu:     The vcpu pointer for the VCPU on which the shadow page table runs
+ * @l1_pte:   The first-level page table entry pointing to the level-2 table
  */
-static void free_l2_shadow(u32 l2_pfn) {
-	struct page *page = pfn_to_page(l2_pfn);
+static void free_l2_shadow(struct kvm_vcpu *vcpu, u32 l1_pte, u32 gva_base)
+{
+	struct page *page;
+	unsigned int i;
+	u8 domain;
+	u32 *pte;
+	pfn_t pfn;
+	
+	pfn = __phys_to_pfn(l1_pte & L1_COARSE_MASK);
+	if (!pfn_valid(pfn)) {
+		kvm_msg("invalid pfn: %u (l1_pte: 0x%08x)",
+				pfn, l1_pte);
+	}
+	page = pfn_to_page(l1_pte >> PAGE_SHIFT);
+	pte = (u32 *)((u32)page_address(page) | (l1_pte & 0xc00));
+
+	for (i = 0; i < L2_TABLE_ENTRIES; i++) {
+		domain = (l1_pte & L1_DOMAIN_MASK) >> L1_DOMAIN_SHIFT;
+		release_l2_shadow_entry(vcpu, domain, *pte,
+					gva_base | (i << 12));
+		pte++;
+	}
+
+#if 0
+	kvm_msg("first table entry: 0x%08x", *pte);
+	kvm_msg("page_address:          0x%08x", (unsigned int)page_address(page));
+	kvm_msg("l1_pte:                0x%08x", (unsigned int)l1_pte);
+	kvm_msg("l1_pte & 0xc00:        0x%08x", (unsigned int)(l1_pte & 0xc00));
+#endif
 
 	BUG_ON(page_private(page) == 0);
 
 	if(--page_private(page) == 0)
-		free_page((ulong) page_address(page));
+		__free_page(page);
 }
 
 /*
  * Iterate through each L1 descriptor and free all of the child tables pointed
  * to by those L1 descriptors.
  */
-static void __free_l1_shadow_children(u32 *root) {
-	u32 l1_pte = root[0];
-	int i;
+static void __free_l1_shadow_children(struct kvm_vcpu *vcpu, u32 *pgd)
+{
+	u32 l1_pte = pgd[0];
+	unsigned int i;
 
-	for(i = 0; i < L1_TABLE_ENTRIES; i++, l1_pte = root[i]) {
+	for(i = 0; i < L1_TABLE_ENTRIES; i++, l1_pte = pgd[i]) {
 		if ((l1_pte & L1_TYPE_MASK) == L1_TYPE_FAULT)
 			continue;
 		if ((l1_pte & L1_TYPE_MASK) != L1_TYPE_COARSE)
 			BUG();
 		
-		free_l2_shadow(l1_pte >> PAGE_SHIFT);
+		//kvm_msg("l1_pte: 0x%08x", l1_pte);
+		free_l2_shadow(vcpu, l1_pte, i << 20);
 
-		root[i] = 0;
+		pgd[i] = 0;
 	}
 }
 
@@ -461,27 +707,31 @@ static void __free_l1_shadow_children(u32 *root) {
  * pointer. If this is not done, some degree of fragementation may occur if this
  * global l2_unused_pt pointer is reset prematurely. 
  */
-static void free_l1_shadow_children(struct kvm_vcpu *vcpu, u32 *shadow) {
-	BUG_ON(shadow == NULL);
-	__free_l1_shadow_children(shadow);
+static void free_l1_shadow_children(struct kvm_vcpu *vcpu, u32 *pgd)
+{
+	//BUG_ON(pgd == NULL);
+	if (pgd == NULL) {
+		kvm_msg("Weird pgd == NULL!");
+		return;
+	}
+	__free_l1_shadow_children(vcpu, pgd);
+	//kvm_msg("done");
 	vcpu->arch.l2_unused_pt = NULL;
 }
 
 /*
  * This will do two things: not only will it free the L1 root table itself, but
  * it will also free all the child L2 tables pointed to by that table.
+ *
+ * Will also remove the shadow page table from the list of available shadow
+ * page tables on the vcpu struct.
  */
-void kvm_free_l1_shadow(struct kvm_vcpu *vcpu, u32 **pgdp)
+void kvm_free_l1_shadow(struct kvm_vcpu *vcpu, kvm_shadow_pgtable *shadow)
 {
-	u32 *shadow = NULL;
-
-	BUG_ON(pgdp == NULL);
-	BUG_ON(*pgdp == NULL);
-
-	shadow = *pgdp;
-	free_l1_shadow_children(vcpu, shadow);
-	free_pages((ulong) shadow, L1_TABLE_ORDER);
-	*pgdp = NULL;
+	free_l1_shadow_children(vcpu, shadow->pgd);
+	//free_pages((ulong) shadow->pgd, L1_TABLE_ORDER);
+	list_del(&shadow->list);
+	//kfree(shadow);
 }
 
 /*
@@ -492,7 +742,7 @@ void kvm_free_l1_shadow(struct kvm_vcpu *vcpu, u32 **pgdp)
  * will be freed.
  */
 static u8 init_l1_map = 0;
-int kvm_init_l1_shadow(struct kvm_vcpu * vcpu, u32 * pgd)
+int kvm_init_l1_shadow(struct kvm_vcpu *vcpu, u32 *pgd)
 {
 	int ret = 0;
 	gva_t exception_base;
@@ -502,10 +752,15 @@ int kvm_init_l1_shadow(struct kvm_vcpu * vcpu, u32 * pgd)
 			vcpu->arch.regs[15]);
 	}
 
-	BUG_ON(pgd == NULL);
+	//BUG_ON(pgd == NULL);
+	if (pgd == NULL) {
+		kvm_msg("Weird pgd == NULL!");
+		return -EINVAL;
+	}
 
 	free_l1_shadow_children(vcpu, pgd);
 
+	get_page(virt_to_page(vcpu->arch.shared_page_alloc));
 	ret = map_gva_to_pfn(vcpu,
 			     pgd,
 			     (gva_t) vcpu->arch.shared_page,
@@ -523,6 +778,7 @@ int kvm_init_l1_shadow(struct kvm_vcpu * vcpu, u32 * pgd)
 		exception_base = EXCEPTION_VECTOR_LOW;
 
 	init_l1_map = 1;
+	get_page(virt_to_page(vcpu->arch.guest_vectors));
 	ret = map_gva_to_pfn(vcpu,
 			     pgd,
                              exception_base,
@@ -556,17 +812,20 @@ int kvm_switch_host_vectors(struct kvm_vcpu *vcpu, int high)
 	if (high == vcpu->arch.host_vectors_high)
 		return 0;
 
-	printk(KERN_DEBUG "       switched to %s vectors\n", high ? ch : cl);
+	kvm_msg("switched to %s vectors", high ? ch : cl);
 
 	if (high) {
-		ret = unmap_gva_section(vcpu->arch.shadow_pgtable, EXCEPTION_VECTOR_LOW);
+		ret = unmap_gva_section(vcpu,
+					vcpu->arch.shadow_pgtable->pgd,
+					EXCEPTION_VECTOR_LOW);
 		if (ret)
 			return ret;
 		//kvm_restore_low_vector_domain(vcpu, vcpu->arch.shadow_pgtable);
 		exception_base = EXCEPTION_VECTOR_HIGH;
 		vcpu->arch.host_vectors_high = 1;
 	} else {
-		ret = unmap_gva(vcpu->arch.shadow_pgtable, EXCEPTION_VECTOR_HIGH);
+		ret = unmap_gva(vcpu->arch.shadow_pgtable->pgd,
+				EXCEPTION_VECTOR_HIGH);
 		if (ret)
 			return ret;
 		exception_base = EXCEPTION_VECTOR_LOW;
@@ -574,7 +833,7 @@ int kvm_switch_host_vectors(struct kvm_vcpu *vcpu, int high)
 	}
 
 	ret = map_gva_to_pfn(vcpu,
-			     vcpu->arch.shadow_pgtable,
+			     vcpu->arch.shadow_pgtable->pgd,
                              exception_base,
                              page_to_pfn(virt_to_page(vcpu->arch.guest_vectors)),
 			     KVM_SPECIAL_DOMAIN,
@@ -588,7 +847,7 @@ int kvm_switch_host_vectors(struct kvm_vcpu *vcpu, int high)
  * Allocate an L2 descriptor table by storing multiple 1-KB descriptors into a
  * single 4KB linux page frame at a time.
  */
-static inline u32 * alloc_l2_shadow(struct kvm_vcpu *vcpu)
+static inline u32 *alloc_l2_shadow(struct kvm_vcpu *vcpu)
 {
 	u32 * l2_base = vcpu->arch.l2_unused_pt;
 
@@ -612,14 +871,24 @@ static inline u32 * alloc_l2_shadow(struct kvm_vcpu *vcpu)
 	return l2_base;
 }
 
-static inline u8 convert_domain_to_ap(struct kvm_vcpu *vcpu, u8 domain, u8 ap)
+/**
+ * Find the access permissions equivalent to the passed domain
+ *
+ * @vcpu:	The VCPU struct
+ * @domain:	The domain to convert to equivalent AP
+ * @ap:		The access permissions used if domain is client
+ */
+static inline u8 dom_to_ap(struct kvm_vcpu *vcpu, u8 domain, u8 ap, u8 *apx)
 {
-	if (VCPU_DOMAIN_VAL(vcpu, domain) == DOMAIN_NOACCESS)
+	if (VCPU_DOMAIN_VAL(vcpu, domain) == DOMAIN_NOACCESS) {
+		*apx = 0;
 		return 0;
-	else if (VCPU_DOMAIN_VAL(vcpu, domain) == DOMAIN_MANAGER)
+	} else if (VCPU_DOMAIN_VAL(vcpu, domain) == DOMAIN_MANAGER) {
+		*apx = 0;
 		return 0xff;
-	else
+	} else {
 		return ap;
+	}
 }
 
 int get_l2_base(u32 l1_entry, u32 **l2_base)
@@ -640,11 +909,15 @@ int get_l2_base(u32 l1_entry, u32 **l2_base)
 	return 0;
 }
 
+/**
+ * see map_gva_to_pfn(...) below
+ */
 int __map_gva_to_pfn(struct kvm_vcpu *vcpu, u32 *pgd, gva_t gva, pfn_t pfn,
-		     u8 domain, u8 ap, u8 exec)
+		     u8 domain, u8 ap, u8 apx, u8 xn)
 {
 	u32 l1_index;
 	u32 *l1_pte, *l2_base, *l2_pte;
+	u8 nG = 1;
 	int ret;
 
 	if (page_debug) {
@@ -656,15 +929,30 @@ int __map_gva_to_pfn(struct kvm_vcpu *vcpu, u32 *pgd, gva_t gva, pfn_t pfn,
 
 	l1_index = gva >> 20;
 
+	/*
+	 * The shared page should be kept in the TLB across guest/host and even
+	 * on return to user space as no-one else should use the page.
+	 *
+	 * ARMv6:
+	 * All kernel mappings are global, since we flush this address range
+	 * on world switches.
+	 */
+	if ((gva & PAGE_MASK) == SHARED_PAGE_BASE || gva > TASK_SIZE)
+		nG = 0;
+
 	if (domain == KVM_SPECIAL_DOMAIN)
 		goto skip_domain_check;
 
 	if (l1_index == (SHARED_PAGE_BASE >> 20)) {
 		/* This L1 mapping coincides with that of the shared page */
 		//XXX Track updates to L1 domain by protecting guest pg. tables
+
+		/*  For now we simply flush page tables instead of using this
 		vcpu->arch.shared_page_guest_domain = domain;
 		vcpu->arch.shared_page_shadow_ap[(gva >> 12) & 0xff] = ap;
-		ap = convert_domain_to_ap(vcpu, domain, ap);
+		*/
+
+		ap = dom_to_ap(vcpu, domain, ap, &apx);
 		if (page_debug) {
 			printk(KERN_DEBUG "               ap: 0x%x\n", ap);
 		}
@@ -672,13 +960,18 @@ int __map_gva_to_pfn(struct kvm_vcpu *vcpu, u32 *pgd, gva_t gva, pfn_t pfn,
 	} else if (l1_index == (VCPU_HOST_EXCP_BASE(vcpu) >> 20)) {
 		/* This L1 mapping coincides with that of the vector page */
 		//XXX Track updates to L1 domain by protecting guest pg. tables
+
+		/*  For now we simply flush page tables instead of using this
 		vcpu->arch.vector_page_guest_domain = domain;
 		vcpu->arch.vector_page_shadow_ap[(gva >> 12) & 0xff] = ap;
-		ap = convert_domain_to_ap(vcpu, domain, ap);
+		*/
+		ap = dom_to_ap(vcpu, domain, ap, &apx);
 		if (page_debug) {
 			printk(KERN_DEBUG "               ap: 0x%x\n", ap);
 		}
 		domain = KVM_SPECIAL_DOMAIN;
+	} else {
+		kvm_msg("mapping 0x%08x to pfn: %u", gva, pfn);
 	}
 
 skip_domain_check:
@@ -716,10 +1009,22 @@ skip_domain_check:
 	} 
 
 	l2_pte = l2_base + ((gva >> 12) & 0xff);
-	*l2_pte = (pfn << PAGE_SHIFT) | L2_TYPE_SMALL;
-	*l2_pte |= 0xc; // Normal memory, cache write back
-	*l2_pte &= ~(0x00000ff0);
-	*l2_pte |= ap << 4;
+#if __LINUX_ARM_ARCH__ >= 6
+		/* VMSAv6 and higher */
+		*l2_pte = (pfn << PAGE_SHIFT) | L2_XP_TYPE_EXT_SMALL;
+		*l2_pte |= (xn & 0x1);
+		*l2_pte |= 0xc; // Normal memory, cache write back (TEX = 0)
+		*l2_pte &= ~(0x00000ff0); //Necessary bit clear?
+		*l2_pte |= (ap & 0x3) << 4;
+		*l2_pte |= (apx & 0x1) << 9;
+		*l2_pte |= nG << 11;
+#else
+		/* VMSAv6 backwards-compatible mode */
+		*l2_pte = (pfn << PAGE_SHIFT) | L2_TYPE_SMALL;
+		*l2_pte |= 0xc; // Normal memory, cache write back
+		*l2_pte &= ~(0x00000ff0);
+		*l2_pte |= ap << 4;
+#endif
 
 	if (page_debug) {
 		printk(KERN_DEBUG "        l2_pte: 0x%08x\n", *l2_pte);
@@ -728,44 +1033,57 @@ skip_domain_check:
 	return 0;
 }
 
-/*
+/**
  * Maps virtual->physical memory in pgd
  *
  * This function will map the page containing the virtual address
  * to the corresponding page number passed in pfn. Overwrites any existing
  * mappings in that place.
  *
- * vcpu:    The virtual CPU
- * pgd:     Pointer to page directory of translation table create mapping
- * gva:     The virtual address
- * pfn:     The physical frame number to map to
- * domain   The access domain for the entry
- * priv_ap: Privileged access permissions (See KVM_AP_XXXXX)
- * user_ap: User mode access permissions (See KVM_AP_XXXXX)
- * exec:    Executable? (1=yes, 0=no)
+ * @vcpu:    The virtual CPU
+ * @pgd:     Pointer to page directory of translation table create mapping
+ * @gva:     The virtual address
+ * @pfn:     The physical frame number to map to
+ * @domain   The access domain for the entry
+ * @priv_ap: Privileged access permissions (See KVM_AP_XXXXX)
+ * @user_ap: User mode access permissions (See KVM_AP_XXXXX)
+ * @xn:      1 => execute never, 0 => execute
  */
 int map_gva_to_pfn(struct kvm_vcpu *vcpu, u32 *pgd, gva_t gva, pfn_t pfn,
 		   u8 domain, u8 priv_ap, u8 user_ap, u8 exec)
 {
-	u8 ap, calc_ap, i;
+	u8 ap, apx, calc_ap, i;
 
+	/*
+	 * Check validity of access permissions
+	 */
 	if (priv_ap == KVM_AP_NONE && user_ap != KVM_AP_NONE)
 		return -EINVAL;
+	if (kvm_mmu_xp(vcpu)) {
+		if (priv_ap == KVM_AP_RDONLY && user_ap == KVM_AP_RDWRITE)
+			return -EINVAL;
+	} else {
+		if (priv_ap == KVM_AP_RDONLY)
+			return -EINVAL;
+	}
 
-	if (priv_ap == KVM_AP_RDONLY)
-		return -EINVAL;
-
-	calc_ap = calc_aps(priv_ap, user_ap);
+	/*
+	 * Calculate access permissions to VMSAvX format
+	 */
+	calc_ap = calc_aps(priv_ap, user_ap, &apx);
 	ap = 0;
 	for (i = 0; i < 4; i++)
 		ap |= calc_ap << (i*2); // Same AP on all subpages
-	return __map_gva_to_pfn(vcpu, pgd, gva, pfn, domain, ap, exec);
+
+	/*
+	 * Call lower level function
+	 */
+	return __map_gva_to_pfn(vcpu, pgd, gva, pfn, domain, ap, apx, exec);
 }
 
-int unmap_gva_section(u32 *pgd, gva_t gva)
+int unmap_gva_section(struct kvm_vcpu *vcpu, u32 *pgd, gva_t gva)
 {
 	u32 *l1_pte;
-	pfn_t l2_pfn;
 
 	l1_pte = pgd + (gva >> 20);
 	switch ((*l1_pte) & L1_TYPE_MASK) {
@@ -773,8 +1091,8 @@ int unmap_gva_section(u32 *pgd, gva_t gva)
 		/* Already unmapped */
 		return 0;
 	case (L1_TYPE_COARSE):
-		l2_pfn = *l1_pte >> PAGE_SHIFT;
-		free_l2_shadow(l2_pfn);
+		kvm_msg("unmap_gva_section, gva: 0x%08x", gva);
+		free_l2_shadow(vcpu, *l1_pte, gva);
 		*l1_pte = 0x0;
 		return 0;
 	default:
@@ -796,6 +1114,7 @@ int unmap_gva(u32 *pgd, gva_t gva)
 		/* Already unmapped */
 		return 0;
 	case (L1_TYPE_COARSE):
+		/* TODO: Free something here? */
 		ret = get_l2_base(*l1_pte, &l2_base);
 		if (ret)
 			return ret;
@@ -812,6 +1131,7 @@ int unmap_gva(u32 *pgd, gva_t gva)
 } 
 
 
+#if 0
 /*
  * Will update the L2 AP bits to equal those of the guest mapping with respect
  * to the possible domain values.
@@ -821,7 +1141,7 @@ int unmap_gva(u32 *pgd, gva_t gva)
  * @violating gva: The virtual address that caused us not to be able
  *                 to use the guest native domain in the first place.
  *           @aps: The 256-element array of APs as they would appear in the
- *                 shadow page tables (ie. after convert_domain_to_ap() )
+ *                 shadow page tables (ie. after dom_to_ap() )
  *       @convert: Whether to convert APs to correspond to a different guest
  *                 domain than in execution DACR
  *           @dom: The domain number used in the guest mapping
@@ -858,7 +1178,7 @@ static inline int update_l2_aps(struct kvm_vcpu *vcpu, u32 *pgd,
 		l2_pte = l2_base + i;
 		*l2_pte &= ~(0xff << 4);
 		if (convert)
-			ap = convert_domain_to_ap(vcpu, dom, aps[i]);
+			ap = dom_to_ap(vcpu, dom, aps[i]);
 		else
 			ap = aps[i];
 
@@ -943,10 +1263,11 @@ int kvm_restore_low_vector_domain(struct kvm_vcpu *vcpu, u32 *pgd)
 
 	return ret;
 }
+#endif
 
 
 /* =========================================================================
- * Interrupt emualtion functions
+ * Interrupt emulation functions
  * =========================================================================
  */
 void kvm_generate_mmu_fault(struct kvm_vcpu *vcpu, gva_t fault_addr,

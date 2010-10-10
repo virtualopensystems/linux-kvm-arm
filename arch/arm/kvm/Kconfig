@@ -31,6 +31,7 @@ config KVM
 config KVM_ARM_HOST
 	bool "KVM host support for ARM cpus."
 	depends on KVM
+	depends on MMU
 	---help---
 	  Provides host support for ARM processors.
 

@@ -31,12 +31,38 @@
 #define L1_TYPE_COARSE        0x1
 #define L1_TYPE_SECTION       0x2
 
+#define CP15_CR_BIT_XP		23
+
+/*
+ * map_info.cache_bits encoding:
+ *
+ *     7     4   3   2     0
+ * +---+-----+---+---+-----+
+ * | 0 | TEX | C | B | 0 0 |
+ * +---+-----+---+---+-----+
+ */
+
+#define CACHE_BITS_SHIFT	2
+#define CACHE_BITS_MASK		(0x1f << CACHE_BITS_SHIFT)
+#define CACHE_BITS_B_SHIFT	2
+#define CACHE_BITS_B_MASK	(0x1 << CACHE_ITS_B_SHIFT)
+#define CACHE_BITS_C_SHIFT	3
+#define CACHE_CITS_C_MASK	(0x1 << CACHE_ITS_C_SHIFT)
+#define CACHE_BITS_TEX_SHIFT	4
+#define CACHE_BITS_TEX_MASK	(0x7 << CACHE_BITS_TEX_SHIFT)
+
+
 /*
  * Detailed info about a guest page mapping
  */
 struct map_info {
 	u8 domain_number;
 	u8 ap;
+#if __LINUX_ARM_ARCH__ >= 6
+	u8 apx;
+	u8 xn;
+	u8 cache_bits;
+#endif
 };
 
 /*
@@ -49,19 +75,19 @@ hva_t gva_to_hva(struct kvm_vcpu *vcpu, gva_t gva, u8 uaccess);
 /*
  * Shadow page tables
  */
-typedef struct kvm_pgd kvm_pgd;
-typedef struct kvm_cl2_tbl kvm_cl2_tbl; //Coarse L2 table
+extern struct list_head kvm_shadow_pgtable_list;
 
 
-u32*  kvm_alloc_l1_shadow(struct kvm_vcpu *vcpu);
-int   kvm_init_l1_shadow(struct kvm_vcpu * vcpu, u32 * pgd);
-void  kvm_free_l1_shadow(struct kvm_vcpu * vcpu, u32 ** pgdp);
+kvm_shadow_pgtable* kvm_alloc_l1_shadow(struct kvm_vcpu *vcpu,
+					gva_t guest_ttbr);
+int   kvm_init_l1_shadow(struct kvm_vcpu *vcpu, u32 *pgd);
+void  kvm_free_l1_shadow(struct kvm_vcpu *vcpu, kvm_shadow_pgtable *shadow);
 int __map_gva_to_pfn(struct kvm_vcpu *vcpu, u32 *pgd, gva_t gva, pfn_t pfn,
-		     u8 domain, u8 ap, u8 exec);
+		     u8 domain, u8 ap, u8 apx, u8 xn);
 int   map_gva_to_pfn(struct kvm_vcpu *vcpu, u32 *pgd, gva_t gva, pfn_t pfn,
 		     u8 domain, u8 priv_ap, u8 user_ap, u8 exec);
 int   unmap_gva(u32 *pgd, gva_t gva);
-int   unmap_gva_section(u32 *pgd, gva_t gva);
+int   unmap_gva_section(struct kvm_vcpu *vcpu, u32 *pgd, gva_t gva);
 int   kvm_update_special_region_ap(struct kvm_vcpu *vcpu, u32 *pgd, u8 domain);
 int   kvm_restore_low_vector_domain(struct kvm_vcpu *vcpu, u32 *pgd);
 int   kvm_switch_host_vectors(struct kvm_vcpu *vcpu, int high);
@@ -82,11 +108,21 @@ static inline int kvm_mmu_enabled(struct kvm_vcpu *vcpu)
 }
 
 /*
+ * return 1 if CP15 control register has extended page tables enabled
+ * (VMSAv6, subpages disabled) and 0 otherwise (VMSAv6, subpages enabled,
+ * VMSAv4/v5)
+ */
+static inline int kvm_mmu_xp(struct kvm_vcpu *vcpu)
+{
+	return (vcpu->arch.cp15.c1_CR & (1 << CP15_CR_BIT_XP)) ? 1 : 0;
+}
+
+/*
  * Decode access permissions.
  *
  * @vcpu:    The virtual cpu struct pointer
  * @ap:      The access permission bits
- * @uaccess: Return user access permissions even if VCPU is in provoleged mode
+ * @uaccess: Return user access permissions even if VCPU is in privileged mode
  *
  * Returns: KVM_AP_NONE, KVM_AP_RDONLY or KVM_AP_RDWRITE
  */
@@ -133,18 +169,24 @@ static inline int kvm_decode_ap(struct kvm_vcpu *vcpu, u8 ap, u8 uaccess)
  * This function expects a valid set of access permissions for the
  * shadow page table and returns the corresponding AP bits.
  */
-static inline u8 calc_aps(u8 priv, u8 user)
+static inline u8 calc_aps(u8 priv, u8 user, u8 *apx)
 {
 	if (priv == KVM_AP_NONE && user == KVM_AP_NONE) {
+		*apx = 0;
 		return 0x0;
 	} else if (user == KVM_AP_NONE) {
+		*apx = (priv == KVM_AP_RDONLY)? 1 : 0;
 		return 0x1;
 	} else if (user == KVM_AP_RDONLY) {
+		*apx = (priv == KVM_AP_RDONLY)? 1 : 0;
 		return 0x2;
 	} else if (user == KVM_AP_RDWRITE) {
+		*apx = 0;
 		return 0x3;
 	} else {
 		BUG();
+		*apx = 0;
+		return 0; /* GCC is braindead */
 	}
 }
 

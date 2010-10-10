@@ -1,6 +1,6 @@
 /*
  * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License, version 2, as
+ u it under the terms of the GNU General Public License, version 2, as
  * published by the Free Software Foundation.
  *
  * This program is distributed in the hope that it will be useful,
@@ -15,8 +15,11 @@
  * Authors: Christoffer Dall:  cd2436@columbia.edu
  *
  */
+#include <asm/memory.h>
+#include <asm/page.h>
 #include <asm/asm-offsets.h>
 #include <asm/kvm_asm.h>
+#include <mach/vmalloc.h>
 #include "../kernel/entry-header.S"
 #include <linux/sched.h>
 
@@ -50,6 +53,18 @@
 	sub	r0, r0, #\correction 		  @ correct offset
 	.endif
 	str	r0, [lr, #(SHARED_GUEST_REGS + 4*15)] @ store fault address
+
+	/*
+	 * If it's not an IRQ or FIQ chances are that some form of emulation is
+	 * needed. It's better to pollute the data cache (even for those rare
+	 * occasions when the intruction is not needed) than to create aliases
+	 * in the L1 cache by accessing guest data from the host kernel.
+	 */
+	.if (\excpIdx < ARM_EXCEPTION_IRQ) && (\excpIdx != ARM_EXCEPTION_PREF_ABORT)
+	ldr	r0, [r0]
+	str	r0, [lr, #SHARED_GUEST_INSTR]
+	.endif
+
 	add	lr, lr, #SHARED_GUEST_REGS	  @ point lr to shared_page->guest_regs
 	ldr	r0, 2f   			  @ restore guest r0
 	stmia	lr, {r0-r14}^			  @ store user mode regs to shared page
@@ -99,6 +114,8 @@ __guest_swi_handler:
 	ldr	r0, 1f				  @ read exception lr
 	sub	r0, r0, #4
 	str	r0, [lr, #(SHARED_GUEST_REGS + 4*15)] @ store fault address
+	ldr	r0, [r0]
+	str	r0, [lr, #SHARED_GUEST_INSTR]
 	mov	r0, #ARM_EXCEPTION_SOFTWARE
 	str	r0, [lr, #SHARED_EXCEPTION_IDX]   @ store exception index on shared page
 	ldr	r1, [lr, #SHARED_RET_PTR]	  @ load return pointer into r0
@@ -167,7 +184,16 @@ __shadow_ttbr:
 __guest_dac:
 	.word	0
 
+__guest_asid:
+	.word	0
+
 __host_dac:
+	.word	0
+
+__host_asid:
+	.word	0
+
+__guest_instr:
 	.word	0
 
 #define HOST_REGS(n)    (__host_registers + (n * 4))
@@ -181,9 +207,6 @@ __host_dac:
 @ r0: will point to vcpu struct
 .globl __vcpu_run
 __vcpu_run:
-	@ Disable interrupts
-	disable_irq
-
 	@ Store host registers
 	str	r0, HOST_REGS(0)
 	str	r1, HOST_REGS(1)
@@ -214,32 +237,66 @@ load_guest_cpsr:
 	ldr	sp, __shared_sp
 
 	@ Allow min. client access to the special KVM domain
-	mrc	p15, 0, r0, c3, c0	@ get current dacr
+set_dacr:
+	mrc	p15, 0, r0, c3, c0, 0	@ get current dacr
 	str	r0, __host_dac
 	ldr	r1, __guest_dac
 	orr	r0, r0, r1
-	mcr	p15, 0, r0, c3, c0	@ set with KVM domain set to min. client
+	mcr	p15, 0, r0, c3, c0, 0	@ set with KVM domain set to min. client
+
+#if __LINUX_ARM_ARCH__ >= 6
+	ldr	r1, __guest_asid
+	mcr	p15, 0, r1, c13, c0, 1		@ set context ID
+#endif
+
+	@ Set the XP-bit
+	/*
+	 * TODO: If the guest has MMU enabled but XP bit set to 0
+	 * we need to also set the XP bit to 0. If the MMU is disabled
+	 * we use VMSAv6 subpages disabled for page tables and should
+	 * set the XP bit to 1.
+	 *
+	 * For now, we assume the XP bit is simply 1.
+	 */
 
 	@ Switch the page tables
-	mrc	p15, 0, r1, c2, c0
-	str	r1, __host_ttbr
-	ldr	r1, __shadow_ttbr
-	mov	ip, #0
-//#ifdef CONFIG_CPU_DCACHE_WRITETHROUGH
-@	mcr	p15, 0, ip, c7, c6, 0		@ invalidate D cache
-//#else
-@ && 'Clean & Invalidate whole DCache'
-1:	mrc	p15, 0, r15, c7, c14, 3 	@ test,clean,invalidate
-	bne	1b
-//#endif
-	mcr	p15, 0, ip, c7, c5, 0		@ invalidate I cache
-	mcr	p15, 0, ip, c7, c10, 4		@ drain WB
-	mcr	p15, 0, r1, c2, c0, 0		@ load page table pointer
-	mcr	p15, 0, ip, c8, c7, 0		@ invalidate I & D TLBs
+	mrc	p15, 0, r0, c2, c0
+	str	r0, __host_ttbr
+	ldr	r0, __shadow_ttbr
+	mov	r2, #0
+	mcr	p15, 0, r2, c7, c5, 6		@ flush BTAC/BTB
+	mcr	p15, 0, r2, c7, c10, 4		@ drain write buffer
+	mcr	p15, 0, r0, c2, c0, 0		@ set TTB 0
+#if defined(CONFIG_CPU_CACHE_VIVT) && !defined(CONFIG_CPU_CACHE_VIPT)
+#error "In this case we must flush the caches!"
+#endif
+
+	@ TEMP: Clean caches
+#ifdef HARVARD_CACHE
+	mcr	p15, 0, r2, c7, c14, 0		@ D cache clean+invalidate
+	mcr	p15, 0, r2, c7, c5, 0		@ I+BTB cache invalidate
+#else
+	mcr	p15, 0, r2, c7, c15, 0		@ Cache clean+invalidate
+#endif
+
+	mcr	p15, 0, r2, c8, c7, 0		@ invalidate I & D TLBs
+
+#if 0
+	@ Invalidate the kernel global TLB mappings
+	@ldr	r1, __task_size
+	mov	r1, #TASK_SIZE  @ TODO: Check this is shift, not data access!!!!
+1:	mcr	p15, 0, r1, c8, c7, 1
+	mcr	p15, 0, r1, c8, c6, 1		@ TLB invalidate D MVA (was 1)
+	mcrne	p15, 0, r1, c8, c5, 1		@ TLB invalidate I MVA (was 1)
+	adds	r1, r1, #(1<<12)
+	bcs	1b
+	*/
+#endif
+
 
 	@ Load the guest DACR for Domain Access Permissions
 	ldr	r1, __guest_dac
-	mcr	p15, 0, r1, c3, c0
+	mcr	p15, 0, r1, c3, c0, 0
 
 	@ Load guest registers
 	adr	r0, __guest_registers
@@ -248,6 +305,10 @@ load_guest_cpsr:
 
 	@ Jump to guest
 	movs  pc, lr          @Do the branch, setting the new CPSR
+
+	@ Large constants
+__task_size:
+	.word TASK_SIZE
 
 
 /*
@@ -265,22 +326,29 @@ __exception_return:
 
 	@ Switch the page tables
 	ldr	r1, __host_ttbr
-	mov	ip, #0
-#ifdef CONFIG_CPU_DCACHE_WRITETHROUGH
-	mcr	p15, 0, ip, c7, c6, 0		@ invalidate D cache
-#else
-@ && 'Clean & Invalidate whole DCache'
-1:	mrc	p15, 0, r15, c7, c14, 3 	@ test,clean,invalidate
-	bne	1b
+	mov	r2, #0
+	mcr	p15, 0, r2, c7, c5, 6		@ flush BTAC/BTB
+	mcr	p15, 0, r2, c7, c10, 4		@ drain write buffer
+	mcr	p15, 0, r1, c2, c0, 0		@ set TTB 0
+
+#if __LINUX_ARM_ARCH__ >= 6
+	ldr	r1, __host_asid
+	mcr	p15, 0, r1, c13, c0, 1		@ set context ID
 #endif
-	mcr	p15, 0, ip, c7, c5, 0		@ invalidate I cache
-	mcr	p15, 0, ip, c7, c10, 4		@ drain WB
-	mcr	p15, 0, r1, c2, c0, 0		@ load page table pointer
-	mcr	p15, 0, ip, c8, c7, 0		@ invalidate I & D TLBs
+	mcr	p15, 0, r2, c8, c7, 0		@ invalidate I & D TLBs
+
+	@ TEMP: Clean caches
+#ifdef HARVARD_CACHE
+	mcr	p15, 0, r2, c7, c14, 0		@ D cache clean+invalidate
+	mcr	p15, 0, r2, c7, c5, 0		@ I+BTB cache invalidate
+#else
+	mcr	p15, 0, r2, c7, c15, 0		@ Cache clean+invalidate
+#endif
+
 
 	@ Load the host DACR for Domain Access Permissions
 	ldr	r1, __host_dac
-	mcr	p15, 0, r1, c3, c0
+	mcr	p15, 0, r1, c3, c0, 0
 
 	@ Restore SP
 	ldr	sp, __host_sp
@@ -307,15 +375,19 @@ save_data_far_fsr:
 	str	r2, [r1, #VCPU_HOST_FSR]	
 	mrc	p15, 0, r2, c6, c0, 0	@get the fault address register
 	str	r2, [r1, #VCPU_HOST_FAR]	
-	b		load_host_regs
+	b	load_host_regs
 save_instr_far_fsr:
-	mrc	p15, 0, r2, c5, c1, 0	@get the fault status register
+#if defined(CONFIG_CPU_32v5)
+	mrc	p15, 0, r2, c5, c0, 0	@get the fault status register
 	str	r2, [r1, #VCPU_HOST_FSR]	
-	mrc	p15, 0, r2, c6, c1, 0	@get the fault address register
-	str	r2, [r1, #VCPU_HOST_FAR]	
+#elif defined(CONFIG_CPU_32v6)
+	mrc	p15, 0, r2, c5, c0, 1	@get the instr fault status register
+	str	r2, [r1, #VCPU_HOST_IFSR]	
+#endif
 
 	@ Restore host registers
 load_host_regs:
+	mov	r3, r0
 	ldr	r1, HOST_CPSR
 	ldr	r2, HOST_SPSR
 	msr	cpsr_csxf, r1
@@ -331,7 +403,7 @@ load_host_regs:
  * It's time to launch the kernel IRQ handler for IRQ exceptions. This
  * requires some manipulation though.
  *
- * ARMv5:
+ * ARMv5 / ARMv6:
  *  - The easiest entry point to the host handler is __irq_svc. The address
  *    to this code has already been loaded into __irq_svc_address by
  *    kvm_arch_vcpu_create().
@@ -358,9 +430,6 @@ irq_kernel_resume:
 	add	sp, sp, #12
 
 return_to_ioctl:
-	@ Enable interrupts
-	enable_irq
-
 	@ Return to kvm_vcpu_ioctl_run
 	mov	pc, lr
 

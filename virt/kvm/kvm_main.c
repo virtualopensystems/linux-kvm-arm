@@ -690,6 +690,7 @@ EXPORT_SYMBOL_GPL(kvm_vcpu_init);
 void kvm_vcpu_uninit(struct kvm_vcpu *vcpu)
 {
 	kvm_arch_vcpu_uninit(vcpu);
+	virt_to_page(vcpu->run)->mapping = NULL;
 	free_page((unsigned long)vcpu->run);
 }
 EXPORT_SYMBOL_GPL(kvm_vcpu_uninit);
@@ -1541,7 +1542,10 @@ static int kvm_vcpu_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
 #endif
 	else
 		return VM_FAULT_SIGBUS;
+
+	page->mapping = vma->vm_file->f_mapping;
 	get_page(page);
+	__SetPageUptodate(page);
 	vmf->page = page;
 	return 0;
 }

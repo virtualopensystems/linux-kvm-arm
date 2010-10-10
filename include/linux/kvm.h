@@ -381,6 +381,7 @@ struct kvm_trace_rec {
 #define KVM_TRACE_DISABLE         _IO(KVMIO,  0x08)
 
 #define KVM_ARM_DEBUG_GUEST       _IO(KVMIO,  0x09)
+#define KVM_ARM_DUMP_LOG	  _IO(KVMIO,  0x10)
 
 /*
  * Extension capability list.

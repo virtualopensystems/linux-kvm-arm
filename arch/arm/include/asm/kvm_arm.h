@@ -22,19 +22,20 @@
 #include <asm/kvm_asm.h>
 
 
-void __kvm_print_msg(char *parent_fmt, const char *function,
-		     unsigned int line, int err, char *fmt, ...);
+void __kvm_print_msg(char *_fmt, ...);
 
 #define kvm_err(err, fmt, args...) do {			\
-	__kvm_print_msg(KERN_ERR "KVM error [%s:%d]: %s (%d)\n", \
-			__FUNCTION__, __LINE__, err, fmt, ##args); \
+	__kvm_print_msg("KVM error [%s:%d]: (%d) ", __FUNCTION__, __LINE__, err); \
+	__kvm_print_msg(fmt "\n", ##args); \
 } while (0)
 
-
-#define kvm_msg(fmt, args...) do {			\
-	__kvm_print_msg(KERN_DEBUG "KVM       [%s:%d]: %s (%d)\n", \
-			__FUNCTION__, __LINE__, 0, fmt, ##args); \
+#define __kvm_msg(fmt, args...) do {			\
+	__kvm_print_msg("KVM [%s:%d]: ", __FUNCTION__, __LINE__); \
+	__kvm_print_msg(fmt, ##args); \
 } while (0)
+
+#define kvm_msg(__fmt, __args...) __kvm_msg(__fmt "\n", ##__args)
+
 
 #define KVMARM_NOT_IMPLEMENTED() \
    { \

@@ -23,6 +23,8 @@
 #include <linux/fs.h>
 #include <linux/mman.h>
 #include <linux/jiffies.h>
+#include <linux/kfifo.h>
+#include <asm/cacheflush.h>
 #include <asm/uaccess.h>
 #include <asm/ptrace.h>
 #include <asm/mman.h>
@@ -42,34 +44,83 @@ static void       post_guest_switch(struct kvm_vcpu *vcpu);
 static inline int handle_shadow_fault(struct kvm_vcpu *vcpu,
 				      gva_t fault_addr, gva_t instr_addr);
 
-#define KVM_LOG_DATA_LEN 512
-static char __tmp_log_data[KVM_LOG_DATA_LEN];
+#define TMP_LOG_LEN 512
+static char __tmp_log_data[TMP_LOG_LEN];
+
+DEFINE_MUTEX(__tmp_log_lock);
+DEFINE_MUTEX(__kvm_log_read_lock);
+DEFINE_MUTEX(__kvm_loggers_lock);
+DECLARE_WAIT_QUEUE_HEAD(__kvm_log_wait_queue);
+
+#define KVM_LOG_LEN 2048
+static spinlock_t __kvm_log_lock;
+static struct kfifo *__kvm_log;
+static char __tmp_log[KVM_LOG_LEN];
+
+
+
+static const u32 bp_instr = 0xef00babe;
+static unsigned int bp_offset = 4;
 
 
 extern void print_guest_mapping(struct kvm_vcpu *vcpu, gva_t gva);
 
-void __kvm_print_msg(char *parent_fmt, const char *function,
-		     unsigned int line, int err, char *fmt, ...)
+void __kvm_print_msg(char *fmt, ...)
 {
 	va_list ap;
-	int ret;
+	int ret = 0;
+	unsigned int size;
+	bool should_wake_up = false;
+
+	if (kfifo_len(__kvm_log) == 0)
+		should_wake_up = true;
+
+	mutex_lock(&__tmp_log_lock);
 
 	va_start(ap, fmt);
-	ret = vsnprintf(__tmp_log_data, KVM_LOG_DATA_LEN, fmt, ap);
+	size = vsnprintf(__tmp_log_data, TMP_LOG_LEN, fmt, ap);
 	va_end(ap);
 
-	if (ret >= KVM_LOG_DATA_LEN) {
-		printk(parent_fmt, function, line, "???", err);
+	if (size >= TMP_LOG_LEN) {
+		if (kfifo_put(__kvm_log, "???\n", 4) != 4) {
+			ret = -EFAULT;
+			goto out;
+		}
 	} else {
-		printk(parent_fmt, function, line, __tmp_log_data, err);
+		ret = kfifo_put(__kvm_log, __tmp_log_data, size);
+		if (ret != size) {
+			mutex_lock(&__kvm_log_read_lock);
+			size = size - ret;
+			__kvm_log->out += size;
+			mutex_unlock(&__kvm_log_read_lock);
+			ret = kfifo_put(__kvm_log,
+					__tmp_log_data + ret,
+					size);
+			if (ret != size) {
+				ret = -EFAULT;
+				goto out;
+			}
+		}
 	}
+
+	if (should_wake_up)
+		wake_up(&__kvm_log_wait_queue);
+
+	/* Make sure the log gets printed immediately */
+	while (kfifo_len(__kvm_log) > 0)
+		schedule();
+
+out:
+	mutex_unlock(&__tmp_log_lock);
+	if (ret < 0)
+		printk(KERN_ERR "Error in __kvm_print_msg: %d\n", ret);
 }
 
 u32 get_shadow_l1_entry(struct kvm_vcpu *vcpu, gva_t gva)
 {
 	u32 l1_entry;
 
-	l1_entry = *(vcpu->arch.shadow_pgtable + (gva >> 20));
+	l1_entry = *(vcpu->arch.shadow_pgtable->pgd + (gva >> 20));
 	return l1_entry;
 }
 
@@ -80,7 +131,7 @@ u32 get_shadow_l2_entry(struct kvm_vcpu *vcpu, gva_t gva)
 	u32 l2_entry;
 	u32 *l2_base;
 
-	l1_entry = *(vcpu->arch.shadow_pgtable + (gva >> 20));
+	l1_entry = *(vcpu->arch.shadow_pgtable->pgd + (gva >> 20));
 	BUG_ON((l1_entry & L1_TYPE_MASK) != L1_TYPE_COARSE);
 
 	BUG_ON(get_l2_base(l1_entry, &l2_base));
@@ -141,6 +192,15 @@ struct kvm *kvm_arch_create_vm(void)
 
 void kvm_arch_destroy_vm(struct kvm *kvm)
 {
+	int i;
+
+	for (i = 0; i < KVM_MAX_VCPUS; ++i) {
+		if (kvm->vcpus[i]) {
+			kvm_arch_vcpu_free(kvm->vcpus[i]);
+			kvm->vcpus[i] = NULL;
+		}
+	}
+
 	kvm_free_physmem(kvm);
 	kfree(kvm);
 }
@@ -163,14 +223,46 @@ int kvm_dev_ioctl_check_extension(long ext)
 	return r;
 }
 
+static int dump_kvm_log(void __user *buffer)
+{
+	int size, ret;
+	
+	if (kfifo_len(__kvm_log) == 0) {
+		ret = wait_event_interruptible(__kvm_log_wait_queue,
+					       kfifo_len(__kvm_log) > 0);
+		if (ret < 0)
+			return ret;
+	}
+
+	size = kfifo_get(__kvm_log, __tmp_log, KVM_LOG_LEN);
+	ret = copy_to_user(buffer, __tmp_log, size);
+	if (ret)
+		return -EFAULT;
+
+	return size;
+}
+
 long kvm_arch_dev_ioctl(struct file *filp,
                         unsigned int ioctl, unsigned long arg)
 {
-	if (ioctl == KVM_ARM_DEBUG_GUEST) {
-		guest_debug = guest_debug ? 0 : 1;
-		return guest_debug;
+	int ret = 0;
+
+	switch (ioctl) {
+	case KVM_ARM_DEBUG_GUEST:
+		//guest_debug = guest_debug ? 0 : 1;
+		bp_offset = arg;
+		ret = bp_offset;
+		break;
+	case KVM_ARM_DUMP_LOG:
+		ret = dump_kvm_log((void *) arg);
+		break;
+	default:
+		ret = -EINVAL;
 	}
-	return -EINVAL;
+
+	if (ret < 0)
+		printk(KERN_ERR "error processing ARM ioct: %d", ret);
+	return ret;
 }
 
 int kvm_arch_set_memory_region(struct kvm *kvm,
@@ -265,7 +357,6 @@ struct kvm_vcpu *kvm_arch_vcpu_create(struct kvm *kvm, unsigned int id)
 	struct kvm_vcpu_arch *arch;
 	struct shared_page *shared;
 	int shared_code_len;
-	u32 *pgd;
 	int vcpu_run_offset, exception_return_offset;
 
 	guest_wrote_vec = 0;
@@ -298,7 +389,14 @@ struct kvm_vcpu *kvm_arch_vcpu_create(struct kvm *kvm, unsigned int id)
 		err = -ENOMEM;
 		goto free_vcpu;
 	}
+	SetPageDirty(virt_to_page(arch->shared_page_alloc));
 	pfn = page_to_pfn(virt_to_page(arch->shared_page_alloc));
+
+	/*
+	 * This mapping will be created as a global mapping (which will
+	 * disregard ASID's in the TLB) since set_pte_at does this for
+	 * all mappings >= TASK_SIZE (ie. in the kernel space)
+	 */
 	if (remap_va_to_pfn(&init_mm,
 			    SHARED_PAGE_BASE,
 			    pfn,
@@ -343,6 +441,7 @@ struct kvm_vcpu *kvm_arch_vcpu_create(struct kvm *kvm, unsigned int id)
 		err = -ENOMEM;
 		goto unmap_shared;
 	}
+	SetPageDirty(virt_to_page(arch->guest_vectors));
 	memcpy(arch->guest_vectors, &__irq_vector_start,
 		sizeof(u32) * (&__irq_vector_end - &__irq_vector_start));
 	vcpu->arch.host_vectors_high = 1;
@@ -350,17 +449,16 @@ struct kvm_vcpu *kvm_arch_vcpu_create(struct kvm *kvm, unsigned int id)
 	/*
 	 * Init MMU related structures
 	 */
+	INIT_LIST_HEAD(&arch->shadow_pgtable_list);
 	arch->l2_unused_pt = NULL;
 
-	pgd = kvm_alloc_l1_shadow(vcpu);
-	if (IS_ERR(pgd)) {
-		err = PTR_ERR(vcpu->arch.shadow_pgtable);
+	arch->shadow_pgtable = kvm_alloc_l1_shadow(vcpu, 0);
+	if (IS_ERR(arch->shadow_pgtable)) {
+		err = PTR_ERR(arch->shadow_pgtable);
 		goto free_vectors;
 	}
-	vcpu->arch.shadow_pgtable = pgd;
-	vcpu->arch.shadow_pgd_addr = page_to_phys(virt_to_page(pgd));
 
-	err = kvm_init_l1_shadow(vcpu, pgd);
+	err = kvm_init_l1_shadow(vcpu, arch->shadow_pgtable->pgd);
 	if (err)
 		goto free_shadow;
 
@@ -370,9 +468,14 @@ struct kvm_vcpu *kvm_arch_vcpu_create(struct kvm *kvm, unsigned int id)
 	shared->guest_CPSR = USR_MODE | (vcpu->arch.cpsr 
 			     & ~(MODE_MASK | PSR_A_BIT | PSR_I_BIT | PSR_F_BIT));
 
+	/*
+	 * Start with guest debugging disabled
+	 */
+	guest_debug = 0;
+
 	return vcpu;
 free_shadow:
-	kvm_free_l1_shadow(vcpu, &vcpu->arch.shadow_pgtable);
+	kvm_free_l1_shadow(vcpu, vcpu->arch.shadow_pgtable);
 free_vectors:
 	free_pages((u32)arch->guest_vectors, 0);
 unmap_shared:
@@ -387,14 +490,32 @@ out:
 
 void kvm_arch_vcpu_free(struct kvm_vcpu *vcpu)
 {
+	kvm_shadow_pgtable *shadow, *tmp_shadow_iter;
+	//kvm_shadow_pgtable tmp_shadow_iter;
+	struct list_head *pgtables;
+
 	/* FREE SOME TRANSLATION STRUCTURES HERE */
+
+	/*
+	 * Free shadow page tables
+	 */
+	pgtables = &vcpu->arch.shadow_pgtable_list;
+	list_for_each_entry_safe(shadow, tmp_shadow_iter, pgtables, list) {
+		kvm_free_l1_shadow(vcpu, shadow);
+	}
+
+	/*
+	 * Free shared page and kvm host vector page
+	 */
+	__free_page(virt_to_page(vcpu->arch.shared_page_alloc));
+	__free_page(virt_to_page(vcpu->arch.guest_vectors));
+
 	kvm_vcpu_uninit(vcpu);
 	kmem_cache_free(kvm_vcpu_cache, vcpu);
 }
 
 void kvm_arch_vcpu_destroy(struct kvm_vcpu *vcpu)
 {
-	kvm_free_l1_shadow(vcpu, &vcpu->arch.shadow_pgtable);
 	kvm_arch_vcpu_free(vcpu);
 }
 
@@ -405,19 +526,30 @@ int kvm_cpu_has_pending_timer(struct kvm_vcpu *vcpu)
 
 int kvm_arch_vcpu_init(struct kvm_vcpu *vcpu)
 {
+	__u32 control_reg;
+
 	asm volatile ("mrc p15, 0, %[midr], c0, c0, 0\n\t"
 		      "mrc p15, 0, %[ctr], c0, c0, 1\n\t"
-		      "mrc p15, 0, %[tcmtr], c0, c0, 2" :
+		      "mrc p15, 0, %[tcmtr], c0, c0, 2\n\t"
+		      "mrc p15, 0, %[control], c1, c0, 0" :
 		      [midr]  "=r" (vcpu->arch.cp15.c0_MIDR),
 		      [ctr]   "=r" (vcpu->arch.cp15.c0_CTR),
-		      [tcmtr] "=r" (vcpu->arch.cp15.c0_TCMTR));
+		      [tcmtr] "=r" (vcpu->arch.cp15.c0_TCMTR),
+		      [control] "=r" (control_reg));
 
 	/*
 	 * Set all domains to use client access before the guest
 	 * enables the MMU and must have set and overwriten this
 	 * virtual register.
 	 */
-	vcpu->arch.cp15.c3_DACR = 55555555;
+	vcpu->arch.cp15.c3_DACR = 0x55555555;
+
+	/*
+	 * Set the control register to the default reset value,
+	 * but read the implementation defined bits off the physical
+	 * CPU.
+	 */
+	vcpu->arch.cp15.c1_CR = 0x00050078 | (control_reg & 0x02400080);
 
 	/*
 	 * Don't wait for interrupts from the beginning
@@ -472,7 +604,7 @@ static inline int kvm_switch_mode(struct kvm_vcpu *vcpu, u8 new_cpsr)
 
 	if (new_mode == MODE_USER || old_mode == MODE_USER) {
 		/* Switch btw. priv. and non-priv. */
-		ret = kvm_init_l1_shadow(vcpu, vcpu->arch.shadow_pgtable);
+		ret = kvm_init_l1_shadow(vcpu, vcpu->arch.shadow_pgtable->pgd);
 	}
 	vcpu->arch.mode = new_mode;
 
@@ -562,11 +694,13 @@ static int inject_guest_exception(struct kvm_vcpu *vcpu)
 	 * exception priority.
 	 */
 
+	/*
 	if (guest_debug) {
 		irq_return = vcpu->arch.regs[15];
 		guest_debug = 0;
 		irq_suppress = 1;
 	}
+	*/
 
 	if (vcpu->arch.exception_pending & EXCEPTION_RESET) {
 		/* Reset exception not supported */
@@ -574,6 +708,8 @@ static int inject_guest_exception(struct kvm_vcpu *vcpu)
 	}
 
 	if (vcpu->arch.exception_pending & EXCEPTION_SOFTWARE) {
+		kvm_msg("inject swi");
+		return -EINVAL;
 		vcpu->arch.banked_r14[MODE_SVC] = vcpu->arch.regs[15] + 4;
 		vcpu->arch.banked_spsr[MODE_SVC] = vcpu->arch.cpsr;
 
@@ -582,6 +718,8 @@ static int inject_guest_exception(struct kvm_vcpu *vcpu)
 	}
 	
 	if (vcpu->arch.exception_pending & EXCEPTION_PREFETCH) {
+		kvm_msg("inject prefetch abort");
+		return -EINVAL;
 		vcpu->arch.banked_r14[MODE_ABORT] = vcpu->arch.regs[15] + 4;
 		vcpu->arch.banked_spsr[MODE_ABORT] = vcpu->arch.cpsr;
 
@@ -590,6 +728,8 @@ static int inject_guest_exception(struct kvm_vcpu *vcpu)
 	}
 
 	if (vcpu->arch.exception_pending & EXCEPTION_DATA) {
+		kvm_msg("inject data abort");
+		return -EINVAL;
 		vcpu->arch.banked_r14[MODE_ABORT] = vcpu->arch.regs[15] + 8;
 		vcpu->arch.banked_spsr[MODE_ABORT] = vcpu->arch.cpsr;
 
@@ -598,6 +738,8 @@ static int inject_guest_exception(struct kvm_vcpu *vcpu)
 	}
 
 	if (vcpu->arch.exception_pending & EXCEPTION_IRQ) {
+		kvm_msg("inject irq");
+		return -EINVAL;
 		//if ((vcpu->arch.cpsr & PSR_I_BIT) || guest_debug || irq_suppress)
 		if (vcpu->arch.cpsr & PSR_I_BIT) {
 			return 0;
@@ -610,6 +752,8 @@ static int inject_guest_exception(struct kvm_vcpu *vcpu)
 	}
 
 	if (vcpu->arch.exception_pending & EXCEPTION_FIQ) {
+		kvm_msg("inject fiq");
+		return -EINVAL;
 		if (vcpu->arch.cpsr & PSR_F_BIT)
 			return 0;
 		
@@ -625,6 +769,8 @@ static int inject_guest_exception(struct kvm_vcpu *vcpu)
 static int pre_guest_switch(struct kvm_vcpu *vcpu) 
 {
 	struct shared_page *shared = vcpu->arch.shared_page;
+	kvm_shadow_pgtable *shadow = vcpu->arch.shadow_pgtable;
+	u32 ttbr_cr;
 	int ret;
 #ifdef KVMARM_BIN_TRANSLATE 
 
@@ -662,8 +808,14 @@ static int pre_guest_switch(struct kvm_vcpu *vcpu)
 	shared->guest_CPSR = (shared->guest_CPSR & ~0xf1000000) |
 		                (vcpu->arch.cpsr &  0xf1000000);
 
-	/* Copy the shadow TTBR */
-	shared->shadow_ttbr = vcpu->arch.shadow_pgd_addr;
+	if (cpu_architecture() >= CPU_ARCH_ARMv6) {
+		/* Set the shadow ASID and copy the TTBR */
+		if (unlikely((shadow->id ^ cpu_last_asid) >> ASID_BITS))
+			shadow->id = __new_asid();
+		shared->guest_asid = shadow->id;
+		shared->host_asid = current->mm->context.id;
+	}
+	shared->shadow_ttbr = shadow->pa;
 
 	/* Make sure that interrupts are enabled and guest is in user mode */
 	shared->guest_CPSR &= ~PSR_I_BIT;
@@ -677,6 +829,14 @@ static int pre_guest_switch(struct kvm_vcpu *vcpu)
 	 */
 	shared->guest_dac = (vcpu->arch.cp15.c3_DACR & 0x3fffffff)
 		| domain_val(KVM_SPECIAL_DOMAIN, DOMAIN_CLIENT);
+
+	/*
+	 * TODO: Handle ARMv6 TTBR multiple registers and TTBR CR!
+	 */
+	if (cpu_architecture() >= CPU_ARCH_ARMv6) {
+		asm ("mrc	p15, 0, %[res], c2, c0, 2": [res] "=r" (ttbr_cr));
+		BUG_ON(ttbr_cr != 0);
+	}
 
 	/*
 	if (guest_debug) {
@@ -720,28 +880,55 @@ void debug_exit_print(struct kvm_vcpu *vcpu, u32 interrupt)
 {
 	switch (interrupt) {
 	case ARM_EXCEPTION_UNDEFINED: {
-		printk("UNDEFINED (0x%08x)\n", vcpu->arch.regs[15]);
+		__kvm_print_msg("UNDEFINED (0x%08x)\n", vcpu->arch.regs[15]);
 		break;
 	}
 	case ARM_EXCEPTION_SOFTWARE: {
-		printk("SWI (0x%08x)\n", vcpu->arch.regs[15]);
+		__kvm_print_msg("SWI (0x%08x)\n", vcpu->arch.regs[15]);
 		break;
 	}
 	case ARM_EXCEPTION_PREF_ABORT:
-		printk("PREFETCH ABT (0x%08x)\n", vcpu->arch.regs[15]);
+		__kvm_print_msg("PREFETCH ABT (0x%08x)\n", vcpu->arch.regs[15]);
 		break;
 	case ARM_EXCEPTION_DATA_ABORT:
-		printk("DATA ABT (0x%08x)\n", vcpu->arch.regs[15]);
+		__kvm_print_msg("DATA ABT (0x%08x)\n", vcpu->arch.regs[15]);
 		break;
 	case ARM_EXCEPTION_IRQ:
-		printk("IRQ (0x%08x)\n", vcpu->arch.regs[15]);
+		__kvm_print_msg("IRQ (0x%08x)\n", vcpu->arch.regs[15]);
 		break;
 	default:
-		printk("BAD EXCPTN (0x%08x)\n", vcpu->arch.regs[15]);
+		__kvm_print_msg("BAD EXCPTN (0x%08x)\n", vcpu->arch.regs[15]);
 		break;
 	}
 
 	return;
+}
+
+static inline int insert_breakpoint(struct kvm_vcpu *vcpu, gva_t gva)
+{
+	int ret;
+	gfn_t gfn;
+	gpa_t gpa;
+
+	ret = gva_to_gfn(vcpu, gva, &gfn, 0, NULL);
+	if (ret < 0) {
+		kvm_err(ret, "could not translate breakpoing address");
+		return ret;
+	}
+
+	if (!kvm_is_visible_gfn(vcpu->kvm, gfn)) {
+		kvm_err(-EINVAL, "invalid breakpoint address");
+		return -EINVAL;
+	}
+
+	gpa = (gfn << PAGE_SHIFT) | (gva & ~PAGE_MASK);
+	ret = kvm_write_guest(vcpu->kvm, gpa, &bp_instr, 4);
+	if (ret) {
+		kvm_err(ret, "could not write guest breakpoint!");
+		return ret;
+	}
+
+	return 0;
 }
 
 int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
@@ -749,8 +936,10 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 	int ret = 0;
 	int excpt_idx;
 	int pending_write = 0;
+	unsigned long irq_flags;
 
 	vcpu->arch.kvm_run = run;
+	flush_dcache_page(virt_to_page(run));
 
 	if (run->exit_reason == KVM_EXIT_IRQ_WINDOW_OPEN)
 		run->exit_reason = KVM_EXIT_UNKNOWN;
@@ -765,15 +954,15 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 
 		run->exit_reason = KVM_EXIT_UNKNOWN;
 
+		/*
 		if (irq_suppress && irq_return == vcpu->arch.regs[15]) {
 			guest_debug = 1;
 			irq_suppress = 0;
 		}
+		*/
 
 		if (guest_debug) {
-			printk(KERN_DEBUG "KVM       [%s:%d]: "
-					  "ENTER VCPU: %08x  ---->  ",
-				__FUNCTION__, __LINE__, vcpu->arch.regs[15]);
+			__kvm_msg("ENTER VCPU: %08x ---->  ", vcpu->arch.regs[15]);
 			pending_write = 1;
 		}
 
@@ -788,13 +977,13 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 			kvm_err(-EINVAL, "Trying to execute guest in priv. mode");
 			return -EINVAL;
 		}
+		raw_local_irq_save(irq_flags);
 		excpt_idx = vcpu->arch.run(vcpu);
+		raw_local_irq_restore(irq_flags);
 		kvm_guest_exit();
-
 
 		vcpu->arch.guest_exception = excpt_idx;
 		post_guest_switch(vcpu); 
-
 
 		if (pending_write) {
 			debug_exit_print(vcpu, excpt_idx);
@@ -806,12 +995,11 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 			break;
 		}
 
-		if (need_resched())
-			schedule();
-
 		if (run->exit_reason == KVM_EXIT_MMIO)
 			break;
 
+		if (need_resched())
+			schedule();
 wait_for_interrupts:
 		while (vcpu->arch.wait_for_interrupts && !signal_pending(current))
 			schedule();
@@ -824,32 +1012,20 @@ wait_for_interrupts:
 
 	if (ret < 0)
 		run->exit_reason = KVM_EXIT_EXCEPTION;
+
+	flush_dcache_page(virt_to_page(run));
 	return ret;
 }
-
-static inline int get_exception_instr(struct kvm_vcpu *vcpu, gva_t addr,
-				      u32 *instr)
-{
-	hva_t hva = gva_to_hva(vcpu, addr, 0);
-	if (kvm_is_error_hva(hva)) {
-		kvm_err(-EINVAL, "Instruction generated at bad address: 0x%08x",
-				vcpu->arch.regs[15] - 4);
-		return -EINVAL;
-	}
-
-	*instr = *(u32 *)hva;
-	return 0;
-}
-
 
 static inline int handle_undefined(struct kvm_vcpu *vcpu)
 {
 	int ret;
 	u32 instr;
 
-	ret = get_exception_instr(vcpu, vcpu->arch.regs[15], &instr);
-	if (ret) 
-		return ret;
+	instr = vcpu->arch.shared_page->guest_instr;
+	//ret = get_exception_instr(vcpu, vcpu->arch.regs[15], &instr);
+	//if (ret) 
+	//	return ret;
 
 	ret = kvm_handle_undefined(vcpu, instr);
 	return ret;
@@ -860,33 +1036,54 @@ static inline int handle_swi(struct kvm_vcpu *vcpu)
 	gva_t addr;
 	u32 instr, orig_instr;
 	int ret;
+	gfn_t gfn;
+	u32 val;
 
 	addr = vcpu->arch.regs[15];
 
+	instr = vcpu->arch.shared_page->guest_instr;
+#if 0
 	ret = get_exception_instr(vcpu, addr, &instr);
 	if (ret) {
 		if (guest_debug)
 			kvm_err(ret, "could not get_excp_instr!");
 		return ret;
 	}
-	if (guest_debug) printk(KERN_DEBUG "   instr: 0x%08x\n", instr);
+#endif
+	if (guest_debug) kvm_msg("instr: 0x%08x", instr);
 #ifdef KVMARM_BIN_TRANSLATE 
 	orig_instr = get_orig_instr(vcpu, addr);
 #endif
 	if ((instr & 0xffff) == 0xdead || (instr & 0xffff) == 0xbabe ||
-	    (instr & 0xffff) == 0xcafe || (instr & 0xffff) == 0xbeef) {
+	    (instr & 0xffff) == 0xcafe || (instr & 0xffff) == 0xbeef ||
+	    ((instr & 0xffff) >= 0xde00 && (instr & 0xffff) < 0xdf00)) {
 
 		kvm_msg("swi instr: 0x%08x at 0x%08x",
 				(unsigned int)instr,
 				(unsigned int)addr);
 
 
-		kvm_msg("XXXXXXXXXXX    Exit point found    XXXXXXXXXXXXX!\n");
-
 		if ((instr & 0xffff) == 0xdead) {
+			kvm_msg("XXXXXXXXXXX    Exit point found    XXXXXXXXXXXXX!");
+
+			ret = gva_to_gfn(vcpu, (gva_t)0xffff0000, &gfn, 0, NULL);
+			if (ret)
+				return ret;
+			if (!kvm_is_visible_gfn(vcpu->kvm, gfn))
+				return -EINVAL;
+
+			ret = kvm_read_guest(vcpu->kvm, gfn << PAGE_SHIFT, &val, 4);
+			if (ret)
+				return ret;
+
+			kvm_msg("guest value: 0x%08x", val);
 			return -EINVAL;
+		//} else if ((instr & 0xffff) >= 0xde00 && (instr & 0xffff) < 0xdf00) {
+
 		} else if ((instr & 0xffff) == 0xcafe) {
-			guest_debug = 1;
+			kvm_switch_host_vectors(vcpu, 0);
+		} else if ((instr & 0xffff) == 0xbabe) {
+			return -EINVAL;
 		} else if ((instr & 0xffff) == 0xbeef) {
 			guest_debug = 0;
 		}
@@ -905,9 +1102,6 @@ static inline int handle_swi(struct kvm_vcpu *vcpu)
 		vcpu->arch.exception_pending |= EXCEPTION_SOFTWARE;
 		if (guest_debug)
 			kvm_msg("Guest needs SWI at: 0x%08x\n", vcpu->arch.regs[15]);
-		if (vcpu->arch.regs[15] == 0x8df8) {
-			guest_debug = 1;
-		}
 		vcpu->arch.exception_pending |= EXCEPTION_SOFTWARE;
 	} else {
 		/* An instruction that needs to be emulated */
@@ -966,14 +1160,22 @@ static inline int user_mem_abort(struct kvm_vcpu *vcpu,
 
 	map_info->ap = convert_guest_to_shadow_ap(vcpu, map_info->ap);
 	ret = __map_gva_to_pfn(vcpu,
-			       vcpu->arch.shadow_pgtable,
+			       vcpu->arch.shadow_pgtable->pgd,
 			       fault_addr,
 			       pfn,
 			       map_info->domain_number,
 			       map_info->ap,
-			       1); //XXX Should also check guest permissions here
-	if (ret)
+#if __LINUX_ARM_ARCH__ >= 6
+			       map_info->apx,
+			       map_info->xn);
+#else
+			       0,
+			       0);
+#endif
+	if (ret) {
+		kvm_release_pfn_clean(pfn);
 		return ret;
+	}
 
 	/*
 	 * If it was merely a question of a translation fault, it
@@ -994,18 +1196,20 @@ static inline int io_mem_abort(struct kvm_vcpu *vcpu,
 			       gva_t fault_addr,
 			       gfn_t gfn)
 {
-	int ret;
 	u32 fault_instr;
 	gpa_t mmio_addr;
 	u8 rd;
 	u32 len;
 	int write = 0;
 
+	fault_instr = vcpu->arch.shared_page->guest_instr;
+#if 0
 	ret = get_exception_instr(vcpu, instr_addr, &fault_instr);
 	if (ret) {
 		kvm_err(ret, "could not get exception instr");
 		return ret;
 	}
+#endif
 
 	write = kvm_ls_is_write(vcpu, fault_instr);
 	rd = kvm_ls_get_rd(vcpu, fault_instr);
@@ -1014,20 +1218,17 @@ static inline int io_mem_abort(struct kvm_vcpu *vcpu,
 	mmio_addr = (gfn << PAGE_SHIFT) + (fault_addr % PAGE_SIZE);
 	len = kvm_ls_length(vcpu, fault_instr);
 
-	if (guest_debug) {
-		kvm_msg("MMIO at 0x%08x: 0x%08x (len: %u)",
-				vcpu->arch.regs[15], mmio_addr, len);
-	}
-
 	vcpu->run->mmio.is_write = write;
-	vcpu->run->exit_reason = KVM_EXIT_MMIO;
 	vcpu->run->mmio.phys_addr = mmio_addr;
 	vcpu->run->mmio.len = len;
+
+	vcpu->run->exit_reason = KVM_EXIT_MMIO;
 	vcpu->arch.mmio_rd = rd;
 
-	if (write)
+	if (write) {
 		memcpy(vcpu->run->mmio.data, &VCPU_REG(vcpu, rd), len);
-
+	}
+	
 	/*
 	 * The MMIO instruction is emulated and should not be re-executed
 	 * in the guest.
@@ -1059,6 +1260,10 @@ static inline int handle_shadow_fault(struct kvm_vcpu *vcpu,
 		 * fault, we simply inject that fault to the guest.
 		 */
 		if (fault > 0) {
+			kvm_msg("mapping to io address without permissions?");
+			kvm_msg("        happened at: 0x%08x", instr_addr);
+			kvm_msg("        address:     0x%08x", fault_addr);
+			kvm_msg("        fault:       %d", fault);
 			kvm_generate_mmu_fault(vcpu, fault_addr, fault,
 					       map_info.domain_number);
 			return 0;
@@ -1102,6 +1307,7 @@ static inline int handle_shadow_perm(struct kvm_vcpu *vcpu,
 		high = vcpu->arch.host_vectors_high ? 0 : 1;
 		kvm_msg("switching vectors...");
 		kvm_switch_host_vectors(vcpu, high);
+		kvm_msg("handling shadow fault...");
 		ret = handle_shadow_fault(vcpu, fault_addr, instr_addr);
 		goto out;
 	}
@@ -1136,15 +1342,19 @@ static inline int handle_abort(struct kvm_vcpu *vcpu, u32 interrupt)
 	int ret;
 	gva_t fault_addr;
 	gva_t instr_addr;
+	u32 fsr;
 
 	if (interrupt == ARM_EXCEPTION_DATA_ABORT) {
 		fault_addr = vcpu->arch.host_far;
 		instr_addr = vcpu->arch.regs[15];
+		fsr = vcpu->arch.host_fsr;
 	} else {
+		fsr = vcpu->arch.host_ifsr;
 		instr_addr = fault_addr = vcpu->arch.regs[15];
 	}
 
-	switch (vcpu->arch.host_fsr & FSR_TYPE_MASK) {
+
+	switch (fsr & FSR_TYPE_MASK) {
 	case (FSR_ALIGN_FAULT):
 		ret = -EINVAL;
 		kvm_err(ret, "Modified virtual address alignment fault\n");
@@ -1309,6 +1519,7 @@ void kvm_arch_exit(void)
 static int arm_init(void)
 {
 	int rc = kvm_init(NULL, sizeof(struct kvm_vcpu), THIS_MODULE);
+	__kvm_log = kfifo_alloc(KVM_LOG_LEN, GFP_KERNEL, &__kvm_log_lock);
 	return rc;
 }
 

@@ -118,10 +118,10 @@ int main(void)
 #endif
 
 #ifdef CONFIG_KVM
-  DEFINE(VCPU_SHADOW_PGD_ADDR,  offsetof(struct kvm_vcpu, arch.shadow_pgd_addr));
-  DEFINE(VCPU_HOST_PGD_ADDR,    offsetof(struct kvm_vcpu, arch.host_pgd_addr));
+  DEFINE(VCPU_HOST_PGD_PA,      offsetof(struct kvm_vcpu, arch.host_pgd_pa));
   DEFINE(VCPU_HOST_FAR,         offsetof(struct kvm_vcpu, arch.host_far));
   DEFINE(VCPU_HOST_FSR,         offsetof(struct kvm_vcpu, arch.host_fsr));
+  DEFINE(VCPU_HOST_IFSR,        offsetof(struct kvm_vcpu, arch.host_ifsr));
   DEFINE(VCPU_HOST_VEC_HIGH,    offsetof(struct kvm_vcpu, arch.host_vectors_high));
 
   DEFINE(SHARED_SP,             offsetof(struct shared_page, shared_sp));
@@ -135,7 +135,8 @@ int main(void)
   DEFINE(SHARED_HOST_SPSR,      offsetof(struct shared_page, host_SPSR));
   DEFINE(SHARED_HOST_TTBR,      offsetof(struct shared_page, host_ttbr));
   DEFINE(SHARED_SHADOW_TTBR,    offsetof(struct shared_page, shadow_ttbr));
-  DEFINE(SHARED_GUST_DAC,       offsetof(struct shared_page, guest_dac));
+  DEFINE(SHARED_GUEST_DAC,      offsetof(struct shared_page, guest_dac));
+  DEFINE(SHARED_GUEST_INSTR,    offsetof(struct shared_page, guest_instr));
 #endif
 
   return 0; 
