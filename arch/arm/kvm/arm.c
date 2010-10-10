@@ -1130,9 +1130,7 @@ static inline int user_mem_abort(struct kvm_vcpu *vcpu,
 	int ret;
 	pfn_t pfn;
 
-	down_write(&current->mm->mmap_sem);
 	pfn = gfn_to_pfn(vcpu->kvm, gfn);
-	up_write(&current->mm->mmap_sem);
 
 	if (pfn == bad_pfn) {
 		kvm_err(-EFAULT, "Guest gfn %u (0x%08x) does not have "
