@@ -21,13 +21,6 @@
 #include <linux/kvm_host.h>
 #include <asm/kvm_asm.h>
 
-#define KVMARM_NOT_IMPLEMENTED() \
-   { \
-    printk(KERN_ERR "%s:%d\t%s: Not implemented!\n", \
-	   __FILE__, __LINE__, __FUNCTION__); \
-	 BUG(); \
-   }
-
 
 void __kvm_print_msg(char *parent_fmt, const char *function,
 		     unsigned int line, int err, char *fmt, ...);
@@ -42,6 +35,13 @@ void __kvm_print_msg(char *parent_fmt, const char *function,
 	__kvm_print_msg(KERN_DEBUG "KVM       [%s:%d]: %s (%d)\n", \
 			__FUNCTION__, __LINE__, 0, fmt, ##args); \
 } while (0)
+
+#define KVMARM_NOT_IMPLEMENTED() \
+   { \
+	    printk(KERN_ERR "KVM not implemented [%s:%d] in %s \n", \
+		   __FILE__, __LINE__, __FUNCTION__); \
+		 return -EINVAL; \
+   }
 
 
 /*
