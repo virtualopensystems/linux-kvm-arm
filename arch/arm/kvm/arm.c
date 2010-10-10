@@ -982,10 +982,9 @@ static inline int user_mem_abort(struct kvm_vcpu *vcpu,
  * user space application for emulation in this case.
  */
 static inline int io_mem_abort(struct kvm_vcpu *vcpu,
-			gva_t instr_addr,
-			gva_t fault_addr,
-			gfn_t gfn,
-			struct kvm_memory_slot *memslot)
+			       gva_t instr_addr,
+			       gva_t fault_addr,
+			       gfn_t gfn)
 {
 	int ret;
 	u32 fault_instr;
@@ -1001,17 +1000,6 @@ static inline int io_mem_abort(struct kvm_vcpu *vcpu,
 	write = kvm_ls_is_write(vcpu, fault_instr);
 	rd = kvm_ls_get_rd(vcpu, fault_instr);
 	kvm_ls_emulate_writeback(vcpu, fault_instr);
-
-
-	if (memslot == NULL) {
-		/* QEMU hack for missing devices - simply return 0 */
-		if (!write)
-			VCPU_REG(vcpu, rd) = 0;
-		vcpu->arch.regs[15] = instr_addr + 4;
-
-		return 0;
-	}
-
 
 	mmio_addr = (gfn << PAGE_SHIFT) + (fault_addr % PAGE_SIZE);
 	len = kvm_ls_length(vcpu, fault_instr);
@@ -1043,49 +1031,39 @@ static inline int handle_shadow_fault(struct kvm_vcpu *vcpu,
 				      gva_t fault_addr, gva_t instr_addr)
 {
 	gfn_t gfn;
-	int ret, fault;
+	int fault;
 	struct kvm_memory_slot *memslot;
 	struct map_info map_info;
+	u8 uaccess;
 
-	if (guest_debug) {
-		/*
-		printk(KERN_DEBUG "    Page translation fault at 0x%08x: 0x%08x\n",
-				(unsigned int)instr_addr,
-				(unsigned int)fault_addr);
-		print_guest_mapping(vcpu, fault_addr);
-		*/
-	}
-
-	fault = gva_to_gfn(vcpu, fault_addr, &gfn, 0, &map_info);
-	if ((ret = fault) < 0)
-		return ret;
-
-	if (!kvm_is_visible_gfn(vcpu->kvm, gfn)) {
-		/* This indicates an MMU fault */
-
-		if (ret == 0) {
-			/* Translation ok, but no KVM mapping.
-			 * We do like QEMU and simply return 0 */
-			ret = io_mem_abort(vcpu, instr_addr, fault_addr,
-					     gfn, NULL);
-		} else {
-			kvm_generate_mmu_fault(vcpu, fault_addr, fault,
-					       map_info.domain_number);
-		}
-
-		return 0;
-	}
+	uaccess = VCPU_MODE_PRIV(vcpu) ? 0 : 1;
+	fault = gva_to_gfn(vcpu, fault_addr, &gfn, uaccess, &map_info);
+	if (fault < 0)
+		return fault;
 
 	memslot = gfn_to_memslot(vcpu->kvm, gfn);
-	if (memslot->user_alloc) {
-		ret = user_mem_abort(vcpu, instr_addr, fault_addr,
-				     gfn, memslot, &map_info);
+	if (!memslot) {
+		/*
+		 * All accesses to non-registered guest physical memory should
+		 * go to QEMU. However, if the access would have generated a
+		 * fault, we simply inject that fault to the guest.
+		 */
+		if (fault > 0) {
+			kvm_generate_mmu_fault(vcpu, fault_addr, fault,
+					       map_info.domain_number);
+			return 0;
+		} else {
+			return io_mem_abort(vcpu, instr_addr, fault_addr, gfn);
+		}
 	} else {
-		ret = io_mem_abort(vcpu, instr_addr, fault_addr,
-				   gfn, memslot);
+		/*
+		 * The guest physical address belongs to a registered memory
+		 * region and we create the right mapping.
+		 */
+		BUG_ON(!memslot->user_alloc);
+		return user_mem_abort(vcpu, instr_addr, fault_addr,
+				      gfn, memslot, &map_info);
 	}
-
-	return ret;
 }
 
 static inline int handle_shadow_perm(struct kvm_vcpu *vcpu,
@@ -1314,38 +1292,8 @@ int kvm_vm_ioctl_get_dirty_log(struct kvm *kvm, struct kvm_dirty_log *log)
 long kvm_arch_vm_ioctl(struct file *filp,
                        unsigned int ioctl, unsigned long arg)
 {
-	struct kvm *kvm = filp->private_data;
-	void __user *argp = (void __user *)arg;
-	int r = -EINVAL;
-
-	switch (ioctl) {
-	case KVM_SET_MEMORY_REGION: {
-		struct kvm_memory_region kvm_mem;
-		struct kvm_userspace_memory_region kvm_userspace_mem;
-
-		r = -EFAULT;
-		if (copy_from_user(&kvm_mem, argp,
-						sizeof kvm_mem))
-			goto out;
-
-		kvm_userspace_mem.slot = kvm_mem.slot;
-		kvm_userspace_mem.flags = kvm_mem.flags;
-		kvm_userspace_mem.guest_phys_addr = kvm_mem.guest_phys_addr;
-		kvm_userspace_mem.memory_size = kvm_mem.memory_size;
-		r = kvm_vm_ioctl_set_memory_region(kvm, &kvm_userspace_mem, 0);
-		if (r)
-			goto out;
-		break;
-	}
-	default:
-		printk(KERN_ERR "kvm_arch_vm_ioctl: Unsupported ioctl (%d)\n",
-					ioctl);
-		goto out;
-	}
-
-	return 0;
-out:
-	return r;
+	printk(KERN_ERR "kvm_arch_vm_ioctl: Unsupported ioctl (%d)\n", ioctl);
+	return -EINVAL;
 }
 
 int kvm_arch_init(void *opaque)
