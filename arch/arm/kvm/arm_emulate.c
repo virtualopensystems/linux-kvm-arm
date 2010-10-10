@@ -125,8 +125,7 @@ int kvm_handle_undefined(struct kvm_vcpu *vcpu, u32 instr)
 		kvm_err(ret, "error when handling undefined exception");
 	return ret;
 handle_in_guest:
-	printk(KERN_DEBUG "  handle undefined in guest: 0x%08x\n",
-		vcpu->arch.regs[15]);
+	kvm_msg("handle undefined in guest: 0x%08x", vcpu->arch.regs[15]);
 	KVMARM_NOT_IMPLEMENTED();
 	vcpu->arch.exception_pending |= EXCEPTION_UNDEFINED;
 	return 0;
@@ -1395,6 +1394,7 @@ int kvm_ls_is_write(struct kvm_vcpu *vcpu, u32 instr)
 			return 1;
 	}
 
+	kvm_msg("this happened at guest PC: 0x%08x", VCPU_REG(vcpu, 15));
 	BUG();
 	return 0; /* GCC is braindead */
 }

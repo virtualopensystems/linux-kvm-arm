@@ -838,10 +838,12 @@ int kvm_switch_host_vectors(struct kvm_vcpu *vcpu, int high)
 	char *ch = "high";
 	char *cl = "low";
 	
-	if (high == vcpu->arch.host_vectors_high)
+	if (high == vcpu->arch.host_vectors_high) {
+		kvm_msg("vector switch not necessary");
 		return 0;
+	}
 
-	kvm_msg("switched to %s vectors", high ? ch : cl);
+	kvm_msg("host switched to using %s vectors", high ? ch : cl);
 
 	if (high) {
 		ret = unmap_gva_section(vcpu,

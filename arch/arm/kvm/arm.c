@@ -583,10 +583,10 @@ static inline int kvm_switch_mode(struct kvm_vcpu *vcpu, u8 new_cpsr)
 	vcpu->arch.mode = new_mode;
 
 	if (new_mode == MODE_USER) {
-		//printk(KERN_ERR "    warning: Guest switched to user mode!\n");
+		kvm_msg("guest switched to user mode: 0x%08x", VCPU_REG(vcpu, 15));
 		//guest_debug = 1;
 	} else if (new_mode != MODE_USER && old_mode == MODE_USER) {
-		//printk(KERN_ERR "    warning: Guest switched to privileged mode!\n");
+		kvm_msg("guest switched to priv. mode: 0x%08x", VCPU_REG(vcpu, 15));
 	}
 
 	return ret;
@@ -682,7 +682,7 @@ static int inject_guest_exception(struct kvm_vcpu *vcpu)
 	}
 
 	if (vcpu->arch.exception_pending & EXCEPTION_SOFTWARE) {
-		//kvm_msg("inject swi");
+		//kvm_msg("inject swi: 0x%08x", VCPU_REG(vcpu, 15));
 		vcpu->arch.banked_r14[MODE_SVC] = vcpu->arch.regs[15] + 4;
 		vcpu->arch.banked_spsr[MODE_SVC] = vcpu->arch.cpsr;
 
@@ -691,7 +691,7 @@ static int inject_guest_exception(struct kvm_vcpu *vcpu)
 	}
 	
 	if (vcpu->arch.exception_pending & EXCEPTION_PREFETCH) {
-		//kvm_msg("inject prefetch abort");
+		//kvm_msg("inject prefetch abort: 0x%08x", VCPU_REG(vcpu, 15));
 		//l2_pte = get_shadow_l2_entry(vcpu, 0xffff0000);
 		//kvm_msg("    l2_pte: 0x%08x\n", l2_pte);
 		vcpu->arch.banked_r14[MODE_ABORT] = vcpu->arch.regs[15] + 4;
@@ -702,7 +702,7 @@ static int inject_guest_exception(struct kvm_vcpu *vcpu)
 	}
 
 	if (vcpu->arch.exception_pending & EXCEPTION_DATA) {
-		//kvm_msg("inject data abort");
+		//kvm_msg("inject data abort: 0x%08x", VCPU_REG(vcpu, 15));
 		vcpu->arch.banked_r14[MODE_ABORT] = vcpu->arch.regs[15] + 8;
 		vcpu->arch.banked_spsr[MODE_ABORT] = vcpu->arch.cpsr;
 
@@ -711,11 +711,12 @@ static int inject_guest_exception(struct kvm_vcpu *vcpu)
 	}
 
 	if (vcpu->arch.exception_pending & EXCEPTION_IRQ) {
-		kvm_msg("inject irq");
 		//if ((vcpu->arch.cpsr & PSR_I_BIT) || guest_debug || irq_suppress)
 		if (vcpu->arch.cpsr & PSR_I_BIT) {
 			return 0;
 		}
+
+		//kvm_msg("inject irq: 0x%08x", VCPU_REG(vcpu, 15));
 		
 		vcpu->arch.banked_r14[MODE_IRQ] = vcpu->arch.regs[15] + 4;
 		vcpu->arch.banked_spsr[MODE_IRQ] = vcpu->arch.cpsr;
@@ -724,7 +725,7 @@ static int inject_guest_exception(struct kvm_vcpu *vcpu)
 	}
 
 	if (vcpu->arch.exception_pending & EXCEPTION_FIQ) {
-		kvm_msg("inject fiq");
+		kvm_msg("inject fiq: 0x%08x", VCPU_REG(vcpu, 15));
 		if (vcpu->arch.cpsr & PSR_F_BIT)
 			return 0;
 		
@@ -1048,32 +1049,21 @@ static inline int handle_swi(struct kvm_vcpu *vcpu)
 	    (instr & 0xffff) == 0xcafe || (instr & 0xffff) == 0xbeef ||
 	    ((instr & 0xffff) >= 0xde00 && (instr & 0xffff) < 0xdf00)) {
 
-		kvm_msg("swi instr: 0x%08x at 0x%08x",
+		/*kvm_msg("swi instr: 0x%08x at 0x%08x",
 				(unsigned int)instr,
-				(unsigned int)addr);
+				(unsigned int)addr);*/
 
 
 		if ((instr & 0xffff) == 0xdead) {
 			kvm_msg("XXXXXXXXXXX    Exit point found    XXXXXXXXXXXXX!");
-
-			ret = gva_to_gfn(vcpu, (gva_t)0xffff0000, &gfn, 0, NULL);
-			if (ret)
-				return ret;
-			if (!kvm_is_visible_gfn(vcpu->kvm, gfn))
-				return -EINVAL;
-
-			ret = kvm_read_guest(vcpu->kvm, gfn << PAGE_SHIFT, &val, 4);
-			if (ret)
-				return ret;
-
-			kvm_msg("guest value: 0x%08x", val);
 			return -EINVAL;
 		//} else if ((instr & 0xffff) >= 0xde00 && (instr & 0xffff) < 0xdf00) {
 
 		} else if ((instr & 0xffff) == 0xcafe) {
-			kvm_msg("doing nothing on 0xcafe");
+			kvm_msg("register 0 on 0xcafe: %d", VCPU_REG(vcpu, 0));
 		} else if ((instr & 0xffff) == 0xbabe) {
-			return -EINVAL;
+			kvm_msg("register 0/1 on 0xbabe: %d/%d", VCPU_REG(vcpu, 0),
+					VCPU_REG(vcpu, 1));
 		} else if ((instr & 0xffff) == 0xbeef) {
 			guest_debug = 0;
 		}
@@ -1249,6 +1239,7 @@ static inline int handle_shadow_fault(struct kvm_vcpu *vcpu,
 		 */
 		if (fault > 0) {
 			kvm_msg("mapping to io address without permissions?");
+			kvm_msg("        Guest kernel BUG() ?");
 			kvm_msg("        happened at: 0x%08x", instr_addr);
 			kvm_msg("        address:     0x%08x", fault_addr);
 			kvm_msg("        fault:       %d", fault);
@@ -1386,7 +1377,6 @@ static inline int handle_abort(struct kvm_vcpu *vcpu, u32 interrupt)
 		fsr = vcpu->arch.host_ifsr;
 		instr_addr = fault_addr = vcpu->arch.regs[15];
 	}
-
 
 	switch (fsr & FSR_TYPE_MASK) {
 	case (FSR_ALIGN_FAULT):
