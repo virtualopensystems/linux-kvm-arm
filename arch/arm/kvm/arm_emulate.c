@@ -630,10 +630,9 @@ static int emulate_mcr_cache(struct coproc_params *params)
 		case 4:	/* Flush prefetch buffer */
 		case 6:	/* Flush entire branch target cache */
 		case 7:	/* Flush branch target cache - MVA */
-			//return kvm_init_l1_shadow(vcpu, vcpu->arch.shadow_pgtable);
-			kvm_msg("not implemented operation: CRm (%d), Op2 (%d)",
-					params->CRm, params->opcode2);
-			KVMARM_NOT_IMPLEMENTED();
+			/* TODO: Do something smarter, and think about
+			 * caches/TLB's in further implementations! */
+			return kvm_init_l1_shadow(vcpu, vcpu->arch.shadow_pgtable->pgd);
 		default:
 			ret = -EINVAL;
 		}
