@@ -1310,7 +1310,8 @@ int handle_shadow_perm(struct kvm_vcpu *vcpu,
 
 	/* Guest should never access the shared page */
 	if ((fault_addr >> PAGE_SHIFT) == (SHARED_PAGE_BASE >> PAGE_SHIFT)) {
-		BUG();
+		kvm_msg("guest accesses shared page at: 0x%08x", VCPU_REG(vcpu, 15));
+		return -EINVAL;
 	}
 
 	/* Check that the guest vector location is available */
