@@ -620,8 +620,15 @@ static int emulate_mcr_cache(struct coproc_params *params)
 					: [zero] "r" (0));
 			break;
 		case 1:	/* Invalidate i-cache line - MVA */
-			asm volatile("mcr	p15, 0, %[mva], c7, c5, 1":
-				: [mva] "r" (VCPU_REG(vcpu, params->rd_reg)));
+			asm volatile("mcr	p15, 0, %[zero], c7, c5, 0":
+					: [zero] "r" (0));
+			/* 
+			 * We cannot simply use the MVA directly, since the MVA
+			 * may not make sense in the host address space and
+			 * will cause problems. For now, disregarding performance,
+			 * we clear the entire data cache.
+			 * TODO: Consider optimizations
+			 */
 			break;
 		case 2:	/* Invalidate i-cache line - set */
 			asm volatile("mcr	p15, 0, %[set], c7, c5, 2":
@@ -644,8 +651,15 @@ static int emulate_mcr_cache(struct coproc_params *params)
 					: [zero] "r" (0));
 			break;
 		case 1:	/* Invalidate data cache line - MVA */
-			asm volatile("mcr	p15, 0, %[mva], c7, c6, 1":
-				: [mva] "r" (VCPU_REG(vcpu, params->rd_reg)));
+			asm volatile("mcr	p15, 0, %[zero], c7, c6, 0":
+					: [zero] "r" (0));
+			/* 
+			 * We cannot simply use the MVA directly, since the MVA
+			 * may not make sense in the host address space and
+			 * will cause problems. For now, disregarding performance,
+			 * we clear the entire data cache.
+			 * TODO: Consider optimizations
+			 */
 			break;
 		case 2:	/* Invalidate data cache line - set */
 			asm volatile("mcr	p15, 0, %[set], c7, c6, 2":
@@ -678,12 +692,23 @@ static int emulate_mcr_cache(struct coproc_params *params)
 	case 10:
 		switch (params->opcode2) {
 		case 0:	/* Clean entire data cache */
-			kvm_msg("not implemented operation: CRm (%d), Op2 (%d)",
-					params->CRm, params->opcode2);
-			KVMARM_NOT_IMPLEMENTED();
+			asm volatile("mcr	p15, 0, %[zero], c7, c10, 0":
+					: [zero] "r" (0));
+			/* 
+			 * TODO: Maybe this is not necessary if we flush everything
+			 * on context switches anyway?
+			 */
+			break;
 		case 1:	/* Clean data cache line - MVA */
-			asm volatile("mcr	p15, 0, %[mva], c7, c10, 1":
-					: [mva] "r" (VCPU_REG(vcpu, params->rd_reg)));
+			asm volatile("mcr	p15, 0, %[zero], c7, c10, 0":
+					: [zero] "r" (0));
+			/* 
+			 * We cannot simply use the MVA directly, since the MVA
+			 * may not make sense in the host address space and
+			 * will cause problems. For now, disregarding performance,
+			 * we clear the entire data cache.
+			 * TODO: Consider optimizations
+			 */
 			break;
 		case 2:	/* Clean data cache line - set */
 		case 3:	/* test and clean */
@@ -728,8 +753,15 @@ static int emulate_mcr_cache(struct coproc_params *params)
 					: [zero] "r" (0));
 			break;
 		case 1:	/* Clean and invalidate d-cache line - MVA */
-			asm volatile("mcr	p15, 0, %[mva], c7, c14, 2":
-					: [mva] "r" (VCPU_REG(vcpu, params->rd_reg)));
+			asm volatile("mcr	p15, 0, %[zero], c7, c14, 0":
+					: [zero] "r" (0));
+			/* 
+			 * We cannot simply use the MVA directly, since the MVA
+			 * may not make sense in the host address space and
+			 * will cause problems. For now, disregarding performance,
+			 * we clear the entire data cache.
+			 * TODO: Consider optimizations
+			 */
 			break;
 		case 2:	/* Clean and invalidate d-cache line - set */
 		case 3:	/* Test, clean, and invalidate */
