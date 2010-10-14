@@ -1228,6 +1228,7 @@ static int shmem_getpage(struct inode *inode, unsigned long idx,
 	swp_entry_t swap;
 	gfp_t gfp;
 	int error;
+	int flags = type ? *type : 0;
 
 	if (idx >= SHMEM_MAX_INDEX)
 		return -EFBIG;
@@ -1287,6 +1288,11 @@ repeat:
 		swappage = lookup_swap_cache(swap);
 		if (!swappage) {
 			shmem_swp_unmap(entry);
+			if (flags & FAULT_FLAG_MINOR) {
+				spin_unlock(&info->lock);
+				*type = VM_FAULT_MAJOR | VM_FAULT_ERROR;
+				goto failed;
+			}
 			/* here we actually do the io */
 			if (type && !(*type & VM_FAULT_MAJOR)) {
 				__count_vm_event(PGMAJFAULT);
@@ -1510,7 +1516,7 @@ static int shmem_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
 {
 	struct inode *inode = vma->vm_file->f_path.dentry->d_inode;
 	int error;
-	int ret;
+	int ret = (int)vmf->flags;
 
 	if (((loff_t)vmf->pgoff << PAGE_CACHE_SHIFT) >= i_size_read(inode))
 		return VM_FAULT_SIGBUS;

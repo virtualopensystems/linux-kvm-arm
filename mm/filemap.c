@@ -1548,6 +1548,9 @@ int filemap_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
 			goto no_cached_page;
 		}
 	} else {
+		if (vmf->flags & FAULT_FLAG_MINOR)
+			return VM_FAULT_MAJOR | VM_FAULT_ERROR;
+
 		/* No page in the page cache at all */
 		do_sync_mmap_readahead(vma, ra, file, offset);
 		count_vm_event(PGMAJFAULT);

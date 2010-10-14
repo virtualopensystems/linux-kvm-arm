@@ -39,6 +39,8 @@ static int ncp_file_mmap_fault(struct vm_area_struct *area,
 	int bufsize;
 	int pos; /* XXX: loff_t ? */
 
+	if (vmf->flags & FAULT_FLAG_MINOR)
+		return VM_FAULT_MAJOR | VM_FAULT_ERROR;
 	/*
 	 * ncpfs has nothing against high pages as long
 	 * as recvmsg and memset works on it
