@@ -131,6 +131,8 @@ handle_in_guest:
 	return 0;
 }
 
+extern void print_guest_pc_area(struct kvm_vcpu *vcpu);
+
 int kvm_emulate_sensitive(struct kvm_vcpu *vcpu, u32 instr)
 {
 	int op, ret = 0;
@@ -190,10 +192,19 @@ int kvm_emulate_sensitive(struct kvm_vcpu *vcpu, u32 instr)
 		break;
 	}
 
-	printk(KERN_ERR "kvm_emulate_sensitive: unknown privileged "
-			"instruction at 0x%08x: 0x%08x\n",
+	kvm_msg("unknown priv. instr. at 0x%08x: 0x%08x\n",
 			(unsigned int)vcpu->arch.regs[15],
 			(unsigned int)instr);
+	kvm_msg("vcpu mode: %d", vcpu->arch.mode);
+	kvm_msg("guest_instr-8: 0x%08x", vcpu->arch.shared_page->guest_instr_bef2);
+	kvm_msg("guest_instr-4: 0x%08x", vcpu->arch.shared_page->guest_instr_bef);
+	kvm_msg("guest_instr: 0x%08x", vcpu->arch.shared_page->guest_instr);
+	kvm_msg("guest_instr+4: 0x%08x", vcpu->arch.shared_page->guest_instr_aft);
+	kvm_msg("guest_instr+8: 0x%08x", vcpu->arch.shared_page->guest_instr_aft2);
+	kvm_msg("vcpu guest excpt. idx: 0x%08x", vcpu->arch.guest_exception);
+	print_ws_trace();
+	dump_stack();
+	print_guest_pc_area(vcpu);
 	return -EINVAL;
 }
 

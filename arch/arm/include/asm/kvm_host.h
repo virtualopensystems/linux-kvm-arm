@@ -113,6 +113,10 @@ struct shared_page {
 	unsigned long host_dac;
 	unsigned long host_asid;
 	unsigned long guest_instr;
+	unsigned long guest_instr_bef2;
+	unsigned long guest_instr_bef;
+	unsigned long guest_instr_aft;
+	unsigned long guest_instr_aft2;
 };
 
 struct kvm_vcpu_arch {

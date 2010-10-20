@@ -54,27 +54,33 @@ static u32 ws_trace_enter[WS_TRACE_ITEMS];
 static int ws_trace_enter_index = 0;
 static u32 ws_trace_exit[WS_TRACE_ITEMS];
 static int ws_trace_exit_index = 0;
+static u32 ws_trace_exit_codes[WS_TRACE_ITEMS];
 
 void print_ws_trace(void)
 {
 	int i;
 	
 	if (ws_trace_enter_index != ws_trace_exit_index) {
-		printk(KERN_ERR "enter and exit WS trace count differ:"
-			       "cannot write trace\n");
+		kvm_msg("enter and exit WS trace count differ");
 		return;
 	}
 
-	if (ws_trace_enter_index == WS_TRACE_ITEMS)
-		return; // Avoid potential endless loop
+	/* Avoid potential endless loop */
+	if (ws_trace_enter_index < 0 || ws_trace_enter_index >= WS_TRACE_ITEMS) {
+		kvm_msg("ws_trace_enter_index out of bounds: %d", ws_trace_enter_index);
+		return;
+	}
 
 	for (i = ws_trace_enter_index - 1; i != ws_trace_enter_index; i--) {
-		if (i < 0)
-			i = WS_TRACE_ITEMS - 1;
+		if (i < 0) {
+			i = WS_TRACE_ITEMS;
+			continue;
+		}
 
-		printk(KERN_ERR "Enter: %08x    Exit: %08x\n",
+		printk(KERN_ERR "Enter: %08x    Exit: %08x (%d)\n",
 			ws_trace_enter[i],
-			ws_trace_exit[i]);
+			ws_trace_exit[i],
+			ws_trace_exit_codes[i]);
 	}
 }
 
@@ -132,6 +138,60 @@ void print_shadow_mapping(struct kvm_vcpu *vcpu, gva_t gva)
 		u32 l2_entry = get_shadow_l2_entry(vcpu, gva);
 		kvm_msg("shadow l2_entry: %08x", l2_entry);
 	}
+}
+
+void print_guest_pc_area(struct kvm_vcpu *vcpu)
+{
+	gva_t gva = (gva_t)(VCPU_REG(vcpu, 15));
+	gfn_t gfn;
+	gpa_t gpa, from, to;
+	int ret;
+	void *data;
+	u32* ptr;
+
+	ret = gva_to_gfn(vcpu, gva, &gfn, 0, NULL);
+	if (ret < 0) {
+		kvm_err(ret, "could not translate PC address");
+		return;
+	}
+
+	if (!kvm_is_visible_gfn(vcpu->kvm, gfn)) {
+		kvm_err(-EINVAL, "invalid PC address");
+		return;
+	}
+
+	from = to = gpa = (gfn << PAGE_SHIFT) | (gva & ~PAGE_MASK);
+
+	/* Print -/+ 10 instructions, but only if in same page */
+	while (((from - 4) & PAGE_MASK) == (gpa & PAGE_MASK) && (gpa - from) < 40)
+		from = from - 4;
+	while (((to + 4) & PAGE_MASK) == (gpa & PAGE_MASK) && (to - gpa) < 40)
+		to = to + 4;
+
+	data = kmalloc(84, GFP_KERNEL);
+	if (!data) {
+		kvm_err(-ENOMEM, "cannot allocate buffer");
+		return;
+	}
+
+	ret = kvm_read_guest(vcpu->kvm, from, data, to - from);
+	if (ret < 0) {
+		kvm_err(-EINVAL, "cannot read guest addresses 0x%08x to 0x%08x",
+				from, to);
+		return;
+	}
+
+	gva = gva - (gpa - from);
+	ptr = (u32*)data;
+	while (from <= to) {
+		kvm_msg(" %c  0x%08x: 0x%08x", (from == gpa) ? '>' : '*',
+			gva, *(ptr));
+		from = from + 4;
+		gva = gva + 4;
+		ptr++;
+	}
+
+	kfree(data);
 }
 
 static int guest_wrote_vec = 0;
@@ -961,10 +1021,11 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 		raw_local_irq_restore(irq_flags);
 		kvm_guest_exit();
 
-		vcpu->arch.guest_exception = excpt_idx;
+		//vcpu->arch.guest_exception = excpt_idx;
 		post_guest_switch(vcpu); 
 
-		ws_trace_exit[ws_trace_exit_index++] = vcpu->arch.regs[15];
+		ws_trace_exit[ws_trace_exit_index] = vcpu->arch.regs[15];
+		ws_trace_exit_codes[ws_trace_exit_index++] = excpt_idx;
 		if (ws_trace_exit_index >= WS_TRACE_ITEMS)
 			ws_trace_exit_index = 0;
 
@@ -981,11 +1042,17 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 		if (run->exit_reason == KVM_EXIT_MMIO)
 			break;
 
-		if (need_resched())
+		if (need_resched()) {
+			kvm_msg("need_resched()");
 			schedule();
+			kvm_msg("came back");
+		}
 wait_for_interrupts:
-		while (vcpu->arch.wait_for_interrupts && !signal_pending(current))
+		while (vcpu->arch.wait_for_interrupts && !signal_pending(current)) {
+			kvm_msg("need_resched()");
 			schedule();
+			kvm_msg("came back");
+		}
 
 		if (signal_pending(current) && !(run->exit_reason)) {
 			run->exit_reason = KVM_EXIT_IRQ_WINDOW_OPEN;
@@ -1047,8 +1114,8 @@ static inline int handle_swi(struct kvm_vcpu *vcpu)
 		if ((instr & 0xffff) == 0xdead) {
 			kvm_msg("XXXXXXXXXXX    Exit point found    XXXXXXXXXXXXX!");
 			return -EINVAL;
-		//} else if ((instr & 0xffff) >= 0xde00 && (instr & 0xffff) < 0xdf00) {
-
+		} else if ((instr & 0xffff) >= 0xde00 && (instr & 0xffff) < 0xdf00) {
+			kvm_msg("instr: swi%x: ", (instr & 0xffff));
 		} else if ((instr & 0xffff) == 0xcafe) {
 			kvm_msg("register 0 on 0xcafe: %d", VCPU_REG(vcpu, 0));
 		} else if ((instr & 0xffff) == 0xbabe) {
@@ -1424,6 +1491,10 @@ static u32 handle_exit(struct kvm_vcpu *vcpu, u32 interrupt)
 			return ret;
 		break;
 	case ARM_EXCEPTION_IRQ:
+		if (VCPU_REG(vcpu, 15) > 0x00368800 &&
+		    VCPU_REG(vcpu, 15) < 0x003688ff) {
+			kvm_msg("irq at: 0x%08x", VCPU_REG(vcpu, 15));
+		}
 		break;
 	default:
 		kvm_err(-EINVAL, "VCPU: Bad exception code: %d", interrupt);

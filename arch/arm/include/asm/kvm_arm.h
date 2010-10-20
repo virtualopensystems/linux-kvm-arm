@@ -50,6 +50,7 @@ void __kvm_print_msg(char *_fmt, ...);
 
 extern bool trace_gva_to_gfn;
 void print_shadow_mapping(struct kvm_vcpu *vcpu, gva_t gva);
+void print_ws_trace(void);
 
 
 /*

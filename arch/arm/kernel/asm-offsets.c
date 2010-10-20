@@ -123,8 +123,10 @@ int main(void)
   DEFINE(VCPU_HOST_FSR,         offsetof(struct kvm_vcpu, arch.host_fsr));
   DEFINE(VCPU_HOST_IFSR,        offsetof(struct kvm_vcpu, arch.host_ifsr));
   DEFINE(VCPU_HOST_VEC_HIGH,    offsetof(struct kvm_vcpu, arch.host_vectors_high));
+  DEFINE(VCPU_EXCP_IDX,    	offsetof(struct kvm_vcpu, arch.guest_exception));
 
-  DEFINE(SHARED_SP,             offsetof(struct shared_page, shared_sp));
+  DEFINE(SIZEOF_SHARED_STRUCT,  sizeof(struct shared_page));
+  DEFINE(SHARED_SHARED_SP,      offsetof(struct shared_page, shared_sp));
   DEFINE(SHARED_RET_PTR,        offsetof(struct shared_page, return_ptr));
   DEFINE(SHARED_HOST_SP,        offsetof(struct shared_page, host_sp));
   DEFINE(SHARED_EXCEPTION_IDX,  offsetof(struct shared_page, exception_index));
@@ -136,7 +138,14 @@ int main(void)
   DEFINE(SHARED_HOST_TTBR,      offsetof(struct shared_page, host_ttbr));
   DEFINE(SHARED_SHADOW_TTBR,    offsetof(struct shared_page, shadow_ttbr));
   DEFINE(SHARED_GUEST_DAC,      offsetof(struct shared_page, guest_dac));
+  DEFINE(SHARED_GUEST_ASID,     offsetof(struct shared_page, guest_asid));
+  DEFINE(SHARED_HOST_DAC,       offsetof(struct shared_page, host_dac));
+  DEFINE(SHARED_HOST_ASID,      offsetof(struct shared_page, host_asid));
   DEFINE(SHARED_GUEST_INSTR,    offsetof(struct shared_page, guest_instr));
+  DEFINE(SHARED_GUEST_INSTR_B2, offsetof(struct shared_page, guest_instr_bef2));
+  DEFINE(SHARED_GUEST_INSTR_B,  offsetof(struct shared_page, guest_instr_bef));
+  DEFINE(SHARED_GUEST_INSTR_A,  offsetof(struct shared_page, guest_instr_aft));
+  DEFINE(SHARED_GUEST_INSTR_A2, offsetof(struct shared_page, guest_instr_aft2));
 #endif
 
   return 0; 

@@ -114,14 +114,52 @@ __guest_swi_handler:
 	ldr	r0, 1f				  @ read exception lr
 	sub	r0, r0, #4
 	str	r0, [lr, #(SHARED_GUEST_REGS + 4*15)] @ store fault address
-	ldr	r0, [r0]
-	str	r0, [lr, #SHARED_GUEST_INSTR]
+	ldr	r5, [r0]
+	str	r5, [lr, #SHARED_GUEST_INSTR]
+
+	@ Get page-masked version of instruction
+	ldr	r4, 4f
+	bic	r3, r0, r4
+
+	@ Save the instr before the SWI
+	sub	r1, r0, #8
+	bic	r2, r1, r4
+	cmp	r2, r3
+	movne	r1, #0
+	ldreq	r1, [r1]
+	str	r1, [lr, #SHARED_GUEST_INSTR_B2]
+
+	@ Save the instr before the SWI
+	sub	r1, r0, #4
+	bic	r2, r1, r4
+	cmp	r2, r3
+	movne	r1, #0
+	ldreq	r1, [r1]
+	str	r1, [lr, #SHARED_GUEST_INSTR_B]
+
+	@ Save the instr after the SWI
+	add	r1, r0, #4
+	bic	r2, r1, r4
+	cmp	r2, r3
+	movne	r1, #0
+	ldreq	r1, [r1]
+	str	r1, [lr, #SHARED_GUEST_INSTR_A]
+
+	@ Save the instr after the SWI
+	add	r1, r0, #8
+	bic	r2, r1, r4
+	cmp	r2, r3
+	movne	r1, #0
+	ldreq	r1, [r1]
+	str	r1, [lr, #SHARED_GUEST_INSTR_A2]
+
 	mov	r0, #ARM_EXCEPTION_SOFTWARE
 	str	r0, [lr, #SHARED_EXCEPTION_IDX]   @ store exception index on shared page
 	ldr	r1, [lr, #SHARED_RET_PTR]	  @ load return pointer into r0
 	mov	pc, r1				  @ jump to __exception_return
 1:	.word 0
 3:	.word SHARED_PAGE_BASE
+4:	.word 0xfff
 
 	.globl __guest_prefetch_abort_handler
 __guest_prefetch_abort_handler:
@@ -149,59 +187,11 @@ __irq_vector_end:
 
 .globl __shared_page_start
 __shared_page_start:
-__shared_sp:
-	.word 0
-__return_ptr:
-	.word 0
-__host_sp:
-	.word 0
+.space SIZEOF_SHARED_STRUCT
 
-__exception_index:
-	.word 0
-
-__guest_registers:
-	.rept 16
-	.word 0
-	.endr
-__guest_CPSR:
-	.word 0
-
-__host_registers:
-	.rept 16
-	.word	0
-	.endr
-__host_CPSR:
-	.word 0
-__host_SPSR:
-	.word 0
-
-__host_ttbr:
-	.word	0
-
-__shadow_ttbr:
-	.word	0
-
-__guest_dac:
-	.word	0
-
-__guest_asid:
-	.word	0
-
-__host_dac:
-	.word	0
-
-__host_asid:
-	.word	0
-
-__guest_instr:
-	.word	0
-
-#define HOST_REGS(n)    (__host_registers + (n * 4))
-#define HOST_CPSR	__host_CPSR
-#define HOST_SPSR	__host_SPSR
-
-#define GUEST_REGS(n)   (__guest_registers + (n * 4))
-#define GUEST_CPSR	__guest_CPSR
+#define SHARED(__var)   (__shared_page_start + SHARED_##__var)
+#define HOST_REGS(n)    (SHARED(HOST_REGS) + (n * 4))
+#define GUEST_REGS(n)   (SHARED(GUEST_REGS) + (n * 4))
 
 @Arguments:
 @ r0: will point to vcpu struct
@@ -214,13 +204,13 @@ __vcpu_run:
 	stmia	r1, {r2-r14}
 	mrs	r1, cpsr
 	mrs	r2, spsr
-	str	r1, HOST_CPSR
-	str	r2, HOST_SPSR
+	str	r1, SHARED(HOST_CPSR)
+	str	r2, SHARED(HOST_SPSR)
 	b	load_guest_cpsr @ Ensure correct IMB operation
 
 	@ Load guest CPSR into SPSR
 load_guest_cpsr:
-	ldr	r1, GUEST_CPSR
+	ldr	r1, SHARED(GUEST_CPSR)
 	msr	spsr_cxsf, r1
 	mrs	r1, spsr
 
@@ -233,19 +223,19 @@ load_guest_cpsr:
 	mcr	p15, 0, r2, c1, c0, 0
 
 	@ Set SP valid for shared page
-	str	sp, __host_sp
-	ldr	sp, __shared_sp
+	str	sp, SHARED(HOST_SP)
+	ldr	sp, SHARED(SHARED_SP)
 
 	@ Allow min. client access to the special KVM domain
 set_dacr:
 	mrc	p15, 0, r0, c3, c0, 0	@ get current dacr
-	str	r0, __host_dac
-	ldr	r1, __guest_dac
+	str	r0, SHARED(HOST_DAC)
+	ldr	r1, SHARED(GUEST_DAC)
 	orr	r0, r0, r1
 	mcr	p15, 0, r0, c3, c0, 0	@ set with KVM domain set to min. client
 
 #ifdef CONFIG_CPU_HAS_ASID
-	ldr	r1, __guest_asid
+	ldr	r1, SHARED(GUEST_ASID)
 	mcr	p15, 0, r1, c13, c0, 1		@ set context ID
 #endif
 
@@ -260,31 +250,30 @@ set_dacr:
 	 */
 
 	@ Switch the page tables
-	mrc	p15, 0, r0, c2, c0
-	str	r0, __host_ttbr
-	ldr	r0, __shadow_ttbr
 	mov	r2, #0
+
+	mcr	p15, 0, r2, c8, c7, 0	@ flush I,D TLBs
+
+	mrc	p15, 0, r0, c2, c0
+	str	r0, SHARED(HOST_TTBR)
+	ldr	r0, SHARED(SHADOW_TTBR)
 	mcr	p15, 0, r2, c7, c5, 6		@ flush BTAC/BTB
 	mcr	p15, 0, r2, c7, c10, 4		@ drain write buffer
+	mcr	p15, 0, r2, c7, c5, 4		@ prefetch flush
 	mcr	p15, 0, r0, c2, c0, 0		@ set TTB 0
-#if defined(CONFIG_CPU_CACHE_VIVT) && !defined(CONFIG_CPU_CACHE_VIPT)
-#ifdef HARVARD_CACHE
-	mcr	p15, 0, r2, c7, c14, 0		@ D cache clean+invalidate
-	mcr	p15, 0, r2, c7, c5, 0		@ I+BTB cache invalidate
-#else
-	mcr	p15, 0, r2, c7, c15, 0		@ Cache clean+invalidate
-#endif
-#endif
 
 	@ TEMP: Clean caches
-#ifdef HARVARD_CACHE
-	mcr	p15, 0, r2, c7, c14, 0		@ D cache clean+invalidate
-	mcr	p15, 0, r2, c7, c5, 0		@ I+BTB cache invalidate
-#else
-	mcr	p15, 0, r2, c7, c15, 0		@ Cache clean+invalidate
-#endif
+	mcr	p15, 0, r2, c7, c14, 0	@ clean+invalidate D
+	mcr	p15, 0, r2, c7, c5, 0	@ invalidate I+BTB
+	mcr	p15, 0, r2, c7, c15, 0	@ clean+invalidate unified
+	mcr	p15, 0, r2, c7, c10, 4	@ drain WB
 
-	mcr	p15, 0, r2, c8, c7, 0		@ invalidate I & D TLBs
+	mcr	p15, 0, r2, c7, c7, 0	@ invalidate whole cache v4
+	mcr	p15, 0, r2, c8, c7, 0	@ invalidate whole TLB v4
+
+	mcr	p15, 0, r2, c7, c5, 6		@ flush BTAC/BTB
+	mcr	p15, 0, r2, c7, c10, 4		@ data synchronization barrier
+	mcr	p15, 0, r2, c7, c5, 4		@ prefetch flush
 
 #if 0
 	@ Invalidate the kernel global TLB mappings
@@ -300,11 +289,11 @@ set_dacr:
 
 
 	@ Load the guest DACR for Domain Access Permissions
-	ldr	r1, __guest_dac
+	ldr	r1, SHARED(GUEST_DAC)
 	mcr	p15, 0, r1, c3, c0, 0
 
 	@ Load guest registers
-	adr	r0, __guest_registers
+	adr	r0, GUEST_REGS(0)
 	ldmia	r0, {r0-lr}^
 	ldr	lr, GUEST_REGS(15)
 
@@ -325,19 +314,19 @@ __task_size:
 __exception_return:
 	@ Make sure the domain allows the host page table access to this page
 	mrc	p15, 0, r2, c3, c0	@ get current dacr
-	ldr	r1, __host_dac
+	ldr	r1, SHARED(HOST_DAC)
 	orr	r2, r2, r1
 	mcr	p15, 0, r2, c3, c0
 
 	@ Switch the page tables
-	ldr	r1, __host_ttbr
+	ldr	r1, SHARED(HOST_TTBR)
 	mov	r2, #0
 	mcr	p15, 0, r2, c7, c5, 6		@ flush BTAC/BTB
 	mcr	p15, 0, r2, c7, c10, 4		@ drain write buffer
 	mcr	p15, 0, r1, c2, c0, 0		@ set TTB 0
 
 #ifdef CONFIG_CPU_HAS_ASID
-	ldr	r1, __host_asid
+	ldr	r1, SHARED(HOST_ASID)
 	mcr	p15, 0, r1, c13, c0, 1		@ set context ID
 #endif
 	mcr	p15, 0, r2, c8, c7, 0		@ invalidate I & D TLBs
@@ -352,14 +341,15 @@ __exception_return:
 
 
 	@ Load the host DACR for Domain Access Permissions
-	ldr	r1, __host_dac
+	ldr	r1, SHARED(HOST_DAC)
 	mcr	p15, 0, r1, c3, c0, 0
 
 	@ Restore SP
-	ldr	sp, __host_sp
+	ldr	sp, SHARED(HOST_SP)
 
 	@ Load VCPU pointer and exception index
 	ldr	r1, HOST_REGS(0)
+	str	r0, [r1, #VCPU_EXCP_IDX]
 
 	@ Set interrupt vector back to high vectors
 #if CONFIG_VECTORS_BASE == 0xffff0000
@@ -393,8 +383,8 @@ save_instr_far_fsr:
 	@ Restore host registers
 load_host_regs:
 	mov	r3, r0
-	ldr	r1, HOST_CPSR
-	ldr	r2, HOST_SPSR
+	ldr	r1, SHARED(HOST_CPSR)
+	ldr	r2, SHARED(HOST_SPSR)
 	msr	cpsr_csxf, r1
 	msr	spsr_cxsf, r2
 	adr	r1, HOST_REGS(1)
