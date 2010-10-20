@@ -73,7 +73,6 @@ struct kvm_vcpu {
 	struct kvm_run *run;
 	int guest_mode;
 	unsigned long requests;
-	struct kvm_guest_debug guest_debug;
 	int fpu_active;
 	int guest_fpu_loaded;
 	wait_queue_head_t wq;

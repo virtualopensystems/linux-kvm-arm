@@ -211,10 +211,9 @@ int kvm_arch_vcpu_runnable(struct kvm_vcpu *v)
 	return 1;
 }
 
-int kvm_arch_hardware_enable(void *garbage)
+void kvm_arch_hardware_enable(void *garbage)
 {
 	/* No virtualization hardware on ARM yet */
-	return 0;
 }
 
 void kvm_arch_hardware_disable(void *garbage)
@@ -931,6 +930,7 @@ void debug_exit_print(struct kvm_vcpu *vcpu, u32 interrupt)
 	return;
 }
 
+#if 0
 int kvm_arch_vcpu_ioctl_set_guest_debug(struct kvm_vcpu *vcpu,
 					struct kvm_guest_debug *dbg)
 {
@@ -940,7 +940,7 @@ int kvm_arch_vcpu_ioctl_set_guest_debug(struct kvm_vcpu *vcpu,
 	 * the original instructions and doesn't support disabling the
 	 * breakpoints again - if that at all is the idea between the ioctl!
 	 */
-#if 0
+
 	int ret;
 	u32 guest_instr;
 	gva_t gva = (gva_t)(dbg->arch.bp);
@@ -966,9 +966,9 @@ int kvm_arch_vcpu_ioctl_set_guest_debug(struct kvm_vcpu *vcpu,
 		kvm_err(ret, "could not write guest breakpoint!");
 		return ret;
 	}
-#endif
 	return 0;
 }
+#endif
 
 int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 {

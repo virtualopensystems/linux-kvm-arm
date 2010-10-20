@@ -33,7 +33,7 @@
 
 /* We don't currently support large pages. */
 #define KVM_NR_PAGE_SIZES		1
-#define KVM_PAGES_PER_HPAGE(x)		(1<<31)
+#define KVM_PAGES_PER_HPAGE		(1<<31)
 #define KVM_COALESCED_MMIO_PAGE_OFFSET	1
 
 struct kvm_arch {

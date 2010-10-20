@@ -1160,7 +1160,7 @@ __stubs_end:
 __vectors_start:
 	swi	SYS_ERROR0
 	b	vector_und + stubs_offset
-	ldr	pc, .__branch_swi_vector + stubs_offset
+	ldr	pc, __branch_swi_vector + stubs_offset
 	b	vector_pabt + stubs_offset
 	b	vector_dabt + stubs_offset
 	b	vector_addrexcptn + stubs_offset
