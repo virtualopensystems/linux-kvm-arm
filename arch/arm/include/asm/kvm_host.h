@@ -112,11 +112,8 @@ struct shared_page {
 	unsigned long guest_asid;
 	unsigned long host_dac;
 	unsigned long host_asid;
-	unsigned long guest_instr;
-	unsigned long guest_instr_bef2;
-	unsigned long guest_instr_bef;
-	unsigned long guest_instr_aft;
-	unsigned long guest_instr_aft2;
+	unsigned long guest_instr;	/* Inst. causing the excpt. */
+	unsigned long orig_instr;	/* Instr. following SWI instr. */
 };
 
 struct kvm_vcpu_arch {

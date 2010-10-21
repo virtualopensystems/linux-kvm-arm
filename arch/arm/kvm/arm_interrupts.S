@@ -126,37 +126,13 @@ __guest_swi_handler:
 	ldr	r4, 4f
 	bic	r3, r0, r4
 
-	@ Save the instr before the SWI
-	sub	r1, r0, #8
-	bic	r2, r1, r4
-	cmp	r2, r3
-	movne	r1, #0
-	ldreq	r1, [r1]
-	str	r1, [lr, #SHARED_GUEST_INSTR_B2]
-
-	@ Save the instr before the SWI
-	sub	r1, r0, #4
-	bic	r2, r1, r4
-	cmp	r2, r3
-	movne	r1, #0
-	ldreq	r1, [r1]
-	str	r1, [lr, #SHARED_GUEST_INSTR_B]
-
-	@ Save the instr after the SWI
+	@ Save the instr after the SWI (if in same page)
 	add	r1, r0, #4
 	bic	r2, r1, r4
 	cmp	r2, r3
 	movne	r1, #0
 	ldreq	r1, [r1]
-	str	r1, [lr, #SHARED_GUEST_INSTR_A]
-
-	@ Save the instr after the SWI
-	add	r1, r0, #8
-	bic	r2, r1, r4
-	cmp	r2, r3
-	movne	r1, #0
-	ldreq	r1, [r1]
-	str	r1, [lr, #SHARED_GUEST_INSTR_A2]
+	str	r1, [lr, #SHARED_ORIG_INSTR]
 
 	mov	r0, #ARM_EXCEPTION_SOFTWARE
 	str	r0, [lr, #SHARED_EXCEPTION_IDX]   @ store exception index on shared page

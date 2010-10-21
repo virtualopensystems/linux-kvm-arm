@@ -142,10 +142,7 @@ int main(void)
   DEFINE(SHARED_HOST_DAC,       offsetof(struct shared_page, host_dac));
   DEFINE(SHARED_HOST_ASID,      offsetof(struct shared_page, host_asid));
   DEFINE(SHARED_GUEST_INSTR,    offsetof(struct shared_page, guest_instr));
-  DEFINE(SHARED_GUEST_INSTR_B2, offsetof(struct shared_page, guest_instr_bef2));
-  DEFINE(SHARED_GUEST_INSTR_B,  offsetof(struct shared_page, guest_instr_bef));
-  DEFINE(SHARED_GUEST_INSTR_A,  offsetof(struct shared_page, guest_instr_aft));
-  DEFINE(SHARED_GUEST_INSTR_A2, offsetof(struct shared_page, guest_instr_aft2));
+  DEFINE(SHARED_ORIG_INSTR,     offsetof(struct shared_page, orig_instr));
 #endif
 
   return 0; 

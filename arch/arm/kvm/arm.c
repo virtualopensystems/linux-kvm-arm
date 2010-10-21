@@ -1046,17 +1046,11 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 		if (run->exit_reason == KVM_EXIT_MMIO)
 			break;
 
-		if (need_resched()) {
-			kvm_msg("need_resched()");
+		if (need_resched())
 			schedule();
-			kvm_msg("came back");
-		}
 wait_for_interrupts:
-		while (vcpu->arch.wait_for_interrupts && !signal_pending(current)) {
-			kvm_msg("need_resched()");
+		while (vcpu->arch.wait_for_interrupts && !signal_pending(current))
 			schedule();
-			kvm_msg("came back");
-		}
 
 		if (signal_pending(current) && !(run->exit_reason)) {
 			run->exit_reason = KVM_EXIT_IRQ_WINDOW_OPEN;
@@ -1123,8 +1117,9 @@ static inline int handle_swi(struct kvm_vcpu *vcpu)
 		} else if ((instr & 0xffff) == 0xcafe) {
 			kvm_msg("register 0 on 0xcafe: %d", VCPU_REG(vcpu, 0));
 		} else if ((instr & 0xffff) == 0xbabe) {
-			kvm_msg("register 0/1 on 0xbabe: %d/%d", VCPU_REG(vcpu, 0),
-					VCPU_REG(vcpu, 1));
+			/* 0xbabe toggles debugging on/off */
+			guest_debug ^= 0x1;
+			kvm_msg("debugging %s", (guest_debug) ? "on" : "off");
 		} else if ((instr & 0xffff) == 0xbeef) {
 			guest_debug = 0;
 		}
@@ -1146,18 +1141,20 @@ static inline int handle_swi(struct kvm_vcpu *vcpu)
 		vcpu->arch.exception_pending |= EXCEPTION_SOFTWARE;
 	} else {
 		/* An instruction that needs to be emulated */
-		hva_t hva = gva_to_hva(vcpu, addr + 4, 0);
-		if (kvm_is_error_hva(hva)) {
-			kvm_err(-EINVAL, "Instruction generated at "
-					 "bad address: %08x", vcpu->arch.regs[15]);
-			return -EINVAL;
+		if (vcpu->arch.shared_page->orig_instr != 0) {
+			orig_instr = vcpu->arch.shared_page->orig_instr;
+		} else {
+			hva_t hva = gva_to_hva(vcpu, addr + 4, 0);
+			if (kvm_is_error_hva(hva)) {
+				kvm_err(-EINVAL, "Instruction generated at "
+						 "bad address: %08x",
+						vcpu->arch.regs[15]);
+				return -EINVAL;
+			}
+
+			if (copy_from_user(&orig_instr, (void *)hva, sizeof(u32)))
+				return -EFAULT;
 		}
-
-		if (copy_from_user(&orig_instr, (void *)hva, sizeof(u32)))
-			return -EFAULT;
-
-		/*printk(KERN_ERR "Emulating instruction %08x (at 0x%08x)\n",
-				  orig_instr, (unsigned int)addr + 4);*/
 
 		ret = kvm_emulate_sensitive(vcpu, orig_instr);
 		if (ret < 0) 

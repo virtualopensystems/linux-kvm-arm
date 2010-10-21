@@ -195,11 +195,8 @@ int kvm_emulate_sensitive(struct kvm_vcpu *vcpu, u32 instr)
 			(unsigned int)vcpu->arch.regs[15],
 			(unsigned int)instr);
 	kvm_msg("vcpu mode: %d", vcpu->arch.mode);
-	kvm_msg("guest_instr-8: 0x%08x", vcpu->arch.shared_page->guest_instr_bef2);
-	kvm_msg("guest_instr-4: 0x%08x", vcpu->arch.shared_page->guest_instr_bef);
 	kvm_msg("guest_instr: 0x%08x", vcpu->arch.shared_page->guest_instr);
-	kvm_msg("guest_instr+4: 0x%08x", vcpu->arch.shared_page->guest_instr_aft);
-	kvm_msg("guest_instr+8: 0x%08x", vcpu->arch.shared_page->guest_instr_aft2);
+	kvm_msg("orig_instr: 0x%08x", vcpu->arch.shared_page->orig_instr);
 	kvm_msg("vcpu guest excpt. idx: 0x%08x", vcpu->arch.guest_exception);
 	print_ws_trace();
 	dump_stack();
