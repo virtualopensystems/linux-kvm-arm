@@ -793,7 +793,7 @@ static int pre_guest_switch(struct kvm_vcpu *vcpu)
 {
 	struct shared_page *shared = vcpu->arch.shared_page;
 	kvm_shadow_pgtable *shadow = vcpu->arch.shadow_pgtable;
-	u32 ttbr_cr;
+	u32 ttbr_cr, c1_acr;
 	int ret;
 #ifdef KVMARM_BIN_TRANSLATE 
 
@@ -858,15 +858,19 @@ static int pre_guest_switch(struct kvm_vcpu *vcpu)
 	 */
 	if (cpu_architecture() >= CPU_ARCH_ARMv6) {
 		asm ("mrc	p15, 0, %[res], c2, c0, 2": [res] "=r" (ttbr_cr));
-		BUG_ON(ttbr_cr != 0);
+		if (ttbr_cr != 0) {
+			kvm_msg("multiple TTBRs currently not supported");
+			return -EINVAL;
+		}
 	}
 
-	/*
-	if (guest_debug) {
-		printk(KERN_ERR "  ********0xffff0000 l2 mapping: 0x%08x\n",
-			get_shadow_l2_entry(vcpu, 0xffff0000));
+	if (cpu_architecture() >= CPU_ARCH_ARMv6) {
+		asm ("mrc	p15, 0, %[res], c1, c0, 1": [res] "=r" (c1_acr));
+		if ((c1_acr & 0x10) != 0) {
+			kvm_msg("Clean entire data cache disabled!");
+			return -EINVAL;
+		}
 	}
-	*/
 
 	return 0;
 }

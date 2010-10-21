@@ -132,7 +132,6 @@ handle_in_guest:
 }
 
 extern void print_guest_pc_area(struct kvm_vcpu *vcpu);
-
 int kvm_emulate_sensitive(struct kvm_vcpu *vcpu, u32 instr)
 {
 	int op, ret = 0;

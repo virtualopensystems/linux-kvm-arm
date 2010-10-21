@@ -23,6 +23,11 @@
 #include "../kernel/entry-header.S"
 #include <linux/sched.h>
 
+#ifdef CONFIG_CPU_V6
+#define HARVARD_CACHE
+#define HARVARD_TLB
+#endif
+
 @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 @  INTERRUPT VECTOR PAGE COMES HERE
 @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
@@ -185,6 +190,28 @@ __irq_vector_end:
 @  SHARED PAGE COMES HERE
 @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
+@ Clobbers r2
+.macro clean_cache_tlb_safe
+	mov	r2, #0
+#ifdef HARVARD_CACHE
+	mcr	p15, 0, r2, c7, c14, 0	@ Clean + Invalidate entire D-cache
+	mcr	p15, 0, r2, c7, c5,  0	@ Invalidate entire I-cache
+#else
+	mcr	p15, 0, r2, c7, c15, 0	@ Clean + Invalidate unified cache
+#endif
+	
+	mcr	p15, 0, r2, c7, c5,  4	@ Flush Prefetch Buffer
+
+#ifdef HARVARD_TLB
+	mcr	p15, 0, r2, c8, c6,  0	@ TLB invalidate D MVA
+	mcr	p15, 0, r2, c8, c5,  0	@ TLB invalidate I MVA
+#else
+	mcr	p15, 0, r2, c8, c7,  0	@ Invalidate Unified TLB
+#endif
+
+	mcr	p15, 0, r2, c7, c10, 4	@ Data Synchronization Barrier
+.endm
+
 .globl __shared_page_start
 __shared_page_start:
 .space SIZEOF_SHARED_STRUCT
@@ -248,32 +275,14 @@ set_dacr:
 	 *
 	 * For now, we assume the XP bit is simply 1.
 	 */
-
 	@ Switch the page tables
-	mov	r2, #0
-
-	mcr	p15, 0, r2, c8, c7, 0	@ flush I,D TLBs
-
-	mrc	p15, 0, r0, c2, c0
+	mrc	p15, 0, r0, c2, c0	@ Load Host TTBR
 	str	r0, SHARED(HOST_TTBR)
 	ldr	r0, SHARED(SHADOW_TTBR)
-	mcr	p15, 0, r2, c7, c5, 6		@ flush BTAC/BTB
-	mcr	p15, 0, r2, c7, c10, 4		@ drain write buffer
-	mcr	p15, 0, r2, c7, c5, 4		@ prefetch flush
-	mcr	p15, 0, r0, c2, c0, 0		@ set TTB 0
+	mcr	p15, 0, r0, c2, c0, 0	@ Set TTBR0 for shadow page table
 
-	@ TEMP: Clean caches
-	mcr	p15, 0, r2, c7, c14, 0	@ clean+invalidate D
-	mcr	p15, 0, r2, c7, c5, 0	@ invalidate I+BTB
-	mcr	p15, 0, r2, c7, c15, 0	@ clean+invalidate unified
-	mcr	p15, 0, r2, c7, c10, 4	@ drain WB
-
-	mcr	p15, 0, r2, c7, c7, 0	@ invalidate whole cache v4
-	mcr	p15, 0, r2, c8, c7, 0	@ invalidate whole TLB v4
-
-	mcr	p15, 0, r2, c7, c5, 6		@ flush BTAC/BTB
-	mcr	p15, 0, r2, c7, c10, 4		@ data synchronization barrier
-	mcr	p15, 0, r2, c7, c5, 4		@ prefetch flush
+	@ Invalidate and clean all caches and TLB entries
+	clean_cache_tlb_safe
 
 #if 0
 	@ Invalidate the kernel global TLB mappings
@@ -286,7 +295,6 @@ set_dacr:
 	bcs	1b
 	*/
 #endif
-
 
 	@ Load the guest DACR for Domain Access Permissions
 	ldr	r1, SHARED(GUEST_DAC)
@@ -318,27 +326,18 @@ __exception_return:
 	orr	r2, r2, r1
 	mcr	p15, 0, r2, c3, c0
 
+
 	@ Switch the page tables
 	ldr	r1, SHARED(HOST_TTBR)
-	mov	r2, #0
-	mcr	p15, 0, r2, c7, c5, 6		@ flush BTAC/BTB
-	mcr	p15, 0, r2, c7, c10, 4		@ drain write buffer
-	mcr	p15, 0, r1, c2, c0, 0		@ set TTB 0
+	mcr	p15, 0, r1, c2, c0, 0	@ set TTB 0
 
 #ifdef CONFIG_CPU_HAS_ASID
 	ldr	r1, SHARED(HOST_ASID)
 	mcr	p15, 0, r1, c13, c0, 1		@ set context ID
 #endif
-	mcr	p15, 0, r2, c8, c7, 0		@ invalidate I & D TLBs
 
-	@ TEMP: Clean caches
-#ifdef HARVARD_CACHE
-	mcr	p15, 0, r2, c7, c14, 0		@ D cache clean+invalidate
-	mcr	p15, 0, r2, c7, c5, 0		@ I+BTB cache invalidate
-#else
-	mcr	p15, 0, r2, c7, c15, 0		@ Cache clean+invalidate
-#endif
-
+	@ Invalidate and clean all caches and TLB entries
+	clean_cache_tlb_safe
 
 	@ Load the host DACR for Domain Access Permissions
 	ldr	r1, SHARED(HOST_DAC)
