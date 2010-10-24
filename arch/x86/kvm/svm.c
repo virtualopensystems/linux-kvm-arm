@@ -1022,7 +1022,7 @@ static void svm_vcpu_put(struct kvm_vcpu *vcpu)
 	load_gs_index(svm->host.gs);
 	wrmsrl(MSR_KERNEL_GS_BASE, current->thread.gs);
 #else
-	loadsegment(gs, gs_selector);
+	loadsegment(gs, svm->host.gs);
 #endif
 	for (i = 0; i < NR_HOST_SAVE_USER_MSRS; i++)
 		wrmsrl(host_save_user_msrs[i], svm->host_user_msrs[i]);
