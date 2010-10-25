@@ -1430,6 +1430,7 @@ static struct file_operations kvm_vcpu_fops = {
 	.unlocked_ioctl = kvm_vcpu_ioctl,
 	.compat_ioctl   = kvm_vcpu_ioctl,
 	.mmap           = kvm_vcpu_mmap,
+	.llseek		= noop_llseek,
 };
 
 /*
@@ -1899,6 +1900,7 @@ static struct file_operations kvm_vm_fops = {
 	.compat_ioctl   = kvm_vm_compat_ioctl,
 #endif
 	.mmap           = kvm_vm_mmap,
+	.llseek		= noop_llseek,
 };
 
 static int kvm_dev_ioctl_create_vm(void)
@@ -1992,6 +1994,7 @@ out:
 static struct file_operations kvm_chardev_ops = {
 	.unlocked_ioctl = kvm_dev_ioctl,
 	.compat_ioctl   = kvm_dev_ioctl,
+	.llseek		= noop_llseek,
 };
 
 static struct miscdevice kvm_dev = {
