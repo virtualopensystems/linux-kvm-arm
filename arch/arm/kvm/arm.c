@@ -1155,6 +1155,7 @@ static inline int handle_undefined(struct kvm_vcpu *vcpu)
 static inline int handle_swi(struct kvm_vcpu *vcpu)
 {
 	gva_t addr;
+	hva_t hva;
 	u32 instr, orig_instr;
 	int ret;
 
@@ -1213,21 +1214,22 @@ static inline int handle_swi(struct kvm_vcpu *vcpu)
 		vcpu->arch.exception_pending |= EXCEPTION_SOFTWARE;
 	} else {
 		/* An instruction that needs to be emulated */
-		if (vcpu->arch.shared_page->orig_instr != 0) {
-			orig_instr = vcpu->arch.shared_page->orig_instr;
-		} else {
-			hva_t hva = gva_to_hva(vcpu, addr + 4, 0);
-			if (kvm_is_error_hva(hva)) {
-				kvm_err(-EINVAL, "Instruction generated at "
-						 "bad address: %08x",
-						vcpu->arch.regs[15]);
-				return -EINVAL;
-			}
+		orig_instr = vcpu->arch.shared_page->orig_instr;
+		if (orig_instr != 0)
+			goto skip_copy_in;
 
-			if (copy_from_user(&orig_instr, (void *)hva, sizeof(u32)))
-				return -EFAULT;
+		/* Load the orig. instruction directly from memory */
+		hva = gva_to_hva(vcpu, addr + 4, 0);
+		if (kvm_is_error_hva(hva)) {
+			kvm_err(-EINVAL, "Instruction generated at "
+					 "bad address: %08x",
+					vcpu->arch.regs[15]);
+			return -EINVAL;
 		}
+		if (copy_from_user(&orig_instr, (void *)hva, sizeof(u32)))
+			return -EFAULT;
 
+skip_copy_in:
 		ret = kvm_emulate_sensitive(vcpu, orig_instr);
 		if (ret < 0) 
 			return ret;
