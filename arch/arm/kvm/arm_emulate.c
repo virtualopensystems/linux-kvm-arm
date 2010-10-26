@@ -131,7 +131,7 @@ handle_in_guest:
 	return 0;
 }
 
-extern void print_guest_pc_area(struct kvm_vcpu *vcpu);
+extern void print_guest_area(struct kvm_vcpu *vcpu, gva_t gva);
 int kvm_emulate_sensitive(struct kvm_vcpu *vcpu, u32 instr)
 {
 	int op, ret = 0;
@@ -200,7 +200,7 @@ int kvm_emulate_sensitive(struct kvm_vcpu *vcpu, u32 instr)
 	kvm_msg("vcpu guest excpt. idx: 0x%08x", vcpu->arch.guest_exception);
 	print_ws_trace();
 	dump_stack();
-	print_guest_pc_area(vcpu);
+	print_guest_area(vcpu, vcpu->arch.regs[15]);
 	return -EINVAL;
 }
 
@@ -614,6 +614,7 @@ static int emulate_mcr_cache(struct coproc_params *params)
 	case 0:
 		if (params->opcode2 == 4) {
 			/* Wait for interrupt */
+			kvm_trace_activity(50, "wait_for_interrupts");
 			vcpu->arch.wait_for_interrupts = 1;
 			return 0;
 		} else {
@@ -1247,7 +1248,6 @@ static int emulate_sensitive_dp_instr(struct kvm_vcpu *vcpu, u32 instr)
 	u8 rd_num, rn_num, rs_num, rm_num, opcode;
 	u32 shadow_result;
 	u32 shadow_instr = instr;
-	char *mode = NULL;
 
 	if (BIT_CLEAR(instr, DP_INSTR_S_BIT))
 		return -EINVAL;
@@ -1305,16 +1305,6 @@ static int emulate_sensitive_dp_instr(struct kvm_vcpu *vcpu, u32 instr)
 
 	VCPU_REG(vcpu, rd_num) = shadow_result;
 	kvm_cpsr_write(vcpu, VCPU_SPSR(vcpu));
-
-	switch (vcpu->arch.mode) {
-		case MODE_USER: mode = "USR"; break;
-		case MODE_FIQ: mode = "FIQ"; break;
-		case MODE_IRQ: mode = "IRQ"; break;
-		case MODE_SVC: mode = "SVC"; break;
-		case MODE_ABORT: mode = "ABT"; break;
-		case MODE_UNDEF: mode = "UND"; break;
-		case MODE_SYSTEM: mode = "SYS"; break;
-	}
 
 	return 0;
 }

@@ -20,6 +20,8 @@
 #include <linux/module.h>
 #include <linux/vmalloc.h>
 #include <linux/fs.h>
+#include <linux/proc_fs.h>
+#include <linux/seq_file.h>
 #include <linux/mman.h>
 #include <linux/jiffies.h>
 #include <linux/kfifo.h>
@@ -33,11 +35,14 @@
 u8 guest_debug = 0;
 u32 irq_return = 0;
 u32 irq_suppress = 0;
+unsigned int irq_on_off_count = 0;
 
 #include <asm/kvm_arm.h>
 #include <asm/kvm_asm.h>
 #include <asm/kvm_mmu.h>
 #include <asm/kvm_emulate.h>
+
+static struct kvm_vcpu *latest_vcpu = NULL;
 
 static u32        handle_exit(struct kvm_vcpu *vcpu, u32 interrupt);
 static int        pre_guest_switch(struct kvm_vcpu *vcpu);
@@ -49,12 +54,53 @@ static inline int handle_shadow_fault(struct kvm_vcpu *vcpu,
 static char __tmp_log_data[TMP_LOG_LEN];
 DEFINE_MUTEX(__tmp_log_lock);
 
-#define WS_TRACE_ITEMS 15
+#define WS_TRACE_ITEMS 25
 static u32 ws_trace_enter[WS_TRACE_ITEMS];
 static int ws_trace_enter_index = 0;
 static u32 ws_trace_exit[WS_TRACE_ITEMS];
 static int ws_trace_exit_index = 0;
 static u32 ws_trace_exit_codes[WS_TRACE_ITEMS];
+
+#define IRQ_ON_OFF_TRACE 25
+static u32 irq_on_off_trace_addr[IRQ_ON_OFF_TRACE];
+static u32 irq_on_off_trace_status[IRQ_ON_OFF_TRACE];
+static int irq_on_off_trace_index = 0;
+
+#define ACTIVITY_TRACE_ITEMS 50
+#define TRACE_DESCR_LEN 80
+static u32 activity_trace[ACTIVITY_TRACE_ITEMS];
+static u32 activity_trace_cnt[ACTIVITY_TRACE_ITEMS];
+static char activity_trace_descr[ACTIVITY_TRACE_ITEMS][TRACE_DESCR_LEN];
+static int activity_trace_index = 0;
+static bool trace_init = false;
+
+void kvm_trace_activity(unsigned int activity, char *fmt, ...)
+{
+	va_list ap;
+	unsigned int size;
+	unsigned int i;
+	char *ptr;
+
+	if (!trace_init) {
+		for (i = 0; i < ACTIVITY_TRACE_ITEMS; i++)
+			activity_trace_descr[i][0] = '\0';
+		trace_init = true;
+	}
+
+	if (activity_trace[activity_trace_index] == activity) {
+		activity_trace_cnt[activity_trace_index]++;
+	} else {
+		activity_trace_index = (activity_trace_index + 1)
+			% ACTIVITY_TRACE_ITEMS;
+		activity_trace[activity_trace_index] = activity;
+		activity_trace_cnt[activity_trace_index] = 0;
+
+		ptr = activity_trace_descr[activity_trace_index];
+		va_start(ap, fmt);
+		size = vsnprintf(ptr, TRACE_DESCR_LEN, fmt, ap);
+		va_end(ap);
+	}
+}
 
 void print_ws_trace(void)
 {
@@ -140,9 +186,9 @@ void print_shadow_mapping(struct kvm_vcpu *vcpu, gva_t gva)
 	}
 }
 
-void print_guest_pc_area(struct kvm_vcpu *vcpu)
+void print_guest_area(struct kvm_vcpu *vcpu, gva_t gva)
 {
-	gva_t gva = (gva_t)(VCPU_REG(vcpu, 15));
+	//gva_t gva = (gva_t)(VCPU_REG(vcpu, 15));
 	gfn_t gfn;
 	gpa_t gpa, from, to;
 	int ret;
@@ -504,6 +550,8 @@ struct kvm_vcpu *kvm_arch_vcpu_create(struct kvm *kvm, unsigned int id)
 	 * Start with guest debugging disabled
 	 */
 	guest_debug = 0;
+	irq_on_off_count = 0;
+	latest_vcpu = vcpu;
 
 	return vcpu;
 free_shadow:
@@ -525,6 +573,8 @@ void kvm_arch_vcpu_free(struct kvm_vcpu *vcpu)
 	kvm_shadow_pgtable *shadow, *tmp_shadow_iter;
 	//kvm_shadow_pgtable tmp_shadow_iter;
 	struct list_head *pgtables;
+
+	latest_vcpu = NULL;
 
 	/* FREE SOME TRANSLATION STRUCTURES HERE */
 
@@ -640,6 +690,8 @@ static inline int kvm_switch_mode(struct kvm_vcpu *vcpu, u8 new_cpsr)
 	}
 	vcpu->arch.mode = new_mode;
 
+	kvm_trace_activity(65, "switch mode");
+
 	return ret;
 }
 
@@ -654,6 +706,24 @@ void kvm_cpsr_write(struct kvm_vcpu *vcpu, u32 new_cpsr)
 	}
 
 	BUG_ON((new_cpsr & PSR_N_BIT) && (new_cpsr & PSR_Z_BIT));
+
+	if ((vcpu->arch.cpsr & PSR_I_BIT) != (new_cpsr & PSR_I_BIT))  {
+		int status = (new_cpsr & PSR_I_BIT) ? 0 : 1;
+		irq_on_off_trace_addr[irq_on_off_trace_index] = VCPU_REG(vcpu, 15);
+		irq_on_off_trace_status[irq_on_off_trace_index] = status;
+		irq_on_off_trace_index = (irq_on_off_trace_index + 1)
+			% IRQ_ON_OFF_TRACE;
+
+		irq_on_off_count++;
+		if (status) 
+			kvm_trace_activity(61, "IRQs on in guest");
+		else
+			kvm_trace_activity(60, "IRQs off in guest");
+
+		if (status && (vcpu->arch.exception_pending & EXCEPTION_IRQ) == 2) {
+			kvm_trace_activity(62, "should inject IRQ when turning on");
+		}
+	}
 
 	vcpu->arch.cpsr = new_cpsr;
 }
@@ -743,8 +813,6 @@ static int inject_guest_exception(struct kvm_vcpu *vcpu)
 	
 	if (vcpu->arch.exception_pending & EXCEPTION_PREFETCH) {
 		//kvm_msg("inject prefetch abort: 0x%08x", VCPU_REG(vcpu, 15));
-		//l2_pte = get_shadow_l2_entry(vcpu, 0xffff0000);
-		//kvm_msg("    l2_pte: 0x%08x\n", l2_pte);
 		vcpu->arch.banked_r14[MODE_ABORT] = vcpu->arch.regs[15] + 4;
 		vcpu->arch.banked_spsr[MODE_ABORT] = vcpu->arch.cpsr;
 
@@ -763,12 +831,12 @@ static int inject_guest_exception(struct kvm_vcpu *vcpu)
 
 	if (vcpu->arch.exception_pending & EXCEPTION_IRQ) {
 		//if ((vcpu->arch.cpsr & PSR_I_BIT) || guest_debug || irq_suppress)
-		if (vcpu->arch.cpsr & PSR_I_BIT) {
+		//kvm_trace_activity(200, "check if PSR_I_BIT is set");
+		if (vcpu->arch.cpsr & PSR_I_BIT)
 			return 0;
-		}
 
-		//kvm_msg("inject irq: 0x%08x", VCPU_REG(vcpu, 15));
-		
+		//kvm_trace_activity(201, "inject irq");
+
 		vcpu->arch.banked_r14[MODE_IRQ] = vcpu->arch.regs[15] + 4;
 		vcpu->arch.banked_spsr[MODE_IRQ] = vcpu->arch.cpsr;
 
@@ -984,8 +1052,10 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 		run->exit_reason = KVM_EXIT_UNKNOWN;
 
 	for (;;) {
-		if (vcpu->arch.wait_for_interrupts)
+		if (vcpu->arch.wait_for_interrupts) {
+			kvm_trace_activity(10, "skip guest_enter (WFI)");
 			goto wait_for_interrupts;
+		}
 
 		ret = pre_guest_switch(vcpu);
 		if (ret < 0)
@@ -1021,11 +1091,13 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 			return -EINVAL;
 		}
 		raw_local_irq_save(irq_flags);
+		kvm_trace_activity(1, "before vcpu->arch.run(vcpu)");
 		excpt_idx = vcpu->arch.run(vcpu);
+		kvm_trace_activity(2, "after vcpu->arch.run(vcpu)");
 		raw_local_irq_restore(irq_flags);
 		kvm_guest_exit();
 
-		//vcpu->arch.guest_exception = excpt_idx;
+		vcpu->arch.guest_exception = excpt_idx;
 		post_guest_switch(vcpu); 
 
 		ws_trace_exit[ws_trace_exit_index] = vcpu->arch.regs[15];
@@ -1053,6 +1125,7 @@ wait_for_interrupts:
 			schedule();
 
 		if (signal_pending(current) && !(run->exit_reason)) {
+			kvm_trace_activity(20, "exit KVM_EXIT_IRQ_WINDOW_OPEN");
 			run->exit_reason = KVM_EXIT_IRQ_WINDOW_OPEN;
 			break;
 		}
@@ -1096,7 +1169,6 @@ static inline int handle_swi(struct kvm_vcpu *vcpu)
 		return ret;
 	}
 #endif
-	if (guest_debug) kvm_msg("instr: 0x%08x", instr);
 #ifdef KVMARM_BIN_TRANSLATE 
 	orig_instr = get_orig_instr(vcpu, addr);
 #endif
@@ -1539,9 +1611,18 @@ static int kvm_vcpu_ioctl_interrupt(struct kvm_vcpu *vcpu,
 	}
 
 	if (intr->raise) {
+		if (mask == EXCEPTION_IRQ)
+			kvm_trace_activity(101, "raise IRQ");
+		else if (mask == EXCEPTION_FIQ)
+			kvm_trace_activity(102, "raise FIQ");
 		vcpu->arch.exception_pending |= mask;
 		vcpu->arch.wait_for_interrupts = 0;
 	} else {
+		if (mask == EXCEPTION_IRQ)
+			kvm_trace_activity(103, "lower IRQ");
+		else if (mask == EXCEPTION_FIQ)
+			kvm_trace_activity(104, "lower FIQ");
+
 		vcpu->arch.exception_pending &= ~mask;
 	}
 
@@ -1596,9 +1677,215 @@ void kvm_arch_exit(void)
 {
 }
 
+#define PRINT_FN_ARGS struct seq_file *, const char *, ...
+static void print_kvm_debug_info(int (*print_fn)(PRINT_FN_ARGS), struct seq_file *m)
+{
+	int i;
+	char *mode = NULL;
+	char *exceptions[7];
+	struct kvm_vcpu *vcpu = latest_vcpu;
+
+	print_fn(m, "KVM/ARM runtime info\n");
+	print_fn(m, "======================================================\n\n");
+
+	if (vcpu == NULL) {
+		print_fn(m, "No registered VCPU\n");
+		goto print_ws_hist;
+	}
+	
+	switch (vcpu->arch.mode) {
+		case MODE_USER:   mode = "USR"; break;
+		case MODE_FIQ:    mode = "FIQ"; break;
+		case MODE_IRQ:    mode = "IRQ"; break;
+		case MODE_SVC:    mode = "SVC"; break;
+		case MODE_ABORT:  mode = "ABT"; break;
+		case MODE_UNDEF:  mode = "UND"; break;
+		case MODE_SYSTEM: mode = "SYS"; break;
+	}
+
+	print_fn(m, "Virtual CPU state:\n\n");
+	print_fn(m, "PC is at: \t0x%08x\n", vcpu->arch.regs[15]);
+	print_fn(m, "CPSR:     \t0x%08x (Mode: %s)  (IRQs: %s)  (FIQs: %s) "
+		      "  (Vec: %s)",
+		      vcpu->arch.cpsr, mode,
+		      (vcpu->arch.cpsr & PSR_I_BIT) ? "off" : "on",
+		      (vcpu->arch.cpsr & PSR_F_BIT) ? "off" : "on",
+		      (vcpu->arch.cpsr & PSR_V_BIT) ? "high" : "low");
+
+	for (i = 0; i <= 12; i++) {
+		if ((i % 4) == 0)
+			print_fn(m, "\nregs[%u]: ", i);
+
+		print_fn(m, "\t0x%08x", vcpu->arch.regs[i]);
+	}
+
+	print_fn(m, "\n\n");
+	print_fn(m, "Banked registers:  \tr13\t\tr14\t\tspsr\n");
+	print_fn(m, "-----------------------------------------------------\n");
+	print_fn(m, "             USR:  \t0x%08x\t0x%08x\t----------\n",
+			vcpu->arch.regs[13],
+			vcpu->arch.regs[14]);
+	print_fn(m, "             SVC:  \t0x%08x\t0x%08x\t0x%08x\n",
+			vcpu->arch.banked_r13[MODE_SVC],
+			vcpu->arch.banked_r14[MODE_SVC],
+			vcpu->arch.banked_spsr[MODE_SVC]);
+	print_fn(m, "             ABT:  \t0x%08x\t0x%08x\t0x%08x\n",
+			vcpu->arch.banked_r13[MODE_ABORT],
+			vcpu->arch.banked_r14[MODE_ABORT],
+			vcpu->arch.banked_spsr[MODE_ABORT]);
+	print_fn(m, "             UND:  \t0x%08x\t0x%08x\t0x%08x\n",
+			vcpu->arch.banked_r13[MODE_UNDEF],
+			vcpu->arch.banked_r14[MODE_UNDEF],
+			vcpu->arch.banked_spsr[MODE_UNDEF]);
+	print_fn(m, "             IRQ:  \t0x%08x\t0x%08x\t0x%08x\n",
+			vcpu->arch.banked_r13[MODE_IRQ],
+			vcpu->arch.banked_r14[MODE_IRQ],
+			vcpu->arch.banked_spsr[MODE_IRQ]);
+	print_fn(m, "             FIQ:  \t0x%08x\t0x%08x\t0x%08x\n",
+			vcpu->arch.banked_r13[MODE_FIQ],
+			vcpu->arch.banked_r14[MODE_FIQ],
+			vcpu->arch.banked_spsr[MODE_FIQ]);
+
+	print_fn(m, "\n");
+	print_fn(m, "fiq regs:\t0x%08x\t0x%08x\t0x%08x\t0x%08x\n"
+			  "         \t0x%08x\n",
+			vcpu->arch.fiq_regs[0],
+			vcpu->arch.fiq_regs[1],
+			vcpu->arch.fiq_regs[2],
+			vcpu->arch.fiq_regs[3],
+			vcpu->arch.fiq_regs[4]);
+
+print_ws_hist:
+	/*
+	 * Print world-switch trace circular buffer
+	 */
+	print_fn(m, "\n\nWorld switch history:\n");
+	print_fn(m, "---------------------\n");
+
+	if (ws_trace_enter_index != ws_trace_exit_index ||
+			ws_trace_enter_index < 0 ||
+			ws_trace_enter_index >= WS_TRACE_ITEMS)
+		goto print_irq_hist;
+
+	exceptions[0] = "reset";
+	exceptions[1] = "undefined";
+	exceptions[2] = "software";
+	exceptions[3] = "prefetch abort";
+	exceptions[4] = "data abort";
+	exceptions[5] = "irq";
+	exceptions[6] = "fiq";
+
+	for (i = ws_trace_enter_index - 1; i != ws_trace_enter_index; i--) {
+		if (i < 0) {
+			i = WS_TRACE_ITEMS;
+			continue;
+		}
+
+		print_fn(m, "Enter: %08x    Exit: %08x (%s)\n",
+			ws_trace_enter[i], ws_trace_exit[i],
+			exceptions[ws_trace_exit_codes[i]]);
+	}
+
+
+print_irq_hist:
+	/*
+	 * Print IRQ on/off circular buffer
+	 */
+	print_fn(m, "\n\nIRQs on/off circular buffer:\n");
+	print_fn(m, "-----------------------------\n");
+	for (i = irq_on_off_trace_index - 1; i != irq_on_off_trace_index; i--) {
+		if (i < 0) {
+			i = IRQ_ON_OFF_TRACE;
+			continue;
+		}
+
+		print_fn(m, "IRQs %s at:\t%08x\n",
+				(irq_on_off_trace_status[i]) ? "on" : "off",
+				irq_on_off_trace_addr[i]);
+	}
+
+	print_fn(m, "\n\n");
+	print_fn(m, "Total switch count: %lu\n", irq_on_off_count);
+
+	/*
+	 * Print activity trace
+	 */
+	print_fn(m, "\n\nActivity circular buffer:\n");
+	print_fn(m, "-----------------------------\n");
+	for (i = activity_trace_index - 1; i != activity_trace_index; i--) {
+		if (i < 0) {
+			i = ACTIVITY_TRACE_ITEMS;
+			continue;
+		}
+
+		print_fn(m, "%lu: \t %s\n",
+				activity_trace_cnt[i],
+				activity_trace_descr[i]);
+	}
+
+
+	return;
+}
+
+static int __printk_relay(struct seq_file *m, const char *fmt, ...)
+{
+	va_list ap;
+	va_start(ap, fmt);
+	vprintk(fmt, ap);
+	va_end(ap);
+	return 0;
+}
+
+void kvm_dump_vcpu_state(struct kvm_vcpu *vcpu)
+{
+	print_kvm_debug_info(&__printk_relay, NULL);
+}
+
+static int k_show(struct seq_file *m, void *v)
+{
+	print_kvm_debug_info(&seq_printf, m);
+	return 0;
+}
+
+static void *k_start(struct seq_file *m, loff_t *pos)
+{
+	return *pos < 1 ? (void *)1 : NULL;
+}
+
+static void *k_next(struct seq_file *m, void *v, loff_t *pos)
+{
+	++*pos;
+	return NULL;
+}
+
+static void k_stop(struct seq_file *m, void *v)
+{
+}
+
+static const struct seq_operations kvmproc_op = {
+	.start	= k_start,
+	.next	= k_next,
+	.stop	= k_stop,
+	.show	= k_show
+};
+
+static int kvm_open(struct inode *inode, struct file *file)
+{
+	return seq_open(file, &kvmproc_op);
+}
+
+static const struct file_operations proc_kvm_operations = {
+	.open		= kvm_open,
+	.read		= seq_read,
+	.llseek		= seq_lseek,
+	.release	= seq_release,
+};
+
 static int arm_init(void)
 {
 	int rc = kvm_init(NULL, sizeof(struct kvm_vcpu), THIS_MODULE);
+	if (rc == 0)
+		proc_create("kvm", 0, NULL, &proc_kvm_operations);
 	return rc;
 }
 

@@ -36,6 +36,8 @@
 #define KVM_PAGES_PER_HPAGE		(1<<31)
 #define KVM_COALESCED_MMIO_PAGE_OFFSET	1
 
+struct kvm_vcpu;
+
 struct kvm_arch {
 };
 
@@ -278,70 +280,6 @@ static inline gpa_t kvm_guest_ttbr(struct kvm_vcpu_arch *vcpu_arch, gva_t gva)
 /*
  * Dump virtual CPU state into kernel log buffer
  */
-static inline void kvm_dump_vcpu_state(struct kvm_vcpu_arch *vcpu_arch)
-{
-	int i;
-	char *mode = NULL;
-
-	switch (vcpu_arch->mode) {
-		case MODE_USER: mode = "USR"; break;
-		case MODE_FIQ: mode = "FIQ"; break;
-		case MODE_IRQ: mode = "IRQ"; break;
-		case MODE_SVC: mode = "SVC"; break;
-		case MODE_ABORT: mode = "ABT"; break;
-		case MODE_UNDEF: mode = "UND"; break;
-		case MODE_SYSTEM: mode = "SYS"; break;
-	}
-
-	printk(KERN_DEBUG "\n");
-	printk(KERN_DEBUG "\n");
-	printk(KERN_DEBUG "=================================================\n");
-	printk(KERN_DEBUG "Virtual CPU state:\n");
-	printk(KERN_DEBUG "\n");
-	for (i = 0; i <= 15; i++) {
-		printk(KERN_DEBUG "user regs[%u]:\t0x%08x\t0x%08x\t0x%08x\t0x%08x\n",
-				i,
-				vcpu_arch->regs[i], vcpu_arch->regs[i+1],
-				vcpu_arch->regs[i+2], vcpu_arch->regs[i+3]);
-		i += 3;
-	}
-	printk(KERN_DEBUG "\n");
-	printk(KERN_DEBUG "fiq regs:\t0x%08x\t0x%08x\t0x%08x\t0x%08x\n"
-			  "         \t0x%08x\n",
-			vcpu_arch->fiq_regs[0],
-			vcpu_arch->fiq_regs[1],
-			vcpu_arch->fiq_regs[2],
-			vcpu_arch->fiq_regs[3],
-			vcpu_arch->fiq_regs[4]);
-
-	printk(KERN_DEBUG "\n");
-	printk(KERN_DEBUG "cpsr: 0x%08x (mode: %s)\n", vcpu_arch->cpsr, mode);
-
-	printk(KERN_DEBUG "\n");
-	printk(KERN_DEBUG "Banked registers:  \tr13\t\tr14\t\tspsr\n");
-	printk(KERN_DEBUG "             SVC:  \t0x%08x\t0x%08x\t0x%08x\n",
-			vcpu_arch->banked_r13[MODE_SVC],
-			vcpu_arch->banked_r14[MODE_SVC],
-			vcpu_arch->banked_spsr[MODE_SVC]);
-	printk(KERN_DEBUG "             ABT:  \t0x%08x\t0x%08x\t0x%08x\n",
-			vcpu_arch->banked_r13[MODE_ABORT],
-			vcpu_arch->banked_r14[MODE_ABORT],
-			vcpu_arch->banked_spsr[MODE_ABORT]);
-	printk(KERN_DEBUG "             UND:  \t0x%08x\t0x%08x\t0x%08x\n",
-			vcpu_arch->banked_r13[MODE_UNDEF],
-			vcpu_arch->banked_r14[MODE_UNDEF],
-			vcpu_arch->banked_spsr[MODE_UNDEF]);
-	printk(KERN_DEBUG "             IRQ:  \t0x%08x\t0x%08x\t0x%08x\n",
-			vcpu_arch->banked_r13[MODE_IRQ],
-			vcpu_arch->banked_r14[MODE_IRQ],
-			vcpu_arch->banked_spsr[MODE_IRQ]);
-	printk(KERN_DEBUG "             FIQ:  \t0x%08x\t0x%08x\t0x%08x\n",
-			vcpu_arch->banked_r13[MODE_FIQ],
-			vcpu_arch->banked_r14[MODE_FIQ],
-			vcpu_arch->banked_spsr[MODE_FIQ]);
-
-
-	printk(KERN_DEBUG "=================================================\n");
-}
+void kvm_dump_vcpu_state(struct kvm_vcpu *);
 
 #endif /* __ARM_KVM_HOST_H__ */

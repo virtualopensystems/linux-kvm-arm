@@ -767,7 +767,7 @@ int kvm_init_l1_shadow(struct kvm_vcpu *vcpu, u32 *pgd)
 	int ret = 0;
 	gva_t exception_base;
 
-	kvm_msg("flushing shadow page table at: 0x%08x!", vcpu->arch.regs[15]);
+	//kvm_msg("flushing shadow page table at: 0x%08x!", vcpu->arch.regs[15]);
 
 	if (pgd == NULL) {
 		kvm_msg("Weird pgd == NULL!");
