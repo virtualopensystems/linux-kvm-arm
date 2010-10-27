@@ -804,6 +804,7 @@ EXPORT_SYMBOL_GPL(kvm_vcpu_init);
 void kvm_vcpu_uninit(struct kvm_vcpu *vcpu)
 {
 	kvm_arch_vcpu_uninit(vcpu);
+	virt_to_page(vcpu->run)->mapping = NULL;
 	free_page((unsigned long)vcpu->run);
 }
 EXPORT_SYMBOL_GPL(kvm_vcpu_uninit);
@@ -1111,7 +1112,7 @@ int __kvm_set_memory_region(struct kvm *kvm,
 
 	r = -EINVAL;
 	/* General sanity checks */
-	if (mem->memory_size & (PAGE_SIZE - 1))
+	if (user_alloc && (mem->memory_size & (PAGE_SIZE - 1)))
 		goto out;
 	if (mem->guest_phys_addr & (PAGE_SIZE - 1))
 		goto out;
@@ -1299,8 +1300,11 @@ int kvm_vm_ioctl_set_memory_region(struct kvm *kvm,
 				   kvm_userspace_memory_region *mem,
 				   int user_alloc)
 {
-	if (mem->slot >= KVM_MEMORY_SLOTS)
+	if (mem->slot >= KVM_MEMORY_SLOTS) {
+		printk(KERN_ERR "kvm_vm_ioctl_set_memory_region: Not enough "
+							 "memory slots, required: %d.\n", mem->slot);
 		return -EINVAL;
+	}
 	return kvm_set_memory_region(kvm, mem, user_alloc);
 }
 
@@ -1400,6 +1404,7 @@ int kvm_is_visible_gfn(struct kvm *kvm, gfn_t gfn)
 		    && gfn < memslot->base_gfn + memslot->npages)
 			return 1;
 	}
+
 	return 0;
 }
 EXPORT_SYMBOL_GPL(kvm_is_visible_gfn);
@@ -1722,7 +1727,10 @@ static int kvm_vcpu_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
 #endif
 	else
 		return VM_FAULT_SIGBUS;
+
+	page->mapping = vma->vm_file->f_mapping;
 	get_page(page);
+	__SetPageUptodate(page);
 	vmf->page = page;
 	return 0;
 }

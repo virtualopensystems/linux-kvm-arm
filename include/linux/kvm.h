@@ -12,6 +12,13 @@
 #include <linux/ioctl.h>
 #include <asm/kvm.h>
 
+#define DBA(expr, prefer, fmt, args...) do { 		\
+	if(0 && expr)				\
+		printk(KERN_ALERT fmt, args);	\
+	else					\
+		printk(prefer fmt, args);	\
+} while(0)
+
 #define KVM_API_VERSION 12
 
 /* for KVM_TRACE_ENABLE, deprecated */
@@ -140,9 +147,6 @@ struct kvm_run {
 			__u32 count;
 			__u64 data_offset; /* relative to kvm_run start */
 		} io;
-		struct {
-			struct kvm_debug_exit_arch arch;
-		} debug;
 		/* KVM_EXIT_MMIO */
 		struct {
 			__u64 phys_addr;
@@ -234,6 +238,7 @@ struct kvm_translation {
 struct kvm_interrupt {
 	/* in */
 	__u32 irq;
+	__u8 raise;
 };
 
 /* for KVM_GET_DIRTY_LOG */
