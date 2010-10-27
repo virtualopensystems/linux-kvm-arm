@@ -43,6 +43,8 @@
 
 #ifdef __KERNEL__
 
+#ifndef __ASSEMBLY__
+
 struct sched_param {
 	int sched_priority;
 };
@@ -1750,6 +1752,8 @@ static inline void put_task_struct(struct task_struct *t)
 extern void task_times(struct task_struct *p, cputime_t *ut, cputime_t *st);
 extern void thread_group_times(struct task_struct *p, cputime_t *ut, cputime_t *st);
 
+#endif /* __ASSEMBLER__ */
+
 /*
  * Per process flags
  */
@@ -1785,6 +1789,8 @@ extern void thread_group_times(struct task_struct *p, cputime_t *ut, cputime_t *
 #define PF_MUTEX_TESTER	0x20000000	/* Thread belongs to the rt mutex tester */
 #define PF_FREEZER_SKIP	0x40000000	/* Freezer should not count it as freezeable */
 #define PF_FREEZER_NOSIG 0x80000000	/* Freezer won't send signals to it */
+
+#ifndef __ASSEMBLER__
 
 /*
  * Only the _current_ task can read/write to tsk->flags, but other
@@ -2629,6 +2635,8 @@ static inline unsigned long rlimit_max(unsigned int limit)
 {
 	return task_rlimit_max(current, limit);
 }
+
+#endif /* __ASSEMBLER__ */
 
 #endif /* __KERNEL__ */
 

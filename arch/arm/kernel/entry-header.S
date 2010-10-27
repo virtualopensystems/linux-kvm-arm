@@ -164,6 +164,50 @@
 #endif	/* !CONFIG_THUMB2_KERNEL */
 
 /*
+ * User entry code for interrupt handlers
+ *
+ */
+	.macro	usr_entry
+ UNWIND(.fnstart	)
+ UNWIND(.cantunwind	)	@ don't unwind the user space
+	sub	sp, sp, #S_FRAME_SIZE
+ ARM(	stmib	sp, {r1 - r12}	)
+ THUMB(	stmia	sp, {r0 - r12}	)
+
+	ldmia	r0, {r1 - r3}
+	add	r0, sp, #S_PC		@ here for interlock avoidance
+	mov	r4, #-1			@  ""  ""     ""        ""
+
+	str	r1, [sp]		@ save the "real" r0 copied
+					@ from the exception stack
+
+	@
+	@ We are now ready to fill in the remaining blanks on the stack:
+	@
+	@  r2 - lr_<exception>, already fixed up for correct return/restart
+	@  r3 - spsr_<exception>
+	@  r4 - orig_r0 (see pt_regs definition in ptrace.h)
+	@
+	@ Also, separately save sp_usr and lr_usr
+	@
+	stmia	r0, {r2 - r4}
+ ARM(	stmdb	r0, {sp, lr}^			)
+ THUMB(	store_user_sp_lr r0, r1, S_SP - S_PC	)
+
+	@
+	@ Enable the alignment trap while in kernel mode
+	@
+	alignment_trap r0
+
+	@
+	@ Clear FP to mark the first stack frame
+	@
+	zero_fp
+
+	asm_trace_hardirqs_off
+	.endm
+
+/*
  * These are the registers used in the syscall handler, and allow us to
  * have in theory up to 7 arguments to a function - r0 to r6.
  *
