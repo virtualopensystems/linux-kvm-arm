@@ -864,7 +864,7 @@ static int pre_guest_switch(struct kvm_vcpu *vcpu)
 {
 	struct shared_page *shared = vcpu->arch.shared_page;
 	kvm_shadow_pgtable *shadow = vcpu->arch.shadow_pgtable;
-	u32 ttbr_cr, c1_acr;
+	u32 ttbr_cr, c1_acr, c13_fcse;
 	int ret;
 #ifdef KVMARM_BIN_TRANSLATE 
 
@@ -935,10 +935,24 @@ static int pre_guest_switch(struct kvm_vcpu *vcpu)
 		}
 	}
 
+	/*
+	 * Check cache cleaning functions
+	 */
 	if (cpu_architecture() >= CPU_ARCH_ARMv6) {
 		asm ("mrc	p15, 0, %[res], c1, c0, 1": [res] "=r" (c1_acr));
 		if ((c1_acr & 0x10) != 0) {
 			kvm_msg("Clean entire data cache disabled!");
+			return -EINVAL;
+		}
+	}
+
+	/*
+	 * Check that FCSE is disabled
+	 */
+	if (cpu_architecture() >= CPU_ARCH_ARMv6) {
+		asm ("mrc	p15, 0, %[res], c13, c0, 0": [res] "=r" (c13_fcse));
+		if ((c13_fcse & 0xfe000000) != 0) {
+			kvm_msg("FCSE is not disabled (PID != 0) aborting");
 			return -EINVAL;
 		}
 	}
