@@ -249,12 +249,16 @@ gfn_t unalias_gfn(struct kvm *kvm, gfn_t gfn)
 
 int kvm_cpu_has_interrupt(struct kvm_vcpu *v)
 {
-	return 1;
+	if ((v->arch.exception_pending & EXCEPTION_FIQ) ||
+	    (v->arch.exception_pending & EXCEPTION_IRQ))
+		return 1;
+	else
+		return 0;
 }
 
 int kvm_arch_vcpu_runnable(struct kvm_vcpu *v)
 {
-	return 1;
+	return !(v->arch.wait_for_interrupts);
 }
 
 void kvm_arch_hardware_enable(void *garbage)
@@ -1045,6 +1049,8 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 	int pending_write = 0;
 	unsigned long irq_flags;
 
+	vcpu_load(vcpu);
+
 	vcpu->arch.kvm_run = run;
 	flush_dcache_page(virt_to_page(run));
 
@@ -1121,8 +1127,11 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 		if (need_resched())
 			schedule();
 wait_for_interrupts:
-		while (vcpu->arch.wait_for_interrupts && !signal_pending(current))
-			schedule();
+		if (vcpu->arch.wait_for_interrupts) {
+			kvm_trace_activity(11, "before kvm_vcpu_block(vcpu)");
+			kvm_vcpu_block(vcpu);
+			kvm_trace_activity(12, "after kvm_vcpu_block(vcpu)");
+		}
 
 		if (signal_pending(current) && !(run->exit_reason)) {
 			kvm_trace_activity(20, "exit KVM_EXIT_IRQ_WINDOW_OPEN");
@@ -1135,6 +1144,8 @@ wait_for_interrupts:
 		run->exit_reason = KVM_EXIT_EXCEPTION;
 
 	flush_dcache_page(virt_to_page(run));
+	vcpu_put(vcpu);
+
 	return ret;
 }
 
