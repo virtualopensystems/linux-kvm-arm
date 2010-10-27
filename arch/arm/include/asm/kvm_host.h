@@ -172,8 +172,8 @@ struct kvm_vcpu_arch {
 	struct list_head trans_orig;	/* Original instructions */
 #endif
 
-	u8 guest_exception;  	/* Hardware exception that exited the guest */
-	u8 exception_pending;  	/* Exception to raise after emulation */
+	u32 guest_exception;  		/* Hardware exception that exited the guest */
+	u32 exception_pending;  	/* Exception to raise after emulation */
 
 	/* Host status */
 	u32 host_far;		/* Fault access register */
@@ -194,10 +194,10 @@ struct kvm_vcpu_arch {
 	 * Used to keep correct access permissions for pages which l1 desc.
 	 * conincide with that of shared page or the irq vector page.
 	 */
-	u8 shared_page_guest_domain;
-	u8 vector_page_guest_domain;
-	u8 shared_page_shadow_ap[256];
-	u8 vector_page_shadow_ap[256];
+	u32 shared_page_guest_domain;
+	u32 vector_page_guest_domain;
+	u32 shared_page_shadow_ap[256];
+	u32 vector_page_shadow_ap[256];
 
 	u32 *l2_unused_pt;
 
@@ -205,10 +205,10 @@ struct kvm_vcpu_arch {
 	int (*run)(void *vcpu);
 
 	/* IO related fields */
-	u8 mmio_rd;
+	u32 mmio_rd;
 
 	/* Misc. fields */
-	u8 wait_for_interrupts;
+	u32 wait_for_interrupts;
 
 	struct kvm_run *kvm_run;
 };
