@@ -1395,13 +1395,35 @@ static int emulate_sensitive_dp_instr(struct kvm_vcpu *vcpu, u32 instr)
 		}
 	}
 
+	/*
+	 * The following piece of code is self-modifying (which greatly
+	 * reduces the number of lines of code in this file and potential bugs,
+	 * but requires strict attention to cache issues. Basically, on ARMv6
+	 * the required steps (in order) are these:
+	 *  1: Clean data cache
+	 *  2: Data Synchronization Barrier (formerly Drain Write Buffer)
+	 *  3: Invalidate the I-cache
+	 *  4: Invalidate Branch Target Cache
+	 *  5: Flush Prefetch Buffer
+	 *
+	 *  All the above operations are done using the MVA to point to specific
+	 *  cache lines for performance reasons.
+	 *
+	 *  TODO: Support ARMv7 (and future architectures)
+	 */
 	asm volatile ("mov r10, %[rn]\n\t"		// Load operands
 		      "mov r9,  %[rm]\n\t"
 		      "mov r8,  %[rs]\n\t"
 		      "mov r0,  %[shadow_instr]\n\t"
 		      "str r0, 1f\n\t"
-		      "mov r0, #0\n\t"			// Flush prefetch buffer
-		      "mcr p15, 0, r0, c7, c5, 4\n\t"
+		      "mov r0, #0\n\t"
+		      "add r2, pc, #(5 * 4)\n\t" /* WARNING: Update this if adding
+							     instructions below! */
+		      "mcr p15, 0, r2, c7, c10, 1\n\t"  // Clean data cache line
+		      "mcr p15, 0, r0, c7, c10, 4\n\t"  // Data sync. barrier (DWB)
+		      "mcr p15, 0, r2, c7, c5, 1\n\t"   // Invalidate I-cache line
+		      "mcr p15, 0, r2, c7, c5, 7\n\t"   // Flush Branch Target Cache
+		      "mcr p15, 0, r0, c7, c5, 4\n\t"   // Flush prefetch buffer
 		      "mov r0, r0\n\t"
 		      "1: .word 0\n\t"			// Execute shadow instr.
 		      "mov %[result], r1" :		// Get result
@@ -1410,7 +1432,7 @@ static int emulate_sensitive_dp_instr(struct kvm_vcpu *vcpu, u32 instr)
 		      [rm] "r" (VCPU_REG(vcpu, rm_num)),  // input
 		      [rs] "r" (VCPU_REG(vcpu, rs_num)),  // input
 		      [shadow_instr] "r" (shadow_instr) : // input
-		      "r10", "r9", "r8", "r1", "r0");     // clobber
+		      "r10", "r9", "r8", "r2", "r1", "r0");     // clobber
 
 	VCPU_REG(vcpu, rd_num) = shadow_result;
 	kvm_cpsr_write(vcpu, VCPU_SPSR(vcpu));
