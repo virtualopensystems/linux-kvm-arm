@@ -377,7 +377,7 @@ static int sock_alloc_file(struct socket *sock, struct file **f, int flags)
 		  &socket_file_ops);
 	if (unlikely(!file)) {
 		/* drop dentry, keep inode */
-		atomic_inc(&path.dentry->d_inode->i_count);
+		ihold(path.dentry->d_inode);
 		path_put(&path);
 		put_unused_fd(fd);
 		return -ENFILE;
@@ -480,6 +480,7 @@ static struct socket *sock_alloc(void)
 	sock = SOCKET_I(inode);
 
 	kmemcheck_annotate_bitfield(sock, type);
+	inode->i_ino = get_next_ino();
 	inode->i_mode = S_IFSOCK | S_IRWXUGO;
 	inode->i_uid = current_fsuid();
 	inode->i_gid = current_fsgid();
@@ -1145,7 +1146,7 @@ call_kill:
 }
 EXPORT_SYMBOL(sock_wake_async);
 
-static int __sock_create(struct net *net, int family, int type, int protocol,
+int __sock_create(struct net *net, int family, int type, int protocol,
 			 struct socket **res, int kern)
 {
 	int err;
@@ -1257,6 +1258,7 @@ out_release:
 	rcu_read_unlock();
 	goto out_sock_release;
 }
+EXPORT_SYMBOL(__sock_create);
 
 int sock_create(int family, int type, int protocol, struct socket **res)
 {
