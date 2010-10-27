@@ -115,6 +115,12 @@ int kvm_handle_undefined(struct kvm_vcpu *vcpu, u32 instr)
 	case INSTR_COPROC_MRRC:
 		ret = emulate_mrrc(vcpu, instr);
 		break;
+	case INSTR_COPROC_MRRC2:
+	case INSTR_COPROC_MCRR2:
+	case INSTR_COPROC_MCR2:
+	case INSTR_COPROC_MRC2:
+		kvm_msg("guest executed Mxx2 instr. at: %08x", VCPU_REG(vcpu, 15));
+		KVMARM_NOT_IMPLEMENTED();
 	default:
 		ret = -EINVAL;
 	}
@@ -214,9 +220,13 @@ int kvm_emulate_sensitive(struct kvm_vcpu *vcpu, u32 instr)
  * (should maybe go in separate file or something
  */
 
-#define NUM_COPROC_INSTR 7
+#define NUM_COPROC_INSTR 11
 static u32 coproc_instr[NUM_COPROC_INSTR][2] = {
-                {0x0e000000, 0x0f000010} /* CDP     */
+                {0xfc000000, 0xff500000} /* MCRR2   */
+               ,{0xfc500000, 0xff500000} /* MRRC2   */
+               ,{0xfe000010, 0xff100010} /* MCR2    */
+               ,{0xfe100010, 0xff100010} /* MRC2    */
+               ,{0x0e000000, 0x0f000010} /* CDP     */
                ,{0x0c100000, 0x0e100000} /* LDC     */
                ,{0x0e000010, 0x0f100010} /* MCR     */
                ,{0x0c400000, 0x0ff00000} /* MCRR    */
@@ -234,8 +244,10 @@ static inline int get_coproc_op(u32 instr)
 struct coproc_params {
 	struct kvm_vcpu *vcpu;
 	u32 instr;
+	int cp_num;
 	int opcode1;
 	int rd_reg;
+	int rn_reg;
 	int CRn;
 	int CRm;
 	int opcode2;
@@ -1206,11 +1218,108 @@ static int emulate_mrc(struct kvm_vcpu *vcpu, u32 instr)
 	return 0;
 }
 
+static int emulate_mcrr_cache_ranges(struct coproc_params *params)
+{
+	struct kvm_vcpu *vcpu = params->vcpu;
+	u32 start_addr;
+	u32 end_addr;
+
+
+	/* Check valid registers */
+	if (params->rn_reg == 15 || params->rd_reg ==15) {
+		kvm_msg("Invalid MCRR registers at: 0x%08x", VCPU_REG(vcpu, 15));
+		return -EINVAL;
+	}
+
+	start_addr = VCPU_REG(vcpu, params->rn_reg);
+	end_addr = VCPU_REG(vcpu, params->rd_reg);
+
+	/* Check valid address range */
+	if (start_addr > end_addr) {
+		kvm_msg("Invalid MCRR parameters at: 0x%08x", VCPU_REG(vcpu, 15));
+		return -EINVAL;
+	}
+
+	switch (params->CRm) {
+	case 5: /* Invalidate Instruction Cache Range */
+		asm volatile("mcr	p15, 0, %[zero], c7, c5, 0":
+				: [zero] "r" (0));
+		/*
+		 * We cannot simply use the MVA directly, since the MVA
+		 * may not make sense in the host address space and
+		 * will cause problems. For now, disregarding performance,
+		 * we clear the entire data cache.
+		 * TODO: Consider optimizations
+		 */
+		break;
+	case 6: /* Invalidate Data Cache Range */
+		asm volatile("mcr	p15, 0, %[zero], c7, c6, 0":
+				: [zero] "r" (0));
+		/*
+		 * We cannot simply use the MVA directly, since the MVA
+		 * may not make sense in the host address space and
+		 * will cause problems. For now, disregarding performance,
+		 * we clear the entire data cache.
+		 * TODO: Consider optimizations
+		 */
+		break;
+	case 12: /* Clean D-Cache Range, Pref. I-Cache Range, Pref. D-Cache range */
+		if (params->opcode1 <= 2) {
+			kvm_msg("Not available in user mode?");
+			return -EINVAL;
+		}
+		kvm_msg("Unsupported opcode1: %d", params->opcode1);
+		return -EINVAL;
+	case 14: /* Clean and Invalidate Data Cache Range */
+		asm volatile("mcr	p15, 0, %[zero], c7, c14, 0":
+				: [zero] "r" (0));
+		/*
+		 * We cannot simply use the MVA directly, since the MVA
+		 * may not make sense in the host address space and
+		 * will cause problems. For now, disregarding performance,
+		 * we clear the entire data cache.
+		 * TODO: Consider optimizations
+		 */
+		break;
+	default:
+		BUG();
+	}
+
+	return 0;
+}
+
 static int emulate_mcrr(struct kvm_vcpu *vcpu, u32 instr)
 {
-	/* MCRR only defined in ARM v6 */
-	KVMARM_NOT_IMPLEMENTED();
-	return 0; /* GCC is braindead */
+	struct coproc_params params;
+
+	params.vcpu = vcpu;
+	params.instr = instr;
+	params.opcode1 = (instr >> 4) & 0xf;
+	params.cp_num = (instr >> 8) & 0xf;
+	params.rd_reg = (instr >> 12) ^ 0xf;
+	params.rn_reg = (instr >> 16) ^ 0xf;
+	params.CRm = (instr) & 0xf;
+
+	if (params.cp_num != 15) {
+		kvm_msg("MCRR for cp_num != 15 not supported at: 0x%08x",
+				VCPU_REG(vcpu, 15));
+		return -EINVAL;
+	}
+
+	switch (params.CRm) {
+	case 5:  /* Invalidate Instruction Cache Range */
+	case 6:  /* Invalidate Data Cache Range */
+	case 12: /* Clean D-Cache Range, Pref. I-Cache Range, Pref. D-Cache range */
+	case 14: /* Clean and Invalidate Data Cache Range */
+		emulate_mcrr_cache_ranges(&params);
+		break;
+	default:
+		kvm_msg("invalid operation at: %08x - CRm (%d), Op (%d)",
+				VCPU_REG(vcpu, 15), params.CRm, params.opcode1);
+		return -EINVAL;
+	}
+
+	return 0;
 }
 
 static int emulate_mrrc(struct kvm_vcpu *vcpu, u32 instr)

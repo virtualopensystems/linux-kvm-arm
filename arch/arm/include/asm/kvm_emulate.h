@@ -92,13 +92,17 @@ int kvm_ls_emulate_writeback(struct kvm_vcpu *vcpu, u32 instr);
 #define INSTR_LSMULT_STM_1	 3
 #define INSTR_LSMULT_STM_2	 4
 
-#define INSTR_COPROC_CDP	 0
-#define INSTR_COPROC_LDC	 1
-#define INSTR_COPROC_MCR	 2
-#define INSTR_COPROC_MCRR	 3
-#define INSTR_COPROC_MRC	 4
-#define INSTR_COPROC_MRRC	 5
-#define INSTR_COPROC_STC	 6  
+#define INSTR_COPROC_MCRR2	 0
+#define INSTR_COPROC_MRRC2	 1
+#define INSTR_COPROC_MCR2	 2
+#define INSTR_COPROC_MRC2	 3
+#define INSTR_COPROC_CDP	 4
+#define INSTR_COPROC_LDC	 5
+#define INSTR_COPROC_MCR	 6
+#define INSTR_COPROC_MCRR	 7
+#define INSTR_COPROC_MRC	 8
+#define INSTR_COPROC_MRRC	 9
+#define INSTR_COPROC_STC	 10
 
 /*
  * Co-Processor 15 register 1 defines
