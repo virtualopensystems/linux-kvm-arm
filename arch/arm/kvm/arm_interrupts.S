@@ -47,40 +47,32 @@
  *
  * The value of r0 upon return will be the exception index
  *
- * TODO: Consider storing temporary to shared page to avoid cache pollution
- *       or optimize further using the SRS instruction and utilize the banked
- *       r13, which is largely ignored below.
+ * TODO: Consider re-ordering kvm_vcpu_regs so the SRS instruction stores the
+ *	 pc and execution cpsr directly (would involve moving execution_cpsr
+ *	 from shared_page to kvm_vcpu_regs.
  */
 .macro kvm_excp_handler excpIdx, correction=0
 	.if \correction
 	sub	lr, lr, #\correction 		  @ correct offset
 	.endif
-	str	lr, 1f
-	str	r0, 2f				  @ temporarily store guest r0 in 2f
-	mrs	r0, spsr
-	msr	cpsr_c, #0xd3			  @ change to supervisor mode (I/F bits on)
-	ldr	lr, 3f
-	str	r0, [lr, #SHARED_EXEC_CPSR]	  @ save exec. cpsr (excp. mode spsr)
-	ldr	r0, 1f				  @ read exception lr
+	srsdb	#0x13		@ Store r14 and spsr on svc stack
 
 	/*
-	 * If it's not an IRQ or FIQ chances are that some form of emulation is
-	 * needed. It's better to pollute the data cache (even for those rare
-	 * occasions when the intruction is not needed) than to create aliases
-	 * in the L1 cache by accessing guest data from the host kernel.
+	 * Change mode if not SWI (already in SVC mode)
 	 */
-	.if (\excpIdx < ARM_EXCEPTION_IRQ) && (\excpIdx != ARM_EXCEPTION_PREF_ABORT)
-	ldr	r0, [r0]
-	str	r0, [lr, #SHARED_GUEST_INSTR]
-	ldr	r0, 1f				  @ read exception lr
+	.if (\excpIdx != ARM_EXCEPTION_SOFTWARE)
+	cpsid	if, #0x13
 	.endif
 
 	/*
 	 * Store the guest register state to the shared page
 	 */
-	str	r0, [lr, #VCPU_REGS_OFF(R15)]	@ store fault address
+	ldr	lr, [sp]	@ Load shared page base address
+	add	lr, lr, #VCPU_REGS_OFF(SHARED_REG)
+	stmia	lr, {r0-r7}^	@ Store shared r0-r7
+	sub	lr, lr, #VCPU_REGS_OFF(SHARED_REG)	@ Point lr to shared
 	ldr	r0, [lr, #SHARED_VCPU_MODE]
-	add	lr, lr, #VCPU_REGS_OFF(FIQ)	@ Point lr to fiq_reg
+	add	lr, lr, #VCPU_REGS_OFF(FIQ)		@ Point lr to fiq_reg
 	cmp	r0, #MODE_FIQ
 	stmeqia	lr, {r8-r12}^		@ Store FIQ r8-r12
 	add	lr, lr, #(5 << 2)	@ Point lr to usr_reg
@@ -91,10 +83,38 @@
 	add	lr, lr, r0, lsl #3	@ Jump to r13/r14 for GUEST_MODE
 	stmia	lr, {r13,r14}^		@ Store r13/r14
 	sub	lr, lr, r0, lsl #3	@ Point lr to banked_fiq
-	add	lr, lr, #(6 * (2 << 2)) @ Point lr to shared_reg
-	ldr	r0, 2f   		@ Restore guest r0
-	stmia	lr, {r0-r7}^		@ Store shared r0-r7
-	sub	lr, lr, #VCPU_REGS_OFF(SHARED_REG)
+	ldmdb	sp, {r0, r1}		@ Load fault address and cpsr
+
+	str	r0, [lr, #VCPU_REGS_R15]		@ store fault address
+	sub	lr, lr, #VCPU_REGS_OFF(BANKED_FIQ)	@ Point lr to shared
+	str	r1, [lr, #SHARED_EXEC_CPSR]
+
+	/*
+	 * If it's not an IRQ or FIQ chances are that some form of emulation is
+	 * needed. It's better to pollute the data cache (even for those rare
+	 * occasions when the intruction is not needed) than to create aliases
+	 * in the L1 cache by accessing guest data from the host kernel.
+	 */
+	.if (\excpIdx < ARM_EXCEPTION_IRQ) && (\excpIdx != ARM_EXCEPTION_PREF_ABORT)
+	ldr	r1, [r0]
+	str	r1, [lr, #SHARED_GUEST_INSTR]
+	.endif
+
+	.if (\excpIdx == ARM_EXCEPTION_SOFTWARE)
+	@ Get page-masked version of instruction address
+	mov	r4, #0xf000
+	sub	r4, r4, #1
+	mvn	r4, r4		@ r4 = 0xfffff000 (PAGE_MASK)
+	and	r3, r0, r4
+
+	@ Save the instr after the SWI (if in same page)
+	add	r1, r0, #4
+	and	r2, r1, r4
+	cmp	r2, r3
+	movne	r1, #0
+	ldreq	r1, [r1]
+	str	r1, [lr, #SHARED_ORIG_INSTR]
+	.endif
 
 	/*
 	 * Return exception index and begin journey back.
@@ -102,9 +122,6 @@
 	mov	r0, #\excpIdx			  @ Return excp. index in r0
 	ldr	r1, [lr, #SHARED_RET_PTR]	  @ load return pointer into r1
 	mov	pc, r1				  @ jump to __exception_return
-1:	.word 0
-2:	.word 0
-3:	.word SHARED_PAGE_BASE
 .endm
 
 	.globl __irq_vector_start
@@ -133,6 +150,10 @@ __guest_undefined_handler:
 
 	.globl __guest_swi_handler
 __guest_swi_handler:
+	kvm_excp_handler ARM_EXCEPTION_SOFTWARE, 4
+
+
+#if 0
 	str	lr, 1f
 	str	r0, 2f
 	ldr	lr, 3f
@@ -143,7 +164,7 @@ __guest_swi_handler:
 	mrs	r0, spsr
 	str	r0, [lr, #SHARED_EXEC_CPSR]
 	ldr	r0, [lr, #SHARED_VCPU_MODE]
-	add	lr, lr, #VCPU_REGS_OFF(FIQ)	       @ Point lr to fiq_reg
+	add	lr, lr, #VCPU_REGS_OFF(FIQ)	@ Point lr to fiq_reg
 	cmp	r0, #MODE_FIQ
 	stmeqia	lr, {r8-r12}^		@ Store FIQ r8-r12
 	add	lr, lr, #(5 << 2)	@ Point lr to usr_reg
@@ -190,6 +211,7 @@ __guest_swi_handler:
 2:	.word 0
 3:	.word SHARED_PAGE_BASE
 4:	.word 0xfff
+#endif
 
 	.globl __guest_prefetch_abort_handler
 __guest_prefetch_abort_handler:

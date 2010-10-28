@@ -526,6 +526,8 @@ struct kvm_vcpu *kvm_arch_vcpu_create(struct kvm *kvm, unsigned int id)
 	 */
 	shared->shared_sp = (u32)((u32 *)arch->shared_page
 			+ (PAGE_SIZE / sizeof(u32)));
+	shared->shared_sp -= 4;
+	*((u32 *)(shared->shared_sp)) = SHARED_PAGE_BASE;
 	exception_return_offset = &__exception_return - &__shared_page_start;
 	shared->return_ptr = (u32)((u32 *)arch->shared_page
 			+ exception_return_offset);
