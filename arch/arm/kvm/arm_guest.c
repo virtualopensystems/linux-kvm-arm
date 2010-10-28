@@ -37,17 +37,29 @@ int kvm_arch_vcpu_setup(struct kvm_vcpu *vcpu)
 
 int kvm_arch_vcpu_ioctl_get_regs(struct kvm_vcpu *vcpu, struct kvm_regs *regs)
 {
+	struct kvm_vcpu_regs *vcpu_regs = vcpu->arch.regs;
+
 	/*
 	 * GPRs and PSRs
 	 */
-	memcpy(regs->regs0_7, vcpu->arch.regs, sizeof(u32) * 8);
-	memcpy(regs->usr_regs8_12, vcpu->arch.regs, sizeof(u32) * 5);
-	memcpy(regs->fiq_regs8_12, vcpu->arch.fiq_regs, sizeof(u32) * 5);
-	memcpy(regs->reg13, vcpu->arch.banked_r13, sizeof(u32) * 5);
-	memcpy(regs->reg14, vcpu->arch.banked_r14, sizeof(u32) * 5);
-	regs->reg15 = vcpu->arch.regs[15];
-	regs->cpsr = vcpu->arch.cpsr;
-	memcpy(regs->spsr, vcpu->arch.banked_spsr, sizeof(u32) * 5);
+	memcpy(regs->regs0_7, &(vcpu_regs->shared_reg[0]), sizeof(u32) * 8);
+	memcpy(regs->usr_regs8_12, &(vcpu_regs->usr_reg[0]), sizeof(u32) * 5);
+	memcpy(regs->fiq_regs8_12, &(vcpu_regs->fiq_reg[0]), sizeof(u32) * 5);
+	regs->reg13[MODE_FIQ]   = vcpu_regs->banked_fiq[0];
+	regs->reg14[MODE_FIQ]   = vcpu_regs->banked_fiq[1];
+	regs->reg13[MODE_IRQ]   = vcpu_regs->banked_irq[0];
+	regs->reg14[MODE_IRQ]   = vcpu_regs->banked_irq[1];
+	regs->reg13[MODE_SVC]   = vcpu_regs->banked_svc[0];
+	regs->reg14[MODE_SVC]   = vcpu_regs->banked_svc[1];
+	regs->reg13[MODE_ABORT] = vcpu_regs->banked_abt[0];
+	regs->reg14[MODE_ABORT] = vcpu_regs->banked_abt[1];
+	regs->reg13[MODE_UNDEF] = vcpu_regs->banked_und[0];
+	regs->reg14[MODE_UNDEF] = vcpu_regs->banked_und[1];
+	regs->reg13[MODE_USER]  = vcpu_regs->banked_usr[0];
+	regs->reg14[MODE_USER]  = vcpu_regs->banked_usr[1];
+	regs->reg15 = vcpu_reg(vcpu, 15);
+	regs->cpsr = vcpu_regs->cpsr;
+	memcpy(regs->spsr, vcpu_regs->spsr, sizeof(u32) * 5);
 
 	/*
 	 * Co-processor registers.
@@ -62,19 +74,27 @@ int kvm_arch_vcpu_ioctl_get_regs(struct kvm_vcpu *vcpu, struct kvm_regs *regs)
 
 int kvm_arch_vcpu_ioctl_set_regs(struct kvm_vcpu *vcpu, struct kvm_regs *regs)
 {
-	memcpy(vcpu->arch.regs, regs->regs0_7, sizeof(u32) * 8);
-	memcpy(vcpu->arch.regs, regs->usr_regs8_12, sizeof(u32) * 5);
-	memcpy(vcpu->arch.fiq_regs, regs->fiq_regs8_12, sizeof(u32) * 5);
-	memcpy(vcpu->arch.banked_r13, regs->reg13, sizeof(u32) * 5);
-	memcpy(vcpu->arch.banked_r14, regs->reg14, sizeof(u32) * 5);
-	vcpu->arch.regs[15] = regs->reg15;
-	kvm_cpsr_write(vcpu, regs->cpsr);
-	memcpy(vcpu->arch.banked_spsr, regs->spsr, sizeof(u32) * 5);
+	struct kvm_vcpu_regs *vcpu_regs = vcpu->arch.regs;
 
-	/*
-	 * Co-processor registers.
-	 */
-	//vcpu->arch.cp15.c0_MIDR = regs->cp15.c0_cpuid;
+	memcpy(&(vcpu_regs->shared_reg[0]), regs->regs0_7, sizeof(u32) * 8);
+	memcpy(&(vcpu_regs->usr_reg[0]), regs->usr_regs8_12, sizeof(u32) * 5);
+	memcpy(&(vcpu_regs->fiq_reg[0]), regs->fiq_regs8_12, sizeof(u32) * 5);
+	vcpu_regs->banked_fiq[0] = regs->reg13[MODE_FIQ];
+	vcpu_regs->banked_fiq[1] = regs->reg14[MODE_FIQ];
+	vcpu_regs->banked_irq[0] = regs->reg13[MODE_IRQ];
+	vcpu_regs->banked_irq[1] = regs->reg14[MODE_IRQ];
+	vcpu_regs->banked_svc[0] = regs->reg13[MODE_SVC];
+	vcpu_regs->banked_svc[1] = regs->reg14[MODE_SVC];
+	vcpu_regs->banked_abt[0] = regs->reg13[MODE_ABORT];
+	vcpu_regs->banked_abt[1] = regs->reg14[MODE_ABORT];
+	vcpu_regs->banked_und[0] = regs->reg13[MODE_UNDEF];
+	vcpu_regs->banked_und[1] = regs->reg14[MODE_UNDEF];
+	vcpu_regs->banked_usr[0] = regs->reg13[MODE_USER];
+	vcpu_regs->banked_usr[1] = regs->reg14[MODE_USER];
+
+	vcpu_reg(vcpu, 15) = regs->reg15;
+	kvm_cpsr_write(vcpu, regs->cpsr);
+	memcpy(vcpu_regs->spsr, regs->spsr, sizeof(u32) * 5);
 
 	return 0;
 }

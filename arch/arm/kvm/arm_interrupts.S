@@ -32,6 +32,8 @@
 @  INTERRUPT VECTOR PAGE COMES HERE
 @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
+#define VCPU_REGS_OFF(__var)	(SHARED_VCPU_REGS + VCPU_REGS_##__var)
+
 /*
  * This macro will temporarily store lr and r0 to pc-relative storage,
  * copy spsr to r0 and then change to SVC mode. Following it will
@@ -44,20 +46,23 @@
  * ...		...
  * sp-68:	r0
  *
- * The value of r1 upon return will be the exception index
+ * The value of r0 upon return will be the exception index
+ *
+ * TODO: Consider storing temporary to shared page to avoid cache pollution
+ *       or optimize further using the SRS instruction and utilize the banked
+ *       r13, which is largely ignored below.
  */
 .macro kvm_excp_handler excpIdx, correction=0
+	.if \correction
+	sub	lr, lr, #\correction 		  @ correct offset
+	.endif
 	str	lr, 1f
 	str	r0, 2f				  @ temporarily store guest r0 in 2f
 	mrs	r0, spsr
 	msr	cpsr_c, #0xd3			  @ change to supervisor mode (I/F bits on)
 	ldr	lr, 3f
-	str	r0, [lr, #SHARED_GUEST_CPSR]      @ save guest cpsr (excp. mode spsr)
+	str	r0, [lr, #SHARED_EXEC_CPSR]	  @ save exec. cpsr (excp. mode spsr)
 	ldr	r0, 1f				  @ read exception lr
-	.if \correction
-	sub	r0, r0, #\correction 		  @ correct offset
-	.endif
-	str	r0, [lr, #(SHARED_GUEST_REGS + 4*15)] @ store fault address
 
 	/*
 	 * If it's not an IRQ or FIQ chances are that some form of emulation is
@@ -68,15 +73,35 @@
 	.if (\excpIdx < ARM_EXCEPTION_IRQ) && (\excpIdx != ARM_EXCEPTION_PREF_ABORT)
 	ldr	r0, [r0]
 	str	r0, [lr, #SHARED_GUEST_INSTR]
+	ldr	r0, 1f				  @ read exception lr
 	.endif
 
-	add	lr, lr, #SHARED_GUEST_REGS	  @ point lr to shared_page->guest_regs
-	ldr	r0, 2f   			  @ restore guest r0
-	stmia	lr, {r0-r14}^			  @ store user mode regs to shared page
-	sub	lr, lr, #SHARED_GUEST_REGS	  @ restore lr to point to shared page
-	mov	r0, #\excpIdx
-	str	r0, [lr, #SHARED_EXCEPTION_IDX]   @ store exception index on shared page
-	ldr	r1, [lr, #SHARED_RET_PTR]	  @ load return pointer into r0
+	/*
+	 * Store the guest register state to the shared page
+	 */
+	str	r0, [lr, #VCPU_REGS_OFF(R15)]	@ store fault address
+	ldr	r0, [lr, #SHARED_VCPU_MODE]
+	add	lr, lr, #VCPU_REGS_OFF(FIQ)	@ Point lr to fiq_reg
+	cmp	r0, #MODE_FIQ
+	stmeqia	lr, {r8-r12}^		@ Store FIQ r8-r12
+	add	lr, lr, #(5 << 2)	@ Point lr to usr_reg
+	stmneia	lr, {r8-r12}^		@ Store USR r8-r12
+	add	lr, lr, #(5 << 2)	@ Point lr to banked_fiq
+	cmp	r0, #MODE_SYSTEM
+	subeq	r0, r0, #1		@ SYSTEM -> USER (for r13-r14)
+	add	lr, lr, r0, lsl #3	@ Jump to r13/r14 for GUEST_MODE
+	stmia	lr, {r13,r14}^		@ Store r13/r14
+	sub	lr, lr, r0, lsl #3	@ Point lr to banked_fiq
+	add	lr, lr, #(6 * (2 << 2)) @ Point lr to shared_reg
+	ldr	r0, 2f   		@ Restore guest r0
+	stmia	lr, {r0-r7}^		@ Store shared r0-r7
+	sub	lr, lr, #VCPU_REGS_OFF(SHARED_REG)
+
+	/*
+	 * Return exception index and begin journey back.
+	 */
+	mov	r0, #\excpIdx			  @ Return excp. index in r0
+	ldr	r1, [lr, #SHARED_RET_PTR]	  @ load return pointer into r1
 	mov	pc, r1				  @ jump to __exception_return
 1:	.word 0
 2:	.word 0
@@ -110,19 +135,41 @@ __guest_undefined_handler:
 	.globl __guest_swi_handler
 __guest_swi_handler:
 	str	lr, 1f
+	str	r0, 2f
 	ldr	lr, 3f
-	add	lr, lr, #SHARED_GUEST_REGS	  @ point lr to shared_page->guest_regs
-	stmia	lr, {r0-r14}^			  @ store user mode regs to shared page
-	sub	lr, lr, #SHARED_GUEST_REGS	  @ restore lr to point to shared page
+
+	/*
+	 * Store guest state and registers (not the PC) on the shared page
+	 */
 	mrs	r0, spsr
-	str	r0, [lr, #SHARED_GUEST_CPSR]      @ save guest cpsr (excp. mode spsr)
-	ldr	r0, 1f				  @ read exception lr
-	sub	r0, r0, #4
-	str	r0, [lr, #(SHARED_GUEST_REGS + 4*15)] @ store fault address
+	str	r0, [lr, #SHARED_EXEC_CPSR]
+	ldr	r0, [lr, #SHARED_VCPU_MODE]
+	add	lr, lr, #VCPU_REGS_OFF(FIQ)	       @ Point lr to fiq_reg
+	cmp	r0, #MODE_FIQ
+	stmeqia	lr, {r8-r12}^		@ Store FIQ r8-r12
+	add	lr, lr, #(5 << 2)	@ Point lr to usr_reg
+	stmneia	lr, {r8-r12}^		@ Store USR r8-r12
+	add	lr, lr, #(5 << 2)	@ Point lr to banked_fiq
+	cmp	r0, #MODE_SYSTEM
+	subeq	r0, r0, #1		@ SYSTEM -> USER (for r13-r14)
+	add	lr, lr, r0, lsl #3	@ Jump to r13/r14 for GUEST_MODE
+	stmia	lr, {r13,r14}^		@ Store r13/r14
+	sub	lr, lr, r0, lsl #3	@ Point lr to banked_fiq
+	add	lr, lr, #(6 * (2 << 2)) @ Point lr to shared_reg
+	ldr	r0, 2f   		@ Restore guest r0
+	stmia	lr, {r0-r7}^		@ Store shared r0-r7
+	sub	lr, lr, #VCPU_REGS_OFF(SHARED_REG)
+
+	/*
+	 * Store the guest PC (SWI instr. address) and the SWI instruction.
+	 */
+	ldr	r0, 1f				@ read exception lr
+	sub	r0, r0, #4			@ Correction
+	str	r0, [lr, #VCPU_REGS_OFF(R15)]	@ store fault address
 	ldr	r5, [r0]
 	str	r5, [lr, #SHARED_GUEST_INSTR]
 
-	@ Get page-masked version of instruction
+	@ Get page-masked version of instruction address
 	ldr	r4, 4f
 	bic	r3, r0, r4
 
@@ -134,11 +181,14 @@ __guest_swi_handler:
 	ldreq	r1, [r1]
 	str	r1, [lr, #SHARED_ORIG_INSTR]
 
+	/*
+	 * Return exception index and begin journey back.
+	 */
 	mov	r0, #ARM_EXCEPTION_SOFTWARE
-	str	r0, [lr, #SHARED_EXCEPTION_IDX]   @ store exception index on shared page
 	ldr	r1, [lr, #SHARED_RET_PTR]	  @ load return pointer into r0
 	mov	pc, r1				  @ jump to __exception_return
 1:	.word 0
+2:	.word 0
 3:	.word SHARED_PAGE_BASE
 4:	.word 0xfff
 
@@ -166,6 +216,10 @@ __irq_vector_end:
 @  SHARED PAGE COMES HERE
 @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
+#define SHARED(__var)     (__shared_page_start + SHARED_##__var)
+#define VCPU_REGS(__var)  (SHARED(VCPU_REGS) + VCPU_REGS_##__var)
+#define HOST_REGS(n)      (SHARED(HOST_REGS) + (n * 4))
+
 @ Clobbers r2
 .macro clean_cache_tlb_safe
 	mov	r2, #0
@@ -190,11 +244,12 @@ __irq_vector_end:
 
 .globl __shared_page_start
 __shared_page_start:
-.space SIZEOF_SHARED_STRUCT
 
-#define SHARED(__var)   (__shared_page_start + SHARED_##__var)
-#define HOST_REGS(n)    (SHARED(HOST_REGS) + (n * 4))
-#define GUEST_REGS(n)   (SHARED(GUEST_REGS) + (n * 4))
+/*
+ * Make space for all the required fields in the shared page here by simply
+ * reserving the number of bytes that the shared_page struct takes up.
+ */
+.space SIZEOF_SHARED_STRUCT
 
 @Arguments:
 @ r0: will point to vcpu struct
@@ -213,7 +268,7 @@ __vcpu_run:
 
 	@ Load guest CPSR into SPSR
 load_guest_cpsr:
-	ldr	r1, SHARED(GUEST_CPSR)
+	ldr	r1, SHARED(EXEC_CPSR)
 	msr	spsr_cxsf, r1
 	mrs	r1, spsr
 
@@ -277,12 +332,21 @@ set_dacr:
 	mcr	p15, 0, r1, c3, c0, 0
 
 	@ Load guest registers
-	adr	r0, GUEST_REGS(0)
-	ldmia	r0, {r0-lr}^
-	ldr	lr, GUEST_REGS(15)
-
-	@ Jump to guest
-	movs  pc, lr          @Do the branch, setting the new CPSR
+	ldr	r1, SHARED(VCPU_MODE)
+	adr	lr, VCPU_REGS(FIQ)
+	cmp	r1, #MODE_FIQ
+	ldmeqia	lr, {r8-r12}^			@ Load FIQ r8-r12
+	adr	lr, VCPU_REGS(USR)
+	ldmneia	lr, {r8-r12}^			@ Load USR r8-r12
+	adr	lr, VCPU_REGS(BANKED_FIQ)
+	cmp	r1, #MODE_SYSTEM
+	subeq	r1, r1, #1			@ SYSTEM -> USER (for r13-r14)
+	add	lr, r1, lsl #3			@ Jump to r13/r14 for vcpu mode
+	ldmia	lr, {r13, r14}^
+	adr	lr, VCPU_REGS(SHARED_REG)
+	ldmia	lr, {r0-r7}^			@ Load remaining shared r0-r7
+	ldr	lr, VCPU_REGS(R15)		@ Load the guest PC in r14
+	movs	pc, lr				@ Jump to guest!
 
 	@ Large constants
 __task_size:
@@ -322,9 +386,8 @@ __exception_return:
 	@ Restore SP
 	ldr	sp, SHARED(HOST_SP)
 
-	@ Load VCPU pointer and exception index
+	@ Load VCPU pointer
 	ldr	r1, HOST_REGS(0)
-	str	r0, [r1, #VCPU_EXCP_IDX]
 
 	@ Set interrupt vector back to high vectors
 #if CONFIG_VECTORS_BASE == 0xffff0000

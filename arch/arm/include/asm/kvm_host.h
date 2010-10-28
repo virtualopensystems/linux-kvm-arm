@@ -37,21 +37,38 @@
 #define KVM_COALESCED_MMIO_PAGE_OFFSET	1
 
 struct kvm_vcpu;
+u32* kvm_vcpu_reg(struct kvm_vcpu *vcpu, u8 reg_num, u32 mode);
 
 struct kvm_arch {
 };
 
-#define VCPU_REG(_vcpu, _reg_num) \
-	(*kvm_vcpu_reg(&_vcpu->arch, _reg_num))
+#define VCPU_MODE(_vcpu) \
+	(*((_vcpu)->arch.mode))
 
-#define VCPU_SPSR(_vcpu) \
-	(_vcpu->arch.banked_spsr[_vcpu->arch.mode])
+/* Get vcpu register for current mode */
+#define vcpu_reg(_vcpu, _reg_num) \
+	(*kvm_vcpu_reg((_vcpu), _reg_num, VCPU_MODE(_vcpu)))
 
-#define MODE_HAS_SPSR(_vcpu) (_vcpu->arch.mode < MODE_USER)
+/* Get vcpu register for specific mode */
+#define vcpu_reg_m(_vcpu, _reg_num, _mode) \
+	(*kvm_vcpu_reg(_vcpu, _reg_num, _mode))
+
+#define vcpu_cpsr(_vcpu) \
+	(_vcpu->arch.regs->cpsr)
+
+/* Get vcpu SPSR for current mode */
+#define vcpu_spsr(_vcpu) \
+	(_vcpu->arch.regs->spsr[VCPU_MODE(_vcpu)])
+
+/* Get vcpu SPSR for specific mode */
+#define vcpu_spsr_m(_vcpu, _mode) \
+	(_vcpu->arch.regs->spsr[_mode])
+
+#define MODE_HAS_SPSR(_vcpu) \
+	 ((VCPU_MODE(_vcpu)) < MODE_USER)
 
 #define VCPU_MODE_PRIV(_vcpu) \
-	((_vcpu->arch.mode == MODE_USER) \
-	 ? 0 : 1)
+	(((VCPU_MODE(_vcpu)) == MODE_USER) ? 0 : 1)
 
 #define VCPU_DOMAIN_VAL(_vcpu, _dom) \
 	((vcpu->arch.cp15.c3_DACR >> (_dom*2)) & 0x3)
@@ -96,6 +113,26 @@ typedef struct kvm_shadow_pgtable {
 #define EXCEPTION_FIQ       0x01
 
 /*
+ * The order, size and offsets of the fields are important here as
+ * the world-switch code in arm_interrupts.S rely on the exact layout
+ * of this struct.
+ */
+struct kvm_vcpu_regs {
+	u32 fiq_reg[5];		/* FIQ  Mode r8-r12 */
+	u32 usr_reg[5];		/* USER Mode r8-r12 */
+	u32 banked_fiq[2];	/* FIQ r13,r14 */
+	u32 banked_irq[2];	/* IRQ r13,r14 */
+	u32 banked_svc[2];	/* SVC r13,r14 */
+	u32 banked_abt[2];	/* ABORT r13,r14 */
+	u32 banked_und[2];	/* UNDEFINED r13,r14 */
+	u32 banked_usr[2];	/* USER r13,r14 */
+	u32 shared_reg[8];	/* Shared r0-r7 */
+	u32 r15;		/* r15 */
+	u32 cpsr;		/* Guest emulated CPSR */
+	u32 spsr[5];		/* Guest SPSR per-mode */
+} __packed;
+
+/*
  * Shared page layout
  */
 struct shared_page {
@@ -103,12 +140,13 @@ struct shared_page {
 	unsigned long return_ptr;
 	unsigned long host_sp;
 	unsigned long exception_index;
-	unsigned long guest_regs[16];
-	unsigned long guest_CPSR;
+	unsigned long execution_CPSR;
 	unsigned long host_regs[16];
 	unsigned long host_CPSR;
 	unsigned long host_SPSR;
 	unsigned long host_ttbr;
+	struct kvm_vcpu_regs vcpu_regs; /* Virtual CPU registers */
+	unsigned long vcpu_mode;
 	unsigned long shadow_ttbr;
 	unsigned long guest_dac;
 	unsigned long guest_asid;
@@ -119,20 +157,11 @@ struct shared_page {
 };
 
 struct kvm_vcpu_arch {
-	/* The user mode and shared registers */
-	u32 regs[16];		
+	/* Pointer to regs struct on shared page */
+	struct kvm_vcpu_regs *regs;
 
-	/* The CPSR */
-	u32 cpsr;
-
-	/* Quickly determine mode */
-	u8 mode;			
-
-	/* Banked registers.  */
-	u32 fiq_regs[5];		   /* The FIQ regs R8-R12 */
-	u32 banked_r13[5];		/* The R13 for each priv. mode */
-	u32 banked_r14[5];		/* The R14 for each priv. mode */
-	u32 banked_spsr[5];		/* The SPSR for each supported mode */
+	/* Pointer to cached mode on shared page */
+	unsigned long *mode;
 
 	/* System control coprocessor (cp15) */
 	struct {
@@ -181,7 +210,7 @@ struct kvm_vcpu_arch {
 	u32 host_ifsr;		/* Fault status register */
 
 	/* MMU related fields */
-	u32 *shared_page_alloc;
+	u32 *shared_page_alloc; /* Kernel-allocated address for shared page */
 	struct shared_page *shared_page;
 	u32 *guest_vectors;
 
@@ -237,24 +266,6 @@ struct kvm_vcpu_stat {
         u32 halt_wakeup;
 };
 
-/*
- * Return a pointer to the register number valid in the current mode of
- * the virtual CPU.
- */
-static inline u32* kvm_vcpu_reg(struct kvm_vcpu_arch *vcpu_arch,
-			        u8 reg_num)
-{
-	if (reg_num == 13 && vcpu_arch->mode != MODE_USER)
-		return &(vcpu_arch->banked_r13[vcpu_arch->mode]);
-
-	if (reg_num == 14 && vcpu_arch->mode != MODE_USER)
-		return &(vcpu_arch->banked_r14[vcpu_arch->mode]);
-
-	if (reg_num >= 8 && reg_num < 15 &&vcpu_arch->mode == MODE_FIQ)
-		return &(vcpu_arch->fiq_regs[reg_num - 8]);
-
-	return &(vcpu_arch->regs[reg_num]);
-}
 
 /*
  * Pre ARMv5: Return CP 15, TTBR

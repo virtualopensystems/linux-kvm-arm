@@ -90,7 +90,7 @@ int kvm_handle_undefined(struct kvm_vcpu *vcpu, u32 instr)
 	u32 cp_num = ((instr & COPROC_CPNUM_MASK) >> 8);
 	int op = get_coproc_op(instr);	
 
-	if (vcpu->arch.mode == MODE_USER)
+	if (VCPU_MODE(vcpu) == MODE_USER)
 		goto handle_in_guest;
 	if (op == INSTR_NONE)
 		goto handle_in_guest;
@@ -119,19 +119,19 @@ int kvm_handle_undefined(struct kvm_vcpu *vcpu, u32 instr)
 	case INSTR_COPROC_MCRR2:
 	case INSTR_COPROC_MCR2:
 	case INSTR_COPROC_MRC2:
-		kvm_msg("guest executed Mxx2 instr. at: %08x", VCPU_REG(vcpu, 15));
+		kvm_msg("guest executed Mxx2 instr. at: %08x", vcpu_reg(vcpu, 15));
 		KVMARM_NOT_IMPLEMENTED();
 	default:
 		ret = -EINVAL;
 	}
 
 	/* The instruction was emulated, proceed to next one */
-	vcpu->arch.regs[15] += 4;
+	vcpu_reg(vcpu, 15) += 4;
 	if (ret)
 		kvm_err(ret, "error when handling undefined exception");
 	return ret;
 handle_in_guest:
-	kvm_msg("handle undefined in guest: 0x%08x", vcpu->arch.regs[15]);
+	kvm_msg("handle undefined in guest: 0x%08x", vcpu_reg(vcpu, 15));
 	KVMARM_NOT_IMPLEMENTED();
 	vcpu->arch.exception_pending |= EXCEPTION_UNDEFINED;
 	return 0;
@@ -198,15 +198,15 @@ int kvm_emulate_sensitive(struct kvm_vcpu *vcpu, u32 instr)
 	}
 
 	kvm_msg("unknown priv. instr. at 0x%08x: 0x%08x\n",
-			(unsigned int)vcpu->arch.regs[15],
+			(unsigned int)vcpu_reg(vcpu, 15),
 			(unsigned int)instr);
-	kvm_msg("vcpu mode: %d", vcpu->arch.mode);
+	kvm_msg("vcpu mode: %d", VCPU_MODE(vcpu));
 	kvm_msg("guest_instr: 0x%08x", vcpu->arch.shared_page->guest_instr);
 	kvm_msg("orig_instr: 0x%08x", vcpu->arch.shared_page->orig_instr);
 	kvm_msg("vcpu guest excpt. idx: 0x%08x", vcpu->arch.guest_exception);
 	print_ws_trace();
 	dump_stack();
-	print_guest_area(vcpu, vcpu->arch.regs[15]);
+	print_guest_area(vcpu, vcpu_reg(vcpu, 15));
 	return -EINVAL;
 }
 
@@ -269,16 +269,16 @@ static int emulate_mrc_idcodes(struct coproc_params *params)
 	case 0:
 		switch (params->opcode2) {
 		case 0:
-			VCPU_REG(vcpu, rd_reg) = vcpu->arch.cp15.c0_MIDR;
+			vcpu_reg(vcpu, rd_reg) = vcpu->arch.cp15.c0_MIDR;
 			break;
 		case 1:
-			VCPU_REG(vcpu, rd_reg) = vcpu->arch.cp15.c0_CTR;
+			vcpu_reg(vcpu, rd_reg) = vcpu->arch.cp15.c0_CTR;
 			break;
 		case 2:
-			VCPU_REG(vcpu, rd_reg) = vcpu->arch.cp15.c0_TCMTR;
+			vcpu_reg(vcpu, rd_reg) = vcpu->arch.cp15.c0_TCMTR;
 			break;
 		case 3:
-			VCPU_REG(vcpu, rd_reg) = vcpu->arch.cp15.c0_TLBTR;
+			vcpu_reg(vcpu, rd_reg) = vcpu->arch.cp15.c0_TLBTR;
 			break;
 		default:
 			ret = -EINVAL;
@@ -304,7 +304,7 @@ static int emulate_mcr_sysconf(struct coproc_params *params)
 {
 	struct kvm_vcpu *vcpu = params->vcpu;
 	int rd_reg = params->rd_reg;
-	u32 rd_val = VCPU_REG(vcpu, rd_reg);
+	u32 rd_val = vcpu_reg(vcpu, rd_reg);
 
 	if (params->CRm != 0 || params->opcode1 != 0) {
 		kvm_err(-EINVAL, "unsupported CRm (%d) or opcode1 (%d)",
@@ -319,10 +319,10 @@ static int emulate_mcr_sysconf(struct coproc_params *params)
 			kvm_init_l1_shadow(vcpu, vcpu->arch.shadow_pgtable->pgd);
 			if (rd_val & 0x1)
 				kvm_msg("guest enabled MMU at: %08x",
-						VCPU_REG(vcpu, 15));
+						vcpu_reg(vcpu, 15));
 			else
 				kvm_msg("guest disabled MMU at: %08x",
-						VCPU_REG(vcpu, 15));
+						vcpu_reg(vcpu, 15));
 		}
 
 		vcpu->arch.cp15.c1_CR = rd_val;
@@ -330,11 +330,11 @@ static int emulate_mcr_sysconf(struct coproc_params *params)
 	}
 	case 1:
 		/* Auxilliary Control Register */
-		vcpu->arch.cp15.c1_ACR = VCPU_REG(vcpu, rd_reg);
+		vcpu->arch.cp15.c1_ACR = vcpu_reg(vcpu, rd_reg);
 		break;
 	case 2:
 		/* Control processor access register */
-		vcpu->arch.cp15.c1_CAR = VCPU_REG(vcpu, rd_reg);
+		vcpu->arch.cp15.c1_CAR = vcpu_reg(vcpu, rd_reg);
 		break;
 	default:
 		kvm_err(-EINVAL, "unknown opcode2: %d", params->opcode2);
@@ -358,15 +358,15 @@ static int emulate_mrc_sysconf(struct coproc_params *params)
 	switch (params->opcode2) {
 	case 0:
 		/* Control Register */
-		VCPU_REG(vcpu, rd_reg) = vcpu->arch.cp15.c1_CR;
+		vcpu_reg(vcpu, rd_reg) = vcpu->arch.cp15.c1_CR;
 		break;
 	case 1:
 		/* Auxilliary Control Register */
-		VCPU_REG(vcpu, rd_reg) = vcpu->arch.cp15.c1_ACR;
+		vcpu_reg(vcpu, rd_reg) = vcpu->arch.cp15.c1_ACR;
 		break;
 	case 2:
 		/* Control processor access register */
-		VCPU_REG(vcpu, rd_reg) = vcpu->arch.cp15.c1_CAR;
+		vcpu_reg(vcpu, rd_reg) = vcpu->arch.cp15.c1_CAR;
 		break;
 	default:
 		kvm_err(-EINVAL, "unknown opcode2: %d", params->opcode2);
@@ -379,7 +379,7 @@ static int emulate_mrc_sysconf(struct coproc_params *params)
 static int emulate_mcr_pgtable(struct coproc_params *params)
 {
 	struct kvm_vcpu *vcpu = params->vcpu;
-	u32 rd_val = VCPU_REG(vcpu, params->rd_reg);
+	u32 rd_val = vcpu_reg(vcpu, params->rd_reg);
 
 	if (params->CRm != 0 || params->opcode1 != 0) {
 		kvm_err(-EINVAL, "unsupported CRm (%d) or opcode1 (%d)",
@@ -436,14 +436,14 @@ static int emulate_mrc_pgtable(struct coproc_params *params)
 
 	switch (params->opcode2) {
 	case 0:
-		VCPU_REG(vcpu, params->rd_reg) = vcpu->arch.cp15.c2_TTBR0;
+		vcpu_reg(vcpu, params->rd_reg) = vcpu->arch.cp15.c2_TTBR0;
 		break;
 	case 1:
-		VCPU_REG(vcpu, params->rd_reg) = vcpu->arch.cp15.c2_TTBR1;
+		vcpu_reg(vcpu, params->rd_reg) = vcpu->arch.cp15.c2_TTBR1;
 		break;
 	case 2:
 		/* TODO: (ARMv6) error, undefined exception */
-		VCPU_REG(vcpu, params->rd_reg) = vcpu->arch.cp15.c2_TTBR_CR;
+		vcpu_reg(vcpu, params->rd_reg) = vcpu->arch.cp15.c2_TTBR_CR;
 		break;
 	default:
 		kvm_err(-EINVAL, "unknown opcode2: %d", params->opcode2);
@@ -458,7 +458,7 @@ static int emulate_mcr_dac(struct coproc_params *params)
 	int i;
 	struct kvm_vcpu *vcpu = params->vcpu;
 	u32 old = vcpu->arch.cp15.c3_DACR;
-	u32 new = VCPU_REG(vcpu, params->rd_reg);
+	u32 new = vcpu_reg(vcpu, params->rd_reg);
 
 	if (params->CRm != 0 || params->opcode1 != 0 || params->opcode2 != 0) {
 		kvm_err(-EINVAL, "unsupported CRm (%d) or opcode1 (%d) "
@@ -470,7 +470,7 @@ static int emulate_mcr_dac(struct coproc_params *params)
 	vcpu->arch.cp15.c3_DACR = new;
 	if (guest_debug) {
 		kvm_msg("guest wrote DACR at 0x%08x from register %u: 0x%08x",
-			VCPU_REG(vcpu, 15) - 4,
+			vcpu_reg(vcpu, 15) - 4,
 			params->rd_reg,
 			vcpu->arch.cp15.c3_DACR);
 	}
@@ -501,7 +501,7 @@ static int emulate_mrc_dac(struct coproc_params *params)
 		return -EINVAL;
 	}
 
-	VCPU_REG(vcpu, params->rd_reg) = vcpu->arch.cp15.c3_DACR;
+	vcpu_reg(vcpu, params->rd_reg) = vcpu->arch.cp15.c3_DACR;
 	if (guest_debug) {
 		kvm_msg("guest read DACR: 0x%08x", vcpu->arch.cp15.c3_DACR);
 	}
@@ -520,14 +520,14 @@ static int emulate_mcr_fsr(struct coproc_params *params)
 
 	switch (params->opcode2) {
 	case 0:   
-		vcpu->arch.cp15.c5_DFSR = VCPU_REG(vcpu, params->rd_reg);
+		vcpu->arch.cp15.c5_DFSR = vcpu_reg(vcpu, params->rd_reg);
 		break;
 	case 1:
 		if (cpu_architecture() < CPU_ARCH_ARMv6) {
 			kvm_msg("unsupported write IFSR on pre v6 archs");
 			return -EINVAL;
 		}
-		vcpu->arch.cp15.c5_IFSR = VCPU_REG(vcpu, params->rd_reg);
+		vcpu->arch.cp15.c5_IFSR = vcpu_reg(vcpu, params->rd_reg);
 		break;
 	default:
 		kvm_err(-EINVAL, "unknown opcode2: %d", params->opcode2);
@@ -549,7 +549,7 @@ static int emulate_mrc_fsr(struct coproc_params *params)
 
 	switch (params->opcode2) {
 	case 0:   
-		VCPU_REG(vcpu, params->rd_reg) = vcpu->arch.cp15.c5_DFSR;
+		vcpu_reg(vcpu, params->rd_reg) = vcpu->arch.cp15.c5_DFSR;
 		break;
 	case 1:
 		/* TODO: (ARMv6) error, undefined exception */
@@ -573,7 +573,7 @@ static int emulate_mcr_far(struct coproc_params *params)
 
 	switch (params->opcode2){
 	case 0:
-		vcpu->arch.cp15.c6_FAR = VCPU_REG(vcpu, params->rd_reg);
+		vcpu->arch.cp15.c6_FAR = vcpu_reg(vcpu, params->rd_reg);
 		break;
 	case 1:
 		/* TODO: (ARMv6) error, undefined exception */
@@ -598,7 +598,7 @@ static int emulate_mrc_far(struct coproc_params *params)
 
 	switch (params->opcode2){
 	case 0:
-		VCPU_REG(vcpu, params->rd_reg) = vcpu->arch.cp15.c6_FAR;
+		vcpu_reg(vcpu, params->rd_reg) = vcpu->arch.cp15.c6_FAR;
 		break;
 	case 1:
 		/* TODO: (ARMv6) error, undefined exception */
@@ -652,7 +652,7 @@ static int emulate_mcr_cache(struct coproc_params *params)
 			break;
 		case 2:	/* Invalidate i-cache line - set */
 			asm volatile("mcr	p15, 0, %[set], c7, c5, 2":
-				: [set] "r" (VCPU_REG(vcpu, params->rd_reg)));
+				: [set] "r" (vcpu_reg(vcpu, params->rd_reg)));
 			break;
 		case 4:	/* Flush prefetch buffer */
 		case 6:	/* Flush entire branch target cache */
@@ -683,7 +683,7 @@ static int emulate_mcr_cache(struct coproc_params *params)
 			break;
 		case 2:	/* Invalidate data cache line - set */
 			asm volatile("mcr	p15, 0, %[set], c7, c6, 2":
-				: [set] "r" (VCPU_REG(vcpu, params->rd_reg)));
+				: [set] "r" (vcpu_reg(vcpu, params->rd_reg)));
 			break;
 		default:
 			ret = -EINVAL;
@@ -842,8 +842,8 @@ static int emulate_mrc_cache(struct coproc_params *params)
 			 * for ARMv5 so we just update the condition flag
 			 * and let the guest continue.
 			 */
-			params->vcpu->arch.cpsr |= PSR_Z_BIT;
-			params->vcpu->arch.cpsr &= ~PSR_N_BIT;
+			params->vcpu->arch.regs->cpsr |= PSR_Z_BIT;
+			params->vcpu->arch.regs->cpsr &= ~PSR_N_BIT;
 #endif
 		} else {
 			ret = -EINVAL;
@@ -864,8 +864,8 @@ static int emulate_mrc_cache(struct coproc_params *params)
 			 * for ARMv5 so we just update the condition flag
 			 * and let the guest continue.
 			 */
-			params->vcpu->arch.cpsr |= PSR_Z_BIT;
-			params->vcpu->arch.cpsr &= ~PSR_N_BIT;
+			params->vcpu->arch.regs->cpsr |= PSR_Z_BIT;
+			params->vcpu->arch.regs->cpsr &= ~PSR_N_BIT;
 		} else {
 			ret = -EINVAL;
 		}
@@ -946,17 +946,17 @@ static int emulate_mcr_cache_lck(struct coproc_params *params)
 	switch (params->CRm) {
 	case 0:
 		if (params->opcode2 == 0)
-			vcpu->arch.cp15.c9_DCLR = VCPU_REG(vcpu, rd);
+			vcpu->arch.cp15.c9_DCLR = vcpu_reg(vcpu, rd);
 		else if (params->opcode2 == 1)
-			vcpu->arch.cp15.c9_ICLR = VCPU_REG(vcpu, rd);
+			vcpu->arch.cp15.c9_ICLR = vcpu_reg(vcpu, rd);
 		else
 			ret = -EINVAL;
 		break;
 	case 1:
 		if (params->opcode2 == 0) 
-			vcpu->arch.cp15.c9_DTCMR = VCPU_REG(vcpu, rd);
+			vcpu->arch.cp15.c9_DTCMR = vcpu_reg(vcpu, rd);
 		else if (params->opcode2 == 1)
-			vcpu->arch.cp15.c9_ITCMR = VCPU_REG(vcpu, rd);
+			vcpu->arch.cp15.c9_ITCMR = vcpu_reg(vcpu, rd);
 		else
 			ret = -EINVAL;
 		break;
@@ -984,17 +984,17 @@ static int emulate_mrc_cache_lck(struct coproc_params *params)
 	switch (params->CRm) {
 	case 0:
 		if (params->opcode2 == 0)
-			VCPU_REG(vcpu, rd) = vcpu->arch.cp15.c9_DCLR;
+			vcpu_reg(vcpu, rd) = vcpu->arch.cp15.c9_DCLR;
 		else if (params->opcode2 == 1)
-			VCPU_REG(vcpu, rd) = vcpu->arch.cp15.c9_ICLR;
+			vcpu_reg(vcpu, rd) = vcpu->arch.cp15.c9_ICLR;
 		else
 			ret = -EINVAL;
 		break;
 	case 1:
 		if (params->opcode2 == 0)
-			VCPU_REG(vcpu, rd) = vcpu->arch.cp15.c9_DTCMR;
+			vcpu_reg(vcpu, rd) = vcpu->arch.cp15.c9_DTCMR;
 		else if (params->opcode2 == 1)
-			VCPU_REG(vcpu, rd) = vcpu->arch.cp15.c9_ITCMR;
+			vcpu_reg(vcpu, rd) = vcpu->arch.cp15.c9_ITCMR;
 		else
 			ret = -EINVAL;
 		break;
@@ -1073,19 +1073,19 @@ static int emulate_mcr_proc_id(struct coproc_params *params)
 
 	switch (params->opcode2) {
 	case 0:
-		vcpu->arch.cp15.c13_FCSER = VCPU_REG(vcpu, params->rd_reg);
+		vcpu->arch.cp15.c13_FCSER = vcpu_reg(vcpu, params->rd_reg);
 		break;
 	case 1:
-		vcpu->arch.cp15.c13_CID = VCPU_REG(vcpu, params->rd_reg);
+		vcpu->arch.cp15.c13_CID = vcpu_reg(vcpu, params->rd_reg);
 		break;
 	case 2:
-		vcpu->arch.cp15.c13_TIDURW = VCPU_REG(vcpu, params->rd_reg);
+		vcpu->arch.cp15.c13_TIDURW = vcpu_reg(vcpu, params->rd_reg);
 		break;
 	case 3:
-		vcpu->arch.cp15.c13_TIDURO = VCPU_REG(vcpu, params->rd_reg);
+		vcpu->arch.cp15.c13_TIDURO = vcpu_reg(vcpu, params->rd_reg);
 		break;
 	case 4:
-		vcpu->arch.cp15.c13_TIDPO = VCPU_REG(vcpu, params->rd_reg);
+		vcpu->arch.cp15.c13_TIDPO = vcpu_reg(vcpu, params->rd_reg);
 		break;
 	default:
 		return -EINVAL;
@@ -1106,19 +1106,19 @@ static int emulate_mrc_proc_id(struct coproc_params *params)
 
 	switch (params->opcode2) {
 	case 0:
-		VCPU_REG(vcpu, params->rd_reg) = vcpu->arch.cp15.c13_FCSER;
+		vcpu_reg(vcpu, params->rd_reg) = vcpu->arch.cp15.c13_FCSER;
 		break;
 	case 1:
-		VCPU_REG(vcpu, params->rd_reg) = vcpu->arch.cp15.c13_CID;
+		vcpu_reg(vcpu, params->rd_reg) = vcpu->arch.cp15.c13_CID;
 		break;
 	case 2:
-		VCPU_REG(vcpu, params->rd_reg) = vcpu->arch.cp15.c13_TIDURW;
+		vcpu_reg(vcpu, params->rd_reg) = vcpu->arch.cp15.c13_TIDURW;
 		break;
 	case 3:
-		VCPU_REG(vcpu, params->rd_reg) = vcpu->arch.cp15.c13_TIDURO;
+		vcpu_reg(vcpu, params->rd_reg) = vcpu->arch.cp15.c13_TIDURO;
 		break;
 	case 4:
-		VCPU_REG(vcpu, params->rd_reg) = vcpu->arch.cp15.c13_TIDPO;
+		vcpu_reg(vcpu, params->rd_reg) = vcpu->arch.cp15.c13_TIDPO;
 		break;
 	default:
 		kvm_err(-EINVAL, "unknown opcode2: %d", params->opcode2);
@@ -1151,7 +1151,7 @@ static int emulate_mcr(struct kvm_vcpu *vcpu, u32 instr)
 	case 0: /* Processor ID Codes */
 		/* Not allowed to set anything in CR0 */
 		kvm_msg("guest tried to write to ID register at: %08x",
-				VCPU_REG(vcpu, 15));
+				vcpu_reg(vcpu, 15));
 		return 0;
 	case 1: /* System configuration */
 		return emulate_mcr_sysconf(p);
@@ -1227,16 +1227,16 @@ static int emulate_mcrr_cache_ranges(struct coproc_params *params)
 
 	/* Check valid registers */
 	if (params->rn_reg == 15 || params->rd_reg ==15) {
-		kvm_msg("Invalid MCRR registers at: 0x%08x", VCPU_REG(vcpu, 15));
+		kvm_msg("Invalid MCRR registers at: 0x%08x", vcpu_reg(vcpu, 15));
 		return -EINVAL;
 	}
 
-	start_addr = VCPU_REG(vcpu, params->rn_reg);
-	end_addr = VCPU_REG(vcpu, params->rd_reg);
+	start_addr = vcpu_reg(vcpu, params->rn_reg);
+	end_addr = vcpu_reg(vcpu, params->rd_reg);
 
 	/* Check valid address range */
 	if (start_addr > end_addr) {
-		kvm_msg("Invalid MCRR parameters at: 0x%08x", VCPU_REG(vcpu, 15));
+		kvm_msg("Invalid MCRR parameters at: 0x%08x", vcpu_reg(vcpu, 15));
 		return -EINVAL;
 	}
 
@@ -1302,7 +1302,7 @@ static int emulate_mcrr(struct kvm_vcpu *vcpu, u32 instr)
 
 	if (params.cp_num != 15) {
 		kvm_msg("MCRR for cp_num != 15 not supported at: 0x%08x",
-				VCPU_REG(vcpu, 15));
+				vcpu_reg(vcpu, 15));
 		return -EINVAL;
 	}
 
@@ -1315,7 +1315,7 @@ static int emulate_mcrr(struct kvm_vcpu *vcpu, u32 instr)
 		break;
 	default:
 		kvm_msg("invalid operation at: %08x - CRm (%d), Op (%d)",
-				VCPU_REG(vcpu, 15), params.CRm, params.opcode1);
+				vcpu_reg(vcpu, 15), params.CRm, params.opcode1);
 		return -EINVAL;
 	}
 
@@ -1428,14 +1428,14 @@ static int emulate_sensitive_dp_instr(struct kvm_vcpu *vcpu, u32 instr)
 		      "1: .word 0\n\t"			// Execute shadow instr.
 		      "mov %[result], r1" :		// Get result
 		      [result] "=r" (shadow_result) :     // output
-		      [rn] "r" (VCPU_REG(vcpu, rn_num)),  // input
-		      [rm] "r" (VCPU_REG(vcpu, rm_num)),  // input
-		      [rs] "r" (VCPU_REG(vcpu, rs_num)),  // input
+		      [rn] "r" (vcpu_reg(vcpu, rn_num)),  // input
+		      [rm] "r" (vcpu_reg(vcpu, rm_num)),  // input
+		      [rs] "r" (vcpu_reg(vcpu, rs_num)),  // input
 		      [shadow_instr] "r" (shadow_instr) : // input
 		      "r10", "r9", "r8", "r2", "r1", "r0");     // clobber
 
-	VCPU_REG(vcpu, rd_num) = shadow_result;
-	kvm_cpsr_write(vcpu, VCPU_SPSR(vcpu));
+	vcpu_reg(vcpu, rd_num) = shadow_result;
+	kvm_cpsr_write(vcpu, vcpu_spsr(vcpu));
 
 	return 0;
 }
@@ -1553,7 +1553,7 @@ int kvm_ls_is_write(struct kvm_vcpu *vcpu, u32 instr)
 			return 1;
 	}
 
-	kvm_msg("this happened at guest PC: 0x%08x", VCPU_REG(vcpu, 15));
+	kvm_msg("this happened at guest PC: 0x%08x", vcpu_reg(vcpu, 15));
 	BUG();
 	return 0; /* GCC is braindead */
 }
@@ -1606,7 +1606,7 @@ static inline gva_t ls_word_calc_offset(struct kvm_vcpu *vcpu, u32 instr)
 	if (CHECK_BITS(instr, OFFSET_REG_MASK, OFFSET_REG_VALUE)) {
 		/* Register offset/index */
 		u8 rm = instr & INSTR_LS_RM_MASK;
-		offset = VCPU_REG(vcpu, rm);
+		offset = vcpu_reg(vcpu, rm);
 
 		if (!BIT_SET(instr, INSTR_LS_BIT_P))
 			offset = 0;
@@ -1619,7 +1619,7 @@ static inline gva_t ls_word_calc_offset(struct kvm_vcpu *vcpu, u32 instr)
 		u8 shift = (instr & SCALE_SHIFT_MASK) >> SCALE_SHIFT_SHIFT;
 		u32 shift_imm = (instr & SCALE_SHIFT_IMM_MASK)
 				>> SCALE_SHIFT_IMM_SHIFT;
-		offset = VCPU_REG(vcpu, rm);
+		offset = vcpu_reg(vcpu, rm);
 
 		switch (shift) {
 		case SCALE_SHIFT_LSL:
@@ -1651,7 +1651,7 @@ static inline gva_t ls_word_calc_offset(struct kvm_vcpu *vcpu, u32 instr)
 			asr_test = 0xffffffff;
 			BUG_ON((asr_test >> 2) >= 0);
 			if (shift_imm == 0) {
-				u32 C = BIT_SET(vcpu->arch.cpsr, PSR_BIT_C);
+				u32 C = BIT_SET(vcpu->arch.regs->cpsr, PSR_BIT_C);
 				offset = (C << 31) | offset >> 1;
 			} else {
 				offset = ror32(offset, shift_imm);
@@ -1682,7 +1682,7 @@ int kvm_ls_get_address(struct kvm_vcpu *vcpu, u32 instr)
 	index = get_arm_ls_instr_index(instr);
 	if (index != INSTR_NONE) {
 		rn = (instr & INSTR_LS_RN_MASK) >> INSTR_LS_RN_SHIFT;
-		base = VCPU_REG(vcpu, rn);
+		base = vcpu_reg(vcpu, rn);
 		if (BIT_SET(instr, INSTR_LS_TYPE_BIT)) {
 			/* LS word or unsigned byte */
 			if (BIT_CLEAR(instr, INSTR_LS_BIT_P))
@@ -1698,7 +1698,7 @@ int kvm_ls_get_address(struct kvm_vcpu *vcpu, u32 instr)
 	index = get_arm_lsmult_instr_index(instr);
 	if (index != INSTR_NONE) {
 		rn = (instr & INSTR_LSM_RN_MASK) >> INSTR_LSM_RN_SHIFT;
-		return VCPU_REG(vcpu, rn);
+		return vcpu_reg(vcpu, rn);
 			
 	}
 
@@ -1726,7 +1726,7 @@ int kvm_ls_emulate_writeback(struct kvm_vcpu *vcpu, u32 instr)
 	if (BIT_CLEAR(instr, INSTR_LS_BIT_P) || BIT_SET(instr, INSTR_LS_BIT_W)) {
 		rn = kvm_ls_get_rn(vcpu, instr);
 		offset = ls_word_calc_offset(vcpu, instr);
-		VCPU_REG(vcpu, rn) += offset;
+		vcpu_reg(vcpu, rn) += offset;
 	}
 
 	return 0;
@@ -1750,9 +1750,9 @@ static inline int ls_mult_copy_register(struct kvm_vcpu *vcpu, u32 instr,
 	 * r15 is not in the registers list. */
 	if (BIT_SET(instr, INSTR_LSM_BIT_S) &&
 	    BIT_CLEAR(instr, 15)) {
-		reg = &(vcpu->arch.regs[reg_index]);
+		reg = &(vcpu_reg_m(vcpu, reg_index, MODE_USER));
 	} else {
-		reg = kvm_vcpu_reg(&vcpu->arch, reg_index);
+		reg = kvm_vcpu_reg(vcpu, reg_index, VCPU_MODE(vcpu));
 	}
 
 	/* Read/Write operation */
@@ -1778,7 +1778,7 @@ static int emulate_ls_mult(struct kvm_vcpu *vcpu, u32 instr)
 
 	/* Check is S bit is set in USER og SYSTEM mode */
 	if (BIT_SET(instr, INSTR_LSM_BIT_S) &&
-	    (vcpu->arch.mode == MODE_USER || vcpu->arch.mode == MODE_SYSTEM)) {
+	    (VCPU_MODE(vcpu) == MODE_USER || VCPU_MODE(vcpu) == MODE_SYSTEM)) {
 		vcpu->arch.exception_pending |= EXCEPTION_UNDEFINED;
 		return 0;
 	}
@@ -1823,20 +1823,20 @@ static int emulate_ls_mult(struct kvm_vcpu *vcpu, u32 instr)
 	/* Do possible write back to Rn register */
 	if (BIT_SET(instr, INSTR_LSM_BIT_W)) {
 		if (BIT_SET(instr, INSTR_LSM_BIT_U))
-			VCPU_REG(vcpu, rn) += register_count * 4;
+			vcpu_reg(vcpu, rn) += register_count * 4;
 		else
-			VCPU_REG(vcpu, rn) -= register_count * 4;
+			vcpu_reg(vcpu, rn) -= register_count * 4;
 	}
 
 	/* Possibly write SPSR to CPSR */
 	if (BIT_SET(instr, INSTR_LSM_BIT_L) && BIT_SET(instr, INSTR_LSM_BIT_S) 
 		&& BIT_SET(instr, 15)) {
-		kvm_cpsr_write(vcpu, VCPU_SPSR(vcpu));
+		kvm_cpsr_write(vcpu, vcpu_spsr(vcpu));
 	}
 
 	/* If not a branch, skip the trap and the instruction upon return */
 	if (BIT_CLEAR(instr, 15)) {
-		vcpu->arch.regs[15] += 8;
+		vcpu_reg(vcpu, 15) += 8;
 	}
 
 	return 0;
@@ -1866,7 +1866,7 @@ static int emulate_ls_with_trans(struct kvm_vcpu *vcpu, u32 instr)
 	
 	/* Let the PC point to the sens. instr. no matter if we raise excp. or
 	 * execute it natively. */
-	vcpu->arch.regs[15] += 4;
+	vcpu_reg(vcpu, 15) += 4;
 
 	if (fault) {
 		// XXX The stored PC will point to the sensitiveinstr.
@@ -1896,11 +1896,11 @@ static int emulate_mrs(struct kvm_vcpu *vcpu, u32 instr)
 {
 	u32 reg = (instr >> 12) & 0xf;
 	if (BIT_SET(instr, MSR_R_BIT))
-		VCPU_REG(vcpu, reg) = VCPU_SPSR(vcpu);
+		vcpu_reg(vcpu, reg) = vcpu_spsr(vcpu);
 	else
-		VCPU_REG(vcpu, reg) = vcpu->arch.cpsr;
+		vcpu_reg(vcpu, reg) = vcpu->arch.regs->cpsr;
 	
-	vcpu->arch.regs[15] += 8;
+	vcpu_reg(vcpu, 15) += 8;
 	return 0;
 }
 
@@ -1969,7 +1969,7 @@ static int emulate_msr(struct kvm_vcpu *vcpu, u32 instr)
 		if (shift)
 			operand = (operand >> shift) | (operand << (32 - shift));
 	} else {
-		operand = VCPU_REG(vcpu, instr & 0xf);
+		operand = vcpu_reg(vcpu, instr & 0xf);
 	}
 
 	byte_mask = (BIT_SET(instr, MSR_FMASK_C_BIT) ? PSR_c : 0) | 
@@ -1987,17 +1987,17 @@ static int emulate_msr(struct kvm_vcpu *vcpu, u32 instr)
 		} else {
 			mask = byte_mask & user_mask;
 		}
-		kvm_cpsr_write(vcpu, (vcpu->arch.cpsr & ~mask)
+		kvm_cpsr_write(vcpu, (vcpu->arch.regs->cpsr & ~mask)
 				     | (operand & mask));
 	} else {
 		/* SPSR */
 		if (!MODE_HAS_SPSR(vcpu))
 			return -EINVAL;
 		mask = byte_mask & (user_mask | priv_mask | state_mask);
-		VCPU_SPSR(vcpu) = (VCPU_SPSR(vcpu) & ~mask) | (operand & mask);
+		vcpu_spsr(vcpu) = (vcpu_spsr(vcpu) & ~mask) | (operand & mask);
 	}
 
-	vcpu->arch.regs[15] += 8;
+	vcpu_reg(vcpu, 15) += 8;
 	return 0;
 }
 
@@ -2045,22 +2045,22 @@ static inline int get_arm_psr_instr_index(u32 instr)
 #define CPS_MBITS_MASK	0x0000001f
 static int emulate_cps(struct kvm_vcpu *vcpu, u32 instr)
 {
-	struct kvm_vcpu_arch *arch = &vcpu->arch;
+	struct kvm_vcpu_regs *regs = vcpu->arch.regs;
 
 	if ((instr & CPS_IMOD_MASK) == CPS_IMOD_EN) {
 		/* Enable interrupts (unamsk) */ 
-		kvm_cpsr_write(vcpu, arch->cpsr & ~(instr & CPS_IBITS_MASK));
+		kvm_cpsr_write(vcpu, regs->cpsr & ~(instr & CPS_IBITS_MASK));
 	} else if ((instr & CPS_IMOD_MASK) == CPS_IMOD_DIS) {
 		/* Disable interrupts (mask) */
-		kvm_cpsr_write(vcpu, arch->cpsr | (instr & CPS_IBITS_MASK));
+		kvm_cpsr_write(vcpu, regs->cpsr | (instr & CPS_IBITS_MASK));
 	}
 
 	if ((instr & CPS_MMOD_MASK) > 0) {
 		/* Set mode */ 
-		kvm_cpsr_write(vcpu, (arch->cpsr & ~MODE_MASK)
+		kvm_cpsr_write(vcpu, (regs->cpsr & ~MODE_MASK)
 				     | (instr & CPS_MBITS_MASK));
 	} 
 
-	vcpu->arch.regs[15] += 8;
+	vcpu_reg(vcpu, 15) += 8;
 	return 0;
 }

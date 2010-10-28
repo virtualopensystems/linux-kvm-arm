@@ -17,6 +17,21 @@
 #ifndef __ARM_KVM_ASM_H__
 #define __ARM_KVM_ASM_H__
 
+
+/*
+ * Modes used for short-hand mode determinition in the world-switch code and
+ * in emulation code.
+ * Note: These indices do NOT correspond to the value of the CPSR mode bits!
+ */
+#define MODE_FIQ     0
+#define MODE_IRQ     1
+#define MODE_SVC     2
+#define MODE_ABORT   3
+#define MODE_UNDEF   4
+#define MODE_USER    5
+#define MODE_SYSTEM  6
+
+
 #define ARM_EXCEPTION_RESET	  0
 #define ARM_EXCEPTION_UNDEFINED   1
 #define ARM_EXCEPTION_SOFTWARE    2

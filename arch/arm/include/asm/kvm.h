@@ -23,14 +23,6 @@
 
 #include <asm/types.h>
 
-#define MODE_FIQ     0
-#define MODE_IRQ     1
-#define MODE_SVC     2
-#define MODE_ABORT   3
-#define MODE_UNDEF   4
-#define MODE_USER    5
-#define MODE_SYSTEM  6
-
 
 struct kvm_regs {
 	__u32 regs0_7[8];	/* A register for each of the unbanked 

@@ -188,7 +188,7 @@ void print_shadow_mapping(struct kvm_vcpu *vcpu, gva_t gva)
 
 void print_guest_area(struct kvm_vcpu *vcpu, gva_t gva)
 {
-	//gva_t gva = (gva_t)(VCPU_REG(vcpu, 15));
+	//gva_t gva = (gva_t)(vcpu_reg(vcpu, 15));
 	gfn_t gfn;
 	gpa_t gpa, from, to;
 	int ret;
@@ -507,6 +507,10 @@ struct kvm_vcpu *kvm_arch_vcpu_create(struct kvm *kvm, unsigned int id)
 	memcpy(arch->shared_page, &__shared_page_start, shared_code_len);
 	shared = arch->shared_page;
 
+	/* setup the vcpu's regs pointer into the shared page */
+	arch->regs = &(shared->vcpu_regs);
+	arch->mode = &(shared->vcpu_mode);
+
 	shared->shared_sp = (u32)((u32 *)arch->shared_page
 			+ (PAGE_SIZE / sizeof(u32)));
 	exception_return_offset = &__exception_return - &__shared_page_start;
@@ -547,7 +551,7 @@ struct kvm_vcpu *kvm_arch_vcpu_create(struct kvm *kvm, unsigned int id)
 	/*
 	 * Init execution CPSR
 	 */
-	shared->guest_CPSR = USR_MODE | (vcpu->arch.cpsr 
+	shared->execution_CPSR = USR_MODE | (vcpu->arch.regs->cpsr
 			     & ~(MODE_MASK | PSR_A_BIT | PSR_I_BIT | PSR_F_BIT));
 
 	/*
@@ -664,12 +668,65 @@ int kvm_arch_vcpu_ioctl_debug_guest(struct kvm_vcpu *vcpu,
 }
 
 /*
+ * Return a pointer to the register number valid in the specified mode of
+ * the virtual CPU.
+ */
+u32* kvm_vcpu_reg(struct kvm_vcpu *vcpu, u8 reg_num, u32 mode)
+{
+	struct kvm_vcpu_regs *regs;
+	u8 reg_idx;
+	BUG_ON(reg_num > 15);
+
+	regs = vcpu->arch.regs;
+
+	/* The PC is trivial */
+	if (reg_num == 15)
+		return &(regs->r15);
+
+	/* Non-banked registers */
+	if (reg_num < 8)
+		return &(regs->shared_reg[reg_num]);
+
+	/* Banked registers r13 and r14 */
+	if (reg_num >= 13) {
+		reg_idx = reg_num - 13; /* 0=r13 and 1=r14 */
+		switch (mode) {
+		case MODE_FIQ:
+			return &(regs->banked_fiq[reg_idx]);
+		case MODE_IRQ:
+			return &(regs->banked_irq[reg_idx]);
+		case MODE_SVC:
+			return &(regs->banked_svc[reg_idx]);
+		case MODE_ABORT:
+			return &(regs->banked_abt[reg_idx]);
+		case MODE_UNDEF:
+			return &(regs->banked_und[reg_idx]);
+		case MODE_USER:
+		case MODE_SYSTEM:
+			return &(regs->banked_usr[reg_idx]);
+		}
+	}
+
+	/* Banked FIQ registers r8-r12 */
+	if (reg_num >= 8 && reg_num <= 12) {
+		reg_idx = reg_num - 8; /* 0=r8, ..., 4=r12 */
+		if (mode == MODE_FIQ)
+			return &(regs->fiq_reg[reg_idx]);
+		else
+			return &(regs->usr_reg[reg_idx]);
+	}
+
+	BUG();
+	return NULL;
+}
+
+/*
  * Helper function to do what's needed when switching modes
  */
 static inline int kvm_switch_mode(struct kvm_vcpu *vcpu, u8 new_cpsr)
 {
 	u8 new_mode;
-	u8 old_mode = vcpu->arch.mode;
+	u8 old_mode = VCPU_MODE(vcpu);
 	int ret = 0;
 
 	u8 modes_table[16] = {
@@ -686,13 +743,15 @@ static inline int kvm_switch_mode(struct kvm_vcpu *vcpu, u8 new_cpsr)
 
 	new_mode = modes_table[new_cpsr & 0xf];
 	BUG_ON(new_mode == 0xf);
-	BUG_ON(new_mode == old_mode);
+
+	if (new_mode == old_mode)
+		return 0;
 
 	if (new_mode == MODE_USER || old_mode == MODE_USER) {
 		/* Switch btw. priv. and non-priv. */
 		ret = kvm_init_l1_shadow(vcpu, vcpu->arch.shadow_pgtable->pgd);
 	}
-	vcpu->arch.mode = new_mode;
+	vcpu->arch.shared_page->vcpu_mode = new_mode;
 
 	kvm_trace_activity(65, "switch mode");
 
@@ -705,15 +764,15 @@ static inline int kvm_switch_mode(struct kvm_vcpu *vcpu, u8 new_cpsr)
  */
 void kvm_cpsr_write(struct kvm_vcpu *vcpu, u32 new_cpsr)
 {
-	if ((new_cpsr & MODE_MASK) != (vcpu->arch.cpsr & MODE_MASK)) {
+	if ((new_cpsr & MODE_MASK) != (vcpu->arch.regs->cpsr & MODE_MASK)) {
 		BUG_ON(kvm_switch_mode(vcpu, new_cpsr));
 	}
 
 	BUG_ON((new_cpsr & PSR_N_BIT) && (new_cpsr & PSR_Z_BIT));
 
-	if ((vcpu->arch.cpsr & PSR_I_BIT) != (new_cpsr & PSR_I_BIT))  {
+	if ((vcpu->arch.regs->cpsr & PSR_I_BIT) != (new_cpsr & PSR_I_BIT))  {
 		int status = (new_cpsr & PSR_I_BIT) ? 0 : 1;
-		irq_on_off_trace_addr[irq_on_off_trace_index] = VCPU_REG(vcpu, 15);
+		irq_on_off_trace_addr[irq_on_off_trace_index] = vcpu_reg(vcpu, 15);
 		irq_on_off_trace_status[irq_on_off_trace_index] = status;
 		irq_on_off_trace_index = (irq_on_off_trace_index + 1)
 			% IRQ_ON_OFF_TRACE;
@@ -729,7 +788,7 @@ void kvm_cpsr_write(struct kvm_vcpu *vcpu, u32 new_cpsr)
 		}
 	}
 
-	vcpu->arch.cpsr = new_cpsr;
+	vcpu->arch.regs->cpsr = new_cpsr;
 }
 
 static void handle_mmio_return(struct kvm_vcpu *vcpu, struct kvm_run *run)
@@ -738,7 +797,7 @@ static void handle_mmio_return(struct kvm_vcpu *vcpu, struct kvm_run *run)
 	int len;
 
 	if (!run->mmio.is_write) {
-		dest = kvm_vcpu_reg(&vcpu->arch, vcpu->arch.mmio_rd);
+		dest = &(vcpu_reg(vcpu, vcpu->arch.mmio_rd));
 		*((u32 *)dest) = 0;
 		if ((unsigned int)vcpu->run->mmio.len > 4)
 			len = 4;
@@ -757,13 +816,13 @@ static int emulate_exception(struct kvm_vcpu *vcpu, u32 new_mode, u32 vector_off
 	int tmp_cpsr;
 
 	/* Change VCPU mode */
-	tmp_cpsr = vcpu->arch.cpsr;
+	tmp_cpsr = vcpu->arch.regs->cpsr;
 	tmp_cpsr = (tmp_cpsr & ~MODE_MASK) | new_mode;
 	tmp_cpsr &= ~PSR_T_BIT; /* ARM MODE */
 	tmp_cpsr |= PSR_I_BIT; /* disable interrupts */
 	kvm_cpsr_write(vcpu, tmp_cpsr);
 
-	vcpu->arch.regs[15] = kvm_guest_vector_base(vcpu) + vector_offset;
+	vcpu_reg(vcpu, 15) = kvm_guest_vector_base(vcpu) + vector_offset;
 
 	/*
 	 * Check if the host exception base is different from
@@ -788,46 +847,39 @@ static int emulate_exception(struct kvm_vcpu *vcpu, u32 new_mode, u32 vector_off
 
 static int inject_guest_exception(struct kvm_vcpu *vcpu)
 {
+	struct kvm_vcpu_regs *regs = vcpu->arch.regs;
+
 	/*
 	 * The order is important here, as it follows the architecture defined
 	 * exception priority.
 	 */
-
-	/*
-	if (guest_debug) {
-		irq_return = vcpu->arch.regs[15];
-		guest_debug = 0;
-		irq_suppress = 1;
-	}
-	*/
-
 	if (vcpu->arch.exception_pending & EXCEPTION_RESET) {
 		/* Reset exception not supported */
 		return -EINVAL;
 	}
 
 	if (vcpu->arch.exception_pending & EXCEPTION_SOFTWARE) {
-		//kvm_msg("inject swi: 0x%08x", VCPU_REG(vcpu, 15));
-		vcpu->arch.banked_r14[MODE_SVC] = vcpu->arch.regs[15] + 4;
-		vcpu->arch.banked_spsr[MODE_SVC] = vcpu->arch.cpsr;
+		//kvm_msg("inject swi: 0x%08x", vcpu_reg(vcpu, 15));
+		vcpu_reg_m(vcpu, 14, MODE_SVC) = vcpu_reg(vcpu, 15) + 4;
+		vcpu_spsr_m(vcpu, MODE_SVC) = regs->cpsr;
 
 		vcpu->arch.exception_pending &= ~EXCEPTION_SOFTWARE;
 		return emulate_exception(vcpu, SVC_MODE, 0x8);
 	}
 	
 	if (vcpu->arch.exception_pending & EXCEPTION_PREFETCH) {
-		//kvm_msg("inject prefetch abort: 0x%08x", VCPU_REG(vcpu, 15));
-		vcpu->arch.banked_r14[MODE_ABORT] = vcpu->arch.regs[15] + 4;
-		vcpu->arch.banked_spsr[MODE_ABORT] = vcpu->arch.cpsr;
+		//kvm_msg("inject prefetch abort: 0x%08x", vcpu_reg(vcpu, 15));
+		vcpu_reg_m(vcpu, 14, MODE_ABORT) = vcpu_reg(vcpu, 15) + 4;
+		vcpu_spsr_m(vcpu, MODE_ABORT) = regs->cpsr;
 
 		vcpu->arch.exception_pending &= ~EXCEPTION_PREFETCH;
 		return emulate_exception(vcpu, ABT_MODE, 0x0c);
 	}
 
 	if (vcpu->arch.exception_pending & EXCEPTION_DATA) {
-		//kvm_msg("inject data abort: 0x%08x", VCPU_REG(vcpu, 15));
-		vcpu->arch.banked_r14[MODE_ABORT] = vcpu->arch.regs[15] + 8;
-		vcpu->arch.banked_spsr[MODE_ABORT] = vcpu->arch.cpsr;
+		//kvm_msg("inject data abort: 0x%08x", vcpu_reg(vcpu, 15));
+		vcpu_reg_m(vcpu, 14, MODE_ABORT) = vcpu_reg(vcpu, 15) + 8;
+		vcpu_spsr_m(vcpu, MODE_ABORT) = regs->cpsr;
 
 		vcpu->arch.exception_pending &= ~EXCEPTION_DATA;
 		return emulate_exception(vcpu, ABT_MODE, 0x10);
@@ -836,20 +888,20 @@ static int inject_guest_exception(struct kvm_vcpu *vcpu)
 	if (vcpu->arch.exception_pending & EXCEPTION_IRQ) {
 		//if ((vcpu->arch.cpsr & PSR_I_BIT) || guest_debug || irq_suppress)
 		//kvm_trace_activity(200, "check if PSR_I_BIT is set");
-		if (vcpu->arch.cpsr & PSR_I_BIT)
+		if (regs->cpsr & PSR_I_BIT)
 			return 0;
 
 		//kvm_trace_activity(201, "inject irq");
 
-		vcpu->arch.banked_r14[MODE_IRQ] = vcpu->arch.regs[15] + 4;
-		vcpu->arch.banked_spsr[MODE_IRQ] = vcpu->arch.cpsr;
+		vcpu_reg_m(vcpu, 14, MODE_IRQ) = vcpu_reg(vcpu, 15) + 4;
+		vcpu_spsr_m(vcpu, MODE_IRQ) = regs->cpsr;
 
 		return emulate_exception(vcpu, IRQ_MODE, 0x18);
 	}
 
 	if (vcpu->arch.exception_pending & EXCEPTION_FIQ) {
-		kvm_msg("inject fiq: 0x%08x", VCPU_REG(vcpu, 15));
-		if (vcpu->arch.cpsr & PSR_F_BIT)
+		kvm_msg("inject fiq: 0x%08x", vcpu_reg(vcpu, 15));
+		if (regs->cpsr & PSR_F_BIT)
 			return 0;
 		
 		KVMARM_NOT_IMPLEMENTED();
@@ -869,9 +921,9 @@ static int pre_guest_switch(struct kvm_vcpu *vcpu)
 #ifdef KVMARM_BIN_TRANSLATE 
 
 	/* Look for sensitive instructions when executing in privileged mode */
-	if (vcpu->arch.mode != MODE_USER) 
+	if (VCPU_MODE(vcpu) != MODE_USER) 
 	{
-		ret = kvmarm_translate(vcpu, vcpu->arch.regs[15]);
+		ret = kvmarm_translate(vcpu, vcpu_reg(vcpu, 15));
 		if (ret < 0) 
 			return ret;
 	}
@@ -886,21 +938,9 @@ static int pre_guest_switch(struct kvm_vcpu *vcpu)
 			return ret;
 	}
 
-	/*
-	 * Copy registers to shared page, which will be loaded to the cpu
-	 */
-	memcpy(shared->guest_regs, vcpu->arch.regs, sizeof(u32) * 16);
-	if (vcpu->arch.mode == MODE_FIQ) {
-		memcpy(shared->guest_regs + 8, vcpu->arch.fiq_regs, sizeof(u32) * 5);
-	}
-	if (vcpu->arch.mode != MODE_USER) {
-		shared->guest_regs[13] = vcpu->arch.banked_r13[vcpu->arch.mode];
-		shared->guest_regs[14] = vcpu->arch.banked_r14[vcpu->arch.mode];
-	}
-
 	/* Copy only the COND bits over to the execution CPSR */
-	shared->guest_CPSR = (shared->guest_CPSR & ~0xf1000000) |
-		                (vcpu->arch.cpsr &  0xf1000000);
+	shared->execution_CPSR = (shared->execution_CPSR & ~0xf1000000) |
+					(vcpu->arch.regs->cpsr &  0xf1000000);
 
 #ifdef CONFIG_CPU_HAS_ASID
 		/* Set the shadow ASID and copy the TTBR */
@@ -912,10 +952,10 @@ static int pre_guest_switch(struct kvm_vcpu *vcpu)
 	shared->shadow_ttbr = shadow->pa;
 
 	/* Make sure that interrupts are enabled and guest is in user mode */
-	shared->guest_CPSR &= ~PSR_I_BIT;
-	shared->guest_CPSR |= PSR_F_BIT;
-	shared->guest_CPSR &= ~MODE_MASK;
-	shared->guest_CPSR |= USR_MODE;
+	shared->execution_CPSR &= ~PSR_I_BIT;
+	shared->execution_CPSR |= PSR_F_BIT;
+	shared->execution_CPSR &= ~MODE_MASK;
+	shared->execution_CPSR |= USR_MODE;
 
 	/* 
 	 * Make sure the special domain for shared page and irq vector
@@ -964,52 +1004,33 @@ static void post_guest_switch(struct kvm_vcpu *vcpu)
 {
 	struct shared_page *shared = vcpu->arch.shared_page;
 
-	/*
-	 * Copy registers from tmp_regs, which was copied from exception exit
-	 */
-	//XXX TODO BUG, we will overwrite usr regs 8-14 when in FIQ mode
-	memcpy(vcpu->arch.regs, shared->guest_regs, sizeof(u32) * 13);
-	if (vcpu->arch.mode == MODE_FIQ) {
-		memcpy(vcpu->arch.fiq_regs,
-		       shared->guest_regs + 8,
-		       sizeof(u32) * 5);
-	}
-	if (vcpu->arch.mode == MODE_USER) {
-		vcpu->arch.regs[13] = shared->guest_regs[13];
-		vcpu->arch.regs[14] = shared->guest_regs[14];
-	} else {
-		vcpu->arch.banked_r13[vcpu->arch.mode] = shared->guest_regs[13];
-		vcpu->arch.banked_r14[vcpu->arch.mode] = shared->guest_regs[14];
-	}
-	vcpu->arch.regs[15] = shared->guest_regs[15];
-
 	/* Copy only the condition bits for now */
-	vcpu->arch.cpsr =    (vcpu->arch.cpsr & ~0xf1000000) |
-			  (shared->guest_CPSR &  0xf1000000);
+	vcpu->arch.regs->cpsr = (vcpu->arch.regs->cpsr & ~0xf1000000) |
+					(shared->execution_CPSR & 0xf1000000);
 }
 
 void debug_exit_print(struct kvm_vcpu *vcpu, u32 interrupt)
 {
 	switch (interrupt) {
 	case ARM_EXCEPTION_UNDEFINED: {
-		__kvm_print_msg("UNDEFINED (0x%08x)\n", vcpu->arch.regs[15]);
+		__kvm_print_msg("UNDEFINED (0x%08x)\n", vcpu_reg(vcpu, 15));
 		break;
 	}
 	case ARM_EXCEPTION_SOFTWARE: {
-		__kvm_print_msg("SWI (0x%08x)\n", vcpu->arch.regs[15]);
+		__kvm_print_msg("SWI (0x%08x)\n", vcpu_reg(vcpu, 15));
 		break;
 	}
 	case ARM_EXCEPTION_PREF_ABORT:
-		__kvm_print_msg("PREFETCH ABT (0x%08x)\n", vcpu->arch.regs[15]);
+		__kvm_print_msg("PREFETCH ABT (0x%08x)\n", vcpu_reg(vcpu, 15));
 		break;
 	case ARM_EXCEPTION_DATA_ABORT:
-		__kvm_print_msg("DATA ABT (0x%08x)\n", vcpu->arch.regs[15]);
+		__kvm_print_msg("DATA ABT (0x%08x)\n", vcpu_reg(vcpu, 15));
 		break;
 	case ARM_EXCEPTION_IRQ:
-		__kvm_print_msg("IRQ (0x%08x)\n", vcpu->arch.regs[15]);
+		__kvm_print_msg("IRQ (0x%08x)\n", vcpu_reg(vcpu, 15));
 		break;
 	default:
-		__kvm_print_msg("BAD EXCPTN (0x%08x)\n", vcpu->arch.regs[15]);
+		__kvm_print_msg("BAD EXCPTN (0x%08x)\n", vcpu_reg(vcpu, 15));
 		break;
 	}
 
@@ -1084,19 +1105,19 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 		run->exit_reason = KVM_EXIT_UNKNOWN;
 
 		/*
-		if (irq_suppress && irq_return == vcpu->arch.regs[15]) {
+		if (irq_suppress && irq_return == vcpu_reg(vcpu, 15)) {
 			guest_debug = 1;
 			irq_suppress = 0;
 		}
 		*/
 
-		ws_trace_enter[ws_trace_enter_index++] = vcpu->arch.regs[15];
+		ws_trace_enter[ws_trace_enter_index++] = vcpu_reg(vcpu, 15);
 		if (ws_trace_enter_index >= WS_TRACE_ITEMS)
 			ws_trace_enter_index = 0;
 
 
 		if (guest_debug) {
-			__kvm_msg("ENTER VCPU: %08x ---->  ", vcpu->arch.regs[15]);
+			__kvm_msg("ENTER VCPU: %08x ---->  ", vcpu_reg(vcpu, 15));
 			pending_write = 1;
 		}
 
@@ -1105,7 +1126,7 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 		 * kvm_arch_vcpu_create(...)
 		 */
 		kvm_guest_enter();
-		if ((vcpu->arch.shared_page->guest_CPSR & MODE_MASK)
+		if ((vcpu->arch.shared_page->execution_CPSR & MODE_MASK)
 				!= USR_MODE) {
 			kvm_err(-EINVAL, "Trying to execute guest in priv. mode");
 			return -EINVAL;
@@ -1120,7 +1141,7 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 		vcpu->arch.guest_exception = excpt_idx;
 		post_guest_switch(vcpu); 
 
-		ws_trace_exit[ws_trace_exit_index] = vcpu->arch.regs[15];
+		ws_trace_exit[ws_trace_exit_index] = vcpu_reg(vcpu, 15);
 		ws_trace_exit_codes[ws_trace_exit_index++] = excpt_idx;
 		if (ws_trace_exit_index >= WS_TRACE_ITEMS)
 			ws_trace_exit_index = 0;
@@ -1169,9 +1190,6 @@ static inline int handle_undefined(struct kvm_vcpu *vcpu)
 	u32 instr;
 
 	instr = vcpu->arch.shared_page->guest_instr;
-	//ret = get_exception_instr(vcpu, vcpu->arch.regs[15], &instr);
-	//if (ret) 
-	//	return ret;
 
 	ret = kvm_handle_undefined(vcpu, instr);
 	return ret;
@@ -1184,17 +1202,9 @@ static inline int handle_swi(struct kvm_vcpu *vcpu)
 	u32 instr, orig_instr;
 	int ret;
 
-	addr = vcpu->arch.regs[15];
+	addr = vcpu_reg(vcpu, 15);
 
 	instr = vcpu->arch.shared_page->guest_instr;
-#if 0
-	ret = get_exception_instr(vcpu, addr, &instr);
-	if (ret) {
-		if (guest_debug)
-			kvm_err(ret, "could not get_excp_instr!");
-		return ret;
-	}
-#endif
 #ifdef KVMARM_BIN_TRANSLATE 
 	orig_instr = get_orig_instr(vcpu, addr);
 #endif
@@ -1213,7 +1223,7 @@ static inline int handle_swi(struct kvm_vcpu *vcpu)
 		} else if ((instr & 0xffff) >= 0xde00 && (instr & 0xffff) < 0xdf00) {
 			kvm_msg("instr: swi%x: ", (instr & 0xffff));
 		} else if ((instr & 0xffff) == 0xcafe) {
-			kvm_msg("register 0 on 0xcafe: %d", VCPU_REG(vcpu, 0));
+			kvm_msg("register 0 on 0xcafe: %d", vcpu_reg(vcpu, 0));
 		} else if ((instr & 0xffff) == 0xbabe) {
 			/* 0xbabe toggles debugging on/off */
 			guest_debug ^= 0x1;
@@ -1223,19 +1233,19 @@ static inline int handle_swi(struct kvm_vcpu *vcpu)
 		}
 
 		/* Proceed to next instruction */
-		vcpu->arch.regs[15] += 4;
+		vcpu_reg(vcpu, 15) += 4;
 		return 0;
 	}
 
 #ifdef KVMARM_BIN_TRANSLATE 
-	if (instr == orig_instr || vcpu->arch.mode == MODE_USER) {
+	if (instr == orig_instr || VCPU_MODE(vcpu) == MODE_USER) {
 #else
-	if ((instr & 0xffff) != 0xaaaa || vcpu->arch.mode == MODE_USER) {
+	if ((instr & 0xffff) != 0xaaaa || VCPU_MODE(vcpu) == MODE_USER) {
 #endif
 		/* This is an actual guest SWI instruction */
 		vcpu->arch.exception_pending |= EXCEPTION_SOFTWARE;
 		if (guest_debug)
-			kvm_msg("Guest needs SWI at: 0x%08x\n", vcpu->arch.regs[15]);
+			kvm_msg("Guest needs SWI at: 0x%08x\n", vcpu_reg(vcpu, 15));
 		vcpu->arch.exception_pending |= EXCEPTION_SOFTWARE;
 	} else {
 		/* An instruction that needs to be emulated */
@@ -1248,7 +1258,7 @@ static inline int handle_swi(struct kvm_vcpu *vcpu)
 		if (kvm_is_error_hva(hva)) {
 			kvm_err(-EINVAL, "Instruction generated at "
 					 "bad address: %08x",
-					vcpu->arch.regs[15]);
+					vcpu_reg(vcpu, 15));
 			return -EINVAL;
 		}
 		if (copy_from_user(&orig_instr, (void *)hva, sizeof(u32)))
@@ -1317,7 +1327,7 @@ static inline int user_mem_abort(struct kvm_vcpu *vcpu,
 	 * should always be possible to map the correct addresses
 	 * in the shadow page table and repeat the instruction.
 	 */
-	vcpu->arch.regs[15] = instr_addr;
+	vcpu_reg(vcpu, 15) = instr_addr;
 	return 0;
 }
 
@@ -1361,14 +1371,14 @@ static inline int io_mem_abort(struct kvm_vcpu *vcpu,
 	vcpu->arch.mmio_rd = rd;
 
 	if (write) {
-		memcpy(vcpu->run->mmio.data, &VCPU_REG(vcpu, rd), len);
+		memcpy(vcpu->run->mmio.data, &vcpu_reg(vcpu, rd), len);
 	}
 	
 	/*
 	 * The MMIO instruction is emulated and should not be re-executed
 	 * in the guest.
 	 */
-	vcpu->arch.regs[15] = instr_addr + 4;
+	vcpu_reg(vcpu, 15) = instr_addr + 4;
 	return 0;
 }
 
@@ -1429,7 +1439,7 @@ int handle_shadow_perm(struct kvm_vcpu *vcpu,
 
 		kvm_msg("Privileged mode cannot access vector page. "
 			"Guest must be broken or we have a bug.");
-		kvm_msg("    guest PC was: 0x%08x", VCPU_REG(vcpu, 15));
+		kvm_msg("    guest PC was: 0x%08x", vcpu_reg(vcpu, 15));
 		kvm_msg("    fault_addr:   0x%08x", fault_addr);
 
 		fsr = vcpu->arch.host_ifsr;
@@ -1477,7 +1487,7 @@ int handle_shadow_perm(struct kvm_vcpu *vcpu,
 
 	/* Guest should never access the shared page */
 	if ((fault_addr >> PAGE_SHIFT) == (SHARED_PAGE_BASE >> PAGE_SHIFT)) {
-		kvm_msg("guest accesses shared page at: 0x%08x", VCPU_REG(vcpu, 15));
+		kvm_msg("guest accesses shared page at: 0x%08x", vcpu_reg(vcpu, 15));
 		return -EINVAL;
 	}
 
@@ -1514,7 +1524,7 @@ static inline int handle_abort(struct kvm_vcpu *vcpu, u32 interrupt)
 
 	if (interrupt == ARM_EXCEPTION_DATA_ABORT) {
 		fault_addr = vcpu->arch.host_far;
-		instr_addr = vcpu->arch.regs[15];
+		instr_addr = vcpu_reg(vcpu, 15);
 		fsr = vcpu->arch.host_fsr;
 	} else {
 		/*
@@ -1526,7 +1536,7 @@ static inline int handle_abort(struct kvm_vcpu *vcpu, u32 interrupt)
 		 * entry)
 		 */
 		fsr = vcpu->arch.host_ifsr;
-		instr_addr = fault_addr = vcpu->arch.regs[15];
+		instr_addr = fault_addr = vcpu_reg(vcpu, 15);
 	}
 
 	switch (fsr & FSR_TYPE_MASK) {
@@ -1591,9 +1601,9 @@ static u32 handle_exit(struct kvm_vcpu *vcpu, u32 interrupt)
 			return ret;
 		break;
 	case ARM_EXCEPTION_IRQ:
-		if (VCPU_REG(vcpu, 15) > 0x00368800 &&
-		    VCPU_REG(vcpu, 15) < 0x003688ff) {
-			kvm_msg("irq at: 0x%08x", VCPU_REG(vcpu, 15));
+		if (vcpu_reg(vcpu, 15) > 0x00368800 &&
+		    vcpu_reg(vcpu, 15) < 0x003688ff) {
+			kvm_msg("irq at: 0x%08x", vcpu_reg(vcpu, 15));
 		}
 		break;
 	default:
@@ -1711,6 +1721,7 @@ static void print_kvm_debug_info(int (*print_fn)(PRINT_FN_ARGS), struct seq_file
 	char *mode = NULL;
 	char *exceptions[7];
 	struct kvm_vcpu *vcpu = latest_vcpu;
+	struct kvm_vcpu_regs *regs = vcpu->arch.regs;
 
 	print_fn(m, "KVM/ARM runtime info\n");
 	print_fn(m, "======================================================\n\n");
@@ -1720,7 +1731,7 @@ static void print_kvm_debug_info(int (*print_fn)(PRINT_FN_ARGS), struct seq_file
 		goto print_ws_hist;
 	}
 	
-	switch (vcpu->arch.mode) {
+	switch (VCPU_MODE(vcpu)) {
 		case MODE_USER:   mode = "USR"; break;
 		case MODE_FIQ:    mode = "FIQ"; break;
 		case MODE_IRQ:    mode = "IRQ"; break;
@@ -1731,56 +1742,53 @@ static void print_kvm_debug_info(int (*print_fn)(PRINT_FN_ARGS), struct seq_file
 	}
 
 	print_fn(m, "Virtual CPU state:\n\n");
-	print_fn(m, "PC is at: \t0x%08x\n", vcpu->arch.regs[15]);
+	print_fn(m, "PC is at: \t0x%08x\n", vcpu_reg(vcpu, 15));
 	print_fn(m, "CPSR:     \t0x%08x (Mode: %s)  (IRQs: %s)  (FIQs: %s) "
 		      "  (Vec: %s)",
-		      vcpu->arch.cpsr, mode,
-		      (vcpu->arch.cpsr & PSR_I_BIT) ? "off" : "on",
-		      (vcpu->arch.cpsr & PSR_F_BIT) ? "off" : "on",
-		      (vcpu->arch.cpsr & PSR_V_BIT) ? "high" : "low");
+		      regs->cpsr, mode,
+		      (regs->cpsr & PSR_I_BIT) ? "off" : "on",
+		      (regs->cpsr & PSR_F_BIT) ? "off" : "on",
+		      (regs->cpsr & PSR_V_BIT) ? "high" : "low");
 
 	for (i = 0; i <= 12; i++) {
 		if ((i % 4) == 0)
 			print_fn(m, "\nregs[%u]: ", i);
 
-		print_fn(m, "\t0x%08x", vcpu->arch.regs[i]);
+		print_fn(m, "\t0x%08x", vcpu_reg_m(vcpu, i, MODE_USER));
 	}
 
 	print_fn(m, "\n\n");
 	print_fn(m, "Banked registers:  \tr13\t\tr14\t\tspsr\n");
 	print_fn(m, "-----------------------------------------------------\n");
 	print_fn(m, "             USR:  \t0x%08x\t0x%08x\t----------\n",
-			vcpu->arch.regs[13],
-			vcpu->arch.regs[14]);
+			vcpu_reg_m(vcpu, 13, MODE_USER),
+			vcpu_reg_m(vcpu, 14, MODE_USER));
 	print_fn(m, "             SVC:  \t0x%08x\t0x%08x\t0x%08x\n",
-			vcpu->arch.banked_r13[MODE_SVC],
-			vcpu->arch.banked_r14[MODE_SVC],
-			vcpu->arch.banked_spsr[MODE_SVC]);
+			vcpu_reg_m(vcpu, 13, MODE_SVC),
+			vcpu_reg_m(vcpu, 14, MODE_SVC),
+			vcpu_spsr_m(vcpu, MODE_SVC));
 	print_fn(m, "             ABT:  \t0x%08x\t0x%08x\t0x%08x\n",
-			vcpu->arch.banked_r13[MODE_ABORT],
-			vcpu->arch.banked_r14[MODE_ABORT],
-			vcpu->arch.banked_spsr[MODE_ABORT]);
+			vcpu_reg_m(vcpu, 13, MODE_ABORT),
+			vcpu_reg_m(vcpu, 14, MODE_ABORT),
+			vcpu_spsr_m(vcpu, MODE_ABORT));
 	print_fn(m, "             UND:  \t0x%08x\t0x%08x\t0x%08x\n",
-			vcpu->arch.banked_r13[MODE_UNDEF],
-			vcpu->arch.banked_r14[MODE_UNDEF],
-			vcpu->arch.banked_spsr[MODE_UNDEF]);
+			vcpu_reg_m(vcpu, 13, MODE_UNDEF),
+			vcpu_reg_m(vcpu, 14, MODE_UNDEF),
+			vcpu_spsr_m(vcpu, MODE_UNDEF));
 	print_fn(m, "             IRQ:  \t0x%08x\t0x%08x\t0x%08x\n",
-			vcpu->arch.banked_r13[MODE_IRQ],
-			vcpu->arch.banked_r14[MODE_IRQ],
-			vcpu->arch.banked_spsr[MODE_IRQ]);
+			vcpu_reg_m(vcpu, 13, MODE_IRQ),
+			vcpu_reg_m(vcpu, 14, MODE_IRQ),
+			vcpu_spsr_m(vcpu, MODE_IRQ));
 	print_fn(m, "             FIQ:  \t0x%08x\t0x%08x\t0x%08x\n",
-			vcpu->arch.banked_r13[MODE_FIQ],
-			vcpu->arch.banked_r14[MODE_FIQ],
-			vcpu->arch.banked_spsr[MODE_FIQ]);
+			vcpu_reg_m(vcpu, 13, MODE_FIQ),
+			vcpu_reg_m(vcpu, 14, MODE_FIQ),
+			vcpu_spsr_m(vcpu, MODE_FIQ));
 
 	print_fn(m, "\n");
 	print_fn(m, "fiq regs:\t0x%08x\t0x%08x\t0x%08x\t0x%08x\n"
 			  "         \t0x%08x\n",
-			vcpu->arch.fiq_regs[0],
-			vcpu->arch.fiq_regs[1],
-			vcpu->arch.fiq_regs[2],
-			vcpu->arch.fiq_regs[3],
-			vcpu->arch.fiq_regs[4]);
+			regs->fiq_reg[0], regs->fiq_reg[1], regs->fiq_reg[2],
+			regs->fiq_reg[3], regs->fiq_reg[4]);
 
 print_ws_hist:
 	/*

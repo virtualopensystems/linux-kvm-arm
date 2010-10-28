@@ -130,19 +130,26 @@ int main(void)
   DEFINE(SHARED_RET_PTR,        offsetof(struct shared_page, return_ptr));
   DEFINE(SHARED_HOST_SP,        offsetof(struct shared_page, host_sp));
   DEFINE(SHARED_EXCEPTION_IDX,  offsetof(struct shared_page, exception_index));
-  DEFINE(SHARED_GUEST_REGS,     offsetof(struct shared_page, guest_regs));
-  DEFINE(SHARED_GUEST_CPSR,     offsetof(struct shared_page, guest_CPSR));
   DEFINE(SHARED_HOST_REGS,      offsetof(struct shared_page, host_regs));
   DEFINE(SHARED_HOST_CPSR,      offsetof(struct shared_page, host_CPSR));
   DEFINE(SHARED_HOST_SPSR,      offsetof(struct shared_page, host_SPSR));
   DEFINE(SHARED_HOST_TTBR,      offsetof(struct shared_page, host_ttbr));
   DEFINE(SHARED_SHADOW_TTBR,    offsetof(struct shared_page, shadow_ttbr));
+  DEFINE(SHARED_EXEC_CPSR,	offsetof(struct shared_page, execution_CPSR));
   DEFINE(SHARED_GUEST_DAC,      offsetof(struct shared_page, guest_dac));
   DEFINE(SHARED_GUEST_ASID,     offsetof(struct shared_page, guest_asid));
   DEFINE(SHARED_HOST_DAC,       offsetof(struct shared_page, host_dac));
   DEFINE(SHARED_HOST_ASID,      offsetof(struct shared_page, host_asid));
   DEFINE(SHARED_GUEST_INSTR,    offsetof(struct shared_page, guest_instr));
   DEFINE(SHARED_ORIG_INSTR,     offsetof(struct shared_page, orig_instr));
+  DEFINE(SHARED_VCPU_MODE,	offsetof(struct shared_page, vcpu_mode));
+  DEFINE(SHARED_VCPU_REGS,	offsetof(struct shared_page, vcpu_regs));
+
+  DEFINE(VCPU_REGS_FIQ,		offsetof(struct kvm_vcpu_regs, fiq_reg));
+  DEFINE(VCPU_REGS_USR,		offsetof(struct kvm_vcpu_regs, usr_reg));
+  DEFINE(VCPU_REGS_BANKED_FIQ,	offsetof(struct kvm_vcpu_regs, banked_fiq));
+  DEFINE(VCPU_REGS_SHARED_REG,	offsetof(struct kvm_vcpu_regs, shared_reg));
+  DEFINE(VCPU_REGS_R15,		offsetof(struct kvm_vcpu_regs, r15));
 #endif
 
   return 0; 
