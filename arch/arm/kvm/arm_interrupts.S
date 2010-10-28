@@ -20,7 +20,6 @@
 #include <asm/asm-offsets.h>
 #include <asm/kvm_asm.h>
 #include <mach/vmalloc.h>
-#include "../kernel/entry-header.S"
 #include <linux/sched.h>
 
 #ifdef CONFIG_CPU_V6
@@ -456,7 +455,7 @@ load_host_regs:
 	mrs	r2, cpsr		@ CPSR when w return
 	stmia	sp, {r0 - r2}
 	mov	r0, sp
-	ldr	pc, __irq_svc_address
+	ldr	pc, SHARED(IRQ_SVC_ADDR)
 irq_kernel_resume:
 	add	sp, sp, #12
 	ldmia	sp, {r0 - r2}
@@ -466,15 +465,6 @@ return_to_ioctl:
 	@ Return to kvm_vcpu_ioctl_run
 	mov	pc, lr
 
-__irq_svc_address:
-	.word	0
-
 .globl __shared_page_end
 __shared_page_end:
 	.word 0
-
-.globl __copy_irq_svc_address
-__copy_irq_svc_address:
-	ldr	r0, =__irq_svc
-	str	r0, __irq_svc_address
-	mov	pc, lr

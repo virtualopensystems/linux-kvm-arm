@@ -122,6 +122,7 @@ struct kvm_vcpu_regs {
 struct shared_page {
 	unsigned long shared_sp;
 	unsigned long return_ptr;
+	unsigned long irq_svc_address;
 	unsigned long host_sp;
 	unsigned long exception_index;
 	unsigned long execution_CPSR;

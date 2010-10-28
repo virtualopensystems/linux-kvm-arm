@@ -53,21 +53,6 @@ void print_shadow_mapping(struct kvm_vcpu *vcpu, gva_t gva);
 void print_ws_trace(void);
 void kvm_trace_activity(unsigned int activity, char *fmt, ...);
 
-
-/*
- * Assembly globals
- */
-extern u32 __irq_vector_start;
-extern u32 __irq_vector_end;
-
-extern u32 __shared_page_start;
-extern u32 __shared_page_end;
-
-extern u32 __vcpu_run;
-extern u32 __exception_return;
-
-extern void __copy_irq_svc_address(void);
-
 /*
  * General KMV-ARM specific global functions
  */

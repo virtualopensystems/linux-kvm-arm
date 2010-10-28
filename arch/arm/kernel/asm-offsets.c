@@ -128,6 +128,7 @@ int main(void)
   DEFINE(SIZEOF_SHARED_STRUCT,  sizeof(struct shared_page));
   DEFINE(SHARED_SHARED_SP,      offsetof(struct shared_page, shared_sp));
   DEFINE(SHARED_RET_PTR,        offsetof(struct shared_page, return_ptr));
+  DEFINE(SHARED_IRQ_SVC_ADDR,   offsetof(struct shared_page, irq_svc_address));
   DEFINE(SHARED_HOST_SP,        offsetof(struct shared_page, host_sp));
   DEFINE(SHARED_EXCEPTION_IDX,  offsetof(struct shared_page, exception_index));
   DEFINE(SHARED_HOST_REGS,      offsetof(struct shared_page, host_regs));

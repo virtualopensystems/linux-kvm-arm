@@ -42,13 +42,32 @@ unsigned int irq_on_off_count = 0;
 #include <asm/kvm_mmu.h>
 #include <asm/kvm_emulate.h>
 
-static struct kvm_vcpu *latest_vcpu = NULL;
+/*
+ * Assembly globals
+ */
+extern u32 __irq_vector_start;
+extern u32 __irq_vector_end;
 
+extern u32 __shared_page_start;
+extern u32 __shared_page_end;
+
+extern u32 __vcpu_run;
+extern u32 __exception_return;
+extern void __irq_svc(void);
+
+/*
+ * Function prototypes
+ */
 static u32		handle_exit(struct kvm_vcpu *vcpu, u32 interrupt);
 static int		pre_guest_switch(struct kvm_vcpu *vcpu);
 static void		post_guest_switch(struct kvm_vcpu *vcpu);
 static inline int	handle_shadow_fault(struct kvm_vcpu *vcpu,
 					   gva_t fault_addr, gva_t instr_addr);
+
+/*
+ * Static variables for logging and debugging
+ */
+static struct kvm_vcpu *latest_vcpu = NULL;
 
 #define TMP_LOG_LEN 512
 static char __tmp_log_data[TMP_LOG_LEN];
@@ -487,10 +506,6 @@ struct kvm_vcpu *kvm_arch_vcpu_create(struct kvm *kvm, unsigned int id)
 		goto free_shared;
 	}
 
-	/*
-	 * Copy kernel IRQ handler to shared page to make code relocatable
-	 */
-	__copy_irq_svc_address();
 
 	/*
 	 * Relocate code to shared page and setup pointers.
@@ -499,17 +514,23 @@ struct kvm_vcpu *kvm_arch_vcpu_create(struct kvm *kvm, unsigned int id)
 	memcpy(arch->shared_page, &__shared_page_start, shared_code_len);
 	shared = arch->shared_page;
 
-	/* setup the vcpu's regs pointer into the shared page */
+	/* Setup vcpu's pointers into the shared page */
 	arch->regs = &(shared->vcpu_regs);
 	arch->mode = &(shared->vcpu_mode);
+	vcpu_run_offset = &__vcpu_run - &__shared_page_start;
+	arch->run = (int(*)(void *))((u32 *)arch->shared_page + vcpu_run_offset);
 
+	/*
+	 * Setup shared page stack pointer, return pointer and host kernel SVC
+	 * handler address.
+	 */
 	shared->shared_sp = (u32)((u32 *)arch->shared_page
 			+ (PAGE_SIZE / sizeof(u32)));
 	exception_return_offset = &__exception_return - &__shared_page_start;
 	shared->return_ptr = (u32)((u32 *)arch->shared_page
 			+ exception_return_offset);
-	vcpu_run_offset = &__vcpu_run - &__shared_page_start;
-	arch->run = (int(*)(void *))((u32 *)arch->shared_page + vcpu_run_offset);
+	shared->irq_svc_address = (unsigned long)(&__irq_svc);
+
 
 	/*
 	 * Allocate and set up guest exception vector page
