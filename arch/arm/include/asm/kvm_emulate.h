@@ -51,17 +51,17 @@ int kvm_ls_emulate_writeback(struct kvm_vcpu *vcpu, u32 instr);
 #define INSTR_NONE	-1
 
 #define INSTR_DP_ADC	 0
-#define INSTR_DP_ADD	 1  
-#define INSTR_DP_AND	 2  
-#define INSTR_DP_BIC	 3  
-#define INSTR_DP_EOR	 4  
-#define INSTR_DP_MOV	 5  
-#define INSTR_DP_MVN	 6  
-#define INSTR_DP_ORR	 7  
-#define INSTR_DP_RSB	 8  
-#define INSTR_DP_RSC	 9   
-#define INSTR_DP_SBC	10   
-#define INSTR_DP_SUB	11   
+#define INSTR_DP_ADD	 1
+#define INSTR_DP_AND	 2
+#define INSTR_DP_BIC	 3
+#define INSTR_DP_EOR	 4
+#define INSTR_DP_MOV	 5
+#define INSTR_DP_MVN	 6
+#define INSTR_DP_ORR	 7
+#define INSTR_DP_RSB	 8
+#define INSTR_DP_RSC	 9
+#define INSTR_DP_SBC	10
+#define INSTR_DP_SUB	11
 
 #define INSTR_PSR_CPS	 	0
 #define INSTR_PSR_SETEND	1

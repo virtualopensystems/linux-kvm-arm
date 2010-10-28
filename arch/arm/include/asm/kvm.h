@@ -25,20 +25,14 @@
 
 
 struct kvm_regs {
-	__u32 regs0_7[8];	/* A register for each of the unbanked 
-				   registers (R0 - R7)                        */
-	__u32 fiq_regs8_12[5];	/* A register for each of the banked fiq 
-				   registers (R8 - R12)                       */
-	__u32 usr_regs8_12[5];	/* A register for each of the banked usr 
-				   registers (R8 - R12)                       */
-	__u32 reg13[6];		/* Register 13 for each of the banked modes, 
-				   indexed by MODE_                           */
-	__u32 reg14[6];		/* Register 14 for each of the banked modes, 
-				   indexed by MODE_                           */
-	__u32 reg15;		/* Register 15 */
+	__u32 regs0_7[8];	/* Unbanked regs. (r0 - r7)	   */
+	__u32 fiq_regs8_12[5];	/* Banked fiq regs. (r8 - r12)	   */
+	__u32 usr_regs8_12[5];	/* Banked usr registers (r8 - r12) */
+	__u32 reg13[6];		/* Banked r13, indexed by MODE_	   */
+	__u32 reg14[6];		/* Banked r13, indexed by MODE_	   */
+	__u32 reg15;
 	__u32 cpsr;
-	__u32 spsr[5];		/* The SPSR for each mode, indexed by MODE_. 
-				   user and system do not have one            */
+	__u32 spsr[5];		/* Banked SPSR,  indexed by MODE_  */
 	struct {
 		__u32 c0_cpuid;
 		__u32 c2_base0;

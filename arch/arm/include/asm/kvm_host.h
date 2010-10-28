@@ -12,9 +12,6 @@
  * along with this program; if not, write to the Free Software
  * Foundation, 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  *
- * Copyright 
- *
- * Authors: 
  */
 
 #ifndef __ARM_KVM_HOST_H__
@@ -193,7 +190,7 @@ struct kvm_vcpu_arch {
 		u32 c13_TIDPO;		/* Privileged only Thread and Process ID */
 	} cp15;
 
-#ifdef KVMARM_BIN_TRANSLATE 
+#ifdef KVMARM_BIN_TRANSLATE
 	u32 trans_start;		/* Guest address translation started at */
 	u32 trans_numTrans;		/* Number of guest instructions translated */
 	u32 *trans_untrans_instrs;	/* Guest's untranslated instr., host storage */
@@ -219,7 +216,7 @@ struct kvm_vcpu_arch {
 	hpa_t host_pgd_pa;
 	int host_vectors_high;
 
-	/* 
+	/*
 	 * Used to keep correct access permissions for pages which l1 desc.
 	 * conincide with that of shared page or the irq vector page.
 	 */
@@ -243,27 +240,27 @@ struct kvm_vcpu_arch {
 };
 
 struct kvm_vm_stat {
-        u32 remote_tlb_flush;
+	u32 remote_tlb_flush;
 };
 
 struct kvm_vcpu_stat {
-        u32 sum_exits;
-        u32 mmio_exits;
-        u32 dcr_exits;
-        u32 signal_exits;
-        u32 light_exits;
-        /* Account for special types of light exits: */
-        u32 itlb_real_miss_exits;
-        u32 itlb_virt_miss_exits;
-        u32 dtlb_real_miss_exits;
-        u32 dtlb_virt_miss_exits;
-        u32 syscall_exits;
-        u32 isi_exits;
-        u32 dsi_exits;
-        u32 emulated_inst_exits;
-        u32 dec_exits;
-        u32 ext_intr_exits;
-        u32 halt_wakeup;
+	u32 sum_exits;
+	u32 mmio_exits;
+	u32 dcr_exits;
+	u32 signal_exits;
+	u32 light_exits;
+	/* Account for special types of light exits: */
+	u32 itlb_real_miss_exits;
+	u32 itlb_virt_miss_exits;
+	u32 dtlb_real_miss_exits;
+	u32 dtlb_virt_miss_exits;
+	u32 syscall_exits;
+	u32 isi_exits;
+	u32 dsi_exits;
+	u32 emulated_inst_exits;
+	u32 dec_exits;
+	u32 ext_intr_exits;
+	u32 halt_wakeup;
 };
 
 

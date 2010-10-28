@@ -40,39 +40,39 @@ extern u8 guest_debug;
 /******************************************************************************
  * ARM common defines
  *****************************************************************************/
-#define SECTION_BASE_MASK     		0xfff00000
-#define SECTION_BASE_INDEX_MASK       	0x000fffff
-#define SUP_BASE_INDEX_MASK       	0x00ffffff
-#define PAGES_PER_SECTION     		(SECTION_SIZE >> PAGE_SHIFT)
+#define SECTION_BASE_MASK     	0xfff00000
+#define SECTION_BASE_INDEX_MASK	0x000fffff
+#define SUP_BASE_INDEX_MASK     0x00ffffff
+#define PAGES_PER_SECTION     	(SECTION_SIZE >> PAGE_SHIFT)
 
-#define VA_L1_IDX_MASK	      (0xfff << 20)
-#define VA_L1_IDX_SHIFT	      18 /* 2 extra bits for word index */
-#define VA_L2_IDX_MASK	      (0xff << 12)
-#define VA_L2_IDX_SHIFT	      10 /* 2 extra bits for word index */
+#define VA_L1_IDX_MASK		(0xfff << 20)
+#define VA_L1_IDX_SHIFT		18 /* 2 extra bits for word index */
+#define VA_L2_IDX_MASK		(0xff << 12)
+#define VA_L2_IDX_SHIFT		10 /* 2 extra bits for word index */
 
-#define L1_TABLE_ENTRIES      (1 << 12)
-#define L1_TABLE_SIZE         (L1_TABLE_ENTRIES << 2)
-#define L1_TABLE_PAGES        (L1_TABLE_SIZE / PAGE_SIZE)
-#define L1_TABLE_ORDER        2
-#define L1_COARSE_SHIFT	      10
-#define L1_COARSE_MASK        (~0x3ff)
-#define L1_DOMAIN_SHIFT	      5
-#define L1_DOMAIN_MASK        (0xf << L1_DOMAIN_SHIFT)
-#define L1_SECTION_AP_SHIFT   10
-#define L1_SECTION_AP_MASK    (0x3 << L1_SECTION_AP_SHIFT)
+#define L1_TABLE_ENTRIES	(1 << 12)
+#define L1_TABLE_SIZE		(L1_TABLE_ENTRIES << 2)
+#define L1_TABLE_PAGES		(L1_TABLE_SIZE / PAGE_SIZE)
+#define L1_TABLE_ORDER		2
+#define L1_COARSE_SHIFT		10
+#define L1_COARSE_MASK		(~0x3ff)
+#define L1_DOMAIN_SHIFT		5
+#define L1_DOMAIN_MASK		(0xf << L1_DOMAIN_SHIFT)
+#define L1_SECTION_AP_SHIFT	10
+#define L1_SECTION_AP_MASK	(0x3 << L1_SECTION_AP_SHIFT)
 
-#define L2_TABLE_SHIFT        10
-#define L2_TABLE_ENTRIES      256
-#define L2_TABLE_SIZE         (1UL << L2_TABLE_SHIFT)
-#define L2_TABLES_PER_PAGE    L2_TABLE_SIZE / PAGE_SIZE
+#define L2_TABLE_SHIFT		10
+#define L2_TABLE_ENTRIES	256
+#define L2_TABLE_SIZE		(1UL << L2_TABLE_SHIFT)
+#define L2_TABLES_PER_PAGE	L2_TABLE_SIZE / PAGE_SIZE
 
-#define L2_TYPE_MASK          0x3
-#define L2_TYPE_FAULT         0x0
-#define L2_TYPE_LARGE         0x1
+#define L2_TYPE_MASK		0x3
+#define L2_TYPE_FAULT		0x0
+#define L2_TYPE_LARGE		0x1
 
-#define L2_LARGE_BASE_SHIFT   16
-#define L2_LARGE_BASE_MASK    (0xffff << L2_LARGE_BASE_SHIFT) 
-#define VA_LARGE_INDEX_MASK   (0xffff)
+#define L2_LARGE_BASE_SHIFT	16
+#define L2_LARGE_BASE_MASK	(0xffff << L2_LARGE_BASE_SHIFT)
+#define VA_LARGE_INDEX_MASK	(0xffff)
 
 
 /******************************************************************************
@@ -87,18 +87,18 @@ extern u8 guest_debug;
 
 #define L1_SUP_BASE_SHIFT		24
 #define L1_SUP_BASE_MASK		(0xff << L1_SUP_BASE_SHIFT)
-#define L1_SUP_BASE_LOW_SHIFT	20
+#define L1_SUP_BASE_LOW_SHIFT		20
 #define L1_SUP_BASE_LOW_MASK		(0xf << L1_SUP_BASE_LOW_SHIFT)
-#define L1_SUP_BASE_HIGH_SHIFT	5
-#define L1_SUP_BASE_HIGH_MASK	(0xf << L1_SUP_BASE_HIGH_SHIFT)
+#define L1_SUP_BASE_HIGH_SHIFT		5
+#define L1_SUP_BASE_HIGH_MASK		(0xf << L1_SUP_BASE_HIGH_SHIFT)
 
 
-#define L2_EXT_SMALL_BASE_SHIFT   	12
-#define L2_EXT_SMALL_BASE_MASK    	(0xfffff << L2_EXT_SMALL_BASE_SHIFT) 
-#define VA_EXT_SMALL_INDEX_MASK   	(0xfff)
+#define L2_EXT_SMALL_BASE_SHIFT		12
+#define L2_EXT_SMALL_BASE_MASK		(0xfffff << L2_EXT_SMALL_BASE_SHIFT)
+#define VA_EXT_SMALL_INDEX_MASK		(0xfff)
 
-#define L2_TYPE_EXT_SMALL     		0x3
-#define L2_XP_TYPE_EXT_SMALL     	0x2
+#define L2_TYPE_EXT_SMALL		0x3
+#define L2_XP_TYPE_EXT_SMALL		0x2
 
 #endif /* __LINUX_ARM_ARCH__ >= 6 */
 
@@ -106,16 +106,16 @@ extern u8 guest_debug;
 /******************************************************************************
  * ARM v5 defines (VMSAv6, subpages enabled)
  *****************************************************************************/
-#define L2_TYPE_SMALL         0x2
-#define L2_TYPE_TINY          0x3
+#define L2_TYPE_SMALL		0x2
+#define L2_TYPE_TINY		0x3
 
-#define L2_SMALL_BASE_SHIFT   12
-#define L2_SMALL_BASE_MASK    (0xfffff << L2_SMALL_BASE_SHIFT) 
-#define VA_SMALL_INDEX_MASK   (0xfff)
+#define L2_SMALL_BASE_SHIFT	12
+#define L2_SMALL_BASE_MASK	(0xfffff << L2_SMALL_BASE_SHIFT)
+#define VA_SMALL_INDEX_MASK	(0xfff)
 
-#define L2_TINY_BASE_SHIFT    10
-#define L2_TINY_BASE_MASK     (0x3fffff << L2_TINY_BASE_SHIFT) 
-#define VA_TINY_INDEX_MASK    (0x3ff)
+#define L2_TINY_BASE_SHIFT	10
+#define L2_TINY_BASE_MASK	(0x3fffff << L2_TINY_BASE_SHIFT)
+#define VA_TINY_INDEX_MASK	(0x3ff)
 
 
 
@@ -193,9 +193,9 @@ static int trans_coarse_entry_xp(struct kvm_vcpu *vcpu, gva_t gva,
 	default:
 		kvm_err(-EINVAL, "unknown L2 descriptor type");
 		return -EINVAL;
-		
+
 	}
-	
+
 	*gfn = (page_base | page_index) >> PAGE_SHIFT;
 	return ret;
 }
@@ -228,7 +228,7 @@ static int trans_coarse_entry(struct kvm_vcpu *vcpu, gva_t gva,
 
 		map_info->ap = ap;
 #if __LINUX_ARM_ARCH__ >=6
-		/* 
+		/*
 		 * We currently do not support different subpage permissions
 		 * as we always use extended page table format on ARMv6.
 		 */
@@ -269,7 +269,7 @@ static int trans_coarse_entry(struct kvm_vcpu *vcpu, gva_t gva,
 	default:
 		BUG();
 	}
-	
+
 	*gfn = (page_base | page_index) >> PAGE_SHIFT;
 	return ret;
 }
@@ -315,12 +315,12 @@ static int l1_domain_access(struct kvm_vcpu *vcpu, u32 l1_entry,
  * vcpu:    The virtual cpu
  * gva:     The guest virtual address
  * gfn:     Either a visible guest frame number on or invisible_gfn.
- *          Value should be checked with kvm_is_visible_gfn().
+ *	    Value should be checked with kvm_is_visible_gfn().
  * uaccess: The access permissions should be checked in user mode
  *
  * returns: >= 0 on success:
- *               FSR_XXXX_XXX if there was some kind of fault when
- * 	         traversing guest page tables and finally
+ *		 FSR_XXXX_XXX if there was some kind of fault when
+ *		 traversing guest page tables and finally
  * 	    < 0: negative error code
  */
 int gva_to_gfn(struct kvm_vcpu *vcpu, gva_t gva, gfn_t *gfn, u8 uaccess,
@@ -354,12 +354,12 @@ int gva_to_gfn(struct kvm_vcpu *vcpu, gva_t gva, gfn_t *gfn, u8 uaccess,
 
 	/* Get the L1 descriptor */
 	l1_base = kvm_guest_ttbr(&vcpu->arch, gva);
-	l1_index = (gva & VA_L1_IDX_MASK) >> VA_L1_IDX_SHIFT; 
+	l1_index = (gva & VA_L1_IDX_MASK) >> VA_L1_IDX_SHIFT;
 	err = get_guest_pgtable_entry(vcpu, &l1_entry, l1_base | l1_index);
 	if (err < 0)
 		return err;
 
-	if (trace_gva_to_gfn) 
+	if (trace_gva_to_gfn)
 		kvm_msg("l1_entry: %08x", l1_entry);
 
 	switch (l1_entry & L1_TYPE_MASK) {
@@ -392,7 +392,7 @@ int gva_to_gfn(struct kvm_vcpu *vcpu, gva_t gva, gfn_t *gfn, u8 uaccess,
 		if (err < 0)
 			return err;
 
-		if (trace_gva_to_gfn) 
+		if (trace_gva_to_gfn)
 			kvm_msg("l2_entry: %08x", l2_entry);
 
 #if __LINUX_ARM_ARCH__ >= 6
@@ -408,7 +408,7 @@ int gva_to_gfn(struct kvm_vcpu *vcpu, gva_t gva, gfn_t *gfn, u8 uaccess,
 
 		if (err < 0)
 			return err;
- 
+
 		if (ret == 0 && err > 0) {
 			if (trace_gva_to_gfn) {
 				kvm_msg("l1 entry for 0x%08x: 0x%08x", gva, l1_entry);
@@ -495,7 +495,7 @@ void print_guest_mapping(struct kvm_vcpu *vcpu, gva_t gva)
 
 	/* Get the L1 descriptor */
 	l1_base = kvm_guest_ttbr(&vcpu->arch, gva);
-	l1_index = (gva & VA_L1_IDX_MASK) >> VA_L1_IDX_SHIFT; 
+	l1_index = (gva & VA_L1_IDX_MASK) >> VA_L1_IDX_SHIFT;
 	err = get_guest_pgtable_entry(vcpu, &l1_entry, l1_base | l1_index);
 	BUG_ON(err < 0);
 	printk(KERN_DEBUG "                       guest l1_pte: 0x%08x\n", l1_entry);
@@ -536,7 +536,7 @@ void print_guest_mapping(struct kvm_vcpu *vcpu, gva_t gva)
  * gva:  The guest virtual address
  *
  * returns: Valid host virtual address on success, or bad_hva() on
- *          error. Return value should be checked with kvm_is_error_hva().
+ *	    error. Return value should be checked with kvm_is_error_hva().
  */
 hva_t gva_to_hva(struct kvm_vcpu *vcpu, gva_t gva, u8 uaccess)
 {
@@ -551,7 +551,7 @@ hva_t gva_to_hva(struct kvm_vcpu *vcpu, gva_t gva, u8 uaccess)
 	hva = gfn_to_hva(vcpu->kvm, gfn);
 	if (kvm_is_error_hva(hva))
 		return hva;
-	
+
 	return hva + (gva & ((1<<PAGE_SHIFT) - 1));
 }
 
@@ -576,7 +576,7 @@ kvm_shadow_pgtable* kvm_alloc_l1_shadow(struct kvm_vcpu *vcpu,
 
 	if (!(shadow = kmalloc(sizeof(kvm_shadow_pgtable), GFP_KERNEL)))
 		return ERR_PTR(-ENOMEM);
-	
+
 	/* Allocate contigous aligned pages */
 	shadow->pgd = (u32*)__get_free_pages(GFP_KERNEL, L1_TABLE_ORDER);
 	if (!shadow->pgd)
@@ -681,7 +681,7 @@ static void free_l2_shadow(struct kvm_vcpu *vcpu, u32 l1_pte, u32 gva_base)
 	u8 domain;
 	u32 *pte;
 	pfn_t pfn;
-	
+
 	pfn = __phys_to_pfn(l1_pte & L1_COARSE_MASK);
 	if (!pfn_valid(pfn)) {
 		kvm_msg("invalid pfn: %u (l1_pte: 0x%08x)",
@@ -716,7 +716,7 @@ static void __free_l1_shadow_children(struct kvm_vcpu *vcpu, u32 *pgd)
 			continue;
 		if ((l1_pte & L1_TYPE_MASK) != L1_TYPE_COARSE)
 			BUG();
-		
+
 		free_l2_shadow(vcpu, l1_pte, i << 20);
 
 		pgd[i] = 0;
@@ -727,7 +727,7 @@ static void __free_l1_shadow_children(struct kvm_vcpu *vcpu, u32 *pgd)
  * XXX FIXME: There should be separate l2_unused_pt pointer per L1 root table. In the
  * case of multiple processes, each L1 root will have its own l2_unused_pt
  * pointer. If this is not done, some degree of fragementation may occur if this
- * global l2_unused_pt pointer is reset prematurely. 
+ * global l2_unused_pt pointer is reset prematurely.
  */
 static void free_l1_shadow_children(struct kvm_vcpu *vcpu, u32 *pgd)
 {
@@ -757,7 +757,7 @@ void kvm_free_l1_shadow(struct kvm_vcpu *vcpu, kvm_shadow_pgtable *shadow)
 /*
  * Initialize a 16KB contiguously aligned L1 root page table by mapping in the
  * interrupt vectors and shared page.
- * 
+ *
  * If the table has existing mappings to L2 shadow tables, those L2 tables
  * will be freed.
  */
@@ -797,8 +797,8 @@ int kvm_init_l1_shadow(struct kvm_vcpu *vcpu, u32 *pgd)
 	get_page(virt_to_page(vcpu->arch.guest_vectors));
 	ret = map_gva_to_pfn(vcpu,
 			     pgd,
-                             exception_base,
-                             page_to_pfn(virt_to_page(vcpu->arch.guest_vectors)),
+			     exception_base,
+			     page_to_pfn(virt_to_page(vcpu->arch.guest_vectors)),
 			     KVM_SPECIAL_DOMAIN,
 			     KVM_AP_RDWRITE,
 			     KVM_AP_NONE,
@@ -810,7 +810,7 @@ int kvm_init_l1_shadow(struct kvm_vcpu *vcpu, u32 *pgd)
 		printk(KERN_ERR "Failed to map guest vectorss\n");
 		return ret;
 	}
-	
+
 	return 0;
 }
 
@@ -824,7 +824,7 @@ int kvm_switch_host_vectors(struct kvm_vcpu *vcpu, int high)
 	gva_t exception_base;
 	char *ch = "high";
 	char *cl = "low";
-	
+
 	if (high == vcpu->arch.host_vectors_high) {
 		kvm_msg("vector switch not necessary");
 		return 0;
@@ -852,8 +852,8 @@ int kvm_switch_host_vectors(struct kvm_vcpu *vcpu, int high)
 
 	ret = map_gva_to_pfn(vcpu,
 			     vcpu->arch.shadow_pgtable->pgd,
-                             exception_base,
-                             page_to_pfn(virt_to_page(vcpu->arch.guest_vectors)),
+			     exception_base,
+			     page_to_pfn(virt_to_page(vcpu->arch.guest_vectors)),
 			     KVM_SPECIAL_DOMAIN,
 			     KVM_AP_RDWRITE,
 			     KVM_AP_NONE,
@@ -1006,10 +1006,10 @@ skip_domain_check:
 		break;
 	default:
 		printk(KERN_ERR "map_gva_to_pfn: This function supports "
-				          "only coarse mappings.\n");
+					  "only coarse mappings.\n");
 		printk(KERN_ERR "  L1 descriptor: %08x\n", *l1_pte);
 		return -EFAULT;
-	} 
+	}
 
 	l2_pte = l2_base + ((gva >> 12) & 0xff);
 #if __LINUX_ARM_ARCH__ >= 6
@@ -1096,11 +1096,11 @@ int unmap_gva_section(struct kvm_vcpu *vcpu, u32 *pgd, gva_t gva)
 		return 0;
 	default:
 		printk(KERN_ERR "unmap_gva_section: This function supports "
-				          "only coarse mappings.\n");
+					  "only coarse mappings.\n");
 		printk(KERN_ERR "  L1 descriptor: %08x\n", *l1_pte);
 		return -EFAULT;
-	} 
-} 
+	}
+}
 
 int unmap_gva(u32 *pgd, gva_t gva)
 {
@@ -1123,11 +1123,11 @@ int unmap_gva(u32 *pgd, gva_t gva)
 		return 0;
 	default:
 		printk(KERN_ERR "unmap_gva: This function supports "
-				          "only coarse mappings.\n");
+					  "only coarse mappings.\n");
 		printk(KERN_ERR "  L1 descriptor: %08x\n", *l1_pte);
 		return -EFAULT;
-	} 
-} 
+	}
+}
 
 
 #if 0
@@ -1135,15 +1135,15 @@ int unmap_gva(u32 *pgd, gva_t gva)
  * Will update the L2 AP bits to equal those of the guest mapping with respect
  * to the possible domain values.
  *
- *          @vcpu: The virtual CPU pointer
- *           @pgd: The shadow page table
+ *	    @vcpu: The virtual CPU pointer
+ *	     @pgd: The shadow page table
  * @violating gva: The virtual address that caused us not to be able
- *                 to use the guest native domain in the first place.
- *           @aps: The 256-element array of APs as they would appear in the
- *                 shadow page tables (ie. after dom_to_ap() )
+ *		   to use the guest native domain in the first place.
+ *	     @aps: The 256-element array of APs as they would appear in the
+ *		   shadow page tables (ie. after dom_to_ap() )
  *       @convert: Whether to convert APs to correspond to a different guest
- *                 domain than in execution DACR
- *           @dom: The domain number used in the guest mapping
+ *		   domain than in execution DACR
+ *	     @dom: The domain number used in the guest mapping
  */
 static inline int update_l2_aps(struct kvm_vcpu *vcpu, u32 *pgd,
 				gva_t violating_gva, u8 *aps,

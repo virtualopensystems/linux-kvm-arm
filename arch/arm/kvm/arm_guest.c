@@ -28,7 +28,7 @@
 #define VCPU_STAT(x) offsetof(struct kvm_vcpu, stat.x), KVM_STAT_VCPU
 
 struct kvm_stats_debugfs_item debugfs_entries[] = {
-};  
+};
 
 int kvm_arch_vcpu_setup(struct kvm_vcpu *vcpu)
 {
@@ -100,13 +100,13 @@ int kvm_arch_vcpu_ioctl_set_regs(struct kvm_vcpu *vcpu, struct kvm_regs *regs)
 }
 
 int kvm_arch_vcpu_ioctl_get_sregs(struct kvm_vcpu *vcpu,
-                                  struct kvm_sregs *sregs)
+				  struct kvm_sregs *sregs)
 {
 	return -ENOTSUPP;
 }
 
 int kvm_arch_vcpu_ioctl_set_sregs(struct kvm_vcpu *vcpu,
-                                  struct kvm_sregs *sregs)
+				  struct kvm_sregs *sregs)
 {
 	return -ENOTSUPP;
 }
@@ -123,7 +123,7 @@ int kvm_arch_vcpu_ioctl_set_fpu(struct kvm_vcpu *vcpu, struct kvm_fpu *fpu)
 
 /* 'linear_address' is actually an encoding of AS|PID|EADDR . */
 int kvm_arch_vcpu_ioctl_translate(struct kvm_vcpu *vcpu,
-                                  struct kvm_translation *tr)
+				  struct kvm_translation *tr)
 {
 	return 0;
 }

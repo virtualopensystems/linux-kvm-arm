@@ -37,8 +37,8 @@
 #define ARM_EXCEPTION_SOFTWARE    2
 #define ARM_EXCEPTION_PREF_ABORT  3
 #define ARM_EXCEPTION_DATA_ABORT  4
-#define ARM_EXCEPTION_IRQ         5
-#define ARM_EXCEPTION_FIQ         6
+#define ARM_EXCEPTION_IRQ	  5
+#define ARM_EXCEPTION_FIQ	  6
 
 #define RESUME_GUEST  0
 #define RESUME_HOST   1

@@ -25,7 +25,7 @@
 #define BRANCH_IMM      	0x00ffffff
 #define BRANCH_LINK     	0x01000000
 #define COND_SWI   		0x0F000000
-#define UNCOND_SWI 		0xEF000000 
+#define UNCOND_SWI 		0xEF000000
 
 #define BRANCH_CONT		0
 #define BRANCH_UNCOND		1
@@ -36,48 +36,45 @@
 
 /* Identifiers for instructions that are translated to SWI instructions. */
 /* Usermode reg instructions */
-#define BRANCH_INSTR_ADC       0
-#define BRANCH_INSTR_ADD       1  
-#define BRANCH_INSTR_AND       2  
-#define BRANCH_INSTR_BIC       3  
-#define BRANCH_INSTR_EOR       4  
-#define BRANCH_INSTR_MOV       5  
-#define BRANCH_INSTR_MVN       6  
-#define BRANCH_INSTR_ORR       7  
-#define BRANCH_INSTR_RSB       8  
-#define BRANCH_INSTR_RSC       9   
-#define BRANCH_INSTR_SBC      10   
-#define BRANCH_INSTR_SUB      11   
-#define BRANCH_INSTR_CPY      12   
-#define BRANCH_INSTR_LDR      13  
-#define BRANCH_INSTR_B        14
-#define BRANCH_INSTR_BL       15
-#define BRANCH_INSTR_BLX      16
-#define BRANCH_INSTR_BX       17
-#define BRANCH_INSTR_LDM_1    18  
-#define BRANCH_INSTR_LDM_3    19
-#define BRANCH_INSTR_LDM_2    20
+#define BRANCH_INSTR_ADC	 0
+#define BRANCH_INSTR_ADD	 1
+#define BRANCH_INSTR_AND	 2
+#define BRANCH_INSTR_BIC	 3
+#define BRANCH_INSTR_EOR	 4
+#define BRANCH_INSTR_MOV	 5
+#define BRANCH_INSTR_MVN	 6
+#define BRANCH_INSTR_ORR	 7
+#define BRANCH_INSTR_RSB	 8
+#define BRANCH_INSTR_RSC	 9
+#define BRANCH_INSTR_SBC	10
+#define BRANCH_INSTR_SUB	11
+#define BRANCH_INSTR_CPY	12
+#define BRANCH_INSTR_LDR	13
+#define BRANCH_INSTR_B		14
+#define BRANCH_INSTR_BL		15
+#define BRANCH_INSTR_BLX	16
+#define BRANCH_INSTR_BX		17
+#define BRANCH_INSTR_LDM_1	18
+#define BRANCH_INSTR_LDM_3	19
+#define BRANCH_INSTR_LDM_2	20
 
-#define TRANS_INSTR_NONE     -1
-#define TRANS_INSTR_LDRBT    0
-#define TRANS_INSTR_LDRT     1
-#define TRANS_INSTR_STM_2    2
-#define TRANS_INSTR_STRBT    3
-#define TRANS_INSTR_STRT     4
-#define TRANS_INSTR_CPS      5
-#define TRANS_INSTR_MRS      6
-#define TRANS_INSTR_MSR_Imm  7
-#define TRANS_INSTR_MSR_Reg  8
-#define TRANS_INSTR_RFE      9 
-#define TRANS_INSTR_SRS      10
-#define TRANS_INSTR_LDM_3    11
-#define TRANS_INSTR_LDM_2    12
-		
-
+#define TRANS_INSTR_NONE	-1
+#define TRANS_INSTR_LDRBT	 0
+#define TRANS_INSTR_LDRT	 1
+#define TRANS_INSTR_STM_2	 2
+#define TRANS_INSTR_STRBT	 3
+#define TRANS_INSTR_STRT	 4
+#define TRANS_INSTR_CPS		 5
+#define TRANS_INSTR_MRS		 6
+#define TRANS_INSTR_MSR_Imm	 7
+#define TRANS_INSTR_MSR_Reg	 8
+#define TRANS_INSTR_RFE		 9
+#define TRANS_INSTR_SRS		10
+#define TRANS_INSTR_LDM_3	11
+#define TRANS_INSTR_LDM_2	12
 
 
-
-#ifdef KVMARM_BIN_TRANSLATE 
+#ifdef KVMARM_BIN_TRANSLATE
 
 static int get_trans_instr_index(u32 instr)
 {
@@ -98,30 +95,30 @@ static int get_branch_instr_index(u32 instr)
  * to work with get_instr_index(...)
  */
 static u32 branch_instr[NUM_BRANCH_INSTR][2] = {
-                {0x00A0F000,0x0D400000} /* ADC     */
-               ,{0x0080F000,0x0D600000} /* ADD     */
-               ,{0x0000F000,0x0DE00000} /* AND     */
-               ,{0x01C0F000,0x0C200000} /* BIC     */
-               ,{0x0020F000,0x0DC00000} /* EOR     */
-               ,{0x01A0F000,0x0C400000} /* MOV     */
-               ,{0x01E0F000,0x0C000000} /* MVN     */
-               ,{0x0180F000,0x0C600000} /* ORR     */
-               ,{0x0060F000,0x0D800000} /* RSB     */
-               ,{0x00E0F000,0x0D000000} /* RSC     */
-               ,{0x00C0F000,0x0D200000} /* SBC     */
-               ,{0x0040F000,0x0DA00000} /* SUB     */
-               ,{0x01A0F000,0x0E5F0FF0} /* CPY     */
-               ,{0x0410F000,0x08400000} /* LDR     */
-               ,{0x0A000000,0x05000000} /* B       */
-               ,{0x0B000000,0x04000000} /* BL      */
-               ,{0x012FFF30,0x0ED000C0} /* BLX     */
-               ,{0x012FFF10,0x0ED000E0} /* BX      */
-               ,{0x08108000,0x06400000} /* LDM_1   */
-               ,{0x08508000,0x06000000} /* LDM_3   */
-               ,{0x08500000,0x06208000} /* LDM_2   */
+		{0x00A0F000,0x0D400000} /* ADC     */
+	       ,{0x0080F000,0x0D600000} /* ADD     */
+	       ,{0x0000F000,0x0DE00000} /* AND     */
+	       ,{0x01C0F000,0x0C200000} /* BIC     */
+	       ,{0x0020F000,0x0DC00000} /* EOR     */
+	       ,{0x01A0F000,0x0C400000} /* MOV     */
+	       ,{0x01E0F000,0x0C000000} /* MVN     */
+	       ,{0x0180F000,0x0C600000} /* ORR     */
+	       ,{0x0060F000,0x0D800000} /* RSB     */
+	       ,{0x00E0F000,0x0D000000} /* RSC     */
+	       ,{0x00C0F000,0x0D200000} /* SBC     */
+	       ,{0x0040F000,0x0DA00000} /* SUB     */
+	       ,{0x01A0F000,0x0E5F0FF0} /* CPY     */
+	       ,{0x0410F000,0x08400000} /* LDR     */
+	       ,{0x0A000000,0x05000000} /* B       */
+	       ,{0x0B000000,0x04000000} /* BL      */
+	       ,{0x012FFF30,0x0ED000C0} /* BLX     */
+	       ,{0x012FFF10,0x0ED000E0} /* BX      */
+	       ,{0x08108000,0x06400000} /* LDM_1   */
+	       ,{0x08508000,0x06000000} /* LDM_3   */
+	       ,{0x08500000,0x06208000} /* LDM_2   */
 };
 
-#define NUM_TRANS_INSTR	     13 
+#define NUM_TRANS_INSTR	     13
 /*
  * XXX This table hold all bits to be set in first column
  * and all bits to be cleared in second column. Must be changed
@@ -129,30 +126,30 @@ static u32 branch_instr[NUM_BRANCH_INSTR][2] = {
  * to work with get_instr_index(...)
  */
 static u32 trans_instr[NUM_TRANS_INSTR][2] = {
-                {0x04700000,0x09000000} /* LDRBT   */
-               ,{0x04300000,0x09400000} /* LDRT    */
-               ,{0x08400000,0x06300000} /* STM_2   */
-               ,{0x04600000,0x09100000} /* STRBT   */
-               ,{0x04200000,0x09500000} /* STRT    */
-               ,{0xF1000000,0x0EF1FE20} /* CPS     */
-               ,{0x010F0000,0x0EB00FFF} /* MRS     */
-               ,{0x0320F000,0x0C900000} /* MSR_Imm */
-               ,{0x0120F000,0x0E900FF0} /* MSR_Reg */
-               ,{0xF8100A00,0x0640F5FF} /* RFE     */
-               ,{0xF84D0500,0x0612FAE0} /* SRS     */
-               ,{0x08508000,0x06000000} /* LDM_3   */
-               ,{0x08500000,0x06208000} /* LDM_2   */
+		{0x04700000,0x09000000} /* LDRBT   */
+	       ,{0x04300000,0x09400000} /* LDRT    */
+	       ,{0x08400000,0x06300000} /* STM_2   */
+	       ,{0x04600000,0x09100000} /* STRBT   */
+	       ,{0x04200000,0x09500000} /* STRT    */
+	       ,{0xF1000000,0x0EF1FE20} /* CPS     */
+	       ,{0x010F0000,0x0EB00FFF} /* MRS     */
+	       ,{0x0320F000,0x0C900000} /* MSR_Imm */
+	       ,{0x0120F000,0x0E900FF0} /* MSR_Reg */
+	       ,{0xF8100A00,0x0640F5FF} /* RFE     */
+	       ,{0xF84D0500,0x0612FAE0} /* SRS     */
+	       ,{0x08508000,0x06000000} /* LDM_3   */
+	       ,{0x08500000,0x06208000} /* LDM_2   */
 };
 
 
 static int add_translated_block(struct kvm_vcpu *vcpu, gva_t start, gva_t end)
 {
-        struct kvm_basic_block *bb;
-        bb = kmalloc(sizeof(struct kvm_basic_block), GFP_KERNEL);
-        if (!bb)
+	struct kvm_basic_block *bb;
+	bb = kmalloc(sizeof(struct kvm_basic_block), GFP_KERNEL);
+	if (!bb)
 		return -ENOMEM;
-        bb->start_addr = start;
-        bb->end_addr = end;
+	bb->start_addr = start;
+	bb->end_addr = end;
 
 	list_add(&bb->list, &vcpu->arch.trans_head);
 	return 0;
@@ -160,13 +157,13 @@ static int add_translated_block(struct kvm_vcpu *vcpu, gva_t start, gva_t end)
 
 static int already_translated(struct kvm_vcpu *vcpu, gva_t addr)
 {
-        struct kvm_basic_block *bb;
+	struct kvm_basic_block *bb;
 
 	list_for_each_entry(bb, &vcpu->arch.trans_head, list) {
 		if (bb->start_addr <= addr && bb->end_addr >= addr)
 			return 1;
 	}
-	
+
 	return 0;
 }
 
@@ -177,7 +174,7 @@ int check_branch(gva_t addr, u32 instr, struct list_head *trans_list)
 	struct kvm_basic_block *bb;
 
 	op = get_branch_instr_index(instr);
-	if (op == TRANS_INSTR_NONE) 
+	if (op == TRANS_INSTR_NONE)
 		return BRANCH_CONT;
 
 	/* Branch instruction */
@@ -199,7 +196,7 @@ int check_branch(gva_t addr, u32 instr, struct list_head *trans_list)
 		bb->start_addr = dest_addr;
 		bb->branch_addr = addr;
 		list_add(&bb->list, trans_list);
-		
+
 		/*
 		printk("  -- branch detected at 0x%08x to 0x%08x\n",
 			(unsigned int)addr,
@@ -242,10 +239,10 @@ int trap_on_addr(struct kvm_vcpu *vcpu, u32 addr)
 	/*
 	 * All instructions can be turned into SWI by this operation
 	 */
-	trans_instr = instr | COND_SWI; 
+	trans_instr = instr | COND_SWI;
 
 	ret = copy_to_user((void *)host_addr, &trans_instr, sizeof(u32));
-	if (ret) 
+	if (ret)
 		return -EFAULT;
 
 	return 0;
@@ -341,7 +338,7 @@ int kvmarm_translate(struct kvm_vcpu *vcpu, gva_t init_addr)
 				return ret;
 		}
 		list_del(&bb->list);
-		kfree(bb);	
+		kfree(bb);
 	}
 
 	return 0;
@@ -351,7 +348,7 @@ u32 get_orig_instr(struct kvm_vcpu *vcpu, gva_t addr)
 {
 	hva_t host_addr;
 	u32 instr;
-        struct kvm_trans_orig *orig;
+	struct kvm_trans_orig *orig;
 
 	/*printk(KERN_DEBUG "Checking translation table for 0x%08x...\n",
 			addr);*/

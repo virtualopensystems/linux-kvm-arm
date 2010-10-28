@@ -229,7 +229,7 @@ __irq_vector_end:
 #else
 	mcr	p15, 0, r2, c7, c15, 0	@ Clean + Invalidate unified cache
 #endif
-	
+
 	mcr	p15, 0, r2, c7, c5,  4	@ Flush Prefetch Buffer
 
 #ifdef HARVARD_TLB
@@ -273,7 +273,7 @@ load_guest_cpsr:
 	mrs	r1, spsr
 
 	@ Set interrupt vector location
-	ldr	r1, [r0, #VCPU_HOST_VEC_HIGH]	
+	ldr	r1, [r0, #VCPU_HOST_VEC_HIGH]
 	mrc	p15, 0, r2, c1, c0, 0
 	cmp	r1, #0
 	orrne	r2, #CP15_CR_V_BIT
@@ -405,17 +405,17 @@ check_aborts:
 	b	load_host_regs
 save_data_far_fsr:
 	mrc	p15, 0, r2, c5, c0, 0	@get the fault status register
-	str	r2, [r1, #VCPU_HOST_FSR]	
+	str	r2, [r1, #VCPU_HOST_FSR]
 	mrc	p15, 0, r2, c6, c0, 0	@get the fault address register
-	str	r2, [r1, #VCPU_HOST_FAR]	
+	str	r2, [r1, #VCPU_HOST_FAR]
 	b	load_host_regs
 save_instr_far_fsr:
 #if defined(CONFIG_CPU_32v5)
 	mrc	p15, 0, r2, c5, c0, 1	@get the instr fault status register
-	str	r2, [r1, #VCPU_HOST_IFSR]	
+	str	r2, [r1, #VCPU_HOST_IFSR]
 #elif defined(CONFIG_CPU_32v6)
 	mrc	p15, 0, r2, c5, c0, 1	@get the instr fault status register
-	str	r2, [r1, #VCPU_HOST_IFSR]	
+	str	r2, [r1, #VCPU_HOST_IFSR]
 #endif
 
 	@ Restore host registers
@@ -447,7 +447,7 @@ load_host_regs:
  *    will contain these values:
  *      0x8:   cpsr
  *      0x4:   return_address
- *      0x0:   orig_r0         <--- r0 and sp
+ *      0x0:   orig_r0		<--- r0 and sp
  */
 	sub	sp, sp, #12
 	stmia	sp, {r0 - r2}		@ Store host registers

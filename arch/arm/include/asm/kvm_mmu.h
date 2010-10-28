@@ -26,10 +26,10 @@
 #define KVM_MEM_EXEC    	0
 #define KVM_MEM_NOEXEC  	1
 
-#define L1_TYPE_MASK          0x3
-#define L1_TYPE_FAULT         0x0
-#define L1_TYPE_COARSE        0x1
-#define L1_TYPE_SECTION       0x2
+#define L1_TYPE_MASK	  	0x3
+#define L1_TYPE_FAULT	 	0x0
+#define L1_TYPE_COARSE		0x1
+#define L1_TYPE_SECTION		0x2
 
 #define CP15_CR_BIT_XP		23
 
