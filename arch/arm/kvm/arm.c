@@ -455,14 +455,6 @@ struct kvm_vcpu *kvm_arch_vcpu_create(struct kvm *kvm, unsigned int id)
 
 	arch = &vcpu->arch; //alias to make code shorter
 
-#ifdef KVMARM_BIN_TRANSLATE
-	/*
-	 * Init translation structures
-	 */
-	INIT_LIST_HEAD(&arch->trans_head);
-	INIT_LIST_HEAD(&arch->trans_orig);
-#endif
-
 	/*
 	 * Allocate shared page and map into kernel address space
 	 */
@@ -918,16 +910,7 @@ static int pre_guest_switch(struct kvm_vcpu *vcpu)
 	kvm_shadow_pgtable *shadow = vcpu->arch.shadow_pgtable;
 	u32 ttbr_cr, c1_acr, c13_fcse;
 	int ret;
-#ifdef KVMARM_BIN_TRANSLATE
 
-	/* Look for sensitive instructions when executing in privileged mode */
-	if (VCPU_MODE(vcpu) != MODE_USER)
-	{
-		ret = kvmarm_translate(vcpu, vcpu_reg(vcpu, 15));
-		if (ret < 0)
-			return ret;
-	}
-#endif
 	if (vcpu->run->exit_reason == KVM_EXIT_MMIO) {
 		handle_mmio_return(vcpu, vcpu->run);
 	}
@@ -1205,9 +1188,6 @@ static inline int handle_swi(struct kvm_vcpu *vcpu)
 	addr = vcpu_reg(vcpu, 15);
 
 	instr = vcpu->arch.shared_page->guest_instr;
-#ifdef KVMARM_BIN_TRANSLATE
-	orig_instr = get_orig_instr(vcpu, addr);
-#endif
 	if ((instr & 0xffff) == 0xdead || (instr & 0xffff) == 0xbabe ||
 	    (instr & 0xffff) == 0xcafe || (instr & 0xffff) == 0xbeef ||
 	    ((instr & 0xffff) >= 0xde00 && (instr & 0xffff) < 0xdf00)) {
@@ -1237,11 +1217,7 @@ static inline int handle_swi(struct kvm_vcpu *vcpu)
 		return 0;
 	}
 
-#ifdef KVMARM_BIN_TRANSLATE
-	if (instr == orig_instr || VCPU_MODE(vcpu) == MODE_USER) {
-#else
 	if ((instr & 0xffff) != 0xaaaa || VCPU_MODE(vcpu) == MODE_USER) {
-#endif
 		/* This is an actual guest SWI instruction */
 		vcpu->arch.exception_pending |= EXCEPTION_SOFTWARE;
 		if (guest_debug)

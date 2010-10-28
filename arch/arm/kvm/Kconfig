@@ -32,14 +32,7 @@ config KVM_ARM_HOST
 	bool "KVM host support for ARM cpus."
 	depends on KVM
 	depends on MMU
-	---help---
-	  Provides host support for ARM processors.
-
-config KVM_ARM_WAIT_FOR_LOGGER
-	bool "wait for logger to empty messages before proceeding"
-	depends on KVM
-	depends on MMU
-	depends on KVM_ARM_HOST
+	depends on CPU_V6
 	---help---
 	  Provides host support for ARM processors.
 

@@ -78,19 +78,6 @@ struct kvm_arch {
 	((vcpu->arch.cp15.c1_CR & CP15_CR_V_BIT) ? \
 	 	EXCEPTION_VECTOR_HIGH : EXCEPTION_VECTOR_LOW)
 
-struct kvm_basic_block {
-	gva_t start_addr;
-	gva_t end_addr;
-	gva_t branch_addr; /* source of branch if needed */
-	struct list_head list;
-};
-
-struct kvm_trans_orig {
-	gva_t addr;
-	u32 instr;
-	struct list_head list;
-};
-
 typedef struct kvm_shadow_pgtable {
 	u32 *pgd; /* Pointer to first level-1 descriptor */
 	hpa_t pa; /* Host physical address */
@@ -189,14 +176,6 @@ struct kvm_vcpu_arch {
 		u32 c13_TIDURO;		/* User Read-only Thread and Process ID */
 		u32 c13_TIDPO;		/* Privileged only Thread and Process ID */
 	} cp15;
-
-#ifdef KVMARM_BIN_TRANSLATE
-	u32 trans_start;		/* Guest address translation started at */
-	u32 trans_numTrans;		/* Number of guest instructions translated */
-	u32 *trans_untrans_instrs;	/* Guest's untranslated instr., host storage */
-	struct list_head trans_head;	/* Head of blocks to translate */
-	struct list_head trans_orig;	/* Original instructions */
-#endif
 
 	u32 guest_exception;  		/* Hardware exception that exited the guest */
 	u32 exception_pending;  	/* Exception to raise after emulation */
