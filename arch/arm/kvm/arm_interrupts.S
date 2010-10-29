@@ -34,16 +34,13 @@
 #define VCPU_REGS_OFF(__var)	(SHARED_VCPU_REGS + VCPU_REGS_##__var)
 
 /*
- * This macro will temporarily store lr and r0 to pc-relative storage,
- * copy spsr to r0 and then change to SVC mode. Following it will
+ * This macro will temporarily a corrected lr (address of exception-generating
+ * instruction) and the spsr (guest execution cpsr) to the SVC mode stack.
+ * Specifically, the SVC mode stack pointer must point to the last used
+ * downward-growing stack on the shared page, so that the SRS instruction
+ * can be used with the SVC r13 register as the base. Following the macro will
  * spill the guest registers to the shared page so they can be directly
  * accessed by the host kernel afterwards.
- *
- * sp-4:		spsr_<exception mode>
- * sp-8:		lr_<exception mode>
- * sp-12:	r14_usr
- * ...		...
- * sp-68:	r0
  *
  * The value of r0 upon return will be the exception index
  *
@@ -82,11 +79,10 @@
 	subeq	r0, r0, #1		@ SYSTEM -> USER (for r13-r14)
 	add	lr, lr, r0, lsl #3	@ Jump to r13/r14 for GUEST_MODE
 	stmia	lr, {r13,r14}^		@ Store r13/r14
-	sub	lr, lr, r0, lsl #3	@ Point lr to banked_fiq
-	ldmdb	sp, {r0, r1}		@ Load fault address and cpsr
 
-	str	r0, [lr, #VCPU_REGS_R15]		@ store fault address
-	sub	lr, lr, #VCPU_REGS_OFF(BANKED_FIQ)	@ Point lr to shared
+	ldr	lr, [sp]		@ Load shared page base address
+	ldmdb	sp, {r0, r1}		@ Load fault address and cpsr
+	str	r0, [lr, #VCPU_REGS_OFF(R15)]		@ store fault address
 	str	r1, [lr, #SHARED_EXEC_CPSR]
 
 	/*
