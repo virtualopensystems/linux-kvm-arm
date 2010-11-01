@@ -191,6 +191,7 @@ struct kvm_vcpu_arch {
 	struct shared_page *shared_page;
 	u32 *guest_vectors;
 
+	unsigned int host_asid;
 	kvm_shadow_pgtable *shadow_pgtable;
 	struct list_head shadow_pgtable_list;
 	hpa_t host_pgd_pa;

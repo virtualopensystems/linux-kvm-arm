@@ -26,6 +26,7 @@
 #include <linux/jiffies.h>
 #include <linux/kfifo.h>
 #include <asm/cacheflush.h>
+#include <asm/tlbflush.h>
 #include <asm/uaccess.h>
 #include <asm/ptrace.h>
 #include <asm/mman.h>
@@ -63,6 +64,8 @@ static int		pre_guest_switch(struct kvm_vcpu *vcpu);
 static void		post_guest_switch(struct kvm_vcpu *vcpu);
 static inline int	handle_shadow_fault(struct kvm_vcpu *vcpu,
 					   gva_t fault_addr, gva_t instr_addr);
+void			set_host_kernel_ng(struct kvm_vcpu *vcpu,
+					   unsigned int val);
 
 /*
  * Static variables for logging and debugging
@@ -93,6 +96,12 @@ static char activity_trace_descr[ACTIVITY_TRACE_ITEMS][TRACE_DESCR_LEN];
 static int activity_trace_index = 0;
 static bool trace_init = false;
 
+#define KVM_TRACE_ACTIVITY
+#ifndef KVM_TRACE_ACTIVITY
+void kvm_trace_activity(unsigned int activity, char *fmt, ...)
+{
+}
+#else
 void kvm_trace_activity(unsigned int activity, char *fmt, ...)
 {
 	va_list ap;
@@ -120,6 +129,7 @@ void kvm_trace_activity(unsigned int activity, char *fmt, ...)
 		va_end(ap);
 	}
 }
+#endif
 
 void print_ws_trace(void)
 {
@@ -277,7 +287,7 @@ int kvm_cpu_has_interrupt(struct kvm_vcpu *v)
 
 int kvm_arch_vcpu_runnable(struct kvm_vcpu *v)
 {
-	return !(v->arch.wait_for_interrupts);
+	return (!v->arch.wait_for_interrupts);
 }
 
 void kvm_arch_hardware_enable(void *garbage)
@@ -450,6 +460,42 @@ static int unmap_va(struct mm_struct *mm, hva_t addr)
 	return 0;
 }
 
+static void config_shared_page_domain(struct mm_struct *mm)
+{
+	unsigned long irq_flags;
+	unsigned long addr;
+	pgd_t *pgd;
+	pmd_t *pmd;
+	pte_t *pte;
+
+	local_irq_save(irq_flags);
+
+	modify_domain(DOMAIN_KVM, DOMAIN_CLIENT);
+
+	addr = SHARED_PAGE_BASE;
+	pgd = pgd_offset(current->mm, addr);
+	pmd = pmd_offset(pgd, addr);
+	pmd[1] &= (~PMD_DOMAIN(0xf));
+	pmd[1] |= PMD_DOMAIN(DOMAIN_KVM);
+
+	if ((pmd[1] & PMD_TYPE_TABLE) != PMD_TYPE_TABLE) {
+		kvm_msg("unsupported config for shared page host map");
+		return;
+	}
+
+	pte = pte_offset_kernel(pmd, addr);
+	if (pte_none(pte)) {
+		kvm_msg("unsupported config for shared page host map");
+		return;
+	}
+	set_pte_ext(pte, *pte, 0);
+
+	clean_dcache_area(pmd + 1, sizeof(pmd_t));
+	flush_tlb_kernel_page(addr);
+
+	local_irq_restore(irq_flags);
+}
+
 static int check_processor_requirements(void)
 {
 	u32 ttbr_cr, c1_acr, c13_fcse, c9_tcm;
@@ -620,6 +666,8 @@ struct kvm_vcpu *kvm_arch_vcpu_create(struct kvm *kvm, unsigned int id)
 	guest_debug = 0;
 	irq_on_off_count = 0;
 	latest_vcpu = vcpu;
+
+	config_shared_page_domain(current->mm);
 
 	return vcpu;
 free_shadow:
@@ -976,7 +1024,6 @@ static int pre_guest_switch(struct kvm_vcpu *vcpu)
 {
 	struct shared_page *shared = vcpu->arch.shared_page;
 	kvm_shadow_pgtable *shadow = vcpu->arch.shadow_pgtable;
-	u32 ttbr_cr, c1_acr, c13_fcse;
 	int ret;
 
 	if (vcpu->run->exit_reason == KVM_EXIT_MMIO) {
@@ -1013,7 +1060,7 @@ static int pre_guest_switch(struct kvm_vcpu *vcpu)
 	 * always use the client setting.
 	 */
 	shared->guest_dac = (vcpu->arch.cp15.c3_DACR & 0x3fffffff)
-		| domain_val(KVM_SPECIAL_DOMAIN, DOMAIN_CLIENT);
+		| domain_val(DOMAIN_KVM, DOMAIN_CLIENT);
 
 
 	return 0;
@@ -1096,6 +1143,64 @@ int kvm_arch_vcpu_ioctl_set_guest_debug(struct kvm_vcpu *vcpu,
 }
 #endif
 
+static void set_section_ng_bits(pmd_t *pmd, unsigned int val)
+{
+	if (val == 0) {
+		*pmd &= (~PMD_SECT_nG);
+	} else {
+		*pmd |= PMD_SECT_nG;
+	}
+}
+
+static void set_table_ng_bits(pmd_t *pmd, unsigned long start, unsigned int val)
+{
+	pte_t *pte;
+	unsigned long addr = start;
+
+	while (addr < (start + PMD_SIZE)) {
+		pte = pte_offset_kernel(pmd, addr);
+		if (!pte_none(pte) && (addr != SHARED_PAGE_BASE))
+			set_pte_ext(pte, *pte, (val) ? PTE_EXT_NG : 0);
+		addr = addr + PAGE_SIZE;
+	}
+}
+
+void set_host_kernel_ng(struct kvm_vcpu *vcpu, unsigned int val)
+{
+	unsigned long irq_flags;
+	unsigned long addr;
+	pgd_t *pgd;
+	pmd_t *pmd;
+
+	val = (val) ? 1 : 0;
+	local_irq_save(irq_flags);
+	current->mm->kvm_flags = val;
+
+	addr = TASK_SIZE;
+	while (addr <= 0xffe00000 && addr > 0x0) {
+		pgd = pgd_offset(current->mm, addr);
+		pmd = pmd_offset(pgd, addr);
+
+		do {
+			if ((*pmd & PMD_TYPE_MASK) == PMD_TYPE_SECT)
+				set_section_ng_bits(pmd, val);
+			else if ((*pmd & PMD_TYPE_MASK) == PMD_TYPE_TABLE)
+				set_table_ng_bits(pmd, addr, val);
+		} while (pmd++ == pmd_offset(pgd, addr));
+
+		addr = (addr + PMD_SIZE) & PMD_MASK;
+	}
+
+	/*
+	 * TODO: Consider if it's more effective only to flush the kernel
+	 * range here
+	 */
+	asm __volatile__("mcr p15, 0, %[zero], c7, c10, 0": : [zero] "r" (0));
+	flush_tlb_all();
+	local_irq_restore(irq_flags);
+}
+
+
 int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 {
 	int ret = 0;
@@ -1150,8 +1255,8 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 			kvm_err(-EINVAL, "Trying to execute guest in priv. mode");
 			return -EINVAL;
 		}
-		raw_local_irq_save(irq_flags);
 		kvm_trace_activity(1, "before vcpu->arch.run(vcpu)");
+		raw_local_irq_save(irq_flags);
 		excpt_idx = vcpu->arch.run(vcpu);
 		kvm_trace_activity(2, "after vcpu->arch.run(vcpu)");
 		raw_local_irq_restore(irq_flags);
@@ -1178,8 +1283,10 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 		if (run->exit_reason == KVM_EXIT_MMIO)
 			break;
 
-		if (need_resched())
+		if (need_resched()) {
 			schedule();
+			//local_flush_tlb_kernel_range(TASK_SIZE, 0xffffff);
+		}
 wait_for_interrupts:
 		if (vcpu->arch.wait_for_interrupts) {
 			kvm_trace_activity(11, "before kvm_vcpu_block(vcpu)");
@@ -1265,6 +1372,7 @@ static inline int handle_swi(struct kvm_vcpu *vcpu)
 		if (orig_instr != 0)
 			goto skip_copy_in;
 
+		kvm_msg("instruction copy-in");
 		/* Load the orig. instruction directly from memory */
 		hva = gva_to_hva(vcpu, addr + 4, 0);
 		if (kvm_is_error_hva(hva)) {
@@ -1273,7 +1381,15 @@ static inline int handle_swi(struct kvm_vcpu *vcpu)
 					vcpu_reg(vcpu, 15));
 			return -EINVAL;
 		}
-		if (copy_from_user(&orig_instr, (void *)hva, sizeof(u32)))
+		/*
+		 * Since the instruction is readily a part of the instruction
+		 * stream, we can copy from the guest without having to clean
+		 * any cache entries, as long as we invalidate cache entries on
+		 * our side.
+		 */
+		kvm_cache_inv_user((void *)hva, sizeof(u32));
+		ret = copy_from_user(&orig_instr, (void *)hva, sizeof(u32));
+		if (ret)
 			return -EFAULT;
 
 skip_copy_in:
@@ -1310,7 +1426,7 @@ static inline int user_mem_abort(struct kvm_vcpu *vcpu,
 	}
 
 	/* Check if we have a domain conflict */
-	if (map_info->domain_number == KVM_SPECIAL_DOMAIN) {
+	if (map_info->domain_number == DOMAIN_KVM) {
 		/* Could be solved with AP's */
 		KVMARM_NOT_IMPLEMENTED();
 	}
@@ -1771,8 +1887,8 @@ static void print_kvm_debug_info(int (*print_fn)(PRINT_FN_ARGS), struct seq_file
 
 	print_fn(m, "\n\n");
 	print_fn(m, "Banked registers:  \tr13\t\tr14\t\tspsr\n");
-	print_fn(m, "-----------------------------------------------------\n");
-	print_fn(m, "             USR:  \t0x%08x\t0x%08x\t----------\n",
+	print_fn(m, "-------------------\t-------\t--------\t--------\n");
+	print_fn(m, "             USR:  \t0x%08x\t0x%08x\t  -N-A-   \n",
 			vcpu_reg_m(vcpu, 13, MODE_USER),
 			vcpu_reg_m(vcpu, 14, MODE_USER));
 	print_fn(m, "             SVC:  \t0x%08x\t0x%08x\t0x%08x\n",
@@ -1812,7 +1928,9 @@ print_ws_hist:
 	if (ws_trace_enter_index != ws_trace_exit_index ||
 			ws_trace_enter_index < 0 ||
 			ws_trace_enter_index >= WS_TRACE_ITEMS)
+	{
 		goto print_irq_hist;
+	}
 
 	exceptions[0] = "reset";
 	exceptions[1] = "undefined";
@@ -1854,6 +1972,7 @@ print_irq_hist:
 	print_fn(m, "\n\n");
 	print_fn(m, "Total switch count: %lu\n", irq_on_off_count);
 
+#ifdef KVM_TRACE_ACTIVITY
 	/*
 	 * Print activity trace
 	 */
@@ -1869,7 +1988,7 @@ print_irq_hist:
 				activity_trace_cnt[i],
 				activity_trace_descr[i]);
 	}
-
+#endif
 
 	return;
 }

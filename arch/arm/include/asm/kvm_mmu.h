@@ -17,7 +17,7 @@
 #ifndef __ARM_KVM_ARM_MMU_H__
 #define __ARM_KVM_ARM_MMU_H__
 
-#define KVM_SPECIAL_DOMAIN 15
+#define D_CACHE_LINE_SIZE	32
 
 #define KVM_AP_NONE    		0
 #define KVM_AP_RDONLY  		1
@@ -92,6 +92,7 @@ int   kvm_update_special_region_ap(struct kvm_vcpu *vcpu, u32 *pgd, u8 domain);
 int   kvm_restore_low_vector_domain(struct kvm_vcpu *vcpu, u32 *pgd);
 int   kvm_switch_host_vectors(struct kvm_vcpu *vcpu, int high);
 void  dump_l1_pgtable(struct kvm_vcpu *vcpu);
+void  kvm_tlb_flush_guest_all(kvm_shadow_pgtable *shadow);
 
 /*
  * Emulated MMU fault functionality
@@ -226,6 +227,32 @@ static inline u8 convert_guest_to_shadow_ap(struct kvm_vcpu *vcpu, u8 ap)
 	return ap;
 }
 
+static inline void kvm_dcache_clean(void)
+{
+	unsigned long zero = 0;
+	asm volatile ("mcr p15, 0, %[zero], c7, c10, 0\n": :
+		      [zero] "r" (zero));
+}
 
+static inline void kvm_cache_clean_invalidate_all(void)
+{
+	unsigned long zero = 0;
+	asm volatile ("mcr p15, 0, %[zero], c7, c14, 0\n"
+		      "mcr p15, 0, %[zero], c7, c5, 0\n": :
+		      [zero] "r" (zero));
+}
+
+extern void v6_inv_cache_addr(unsigned long addr, unsigned long size);
+static inline void kvm_cache_inv_user(void __user *ptr, unsigned long n)
+{
+	unsigned long va = (unsigned long)ptr;
+	if (!access_ok(VERIFY_READ, ptr, n))
+		return;
+
+	v6_inv_cache_addr(va, n);
+}
+
+void kvm_coherent_to_guest(gva_t gva, void *hva, unsigned long n);
+void kvm_coherent_from_guest(gva_t gva, void *hva, unsigned long n);
 
 #endif /* __ARM_KVM_ARM_MMU_H__ */

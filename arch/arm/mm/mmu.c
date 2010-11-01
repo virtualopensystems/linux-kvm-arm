@@ -458,12 +458,12 @@ static void __init alloc_init_pte(pmd_t *pmd, unsigned long addr,
 
 	if (pmd_none(*pmd)) {
 		pte = alloc_bootmem_low_pages(2 * PTRS_PER_PTE * sizeof(pte_t));
-		__pmd_populate(pmd, __pa(pte) | type->prot_l1);
+		__pmd_populate(pmd, __pa(pte) | type->prot_l1 | PMD_SECT_nG);
 	}
 
 	pte = pte_offset_kernel(pmd, addr);
 	do {
-		set_pte_ext(pte, pfn_pte(pfn, __pgprot(type->prot_pte)), 0);
+		set_pte_ext(pte, pfn_pte(pfn, __pgprot(type->prot_pte)), PTE_EXT_NG);
 		pfn++;
 	} while (pte++, addr += PAGE_SIZE, addr != end);
 }
@@ -487,7 +487,7 @@ static void __init alloc_init_section(pgd_t *pgd, unsigned long addr,
 			pmd++;
 
 		do {
-			*pmd = __pmd(phys | type->prot_sect);
+			*pmd = __pmd(phys | type->prot_sect | PMD_SECT_nG);
 			phys += SECTION_SIZE;
 		} while (pmd++, addr += SECTION_SIZE, addr != end);
 

@@ -307,10 +307,9 @@ static inline void local_flush_tlb_all(void)
 	}
 }
 
-static inline void local_flush_tlb_mm(struct mm_struct *mm)
+static inline void local_flush_tlb_asid(struct mm_struct *mm, const int asid)
 {
 	const int zero = 0;
-	const int asid = ASID(mm);
 	const unsigned int __tlb_flag = __cpu_tlb_flags;
 
 	if (tlb_flag(TLB_WB))
@@ -341,6 +340,12 @@ static inline void local_flush_tlb_mm(struct mm_struct *mm)
 		asm("mcr p15, 0, %0, c7, c5, 6" : : "r" (zero) : "cc");
 		dsb();
 	}
+}
+
+static inline void local_flush_tlb_mm(struct mm_struct *mm)
+{
+	const int asid = ASID(mm);
+	local_flush_tlb_asid(mm, asid);
 }
 
 static inline void
@@ -389,6 +394,9 @@ static inline void local_flush_tlb_kernel_page(unsigned long kaddr)
 	const unsigned int __tlb_flag = __cpu_tlb_flags;
 
 	kaddr &= PAGE_MASK;
+
+	local_flush_tlb_all();
+	return;
 
 	if (tlb_flag(TLB_WB))
 		dsb();

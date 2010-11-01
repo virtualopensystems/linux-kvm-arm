@@ -134,6 +134,25 @@ ENTRY(v6_flush_kern_dcache_page)
 #endif
 	mov	pc, lr
 
+/*
+ *	v6_inv_cache_addr(addr, size)
+ *
+ *	Ensure that the data is read from main memory.
+ *
+ *	- addr   - address
+ */
+ENTRY(v6_inv_cache_addr)
+1:
+#ifdef HARVARD_CACHE
+	mcr	p15, 0, r0, c7, c6, 1		@ Invalidate D line
+#else
+	mcr	p15, 0, r0, c7, c7, 1		@ Invalidate unified line
+#endif
+	add	r0, r0, #D_CACHE_LINE_SIZE
+	subs	r1, r1, #D_CACHE_LINE_SIZE
+	bhi	1b
+	mov	pc, lr
+
 
 /*
  *	v6_dma_inv_range(start,end)

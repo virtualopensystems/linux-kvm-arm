@@ -317,6 +317,8 @@ static int emulate_mcr_sysconf(struct coproc_params *params)
 		/* Control Register */
 		if ((rd_val & 0x1) != (vcpu->arch.cp15.c1_CR & 0x1)) {
 			kvm_init_l1_shadow(vcpu, vcpu->arch.shadow_pgtable->pgd);
+			kvm_tlb_flush_guest_all(vcpu->arch.shadow_pgtable);
+			kvm_cache_clean_invalidate_all();
 			if (rd_val & 0x1)
 				kvm_msg("guest enabled MMU at: %08x",
 						vcpu_reg(vcpu, 15));
@@ -393,6 +395,8 @@ static int emulate_mcr_pgtable(struct coproc_params *params)
 		vcpu->arch.cp15.c2_TTBR0 = rd_val;
 		kvm_msg("guest changed TTBR0 to: 0x%08x", rd_val);
 		if (kvm_mmu_enabled(vcpu) && prev_base != rd_val) {
+			kvm_tlb_flush_guest_all(vcpu->arch.shadow_pgtable);
+			kvm_cache_clean_invalidate_all();
 			return kvm_init_l1_shadow(vcpu,
 						  vcpu->arch.shadow_pgtable->pgd);
 		}
@@ -403,6 +407,12 @@ static int emulate_mcr_pgtable(struct coproc_params *params)
 		vcpu->arch.cp15.c2_TTBR1 = rd_val;
 		kvm_msg("guest changed TTBR1 to: 0x%08x", rd_val);
 		if (kvm_mmu_enabled(vcpu) && prev_base != rd_val) {
+			/*
+			 * TODO: Check if we always have to flush the
+			 * TLB here.
+			 */
+			kvm_cache_clean_invalidate_all();
+			kvm_tlb_flush_guest_all(vcpu->arch.shadow_pgtable);
 			return kvm_init_l1_shadow(vcpu,
 						  vcpu->arch.shadow_pgtable->pgd);
 		}
@@ -478,6 +488,8 @@ static int emulate_mcr_dac(struct coproc_params *params)
 	/* Check if we need to update L2 ap's for special pages L1 domains */
 	for (i = 0; i < 16; i++) {
 		if (((old >> (i*2)) & 0x3) != ((new >> (i*2)) & 0x3)) {
+			/* TODO: Check if TLB flush is necessary */
+			kvm_tlb_flush_guest_all(vcpu->arch.shadow_pgtable);
 			kvm_init_l1_shadow(vcpu, vcpu->arch.shadow_pgtable->pgd);
 			/*
 			kvm_update_special_region_ap(vcpu,
@@ -659,6 +671,8 @@ static int emulate_mcr_cache(struct coproc_params *params)
 		case 7:	/* Flush branch target cache - MVA */
 			/* TODO: Do something smarter, and think about
 			 * caches/TLB's in further implementations! */
+			/* TODO: Check if TLB flush is necessary */
+			kvm_tlb_flush_guest_all(vcpu->arch.shadow_pgtable);
 			return kvm_init_l1_shadow(vcpu, vcpu->arch.shadow_pgtable->pgd);
 		default:
 			ret = -EINVAL;
@@ -892,6 +906,8 @@ static int emulate_mcr_mmu_tlb(struct coproc_params *params)
 		case 0:	/* Invalidate entire instruction TLB */
 		case 1:	/* Invalidate instruction single entry - MVA */
 		case 2:	/* Invalidate on ASID match instruction TLB - ASID */
+			/* TODO: Check if TLB flush is necessary */
+			kvm_tlb_flush_guest_all(vcpu->arch.shadow_pgtable);
 			ret = kvm_init_l1_shadow(vcpu,
 						 vcpu->arch.shadow_pgtable->pgd);
 			break;
@@ -904,6 +920,8 @@ static int emulate_mcr_mmu_tlb(struct coproc_params *params)
 		case 0: /* Invalidate entire data TLB */
 		case 1: /* Invalidate instruction single entry */
 		case 2: /* Invalidate on ASID match data TLB - ASID */
+			/* TODO: Check if TLB flush is necessary */
+			kvm_tlb_flush_guest_all(vcpu->arch.shadow_pgtable);
 			return kvm_init_l1_shadow(vcpu,
 						  vcpu->arch.shadow_pgtable->pgd);
 		default:
@@ -915,6 +933,8 @@ static int emulate_mcr_mmu_tlb(struct coproc_params *params)
 		case 0:	/* Invalidate entire unified TLB */
 		case 1:	/* Invalidate unified single entry - MVA */
 		case 2:	/* Invalidate on AISD match unfied TLB - ASID */
+			/* TODO: Check if TLB flush is necessary */
+			kvm_tlb_flush_guest_all(vcpu->arch.shadow_pgtable);
 			ret= kvm_init_l1_shadow(vcpu,
 						vcpu->arch.shadow_pgtable->pgd);
 			break;
@@ -1226,8 +1246,11 @@ static int emulate_mcrr_cache_ranges(struct coproc_params *params)
 
 
 	/* Check valid registers */
-	if (params->rn_reg == 15 || params->rd_reg ==15) {
-		kvm_msg("Invalid MCRR registers at: 0x%08x", vcpu_reg(vcpu, 15));
+	if (params->rn_reg >= 15 || params->rd_reg >= 15) {
+		kvm_msg("Invalid MCRR registers (%u,%u) at: 0x%08x",
+				params->rn_reg,
+				params->rd_reg,
+				vcpu_reg(vcpu, 15));
 		return -EINVAL;
 	}
 
@@ -1756,10 +1779,15 @@ static inline int ls_mult_copy_register(struct kvm_vcpu *vcpu, u32 instr,
 	}
 
 	/* Read/Write operation */
-	if (BIT_SET(instr, INSTR_LSM_BIT_L))
+	if (BIT_SET(instr, INSTR_LSM_BIT_L)) {
+		kvm_coherent_from_guest(*guest_addr, (void *)host_addr,
+					sizeof(u32));
 		ret = copy_from_user(reg, (u32 *)host_addr, sizeof(u32));
-	else
+	} else {
 		ret = copy_to_user((u32 *)host_addr, reg, sizeof(u32));
+		kvm_coherent_to_guest(*guest_addr, (void *)host_addr,
+				      sizeof(u32));
+	}
 
 	if (ret)
 		return -EFAULT;

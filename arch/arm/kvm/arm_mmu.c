@@ -26,6 +26,7 @@
 #include <asm/mmu_context.h>
 #include <asm/domain.h>
 #include <asm/uaccess.h>
+#include <asm/tlbflush.h>
 
 /********* Trace and debug definitions ***********/
 bool trace_gva_to_gfn = false;
@@ -148,9 +149,35 @@ static gfn_t invisible_gfn(struct kvm *kvm)
 static inline int get_guest_pgtable_entry(struct kvm_vcpu *vcpu, u32 *entry,
 				   gpa_t table_entry)
 {
-	return kvm_read_guest(vcpu->kvm, table_entry, (void *)entry,
-				sizeof(u32));
+	int ret;
+	gfn_t gfn;
+	unsigned int offset;
+	unsigned long addr;
 
+	/*
+	 * Cache coherency is guaranteed here since we are reading on the same
+	 * conditions as the TLB would be reading on actual hardware (given we
+	 * invalidate our side of the cache) so the guest must take care of any
+	 * coherency issues such as draining the write buffer etc. before this
+	 * walk will ever take place.
+	 */
+	gfn = table_entry >> PAGE_SHIFT;
+	offset = offset_in_page(table_entry);
+	addr = gfn_to_hva(vcpu->kvm, gfn);
+
+	if (kvm_is_error_hva(addr))
+		return -EFAULT;
+
+	/*
+	 * For some reason it's necessary to clean the entire D-cache at this
+	 * point even though the guest kernel should flush the write.
+	 */
+	kvm_dcache_clean();
+	kvm_cache_inv_user((void __user *)addr + offset, sizeof(u32));
+
+	ret = copy_from_user(entry, (void __user *)addr + offset, sizeof(u32));
+	if (ret)
+		return -EFAULT;
 	return 0;
 }
 
@@ -600,7 +627,7 @@ static bool mapping_is_guest_writable(struct kvm_vcpu *vcpu,
 {
 	u8 ap;
 	u32 dacr = (vcpu->arch.cp15.c3_DACR & 0x3fffffff)
-		   | domain_val(KVM_SPECIAL_DOMAIN, DOMAIN_CLIENT);
+		   | domain_val(DOMAIN_KVM, DOMAIN_CLIENT);
 
 	/* TODO: Enforce shadow page table version */
 	BUG_ON(domain > 15);
@@ -781,7 +808,7 @@ int kvm_init_l1_shadow(struct kvm_vcpu *vcpu, u32 *pgd)
 			     pgd,
 			     (gva_t) vcpu->arch.shared_page,
 			     page_to_pfn(virt_to_page(vcpu->arch.shared_page_alloc)),
-			     KVM_SPECIAL_DOMAIN,
+			     DOMAIN_KVM,
 			     KVM_AP_RDWRITE,
 			     KVM_AP_NONE,
 			     KVM_MEM_EXEC);
@@ -799,7 +826,7 @@ int kvm_init_l1_shadow(struct kvm_vcpu *vcpu, u32 *pgd)
 			     pgd,
 			     exception_base,
 			     page_to_pfn(virt_to_page(vcpu->arch.guest_vectors)),
-			     KVM_SPECIAL_DOMAIN,
+			     DOMAIN_KVM,
 			     KVM_AP_RDWRITE,
 			     KVM_AP_NONE,
 			     KVM_MEM_EXEC);
@@ -854,7 +881,7 @@ int kvm_switch_host_vectors(struct kvm_vcpu *vcpu, int high)
 			     vcpu->arch.shadow_pgtable->pgd,
 			     exception_base,
 			     page_to_pfn(virt_to_page(vcpu->arch.guest_vectors)),
-			     KVM_SPECIAL_DOMAIN,
+			     DOMAIN_KVM,
 			     KVM_AP_RDWRITE,
 			     KVM_AP_NONE,
 			     KVM_MEM_EXEC);
@@ -948,10 +975,11 @@ int __map_gva_to_pfn(struct kvm_vcpu *vcpu, u32 *pgd, gva_t gva, pfn_t pfn,
 	 * All kernel mappings are global, since we flush this address range
 	 * on world switches.
 	 */
-	if ((gva & PAGE_MASK) == SHARED_PAGE_BASE || gva > TASK_SIZE)
+	//if ((gva & PAGE_MASK) == SHARED_PAGE_BASE || gva > TASK_SIZE)
+	if ((gva & PAGE_MASK) == SHARED_PAGE_BASE)
 		nG = 0;
 
-	if (domain == KVM_SPECIAL_DOMAIN)
+	if (domain == DOMAIN_KVM)
 		goto skip_domain_check;
 
 	if (l1_index == (SHARED_PAGE_BASE >> 20)) {
@@ -964,7 +992,7 @@ int __map_gva_to_pfn(struct kvm_vcpu *vcpu, u32 *pgd, gva_t gva, pfn_t pfn,
 		*/
 
 		ap = dom_to_ap(vcpu, domain, ap, &apx);
-		domain = KVM_SPECIAL_DOMAIN;
+		domain = DOMAIN_KVM;
 	} else if (l1_index == (VCPU_HOST_EXCP_BASE(vcpu) >> 20)) {
 		/* This L1 mapping coincides with that of the vector page */
 		//XXX Track updates to L1 domain by protecting guest pg. tables
@@ -974,7 +1002,7 @@ int __map_gva_to_pfn(struct kvm_vcpu *vcpu, u32 *pgd, gva_t gva, pfn_t pfn,
 		vcpu->arch.vector_page_shadow_ap[(gva >> 12) & 0xff] = ap;
 		*/
 		ap = dom_to_ap(vcpu, domain, ap, &apx);
-		domain = KVM_SPECIAL_DOMAIN;
+		domain = DOMAIN_KVM;
 	}
 
 skip_domain_check:
@@ -993,11 +1021,13 @@ skip_domain_check:
 		*l1_pte |= ((u32)l2_base) & ~PAGE_MASK;
 		*l1_pte = (*l1_pte & L1_COARSE_MASK) | L1_TYPE_COARSE;
 		*l1_pte |= ((domain & 0xf) << L1_DOMAIN_SHIFT);
+		clean_dcache_area(l1_pte, sizeof(u32));
 		break;
 	case (L1_TYPE_COARSE):
 		/* Update the domain of the L1 mapping */
 		*l1_pte &= ~L1_DOMAIN_MASK;
 		*l1_pte |= ((domain & 0xf) << L1_DOMAIN_SHIFT);
+		clean_dcache_area(l1_pte, sizeof(u32));
 
 		ret = get_l2_base(*l1_pte, &l2_base);
 		if (ret)
@@ -1028,6 +1058,7 @@ skip_domain_check:
 		*l2_pte &= ~(0x00000ff0);
 		*l2_pte |= ap << 4;
 #endif
+	clean_dcache_area(l2_pte, sizeof(u32));
 
 	return 0;
 }
@@ -1287,5 +1318,152 @@ void kvm_generate_mmu_fault(struct kvm_vcpu *vcpu, gva_t fault_addr,
 		vcpu->arch.cp15.c5_DFSR = source;
 
 		vcpu->arch.exception_pending |= EXCEPTION_DATA;
+	}
+}
+
+/* =========================================================================
+ * TLB and Cache Management
+ * =========================================================================
+ */
+void kvm_tlb_flush_guest_all(kvm_shadow_pgtable *shadow)
+{
+	local_flush_tlb_asid(current->mm, shadow->id & 255);
+}
+
+
+
+/*
+ * Poor man's log2 algorithm - assumes input is 2^n
+ */
+static unsigned int cheap_log2(unsigned int input)
+{
+	unsigned int log = 0;
+	unsigned int round = 0;
+
+	if (input == 1)
+		round = 1; // Round up
+
+	while (input > 1) {
+		if ((input & 1) == 1)
+			round = 1;
+		input = input >> 1;
+		log++;
+	}
+	return log + round;
+}
+
+static void get_cache_set_way_params(unsigned int *L,
+				     unsigned int *A,
+				     unsigned int *S)
+{
+	unsigned long cache_type;
+	unsigned long dcache;
+	unsigned int len, M, size, assoc;
+	unsigned int linelen, associativity, nsets;
+
+	asm __volatile__ ("mrc p15, 0, %[ct], c0, c0, 1": [ct] "=r" (cache_type));
+	dcache = (cache_type >> 12) & 0xfff;
+
+	len = dcache & 3;
+	M = (dcache >> 2) & 1;
+	assoc = (dcache >> 3) & 7;
+	size = (dcache >> 6) & 0xf;
+
+	if (assoc == 0 && M == 1)
+		return; /* No cache */
+
+	linelen = 1 << (len + 3);
+	associativity = (2 + M) << (assoc - 1);
+	nsets = 1 << (size + 6 - assoc - len);
+
+	*L = cheap_log2(linelen);
+	*A = cheap_log2(associativity);
+	*S = cheap_log2(nsets);
+}
+
+/*
+ * Clean or invalidate the cache.
+ *
+ * @addr: The virtual address to clean/invalidate
+ */
+static void v6_cleaninv_sw(unsigned long addr, bool clean, bool invalidate)
+{
+	unsigned int L, A, S;
+	unsigned int set_way, max_set, way, max_way;
+	BUG_ON(!clean && !invalidate);
+
+	L = 0; A = 0; S = 0; /* GCC is braindead */
+	get_cache_set_way_params(&L, &A, &S);
+
+	max_set = (1 << S) - 1;
+	set_way = ((addr >> L) & max_set) << L;
+
+	max_way = (1 << A) - 1;
+	for (way = 0; way <= max_way; way++) {
+		set_way &= (1 << (32 - A)) - 1;
+		set_way |= way << (32 - A);
+
+		if (clean && invalidate) {
+			asm volatile ("mcr p15, 0, %[set_way], c7, c14, 2": :
+					[set_way] "r" (set_way));
+		} else if (clean) {
+			/* Just clean */
+			asm volatile ("mcr p15, 0, %[set_way], c7, c10, 2": :
+					[set_way] "r" (set_way));
+		} else {
+			/* Just invalidate */
+			asm volatile ("mcr p15, 0, %[set_way], c7, c6, 2": :
+					[set_way] "r" (set_way));
+		}
+	}
+
+
+}
+
+static inline void v6_clean_dcache_sw(unsigned long addr)
+{
+	v6_cleaninv_sw(addr, true, false);
+}
+
+static inline void v6_inv_dcache_sw(unsigned long addr)
+{
+	v6_cleaninv_sw(addr, false, true);
+}
+
+/*
+ * Ensure cache coherency when accessing guest data
+ * from host using a user space pointer
+ *
+ * @gva:  The guest virtual address to read
+ * @hva:  The user space pointer passed to copy_from_user
+ */
+void kvm_coherent_from_guest(gva_t gva, void *hva, unsigned long n)
+{
+	unsigned long offset = 0;
+	gva = (gva & (~(D_CACHE_LINE_SIZE - 1)));
+
+	while (offset < n) {
+		v6_clean_dcache_sw(gva + offset);
+		offset += D_CACHE_LINE_SIZE;
+	}
+	kvm_cache_inv_user((void __user *)hva, n);
+}
+
+/*
+ * Ensure cache coherency when writing guest date
+ * from host using a user space pointer
+ *
+ * @gva:  The guest virtual address to read
+ * @hva:  The user space pointer passed to copy_from_user
+ */
+void kvm_coherent_to_guest(gva_t gva, void *hva, unsigned long n)
+{
+	int offset = 0;
+	gva = (gva & (~(D_CACHE_LINE_SIZE - 1)));
+
+	clean_dcache_area(hva, n);
+	while (offset < n) {
+		v6_inv_dcache_sw(gva + offset);
+		offset += D_CACHE_LINE_SIZE;
 	}
 }

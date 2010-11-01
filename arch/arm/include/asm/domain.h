@@ -39,6 +39,7 @@
 #define DOMAIN_USER	1
 #define DOMAIN_IO	0
 #endif
+#define DOMAIN_KVM	15
 
 /*
  * Domain types

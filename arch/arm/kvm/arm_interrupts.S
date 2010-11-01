@@ -238,25 +238,10 @@ __irq_vector_end:
 #define HOST_REGS(n)      (SHARED(HOST_REGS) + (n * 4))
 
 @ Clobbers r2
-.macro clean_cache_tlb_safe
-	mov	r2, #0
-#ifdef HARVARD_CACHE
-	mcr	p15, 0, r2, c7, c14, 0	@ Clean + Invalidate entire D-cache
-	mcr	p15, 0, r2, c7, c5,  0	@ Invalidate entire I-cache
-#else
-	mcr	p15, 0, r2, c7, c15, 0	@ Clean + Invalidate unified cache
-#endif
-
-	mcr	p15, 0, r2, c7, c5,  4	@ Flush Prefetch Buffer
-
-#ifdef HARVARD_TLB
-	mcr	p15, 0, r2, c8, c6,  0	@ TLB invalidate D MVA
-	mcr	p15, 0, r2, c8, c5,  0	@ TLB invalidate I MVA
-#else
-	mcr	p15, 0, r2, c8, c7,  0	@ Invalidate Unified TLB
-#endif
-
-	mcr	p15, 0, r2, c7, c10, 4	@ Data Synchronization Barrier
+.macro flush_prefetch_dwb reg
+	mov	\reg, #0
+	mcr	p15, 0, \reg, c7, c5,  4	@ Flush Prefetch Buffer
+	mcr	p15, 0, \reg, c7, c10, 4	@ Data Synchronization Barrier
 .endm
 
 .globl __shared_page_start
@@ -330,7 +315,7 @@ set_dacr:
 	mcr	p15, 0, r0, c2, c0, 0	@ Set TTBR0 for shadow page table
 
 	@ Invalidate and clean all caches and TLB entries
-	clean_cache_tlb_safe
+	flush_prefetch_dwb r2
 
 #if 0
 	@ Invalidate the kernel global TLB mappings
@@ -388,23 +373,23 @@ __exception_return:
 	ldr	r1, SHARED(HOST_TTBR)
 	mcr	p15, 0, r1, c2, c0, 0	@ set TTB 0
 
+	@ Load VCPU pointer
+	ldr	r1, HOST_REGS(0)
+
 #ifdef CONFIG_CPU_HAS_ASID
-	ldr	r1, SHARED(HOST_ASID)
-	mcr	p15, 0, r1, c13, c0, 1		@ set context ID
+	ldr	r2, SHARED(HOST_ASID)
+	mcr	p15, 0, r2, c13, c0, 1		@ set context ID
 #endif
 
 	@ Invalidate and clean all caches and TLB entries
-	clean_cache_tlb_safe
+	flush_prefetch_dwb r2
 
 	@ Load the host DACR for Domain Access Permissions
-	ldr	r1, SHARED(HOST_DAC)
-	mcr	p15, 0, r1, c3, c0, 0
+	ldr	r2, SHARED(HOST_DAC)
+	mcr	p15, 0, r2, c3, c0, 0
 
 	@ Restore SP
 	ldr	sp, SHARED(HOST_SP)
-
-	@ Load VCPU pointer
-	ldr	r1, HOST_REGS(0)
 
 	@ Set interrupt vector back to high vectors
 #if CONFIG_VECTORS_BASE == 0xffff0000

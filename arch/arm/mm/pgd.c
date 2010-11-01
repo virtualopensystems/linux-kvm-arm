@@ -57,7 +57,7 @@ pgd_t *get_pgd_slow(struct mm_struct *mm)
 
 		init_pmd = pmd_offset(init_pgd, 0);
 		init_pte = pte_offset_map_nested(init_pmd, 0);
-		set_pte_ext(new_pte, *init_pte, 0);
+		set_pte_ext(new_pte, *init_pte, PTE_EXT_NG);
 		pte_unmap_nested(init_pte);
 		pte_unmap(new_pte);
 	}
