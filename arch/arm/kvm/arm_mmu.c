@@ -36,6 +36,8 @@ bool trace_gva_to_gfn = false;
 #include <asm/kvm_asm.h>
 #include <asm/kvm_mmu.h>
 
+#include "trace.h"
+
 extern u8 guest_debug;
 
 /******************************************************************************
@@ -178,6 +180,7 @@ static inline int get_guest_pgtable_entry(struct kvm_vcpu *vcpu, u32 *entry,
 	ret = copy_from_user(entry, (void __user *)addr + offset, sizeof(u32));
 	if (ret)
 		return -EFAULT;
+	kvm_arm_count_event(EVENT_READ_GUEST_ENTRY);
 	return 0;
 }
 
@@ -794,6 +797,7 @@ int kvm_init_l1_shadow(struct kvm_vcpu *vcpu, u32 *pgd)
 	int ret = 0;
 	gva_t exception_base;
 
+	kvm_arm_count_event(EVENT_FLUSH_SHADOW);
 	//kvm_msg("flushing shadow page table at: 0x%08x!", vcpu->arch.regs[15]);
 
 	if (pgd == NULL) {
@@ -966,6 +970,8 @@ int __map_gva_to_pfn(struct kvm_vcpu *vcpu, u32 *pgd, gva_t gva, pfn_t pfn,
 	int ret;
 
 	l1_index = gva >> 20;
+
+	kvm_arm_count_event(EVENT_MAP_GVA_TO_GFN);
 
 	/*
 	 * The shared page should be kept in the TLB across guest/host and even

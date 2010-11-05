@@ -23,6 +23,8 @@
 #include <asm/kvm_mmu.h>
 #include <asm/kvm_emulate.h>
 
+#include "trace.h"
+
 extern u8 guest_debug;
 
 /*
@@ -395,6 +397,7 @@ static int emulate_mcr_pgtable(struct coproc_params *params)
 		vcpu->arch.cp15.c2_TTBR0 = rd_val;
 		//kvm_msg("guest changed TTBR0 to: 0x%08x", rd_val);
 		if (kvm_mmu_enabled(vcpu) && prev_base != rd_val) {
+			kvm_arm_count_event(EVENT_MOD_TTBR);
 			kvm_tlb_flush_guest_all(vcpu->arch.shadow_pgtable);
 			kvm_cache_clean_invalidate_all();
 			return kvm_init_l1_shadow(vcpu,
@@ -491,6 +494,7 @@ static int emulate_mcr_dac(struct coproc_params *params)
 			/* TODO: Check if TLB flush is necessary */
 			kvm_tlb_flush_guest_all(vcpu->arch.shadow_pgtable);
 			kvm_init_l1_shadow(vcpu, vcpu->arch.shadow_pgtable->pgd);
+			kvm_arm_count_event(EVENT_DACR_CHANGE);
 			/*
 			kvm_update_special_region_ap(vcpu,
 						     vcpu->arch.shadow_pgtable,
@@ -639,6 +643,7 @@ static int emulate_mcr_cache(struct coproc_params *params)
 		if (params->opcode2 == 4) {
 			/* Wait for interrupt */
 			kvm_trace_activity(50, "wait_for_interrupts");
+			kvm_arm_count_event(EVENT_WFI);
 			vcpu->arch.wait_for_interrupts = 1;
 			return 0;
 		} else {
@@ -649,6 +654,7 @@ static int emulate_mcr_cache(struct coproc_params *params)
 		switch (params->opcode2) {
 		case 0:	/* Invalidate entire i-cache */
 			/* TODO: Optimize this! */
+			kvm_arm_count_event(EVENT_MCR_7_5_0);
 			kvm_cache_clean_invalidate_all();
 #if 0
 			asm volatile("mcr	p15, 0, %[zero], c7, c5, 0":
@@ -657,6 +663,7 @@ static int emulate_mcr_cache(struct coproc_params *params)
 			break;
 		case 1:	/* Invalidate i-cache line - MVA */
 			/* TODO: Optimize this! */
+			kvm_arm_count_event(EVENT_MCR_7_5_1);
 			kvm_cache_clean_invalidate_all();
 #if 0
 			asm volatile("mcr	p15, 0, %[zero], c7, c5, 0":
@@ -672,6 +679,7 @@ static int emulate_mcr_cache(struct coproc_params *params)
 			break;
 		case 2:	/* Invalidate i-cache line - set */
 			/* TODO: Optimize this! */
+			kvm_arm_count_event(EVENT_MCR_7_5_2);
 			kvm_cache_clean_invalidate_all();
 #if 0
 			asm volatile("mcr	p15, 0, %[set], c7, c5, 2":
@@ -684,6 +692,7 @@ static int emulate_mcr_cache(struct coproc_params *params)
 			/* TODO: Do something smarter, and think about
 			 * caches/TLB's in further implementations! */
 			/* TODO: Check if TLB flush is necessary */
+			kvm_arm_count_event(EVENT_MCR_7_5_7);
 			kvm_tlb_flush_guest_all(vcpu->arch.shadow_pgtable);
 			return kvm_init_l1_shadow(vcpu, vcpu->arch.shadow_pgtable->pgd);
 		default:
@@ -694,6 +703,7 @@ static int emulate_mcr_cache(struct coproc_params *params)
 		switch (params->opcode2) {
 		case 0:	/* Invalidate entire data cache */
 			/* TODO: Optimize this! */
+			kvm_arm_count_event(EVENT_MCR_7_6_0);
 			kvm_cache_clean_invalidate_all();
 #if 0
 			asm volatile("mcr	p15, 0, %[zero], c7, c6, 0":
@@ -702,6 +712,7 @@ static int emulate_mcr_cache(struct coproc_params *params)
 			break;
 		case 1:	/* Invalidate data cache line - MVA */
 			/* TODO: Optimize this! */
+			kvm_arm_count_event(EVENT_MCR_7_6_1);
 			kvm_cache_clean_invalidate_all();
 #if 0
 			asm volatile("mcr	p15, 0, %[zero], c7, c6, 0":
@@ -717,6 +728,7 @@ static int emulate_mcr_cache(struct coproc_params *params)
 			break;
 		case 2:	/* Invalidate data cache line - set */
 			/* TODO: Optimize this! */
+			kvm_arm_count_event(EVENT_MCR_7_6_2);
 			kvm_cache_clean_invalidate_all();
 #if 0
 			asm volatile("mcr	p15, 0, %[set], c7, c6, 2":
@@ -731,6 +743,7 @@ static int emulate_mcr_cache(struct coproc_params *params)
 		switch (params->opcode2) {
 		case 0:	/* Invalidate both i-cache and d-cache */
 			/* TODO: Optimize this! */
+			kvm_arm_count_event(EVENT_MCR_7_7_0);
 			kvm_cache_clean_invalidate_all();
 #if 0
 			asm volatile("mcr	p15, 0, %[zero], c7, c5, 0":
@@ -754,6 +767,7 @@ static int emulate_mcr_cache(struct coproc_params *params)
 	case 10:
 		switch (params->opcode2) {
 		case 0:	/* Clean entire data cache */
+			kvm_arm_count_event(EVENT_MCR_7_10_0);
 			asm volatile("mcr	p15, 0, %[zero], c7, c10, 0":
 					: [zero] "r" (0));
 			/*
@@ -762,6 +776,7 @@ static int emulate_mcr_cache(struct coproc_params *params)
 			 */
 			break;
 		case 1:	/* Clean data cache line - MVA */
+			kvm_arm_count_event(EVENT_MCR_7_10_1);
 			asm volatile("mcr	p15, 0, %[zero], c7, c10, 0":
 					: [zero] "r" (0));
 			/*
@@ -775,6 +790,7 @@ static int emulate_mcr_cache(struct coproc_params *params)
 		case 2:	/* Clean data cache line - set */
 		case 3:	/* test and clean */
 		case 4:	/* Data synchronization barrier */
+			kvm_arm_count_event(EVENT_MCR_7_10_4);
 			asm volatile("mcr	p15, 0, %[zero], c7, c10, 4":
 					: [zero] "r" (0));
 			break;
@@ -811,10 +827,12 @@ static int emulate_mcr_cache(struct coproc_params *params)
 	case 14:
 		switch (params->opcode2) {
 		case 0:	/* Clean and invalidate entire d-cache */
+			kvm_arm_count_event(EVENT_MCR_7_14_0);
 			asm volatile("mcr	p15, 0, %[zero], c7, c14, 0":
 					: [zero] "r" (0));
 			break;
 		case 1:	/* Clean and invalidate d-cache line - MVA */
+			kvm_arm_count_event(EVENT_MCR_7_14_1);
 			asm volatile("mcr	p15, 0, %[zero], c7, c14, 0":
 					: [zero] "r" (0));
 			/*
@@ -841,6 +859,7 @@ static int emulate_mcr_cache(struct coproc_params *params)
 		switch (params->opcode2) {
 		case 0:	/* Clean and invalidate entire unified cache */
 			/* TODO: Check if the CPU has unified cache */
+			kvm_arm_count_event(EVENT_MCR_7_15_0);
 			asm volatile("mcr	p15, 0, %[zero], c7, c15, 0":
 					: [zero] "r" (0));
 			break;
@@ -936,6 +955,7 @@ static int emulate_mcr_mmu_tlb(struct coproc_params *params)
 		case 1:	/* Invalidate instruction single entry - MVA */
 		case 2:	/* Invalidate on ASID match instruction TLB - ASID */
 			/* TODO: Check if TLB flush is necessary */
+			kvm_arm_count_event(EVENT_MCR_8_5_X);
 			kvm_tlb_flush_guest_all(vcpu->arch.shadow_pgtable);
 			ret = kvm_init_l1_shadow(vcpu,
 						 vcpu->arch.shadow_pgtable->pgd);
@@ -950,6 +970,7 @@ static int emulate_mcr_mmu_tlb(struct coproc_params *params)
 		case 1: /* Invalidate instruction single entry */
 		case 2: /* Invalidate on ASID match data TLB - ASID */
 			/* TODO: Check if TLB flush is necessary */
+			kvm_arm_count_event(EVENT_MCR_8_6_X);
 			kvm_tlb_flush_guest_all(vcpu->arch.shadow_pgtable);
 			return kvm_init_l1_shadow(vcpu,
 						  vcpu->arch.shadow_pgtable->pgd);
@@ -963,6 +984,7 @@ static int emulate_mcr_mmu_tlb(struct coproc_params *params)
 		case 1:	/* Invalidate unified single entry - MVA */
 		case 2:	/* Invalidate on AISD match unfied TLB - ASID */
 			/* TODO: Check if TLB flush is necessary */
+			kvm_arm_count_event(EVENT_MCR_8_7_X);
 			kvm_tlb_flush_guest_all(vcpu->arch.shadow_pgtable);
 			ret= kvm_init_l1_shadow(vcpu,
 						vcpu->arch.shadow_pgtable->pgd);
@@ -1112,6 +1134,7 @@ int emulate_mcr_tlb_lck(struct coproc_params *params)
 
 static int emulate_mcr_proc_id(struct coproc_params *params)
 {
+	int ret;
 	struct kvm_vcpu *vcpu = params->vcpu;
 
 	if (params->CRm != 0 || params->opcode1 != 0) {
@@ -1125,6 +1148,12 @@ static int emulate_mcr_proc_id(struct coproc_params *params)
 		vcpu->arch.cp15.c13_FCSER = vcpu_reg(vcpu, params->rd_reg);
 		break;
 	case 1:
+		kvm_arm_count_event(EVENT_VCPU_ASID);
+		kvm_tlb_flush_guest_all(vcpu->arch.shadow_pgtable);
+		ret = kvm_init_l1_shadow(vcpu,
+					vcpu->arch.shadow_pgtable->pgd);
+		if (ret)
+			return ret;
 		vcpu->arch.cp15.c13_CID = vcpu_reg(vcpu, params->rd_reg);
 		break;
 	case 2:
@@ -1845,6 +1874,8 @@ static int emulate_ls_mult(struct kvm_vcpu *vcpu, u32 instr)
 	u32 register_count, register_list;
 	u8 rn = (instr & INSTR_LSM_RN_MASK) >> INSTR_LSM_RN_SHIFT;
 
+	kvm_arm_count_event(EVENT_EMUL_LSMULT);
+
 	/* Check is S bit is set in USER og SYSTEM mode */
 	if (BIT_SET(instr, INSTR_LSM_BIT_S) &&
 	    (VCPU_MODE(vcpu) == MODE_USER || VCPU_MODE(vcpu) == MODE_SYSTEM)) {
@@ -1928,6 +1959,7 @@ static int emulate_ls_with_trans(struct kvm_vcpu *vcpu, u32 instr)
 	printk(KERN_DEBUG "   instr: 0x%08x\n", instr);
 	printk(KERN_DEBUG "     gva: 0x%08x\n", gva);
 	*/
+	kvm_arm_count_event(EVENT_LS_TRANS);
 
 	fault = gva_to_gfn(vcpu, gva, &tmp_gfn, 1, &map_info);
 	if (fault < 0)
@@ -1970,6 +2002,7 @@ static int emulate_mrs(struct kvm_vcpu *vcpu, u32 instr)
 		vcpu_reg(vcpu, reg) = vcpu->arch.regs->cpsr;
 
 	vcpu_reg(vcpu, 15) += 8;
+	kvm_arm_count_event(EVENT_EMUL_MRS);
 	return 0;
 }
 
@@ -2022,6 +2055,8 @@ static int emulate_msr(struct kvm_vcpu *vcpu, u32 instr)
 	u32 unalloc_mask, user_mask, priv_mask, state_mask;
 	u32 operand, shift, byte_mask, mask;
 	int tbl_idx;
+
+	kvm_arm_count_event(EVENT_EMUL_MSR);
 
 	tbl_idx = get_msr_bitmask_table_index();
 	if (tbl_idx < 0)
@@ -2115,6 +2150,8 @@ static inline int get_arm_psr_instr_index(u32 instr)
 static int emulate_cps(struct kvm_vcpu *vcpu, u32 instr)
 {
 	struct kvm_vcpu_regs *regs = vcpu->arch.regs;
+
+	kvm_arm_count_event(EVENT_EMUL_CPS);
 
 	if ((instr & CPS_IMOD_MASK) == CPS_IMOD_EN) {
 		/* Enable interrupts (unamsk) */
