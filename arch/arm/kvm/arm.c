@@ -996,7 +996,8 @@ static int inject_guest_exception(struct kvm_vcpu *vcpu)
 	if (vcpu->arch.exception_pending & EXCEPTION_IRQ) {
 		//if ((vcpu->arch.cpsr & PSR_I_BIT) || guest_debug || irq_suppress)
 		//kvm_trace_activity(200, "check if PSR_I_BIT is set");
-		if (regs->cpsr & PSR_I_BIT)
+		//if (regs->cpsr & PSR_I_BIT)
+		if ((regs->cpsr & PSR_I_BIT) || irq_suppress)
 			return 0;
 
 		//kvm_trace_activity(201, "inject irq");
@@ -1080,6 +1081,8 @@ void debug_exit_print(struct kvm_vcpu *vcpu, u32 interrupt)
 	switch (interrupt) {
 	case ARM_EXCEPTION_UNDEFINED: {
 		__kvm_print_msg("UNDEFINED (0x%08x)\n", vcpu_reg(vcpu, 15));
+		kvm_msg("undefined instr: %08x",
+				vcpu->arch.shared_page->guest_instr);
 		break;
 	}
 	case ARM_EXCEPTION_SOFTWARE: {
@@ -1333,7 +1336,7 @@ static inline int handle_swi(struct kvm_vcpu *vcpu)
 	instr = vcpu->arch.shared_page->guest_instr;
 	if ((instr & 0xffff) == 0xdead || (instr & 0xffff) == 0xbabe ||
 	    (instr & 0xffff) == 0xcafe || (instr & 0xffff) == 0xbeef ||
-	    ((instr & 0xffff) >= 0xde00 && (instr & 0xffff) < 0xdf00)) {
+	    ((instr & 0xffff) >= 0xde00 && (instr & 0xffff) < 0xef00)) {
 
 		/*kvm_msg("swi instr: 0x%08x at 0x%08x",
 				(unsigned int)instr,
@@ -1343,7 +1346,7 @@ static inline int handle_swi(struct kvm_vcpu *vcpu)
 		if ((instr & 0xffff) == 0xdead) {
 			kvm_msg("XXXXXXXXXXX    Exit point found    XXXXXXXXXXXXX!");
 			return -EINVAL;
-		} else if ((instr & 0xffff) >= 0xde00 && (instr & 0xffff) < 0xdf00) {
+		} else if ((instr & 0xffff) >= 0xde00 && (instr & 0xffff) < 0xef00) {
 			kvm_msg("instr: swi%x: ", (instr & 0xffff));
 		} else if ((instr & 0xffff) == 0xcafe) {
 			kvm_msg("register 0 on 0xcafe: %d", vcpu_reg(vcpu, 0));
@@ -1352,7 +1355,9 @@ static inline int handle_swi(struct kvm_vcpu *vcpu)
 			guest_debug ^= 0x1;
 			kvm_msg("debugging %s", (guest_debug) ? "on" : "off");
 		} else if ((instr & 0xffff) == 0xbeef) {
-			guest_debug = 0;
+			irq_suppress ^= 1;
+			kvm_msg("IRQ injection is not %s",
+					(irq_suppress) ? "off" : "on");
 		}
 
 		/* Proceed to next instruction */
@@ -1372,7 +1377,6 @@ static inline int handle_swi(struct kvm_vcpu *vcpu)
 		if (orig_instr != 0)
 			goto skip_copy_in;
 
-		kvm_msg("instruction copy-in");
 		/* Load the orig. instruction directly from memory */
 		hva = gva_to_hva(vcpu, addr + 4, 0);
 		if (kvm_is_error_hva(hva)) {
@@ -1525,6 +1529,7 @@ static inline int handle_shadow_fault(struct kvm_vcpu *vcpu,
 	if (fault < 0)
 		return fault;
 
+	BUG_ON(vcpu == NULL);
 	memslot = gfn_to_memslot(vcpu->kvm, gfn);
 	if (!memslot) {
 		/*

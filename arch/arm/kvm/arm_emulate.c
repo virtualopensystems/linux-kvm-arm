@@ -393,7 +393,7 @@ static int emulate_mcr_pgtable(struct coproc_params *params)
 	case 0: {
 		gpa_t prev_base = vcpu->arch.cp15.c2_TTBR0;
 		vcpu->arch.cp15.c2_TTBR0 = rd_val;
-		kvm_msg("guest changed TTBR0 to: 0x%08x", rd_val);
+		//kvm_msg("guest changed TTBR0 to: 0x%08x", rd_val);
 		if (kvm_mmu_enabled(vcpu) && prev_base != rd_val) {
 			kvm_tlb_flush_guest_all(vcpu->arch.shadow_pgtable);
 			kvm_cache_clean_invalidate_all();
@@ -405,7 +405,7 @@ static int emulate_mcr_pgtable(struct coproc_params *params)
 	case 1: {
 		gpa_t prev_base = vcpu->arch.cp15.c2_TTBR1;
 		vcpu->arch.cp15.c2_TTBR1 = rd_val;
-		kvm_msg("guest changed TTBR1 to: 0x%08x", rd_val);
+		//kvm_msg("guest changed TTBR1 to: 0x%08x", rd_val);
 		if (kvm_mmu_enabled(vcpu) && prev_base != rd_val) {
 			/*
 			 * TODO: Check if we always have to flush the
@@ -648,12 +648,20 @@ static int emulate_mcr_cache(struct coproc_params *params)
 	case 5:
 		switch (params->opcode2) {
 		case 0:	/* Invalidate entire i-cache */
+			/* TODO: Optimize this! */
+			kvm_cache_clean_invalidate_all();
+#if 0
 			asm volatile("mcr	p15, 0, %[zero], c7, c5, 0":
 					: [zero] "r" (0));
+#endif
 			break;
 		case 1:	/* Invalidate i-cache line - MVA */
+			/* TODO: Optimize this! */
+			kvm_cache_clean_invalidate_all();
+#if 0
 			asm volatile("mcr	p15, 0, %[zero], c7, c5, 0":
 					: [zero] "r" (0));
+#endif
 			/*
 			 * We cannot simply use the MVA directly, since the MVA
 			 * may not make sense in the host address space and
@@ -663,8 +671,12 @@ static int emulate_mcr_cache(struct coproc_params *params)
 			 */
 			break;
 		case 2:	/* Invalidate i-cache line - set */
+			/* TODO: Optimize this! */
+			kvm_cache_clean_invalidate_all();
+#if 0
 			asm volatile("mcr	p15, 0, %[set], c7, c5, 2":
 				: [set] "r" (vcpu_reg(vcpu, params->rd_reg)));
+#endif
 			break;
 		case 4:	/* Flush prefetch buffer */
 		case 6:	/* Flush entire branch target cache */
@@ -681,12 +693,20 @@ static int emulate_mcr_cache(struct coproc_params *params)
 	case 6:
 		switch (params->opcode2) {
 		case 0:	/* Invalidate entire data cache */
+			/* TODO: Optimize this! */
+			kvm_cache_clean_invalidate_all();
+#if 0
 			asm volatile("mcr	p15, 0, %[zero], c7, c6, 0":
 					: [zero] "r" (0));
+#endif
 			break;
 		case 1:	/* Invalidate data cache line - MVA */
+			/* TODO: Optimize this! */
+			kvm_cache_clean_invalidate_all();
+#if 0
 			asm volatile("mcr	p15, 0, %[zero], c7, c6, 0":
 					: [zero] "r" (0));
+#endif
 			/*
 			 * We cannot simply use the MVA directly, since the MVA
 			 * may not make sense in the host address space and
@@ -696,8 +716,12 @@ static int emulate_mcr_cache(struct coproc_params *params)
 			 */
 			break;
 		case 2:	/* Invalidate data cache line - set */
+			/* TODO: Optimize this! */
+			kvm_cache_clean_invalidate_all();
+#if 0
 			asm volatile("mcr	p15, 0, %[set], c7, c6, 2":
 				: [set] "r" (vcpu_reg(vcpu, params->rd_reg)));
+#endif
 			break;
 		default:
 			ret = -EINVAL;
@@ -706,12 +730,16 @@ static int emulate_mcr_cache(struct coproc_params *params)
 	case 7:
 		switch (params->opcode2) {
 		case 0:	/* Invalidate both i-cache and d-cache */
+			/* TODO: Optimize this! */
+			kvm_cache_clean_invalidate_all();
+#if 0
 			asm volatile("mcr	p15, 0, %[zero], c7, c5, 0":
 					: [zero] "r" (0));
 			asm volatile("mcr	p15, 0, %[zero], c7, c14, 0":
 					: [zero] "r" (0));
 			/*asm volatile("mcr	p15, 0, %[zero], c7, c7, 0":
 					: [zero] "r" (0));*/
+#endif
 			break;
 		case 1:	/* Invalidate unified cache line - MVA */
 		case 2: /* Invalidate unified cache line - set */
@@ -812,6 +840,7 @@ static int emulate_mcr_cache(struct coproc_params *params)
 	case 15:
 		switch (params->opcode2) {
 		case 0:	/* Clean and invalidate entire unified cache */
+			/* TODO: Check if the CPU has unified cache */
 			asm volatile("mcr	p15, 0, %[zero], c7, c15, 0":
 					: [zero] "r" (0));
 			break;
@@ -1265,8 +1294,12 @@ static int emulate_mcrr_cache_ranges(struct coproc_params *params)
 
 	switch (params->CRm) {
 	case 5: /* Invalidate Instruction Cache Range */
+		if (guest_debug) kvm_msg("Invalidate instruction cache range");
+		kvm_cache_clean_invalidate_all();
+#if 0
 		asm volatile("mcr	p15, 0, %[zero], c7, c5, 0":
 				: [zero] "r" (0));
+#endif
 		/*
 		 * We cannot simply use the MVA directly, since the MVA
 		 * may not make sense in the host address space and
@@ -1276,8 +1309,12 @@ static int emulate_mcrr_cache_ranges(struct coproc_params *params)
 		 */
 		break;
 	case 6: /* Invalidate Data Cache Range */
+		if (guest_debug) kvm_msg("Invalidate data cache range");
+		kvm_cache_clean_invalidate_all();
+#if 0
 		asm volatile("mcr	p15, 0, %[zero], c7, c6, 0":
 				: [zero] "r" (0));
+#endif
 		/*
 		 * We cannot simply use the MVA directly, since the MVA
 		 * may not make sense in the host address space and
@@ -1294,8 +1331,12 @@ static int emulate_mcrr_cache_ranges(struct coproc_params *params)
 		kvm_msg("Unsupported opcode1: %d", params->opcode1);
 		return -EINVAL;
 	case 14: /* Clean and Invalidate Data Cache Range */
+		if (guest_debug) kvm_msg("Clean and invalidate data cache range");
+		kvm_cache_clean_invalidate_all();
+#if 0
 		asm volatile("mcr	p15, 0, %[zero], c7, c14, 0":
 				: [zero] "r" (0));
+#endif
 		/*
 		 * We cannot simply use the MVA directly, since the MVA
 		 * may not make sense in the host address space and
