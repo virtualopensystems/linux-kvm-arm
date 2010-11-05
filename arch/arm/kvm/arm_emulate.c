@@ -1319,8 +1319,8 @@ static int emulate_mcrr(struct kvm_vcpu *vcpu, u32 instr)
 	params.instr = instr;
 	params.opcode1 = (instr >> 4) & 0xf;
 	params.cp_num = (instr >> 8) & 0xf;
-	params.rd_reg = (instr >> 12) ^ 0xf;
-	params.rn_reg = (instr >> 16) ^ 0xf;
+	params.rd_reg = (instr >> 12) & 0xf;
+	params.rn_reg = (instr >> 16) & 0xf;
 	params.CRm = (instr) & 0xf;
 
 	if (params.cp_num != 15) {
