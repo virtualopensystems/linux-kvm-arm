@@ -1422,18 +1422,16 @@ static void v6_cleaninv_sw(unsigned long addr, bool clean, bool invalidate)
 					[set_way] "r" (set_way));
 		}
 	}
-
-
 }
 
-static inline void v6_clean_dcache_sw(unsigned long addr)
+void v6_clean_dcache_sw(unsigned long addr)
 {
 	v6_cleaninv_sw(addr, true, false);
 }
 
-static inline void v6_inv_dcache_sw(unsigned long addr)
+void v6_clean_inv_dcache_sw(unsigned long addr)
 {
-	v6_cleaninv_sw(addr, false, true);
+	v6_cleaninv_sw(addr, true, true);
 }
 
 /*
@@ -1469,7 +1467,7 @@ void kvm_coherent_to_guest(gva_t gva, void *hva, unsigned long n)
 
 	clean_dcache_area(hva, n);
 	while (offset < n) {
-		v6_inv_dcache_sw(gva + offset);
+		v6_clean_inv_dcache_sw(gva + offset);
 		offset += D_CACHE_LINE_SIZE;
 	}
 }

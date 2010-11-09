@@ -254,5 +254,7 @@ static inline void kvm_cache_inv_user(void __user *ptr, unsigned long n)
 
 void kvm_coherent_to_guest(gva_t gva, void *hva, unsigned long n);
 void kvm_coherent_from_guest(gva_t gva, void *hva, unsigned long n);
+void v6_clean_inv_dcache_sw(unsigned long addr);
+void v6_clean_dcache_sw(unsigned long addr);
 
 #endif /* __ARM_KVM_ARM_MMU_H__ */

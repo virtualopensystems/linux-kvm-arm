@@ -777,14 +777,12 @@ static int emulate_mcr_cache(struct coproc_params *params)
 			break;
 		case 1:	/* Clean data cache line - MVA */
 			kvm_arm_count_event(EVENT_MCR_7_10_1);
-			asm volatile("mcr	p15, 0, %[zero], c7, c10, 0":
-					: [zero] "r" (0));
+			v6_clean_dcache_sw(vcpu_reg(vcpu, params->rd_reg));
 			/*
 			 * We cannot simply use the MVA directly, since the MVA
 			 * may not make sense in the host address space and
 			 * will cause problems. For now, disregarding performance,
 			 * we clear the entire data cache.
-			 * TODO: Consider optimizations
 			 */
 			break;
 		case 2:	/* Clean data cache line - set */
@@ -833,14 +831,12 @@ static int emulate_mcr_cache(struct coproc_params *params)
 			break;
 		case 1:	/* Clean and invalidate d-cache line - MVA */
 			kvm_arm_count_event(EVENT_MCR_7_14_1);
-			asm volatile("mcr	p15, 0, %[zero], c7, c14, 0":
-					: [zero] "r" (0));
+			v6_clean_inv_dcache_sw(vcpu_reg(vcpu, params->rd_reg));
 			/*
 			 * We cannot simply use the MVA directly, since the MVA
 			 * may not make sense in the host address space and
 			 * will cause problems. For now, disregarding performance,
 			 * we clear the entire data cache.
-			 * TODO: Consider optimizations
 			 */
 			break;
 		case 2:	/* Clean and invalidate d-cache line - set */
