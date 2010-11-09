@@ -37,11 +37,6 @@
 
 #include "core.h"
 
-#define V2M_PA_CS0	0x40000000
-#define V2M_PA_CS1	0x44000000
-#define V2M_PA_CS2	0x48000000
-#define V2M_PA_CS3	0x4c000000
-#define V2M_PA_CS7	0x10000000
 
 struct ct_desc *ct_desc;
 
@@ -49,7 +44,7 @@ static struct map_desc v2m_io_desc[] __initdata = {
 	{
 		.virtual	= __MMIO_P2V(V2M_PA_CS7),
 		.pfn		= __phys_to_pfn(V2M_PA_CS7),
-		.length		= SZ_128K,
+		.length		= V2M_SIZE_CS7,
 		.type		= MT_DEVICE,
 	},
 };

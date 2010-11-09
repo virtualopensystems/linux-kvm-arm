@@ -18,7 +18,6 @@
 #include <asm/hardware/gic.h>
 
 #include <mach/motherboard.h>
-#define V2M_PA_CS7 0x10000000
 
 #include <plat/platsmp.h>
 
