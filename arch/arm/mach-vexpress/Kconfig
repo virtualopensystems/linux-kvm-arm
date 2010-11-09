@@ -1,8 +1,31 @@
 menu "Versatile Express platform type"
 	depends on ARCH_VEXPRESS
 
+choice
+	prompt "Versatile Express memory map"
+	default VEXPRESS_ORIGINAL_MEMORY_MAP
+
+config VEXPRESS_ORIGINAL_MEMORY_MAP
+	bool "Original memory map"
+	help
+	  The original Versatile Express memory map defines a 32-bit physical
+	  address space with memory at 0x60000000.
+
+config VEXPRESS_EXTENDED_MEMORY_MAP
+	bool "Extended memory map"
+	select ARCH_SPARSEMEM_ENABLE if ARM_LPAE
+	help
+	  Versatile Express core tiles supporting LPAE can address
+	  memory above 4GB. This extended memory map has 4GB of RAM
+	  at 0x800000000 (32GB). The bottom 2GB of this bank is mirrored
+	  at 0x80000000 (2GB) so that non-LPAE tiles can still function
+	  with the bottom 32-bits of the memory map.
+
+endchoice
+
 config ARCH_VEXPRESS_CA9X4
 	bool "Versatile Express Cortex-A9x4 tile"
+	depends on VEXPRESS_ORIGINAL_MEMORY_MAP
 	select CPU_V7
 	select ARM_GIC
 	select ARM_ERRATA_720789
