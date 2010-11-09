@@ -1,4 +1,11 @@
+#ifdef CONFIG_VEXPRESS_ORIGINAL_MEMORY_MAP
 #define __MMIO_P2V(x)	(((x) & 0xfffff) | (((x) & 0x0f000000) >> 4) | 0xf8000000)
+#elif defined(CONFIG_VEXPRESS_EXTENDED_MEMORY_MAP)
+#define __MMIO_P2V(x)	(((x) & 0x1fffff) | (((x) & 0xe0000000) >> 8) | 0xf8000000)
+#else
+#error "No known memory map selected for Versatile Express platform."
+#endif
+
 #define MMIO_P2V(x)	((void __iomem *)__MMIO_P2V(x))
 
 #define AMBA_DEVICE(name,busid,base,plat)	\

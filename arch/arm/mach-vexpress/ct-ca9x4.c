@@ -28,8 +28,6 @@
 
 #include <mach/motherboard.h>
 
-#define V2M_PA_CS7	0x10000000
-
 static struct map_desc ct_ca9x4_io_desc[] __initdata = {
 	{
 		.virtual	= __MMIO_P2V(CT_CA9X4_MPIC),

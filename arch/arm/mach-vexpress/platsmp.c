@@ -20,7 +20,6 @@
 #include <asm/unified.h>
 
 #include <mach/motherboard.h>
-#define V2M_PA_CS7 0x10000000
 
 #include "core.h"
 
