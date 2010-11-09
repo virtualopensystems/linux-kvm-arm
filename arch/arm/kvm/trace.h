@@ -64,7 +64,7 @@
 
 void kvm_arm_init_eventc(void);
 void kvm_arm_count_event(unsigned int event);
-void kvm_dump_vcpu_state(struct kvm_vcpu *vcpu);
+void kvm_dump_vcpu_state(void);
 
 void trace_ws_enter(u32 guest_pc);
 void trace_ws_exit(u32 guest_pc, u32 exit_code);

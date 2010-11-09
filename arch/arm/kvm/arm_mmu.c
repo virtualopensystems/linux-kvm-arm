@@ -210,7 +210,7 @@ static int trans_coarse_entry_xp(struct kvm_vcpu *vcpu, gva_t gva,
 		map_info->ap = (desc >> 4) & 0x3;
 		map_info->apx = (desc >> 9) & 0x1;
 		map_info->xn = desc & 0x1;
-		map_info->cache_bits = (desc & 0xc) | ((desc >> 2) & 0x70);
+		map_info->cache_bits = desc & CACHE_BITS_MASK;
 
 		if (domain_type == DOMAIN_CLIENT) {
 			u8 ap = map_info->ap;
@@ -238,6 +238,8 @@ static int trans_coarse_entry(struct kvm_vcpu *vcpu, gva_t gva,
 	gpa_t page_base;
 	u32 page_index;
 	int ret = 0;
+
+	BUG(); /* This code has bit-rotted somewhat */
 
 	switch (desc & L2_TYPE_MASK) {
 	case L2_TYPE_FAULT:
@@ -285,7 +287,7 @@ static int trans_coarse_entry(struct kvm_vcpu *vcpu, gva_t gva,
 	case L2_TYPE_EXT_SMALL: {
 		u8 ap = (desc >> 4) & 0x3;
 		map_info->ap = ap | (ap<<2) | (ap<<4) | (ap<<6);
-		map_info->cache_bits = (desc & 0xc) | ((desc >> 2) & 0x70);
+		map_info->cache_bits = desc & CACHE_BITS_MASK;
 
 		if (domain_type == DOMAIN_CLIENT) {
 			if (kvm_decode_ap(vcpu, ap, uaccess) == KVM_AP_NONE)
@@ -376,7 +378,7 @@ int gva_to_gfn(struct kvm_vcpu *vcpu, gva_t gva, gfn_t *gfn, u8 uaccess,
 #if __LINUX_ARM_ARCH__ >= 6
 		map_info->apx = 0;
 		map_info->xn = 0;
-		map_info->cache_bits = 0x0c;
+		map_info->cache_bits = 0x08;
 #endif
 		*gfn = (gva >> PAGE_SHIFT);
 		return 0;
@@ -461,7 +463,7 @@ int gva_to_gfn(struct kvm_vcpu *vcpu, gva_t gva, gfn_t *gfn, u8 uaccess,
 		}
 #endif
 		map_info->cache_bits = l1_entry & 0xc; /* C and B bits */
-		map_info->cache_bits |= (l1_entry >> 6) & 0x70; /* TEX bits */
+		map_info->cache_bits |= (l1_entry >> 6) & 0x1c0; /* TEX bits */
 
 		/* Get and check guest domain mapping info */
 		domain_type = l1_domain_access(vcpu, l1_entry, map_info);
@@ -899,6 +901,7 @@ int kvm_switch_host_vectors(struct kvm_vcpu *vcpu, int high)
 static inline u32 *alloc_l2_shadow(struct kvm_vcpu *vcpu)
 {
 	u32 * l2_base = vcpu->arch.l2_unused_pt;
+	struct page *page;
 
 	if (!l2_base) {
 		l2_base = (u32*)__get_free_pages(GFP_KERNEL, 0);
@@ -906,6 +909,7 @@ static inline u32 *alloc_l2_shadow(struct kvm_vcpu *vcpu)
 			printk(KERN_ERR "Can't allocate L2 shadow page table.\n");
 			return ERR_PTR(-ENOMEM);
 		}
+		page = virt_to_page(l2_base);
 		memset(l2_base, 0, PAGE_SIZE);
 		page_private(virt_to_page(l2_base)) = 0;
 	}
@@ -958,11 +962,28 @@ int get_l2_base(u32 l1_entry, u32 **l2_base)
 	return 0;
 }
 
+static inline u32 sanitize_cache_bits(u32 cache_bits)
+{
+	cache_bits = cache_bits & CACHE_BITS_MASK;
+
+	if (cache_bits != 0x8 &&	/* Normal, write through, no w-allocate */
+	    cache_bits != 0xc &&	/* Normal, write back, w-allocate */
+	    cache_bits != 0x40 &&	/* Normal, Non-cacheable */
+	    cache_bits != 0x4c &&	/* Normal, Write back, w-allocate */
+	    !(cache_bits & 0x100)) { 	/* Normal, specific outer/innter */
+
+		/* Device and reserved memory becomes normal non-cachable */
+		return 0x40;
+	}
+
+	return cache_bits;
+}
+
 /**
  * see map_gva_to_pfn(...) below
  */
 int __map_gva_to_pfn(struct kvm_vcpu *vcpu, u32 *pgd, gva_t gva, pfn_t pfn,
-		     u8 domain, u8 ap, u8 apx, u8 xn)
+		     u8 domain, u8 ap, u8 apx, u8 xn, u32 cache_bits)
 {
 	u32 l1_index;
 	u32 *l1_pte, *l2_base, *l2_pte;
@@ -1049,20 +1070,27 @@ skip_domain_check:
 
 	l2_pte = l2_base + ((gva >> 12) & 0xff);
 #if __LINUX_ARM_ARCH__ >= 6
-		/* VMSAv6 and higher */
-		*l2_pte = (pfn << PAGE_SHIFT) | L2_XP_TYPE_EXT_SMALL;
-		*l2_pte |= (xn & 0x1);
-		*l2_pte |= 0xc; // Normal memory, cache write back (TEX = 0)
-		*l2_pte &= ~(0x00000ff0); //Necessary bit clear?
-		*l2_pte |= (ap & 0x3) << 4;
-		*l2_pte |= (apx & 0x1) << 9;
-		*l2_pte |= nG << 11;
+	/* Convert cache bits */
+
+	/* VMSAv6 and higher */
+	*l2_pte = (pfn << PAGE_SHIFT) | L2_XP_TYPE_EXT_SMALL;
+	*l2_pte |= (xn & 0x1);
+	*l2_pte |= sanitize_cache_bits(cache_bits);
+	*l2_pte &= ~(0x00000e30); //Necessary bit clear?
+	*l2_pte |= (ap & 0x3) << 4;
+	*l2_pte |= (apx & 0x1) << 9;
+	*l2_pte |= nG << 11;
+
+	/*if ((*l2_pte & CACHE_BITS_MASK) != 0xc)
+		kvm_msg("l2 pte with different cache bits: %08x (%x)",
+				*l2_pte, *l2_pte & CACHE_BITS_MASK);
+				*/
 #else
-		/* VMSAv6 backwards-compatible mode */
-		*l2_pte = (pfn << PAGE_SHIFT) | L2_TYPE_SMALL;
-		*l2_pte |= 0xc; // Normal memory, cache write back
-		*l2_pte &= ~(0x00000ff0);
-		*l2_pte |= ap << 4;
+	/* VMSAv6 backwards-compatible mode */
+	*l2_pte = (pfn << PAGE_SHIFT) | L2_TYPE_SMALL;
+	*l2_pte |= 0xc; // Normal memory, cache write back
+	*l2_pte &= ~(0x00000ff0);
+	*l2_pte |= ap << 4;
 #endif
 	clean_dcache_area(l2_pte, sizeof(u32));
 
@@ -1089,6 +1117,7 @@ int map_gva_to_pfn(struct kvm_vcpu *vcpu, u32 *pgd, gva_t gva, pfn_t pfn,
 		   u8 domain, u8 priv_ap, u8 user_ap, u8 exec)
 {
 	u8 ap, apx, calc_ap, i;
+	u32 cache_bits;
 
 	/*
 	 * Check validity of access permissions
@@ -1112,9 +1141,17 @@ int map_gva_to_pfn(struct kvm_vcpu *vcpu, u32 *pgd, gva_t gva, pfn_t pfn,
 		ap |= calc_ap << (i*2); // Same AP on all subpages
 
 	/*
+	 * Set cache bits for shared page and interrupt vector page
+	 * to normal, write-black, no write-allocate
+	 */
+	cache_bits = 0xc;
+
+
+	/*
 	 * Call lower level function
 	 */
-	return __map_gva_to_pfn(vcpu, pgd, gva, pfn, domain, ap, apx, exec);
+	return __map_gva_to_pfn(vcpu, pgd, gva, pfn,
+				domain, ap, apx, exec, cache_bits);
 }
 
 int unmap_gva_section(struct kvm_vcpu *vcpu, u32 *pgd, gva_t gva)
@@ -1422,6 +1459,8 @@ static void v6_cleaninv_sw(unsigned long addr, bool clean, bool invalidate)
 					[set_way] "r" (set_way));
 		}
 	}
+
+
 }
 
 void v6_clean_dcache_sw(unsigned long addr)

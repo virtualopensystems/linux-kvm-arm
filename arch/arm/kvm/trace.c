@@ -124,7 +124,7 @@ static struct kvm_event_order *sort_kvm_event_log(void)
  * Trace ring-buffer local to KVM/ARM
  */
 
-//#define KVM_TRACE_ACTIVITY
+#define KVM_TRACE_ACTIVITY
 #ifndef KVM_TRACE_ACTIVITY
 void kvm_trace_activity(unsigned int activity, char *fmt, ...)
 {
@@ -402,7 +402,7 @@ static int __printk_relay(struct seq_file *m, const char *fmt, ...)
 	return 0;
 }
 
-void kvm_dump_vcpu_state(struct kvm_vcpu *vcpu)
+void kvm_dump_vcpu_state(void)
 {
 	print_kvm_debug_info(&__printk_relay, NULL);
 }

@@ -221,6 +221,7 @@ static inline int bad_range(struct zone *zone, struct page *page)
 }
 #endif
 
+extern void kvm_dump_vcpu_state(void);
 static void bad_page(struct page *page)
 {
 	static unsigned long resume;
@@ -246,6 +247,8 @@ static void bad_page(struct page *page)
 	}
 	if (nr_shown++ == 0)
 		resume = jiffies + 60 * HZ;
+
+	kvm_dump_vcpu_state();
 
 	printk(KERN_ALERT "BUG: Bad page state in process %s  pfn:%05lx\n",
 		current->comm, page_to_pfn(page));

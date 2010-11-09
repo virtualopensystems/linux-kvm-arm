@@ -1319,7 +1319,8 @@ static inline int user_mem_abort(struct kvm_vcpu *vcpu,
 			       map_info->ap,
 #if __LINUX_ARM_ARCH__ >= 6
 			       map_info->apx,
-			       map_info->xn);
+			       map_info->xn,
+			       map_info->cache_bits);
 #else
 			       0,
 			       0);

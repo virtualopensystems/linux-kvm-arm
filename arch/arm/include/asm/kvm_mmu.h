@@ -36,19 +36,18 @@
 /*
  * map_info.cache_bits encoding:
  *
- *     7     4   3   2     0
- * +---+-----+---+---+-----+
- * | 0 | TEX | C | B | 0 0 |
- * +---+-----+---+---+-----+
+ *  8      6   5 4   3   2     0
+ * +---------+-----+---+---+-----+
+ * |   TEX   | 0 0 | C | B | 0 0 |
+ * +---------+-----+---+---+-----+
  */
 
-#define CACHE_BITS_SHIFT	2
-#define CACHE_BITS_MASK		(0x1f << CACHE_BITS_SHIFT)
+#define CACHE_BITS_MASK		(0x1cc)
 #define CACHE_BITS_B_SHIFT	2
 #define CACHE_BITS_B_MASK	(0x1 << CACHE_ITS_B_SHIFT)
 #define CACHE_BITS_C_SHIFT	3
-#define CACHE_CITS_C_MASK	(0x1 << CACHE_ITS_C_SHIFT)
-#define CACHE_BITS_TEX_SHIFT	4
+#define CACHE_BITS_C_MASK	(0x1 << CACHE_ITS_C_SHIFT)
+#define CACHE_BITS_TEX_SHIFT	6
 #define CACHE_BITS_TEX_MASK	(0x7 << CACHE_BITS_TEX_SHIFT)
 
 
@@ -56,9 +55,9 @@
  * Detailed info about a guest page mapping
  */
 struct map_info {
+	u32 cache_bits;
 	u8 domain_number;
 	u8 ap;
-	u8 cache_bits;
 #if __LINUX_ARM_ARCH__ >= 6
 	u8 apx;
 	u8 xn;
@@ -83,7 +82,7 @@ kvm_shadow_pgtable* kvm_alloc_l1_shadow(struct kvm_vcpu *vcpu,
 int   kvm_init_l1_shadow(struct kvm_vcpu *vcpu, u32 *pgd);
 void  kvm_free_l1_shadow(struct kvm_vcpu *vcpu, kvm_shadow_pgtable *shadow);
 int __map_gva_to_pfn(struct kvm_vcpu *vcpu, u32 *pgd, gva_t gva, pfn_t pfn,
-		     u8 domain, u8 ap, u8 apx, u8 xn);
+		     u8 domain, u8 ap, u8 apx, u8 xn, u32 cache_bits);
 int   map_gva_to_pfn(struct kvm_vcpu *vcpu, u32 *pgd, gva_t gva, pfn_t pfn,
 		     u8 domain, u8 priv_ap, u8 user_ap, u8 exec);
 int   unmap_gva(u32 *pgd, gva_t gva);

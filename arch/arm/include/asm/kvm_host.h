@@ -266,9 +266,4 @@ static inline gpa_t kvm_guest_ttbr(struct kvm_vcpu_arch *vcpu_arch, gva_t gva)
 	return vcpu_arch->cp15.c2_TTBR0 & (~0 << 14);
 }
 
-/*
- * Dump virtual CPU state into kernel log buffer
- */
-void kvm_dump_vcpu_state(struct kvm_vcpu *);
-
 #endif /* __ARM_KVM_HOST_H__ */
