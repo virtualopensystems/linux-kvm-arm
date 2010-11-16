@@ -1514,7 +1514,9 @@ int handle_shadow_perm(struct kvm_vcpu *vcpu,
 		/* The guest tried to access the host interrupt page */
 		high = vcpu->arch.host_vectors_high ? 0 : 1;
 		kvm_msg("switching vectors...");
-		kvm_switch_host_vectors(vcpu, high);
+		ret = kvm_switch_host_vectors(vcpu, high);
+		if (ret)
+			goto out;
 		ret = handle_shadow_fault(vcpu, fault_addr, instr_addr);
 		if (ret)
 			kvm_msg("error in handle_shadow_fault");
