@@ -1301,6 +1301,7 @@ static inline int user_mem_abort(struct kvm_vcpu *vcpu,
 				"corresponding host mapping",
 				(unsigned int)gfn,
 				(unsigned int)gfn << PAGE_SHIFT);
+		kvm_release_pfn_clean(pfn);
 		return -EFAULT;
 	}
 
@@ -1414,7 +1415,6 @@ static inline int handle_shadow_fault(struct kvm_vcpu *vcpu,
 		 * fault, we simply inject that fault to the guest.
 		 */
 		if (fault > 0) {
-			fault = gva_to_gfn(vcpu, fault_addr, &gfn, uaccess, &map_info);
 			kvm_generate_mmu_fault(vcpu, fault_addr, fault,
 					       map_info.domain_number);
 			return 0;

@@ -679,6 +679,10 @@ static void inline release_l2_shadow_entry(struct kvm_vcpu *vcpu, u8 domain,
 			kvm_msg("invalid pfn: %u (pte: 0x%08x) (gva: 0x%08x)",
 					pfn, pte, gva);
 
+		/*
+		 * TODO: Do we really want to release KVM vector and shared
+		 * page here?
+		 */
 		if (mapping_is_guest_writable(vcpu, domain, pte))
 			kvm_release_pfn_dirty(pfn);
 		else
@@ -728,10 +732,7 @@ static void free_l2_shadow(struct kvm_vcpu *vcpu, u32 l1_pte, u32 gva_base)
 		pte++;
 	}
 
-	BUG_ON(page_private(page) == 0);
-
-	if(--page_private(page) == 0)
-		__free_page(page);
+	put_page(page);
 }
 
 /*
@@ -883,6 +884,7 @@ int kvm_switch_host_vectors(struct kvm_vcpu *vcpu, int high)
 		vcpu->arch.host_vectors_high = 0;
 	}
 
+	get_page(virt_to_page(vcpu->arch.guest_vectors));
 	ret = map_gva_to_pfn(vcpu,
 			     vcpu->arch.shadow_pgtable->pgd,
 			     exception_base,
@@ -911,15 +913,14 @@ static inline u32 *alloc_l2_shadow(struct kvm_vcpu *vcpu)
 		}
 		page = virt_to_page(l2_base);
 		memset(l2_base, 0, PAGE_SIZE);
-		page_private(virt_to_page(l2_base)) = 0;
+	} else {
+		get_page(virt_to_page(l2_base));
 	}
 
 	vcpu->arch.l2_unused_pt = l2_base + (L2_TABLE_SIZE / sizeof(u32));
 
 	if ((u32)vcpu->arch.l2_unused_pt % PAGE_SIZE == 0)
 		vcpu->arch.l2_unused_pt = NULL;
-
-	page_private(virt_to_page(l2_base))++;
 
 	return l2_base;
 }
