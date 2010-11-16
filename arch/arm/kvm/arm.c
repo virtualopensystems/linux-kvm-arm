@@ -118,6 +118,12 @@ void print_guest_area(struct kvm_vcpu *vcpu, gva_t gva)
 	void *data;
 	u32* ptr;
 
+	/*
+	 * For some reason it's necessary to clean the entire D-cache before
+	 * we start reading guest page table entries - even though the guest
+	 * kernel should flush the write.
+	 */
+	kvm_dcache_clean();
 	ret = gva_to_gfn(vcpu, gva, &gfn, 0, NULL);
 	if (ret < 0) {
 		kvm_err(ret, "could not translate PC address");
@@ -745,16 +751,17 @@ static inline int kvm_switch_mode(struct kvm_vcpu *vcpu, u8 new_cpsr)
 	if (new_mode == old_mode)
 		return 0;
 
+	vcpu->arch.shared_page->vcpu_mode = new_mode;
+
 	if (new_mode == MODE_USER || old_mode == MODE_USER) {
 		/* Switch btw. priv. and non-priv. */
-		ret = kvm_init_l1_shadow(vcpu, vcpu->arch.shadow_pgtable->pgd);
+		ret = kvm_update_shadow_ap(vcpu, vcpu->arch.shadow_pgtable);
 
 		if (new_mode != MODE_USER)
 			kvm_arm_count_event(EVENT_SWITCH_PRIV);
 		else
 			kvm_arm_count_event(EVENT_SWITCH_PRIV);
 	}
-	vcpu->arch.shared_page->vcpu_mode = new_mode;
 
 	kvm_trace_activity(65, "switch mode");
 	kvm_arm_count_event(EVENT_SWITCH_MODE);
@@ -1016,6 +1023,12 @@ int kvm_arch_vcpu_ioctl_set_guest_debug(struct kvm_vcpu *vcpu,
 	gfn_t gfn;
 	gpa_t gpa;
 
+	/*
+	 * For some reason it's necessary to clean the entire D-cache before
+	 * we start reading guest page table entries - even though the guest
+	 * kernel should flush the write.
+	 */
+	kvm_dcache_clean();
 	ret = gva_to_gfn(vcpu, gva, &gfn, 0, NULL);
 	if (ret < 0) {
 		kvm_err(ret, "could not translate breakpoing address");
@@ -1253,6 +1266,12 @@ static inline int handle_swi(struct kvm_vcpu *vcpu)
 			goto skip_copy_in;
 
 		/* Load the orig. instruction directly from memory */
+		/*
+		 * For some reason it's necessary to clean the entire D-cache before
+		 * we start reading guest page table entries - even though the guest
+		 * kernel should flush the write.
+		 */
+		kvm_dcache_clean();
 		hva = gva_to_hva(vcpu, addr + 4, 0);
 		if (kvm_is_error_hva(hva)) {
 			kvm_err(-EINVAL, "Instruction generated at "
@@ -1318,14 +1337,9 @@ static inline int user_mem_abort(struct kvm_vcpu *vcpu,
 			       pfn,
 			       map_info->domain_number,
 			       map_info->ap,
-#if __LINUX_ARM_ARCH__ >= 6
 			       map_info->apx,
 			       map_info->xn,
 			       map_info->cache_bits);
-#else
-			       0,
-			       0);
-#endif
 	if (ret) {
 		kvm_release_pfn_clean(pfn);
 		return ret;
@@ -1402,6 +1416,13 @@ static inline int handle_shadow_fault(struct kvm_vcpu *vcpu,
 	u8 uaccess;
 
 	uaccess = VCPU_MODE_PRIV(vcpu) ? 0 : 1;
+
+	/*
+	 * For some reason it's necessary to clean the entire D-cache before
+	 * we start reading guest page table entries - even though the guest
+	 * kernel should flush the write.
+	 */
+	kvm_dcache_clean();
 	fault = gva_to_gfn(vcpu, fault_addr, &gfn, uaccess, &map_info);
 	if (fault < 0)
 		return fault;
@@ -1463,6 +1484,12 @@ int handle_shadow_perm(struct kvm_vcpu *vcpu,
 		kvm_msg("\n");
 		kvm_msg("Guest mapping info:");
 
+		/*
+		 * For some reason it's necessary to clean the entire D-cache before
+		 * we start reading guest page table entries - even though the guest
+		 * kernel should flush the write.
+		 */
+		kvm_dcache_clean();
 		trace_gva_to_gfn = true;
 		ret = gva_to_gfn(vcpu, fault_addr, &gfn, 0, &map_info);
 		trace_gva_to_gfn = false;
@@ -1500,10 +1527,14 @@ int handle_shadow_perm(struct kvm_vcpu *vcpu,
 		return -EINVAL;
 	}
 
-	/* Check that the guest vector location is available */
-	BUG_ON(gva_to_gfn(vcpu, VCPU_GUEST_EXCP_BASE(vpcu), &gfn, 0, NULL));
-
 	uaccess = VCPU_MODE_PRIV(vcpu) ? 0 : 1;
+
+	/*
+	 * For some reason it's necessary to clean the entire D-cache before
+	 * we start reading guest page table entries - even though the guest
+	 * kernel should flush the write.
+	 */
+	kvm_dcache_clean();
 	ret = gva_to_gfn(vcpu, fault_addr, &gfn, uaccess, &map_info);
 	if (ret < 0) {
 		kvm_msg("error in gva_to_gfn");

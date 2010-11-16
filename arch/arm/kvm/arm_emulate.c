@@ -1831,6 +1831,12 @@ static inline int ls_mult_copy_register(struct kvm_vcpu *vcpu, u32 instr,
 	//printk(KERN_DEBUG "LSM guest_addr: 0x%08x\n", (unsigned int)(*guest_addr));
 
 	// TODO: Check if the guest has permission to this address!
+	/*
+	 * For some reason it's necessary to clean the entire D-cache before
+	 * we start reading guest page table entries - even though the guest
+	 * kernel should flush the write.
+	 */
+	kvm_dcache_clean();
 	host_addr = gva_to_hva(vcpu, *guest_addr, 0);
 	if (kvm_is_error_hva(host_addr))
 		return -EFAULT;
@@ -1957,6 +1963,12 @@ static int emulate_ls_with_trans(struct kvm_vcpu *vcpu, u32 instr)
 	*/
 	kvm_arm_count_event(EVENT_LS_TRANS);
 
+	/*
+	 * For some reason it's necessary to clean the entire D-cache before
+	 * we start reading guest page table entries - even though the guest
+	 * kernel should flush the write.
+	 */
+	kvm_dcache_clean();
 	fault = gva_to_gfn(vcpu, gva, &tmp_gfn, 1, &map_info);
 	if (fault < 0)
 		return fault;

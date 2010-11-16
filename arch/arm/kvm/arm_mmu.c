@@ -170,11 +170,6 @@ static inline int get_guest_pgtable_entry(struct kvm_vcpu *vcpu, u32 *entry,
 	if (kvm_is_error_hva(addr))
 		return -EFAULT;
 
-	/*
-	 * For some reason it's necessary to clean the entire D-cache at this
-	 * point even though the guest kernel should flush the write.
-	 */
-	kvm_dcache_clean();
 	kvm_cache_inv_user((void __user *)addr + offset, sizeof(u32));
 
 	ret = copy_from_user(entry, (void __user *)addr + offset, sizeof(u32));
@@ -1325,6 +1320,85 @@ int kvm_restore_low_vector_domain(struct kvm_vcpu *vcpu, u32 *pgd)
 	return ret;
 }
 #endif
+
+static int update_shadow_l2_ap(struct kvm_vcpu *vcpu, u32 *l1_pte, u32 *l2_base)
+{
+	struct map_info map_info;
+	gva_t gva;
+	gfn_t gfn;
+	int ret;
+	u8 ap;
+	u32 *l2_pte = l2_base;
+
+	while (l2_pte < (l2_base + 256)) {
+		if ((*l2_pte & L2_TYPE_MASK) == L2_TYPE_FAULT)
+			goto next_l2_entry;
+
+		gva = (((u32)l1_pte & (L1_TABLE_SIZE-1)) << 18) +
+			(((u32)l2_pte & (L2_TABLE_SIZE-1)) << 10);
+
+		if (gva == VCPU_HOST_EXCP_BASE(vcpu) ||
+		    gva == SHARED_PAGE_BASE)
+			goto next_l2_entry;
+
+		ret = gva_to_gfn(vcpu, gva, &gfn, 0, &map_info);
+		if (ret < 0)
+			return ret;
+
+		ap = convert_guest_to_shadow_ap(vcpu, map_info.ap);
+
+		if ((gva >> 20) == (SHARED_PAGE_BASE >> 20) ||
+		    (gva >> 20) == (VCPU_HOST_EXCP_BASE(vcpu) >> 20)) {
+			ap = dom_to_ap(vcpu, map_info.domain_number,
+				       ap, &map_info.apx);
+		}
+
+		*l2_pte &= ~PTE_EXT_AP_MASK;
+		*l2_pte |= (ap & 0x3) << 4;
+
+next_l2_entry:
+		l2_pte++;
+	}
+
+	return 0;
+}
+
+/*
+ * Update the access permission bits on the shadow page table to match
+ * the intented protection from guest page tables on for example a switch
+ * between privileged and user mode.
+ *
+ * @vcpu:   The virtual CPU pointer.
+ * @shadow: The shadow page table pointer to update APs on.
+ */
+int kvm_update_shadow_ap(struct kvm_vcpu *vcpu, kvm_shadow_pgtable *shadow)
+{
+	u32 *l1_pte;
+	u32 *l2_pte;
+	int ret;
+
+	/*
+	 * For some reason it's necessary to clean the entire D-cache before
+	 * we start reading guest page table entries - even though the guest
+	 * kernel should flush the write.
+	 */
+	kvm_dcache_clean();
+	for (l1_pte = shadow->pgd; l1_pte < shadow->pgd + 4096; l1_pte++) {
+		if ((*l1_pte & L1_TYPE_MASK) != L1_TYPE_FAULT) {
+			ret = get_l2_base(*l1_pte, &l2_pte);
+			if (ret)
+				return ret;
+
+			ret = update_shadow_l2_ap(vcpu, l1_pte, l2_pte);
+			if (ret)
+				return ret;
+		}
+	}
+
+	kvm_dcache_clean();
+	kvm_tlb_flush_guest_all(shadow);
+	return 0;
+}
 
 
 /* =========================================================================

@@ -90,6 +90,7 @@ int   unmap_gva_section(struct kvm_vcpu *vcpu, u32 *pgd, gva_t gva);
 int   kvm_update_special_region_ap(struct kvm_vcpu *vcpu, u32 *pgd, u8 domain);
 int   kvm_restore_low_vector_domain(struct kvm_vcpu *vcpu, u32 *pgd);
 int   kvm_switch_host_vectors(struct kvm_vcpu *vcpu, int high);
+int   kvm_update_shadow_ap(struct kvm_vcpu *vcpu, kvm_shadow_pgtable *shadow);
 void  dump_l1_pgtable(struct kvm_vcpu *vcpu);
 void  kvm_tlb_flush_guest_all(kvm_shadow_pgtable *shadow);
 
@@ -226,6 +227,7 @@ static inline u8 convert_guest_to_shadow_ap(struct kvm_vcpu *vcpu, u8 ap)
 	return ap;
 }
 
+/* TODO: Make these work on all platforms */
 static inline void kvm_dcache_clean(void)
 {
 	unsigned long zero = 0;
