@@ -79,7 +79,7 @@ extern struct list_head kvm_shadow_pgtable_list;
 
 kvm_shadow_pgtable* kvm_alloc_l1_shadow(struct kvm_vcpu *vcpu,
 					gva_t guest_ttbr);
-int   kvm_init_l1_shadow(struct kvm_vcpu *vcpu, u32 *pgd);
+int   kvm_init_l1_shadow(struct kvm_vcpu *vcpu, kvm_shadow_pgtable *shadow);
 void  kvm_free_l1_shadow(struct kvm_vcpu *vcpu, kvm_shadow_pgtable *shadow);
 int __map_gva_to_pfn(struct kvm_vcpu *vcpu, u32 *pgd, gva_t gva, pfn_t pfn,
 		     u8 domain, u8 ap, u8 apx, u8 xn, u32 cache_bits);

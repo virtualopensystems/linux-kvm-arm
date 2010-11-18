@@ -318,8 +318,7 @@ static int emulate_mcr_sysconf(struct coproc_params *params)
 	case 0: {
 		/* Control Register */
 		if ((rd_val & 0x1) != (vcpu->arch.cp15.c1_CR & 0x1)) {
-			kvm_init_l1_shadow(vcpu, vcpu->arch.shadow_pgtable->pgd);
-			kvm_tlb_flush_guest_all(vcpu->arch.shadow_pgtable);
+			kvm_init_l1_shadow(vcpu, vcpu->arch.shadow_pgtable);
 			kvm_cache_clean_invalidate_all();
 			if (rd_val & 0x1)
 				kvm_msg("guest enabled MMU at: %08x",
@@ -398,10 +397,9 @@ static int emulate_mcr_pgtable(struct coproc_params *params)
 		//kvm_msg("guest changed TTBR0 to: 0x%08x", rd_val);
 		if (kvm_mmu_enabled(vcpu) && prev_base != rd_val) {
 			kvm_arm_count_event(EVENT_MOD_TTBR);
-			kvm_tlb_flush_guest_all(vcpu->arch.shadow_pgtable);
 			kvm_cache_clean_invalidate_all();
 			return kvm_init_l1_shadow(vcpu,
-						  vcpu->arch.shadow_pgtable->pgd);
+						  vcpu->arch.shadow_pgtable);
 		}
 		break;
 	}
@@ -415,9 +413,8 @@ static int emulate_mcr_pgtable(struct coproc_params *params)
 			 * TLB here.
 			 */
 			kvm_cache_clean_invalidate_all();
-			kvm_tlb_flush_guest_all(vcpu->arch.shadow_pgtable);
 			return kvm_init_l1_shadow(vcpu,
-						  vcpu->arch.shadow_pgtable->pgd);
+						  vcpu->arch.shadow_pgtable);
 		}
 		break;
 	}
@@ -492,8 +489,7 @@ static int emulate_mcr_dac(struct coproc_params *params)
 	for (i = 0; i < 16; i++) {
 		if (((old >> (i*2)) & 0x3) != ((new >> (i*2)) & 0x3)) {
 			/* TODO: Check if TLB flush is necessary */
-			kvm_tlb_flush_guest_all(vcpu->arch.shadow_pgtable);
-			kvm_init_l1_shadow(vcpu, vcpu->arch.shadow_pgtable->pgd);
+			kvm_init_l1_shadow(vcpu, vcpu->arch.shadow_pgtable);
 			kvm_arm_count_event(EVENT_DACR_CHANGE);
 			/*
 			kvm_update_special_region_ap(vcpu,
@@ -693,8 +689,8 @@ static int emulate_mcr_cache(struct coproc_params *params)
 			 * caches/TLB's in further implementations! */
 			/* TODO: Check if TLB flush is necessary */
 			kvm_arm_count_event(EVENT_MCR_7_5_7);
-			kvm_tlb_flush_guest_all(vcpu->arch.shadow_pgtable);
-			return kvm_init_l1_shadow(vcpu, vcpu->arch.shadow_pgtable->pgd);
+			return kvm_init_l1_shadow(vcpu,
+						  vcpu->arch.shadow_pgtable);
 		default:
 			ret = -EINVAL;
 		}
@@ -952,9 +948,8 @@ static int emulate_mcr_mmu_tlb(struct coproc_params *params)
 		case 2:	/* Invalidate on ASID match instruction TLB - ASID */
 			/* TODO: Check if TLB flush is necessary */
 			kvm_arm_count_event(EVENT_MCR_8_5_X);
-			kvm_tlb_flush_guest_all(vcpu->arch.shadow_pgtable);
 			ret = kvm_init_l1_shadow(vcpu,
-						 vcpu->arch.shadow_pgtable->pgd);
+						 vcpu->arch.shadow_pgtable);
 			break;
 		default:
 			ret = -EINVAL;
@@ -967,9 +962,8 @@ static int emulate_mcr_mmu_tlb(struct coproc_params *params)
 		case 2: /* Invalidate on ASID match data TLB - ASID */
 			/* TODO: Check if TLB flush is necessary */
 			kvm_arm_count_event(EVENT_MCR_8_6_X);
-			kvm_tlb_flush_guest_all(vcpu->arch.shadow_pgtable);
 			return kvm_init_l1_shadow(vcpu,
-						  vcpu->arch.shadow_pgtable->pgd);
+						  vcpu->arch.shadow_pgtable);
 		default:
 			ret = -EINVAL;
 		}
@@ -981,9 +975,8 @@ static int emulate_mcr_mmu_tlb(struct coproc_params *params)
 		case 2:	/* Invalidate on AISD match unfied TLB - ASID */
 			/* TODO: Check if TLB flush is necessary */
 			kvm_arm_count_event(EVENT_MCR_8_7_X);
-			kvm_tlb_flush_guest_all(vcpu->arch.shadow_pgtable);
 			ret= kvm_init_l1_shadow(vcpu,
-						vcpu->arch.shadow_pgtable->pgd);
+						vcpu->arch.shadow_pgtable);
 			break;
 		default:
 			ret = -EINVAL;
@@ -1145,9 +1138,8 @@ static int emulate_mcr_proc_id(struct coproc_params *params)
 		break;
 	case 1:
 		kvm_arm_count_event(EVENT_VCPU_ASID);
-		kvm_tlb_flush_guest_all(vcpu->arch.shadow_pgtable);
 		ret = kvm_init_l1_shadow(vcpu,
-					vcpu->arch.shadow_pgtable->pgd);
+					vcpu->arch.shadow_pgtable);
 		if (ret)
 			return ret;
 		vcpu->arch.cp15.c13_CID = vcpu_reg(vcpu, params->rd_reg);

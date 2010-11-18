@@ -145,6 +145,7 @@ int main(void)
   DEFINE(SHARED_ORIG_INSTR,     offsetof(struct shared_page, orig_instr));
   DEFINE(SHARED_VCPU_MODE,	offsetof(struct shared_page, vcpu_mode));
   DEFINE(SHARED_VCPU_REGS,	offsetof(struct shared_page, vcpu_regs));
+  DEFINE(SHARED_CLEAR_TLB,	offsetof(struct shared_page, clear_tlb));
 
   DEFINE(VCPU_REGS_FIQ,		offsetof(struct kvm_vcpu_regs, fiq_reg));
   DEFINE(VCPU_REGS_USR,		offsetof(struct kvm_vcpu_regs, usr_reg));

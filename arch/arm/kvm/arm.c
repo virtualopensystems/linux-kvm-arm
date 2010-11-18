@@ -546,7 +546,7 @@ struct kvm_vcpu *kvm_arch_vcpu_create(struct kvm *kvm, unsigned int id)
 		goto free_vectors;
 	}
 
-	err = kvm_init_l1_shadow(vcpu, arch->shadow_pgtable->pgd);
+	err = kvm_init_l1_shadow(vcpu, arch->shadow_pgtable);
 	if (err)
 		goto free_shadow;
 
@@ -560,6 +560,7 @@ struct kvm_vcpu *kvm_arch_vcpu_create(struct kvm *kvm, unsigned int id)
 	 * Start with guest debugging disabled
 	 */
 	guest_debug = 0;
+	vcpu->arch.shared_page->clear_tlb = 0;
 	latest_vcpu = vcpu;
 	kvm_arm_init_eventc();
 
@@ -1237,7 +1238,7 @@ static inline int handle_swi(struct kvm_vcpu *vcpu)
 		} else if ((instr & 0xffff) >= 0xde00 && (instr & 0xffff) < 0xef00) {
 			kvm_msg("instr: swi%x: ", (instr & 0xffff));
 		} else if ((instr & 0xffff) == 0xcafe) {
-			kvm_msg("register 0 on 0xcafe: %d", vcpu_reg(vcpu, 0));
+			kvm_msg("register 7 on 0xcafe: %d", vcpu_reg(vcpu, 7));
 		} else if ((instr & 0xffff) == 0xbabe) {
 			/* 0xbabe toggles debugging on/off */
 			guest_debug ^= 0x1;
@@ -1478,7 +1479,9 @@ int handle_shadow_perm(struct kvm_vcpu *vcpu,
 		kvm_msg("    fsr: 0x%08x", fsr);
 
 		kvm_msg("    guest_exception: %d", vcpu->arch.guest_exception);
-		print_ws_trace();
+		vcpu_put(vcpu);
+		kvm_dump_vcpu_state();
+		vcpu_load(vcpu);
 
 		/********** Print guest mapping info *********/
 		kvm_msg("\n");

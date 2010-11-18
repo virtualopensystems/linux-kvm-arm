@@ -237,9 +237,18 @@ __irq_vector_end:
 #define VCPU_REGS(__var)  (SHARED(VCPU_REGS) + VCPU_REGS_##__var)
 #define HOST_REGS(n)      (SHARED(HOST_REGS) + (n * 4))
 
-@ Clobbers r2
+@ Clobbers reg
 .macro flush_prefetch_dwb reg
+	ldr	\reg, SHARED(CLEAR_TLB)
+	cmp	\reg, #0
 	mov	\reg, #0
+	beq	10f
+
+	mcr	p15, 0, \reg, c8, c6, 0
+	mcr	p15, 0, \reg, c8, c5, 0
+	mcr	p15, 0, \reg, c7, c5, 6
+
+10:
 	mcr	p15, 0, \reg, c7, c5,  4	@ Flush Prefetch Buffer
 	mcr	p15, 0, \reg, c7, c10, 4	@ Data Synchronization Barrier
 .endm

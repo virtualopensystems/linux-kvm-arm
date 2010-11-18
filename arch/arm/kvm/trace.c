@@ -387,6 +387,7 @@ print_trace_activity:
 		}
 		ptr = ptr->next;
 	}
+	print_fn(m, "\n\n");
 
 	if (vcpu != NULL) {
 		vcpu_put(vcpu);

@@ -790,7 +790,7 @@ void kvm_free_l1_shadow(struct kvm_vcpu *vcpu, kvm_shadow_pgtable *shadow)
  * will be freed.
  */
 static u8 init_l1_map = 0;
-int kvm_init_l1_shadow(struct kvm_vcpu *vcpu, u32 *pgd)
+int kvm_init_l1_shadow(struct kvm_vcpu *vcpu, kvm_shadow_pgtable *shadow)
 {
 	int ret = 0;
 	gva_t exception_base;
@@ -798,16 +798,16 @@ int kvm_init_l1_shadow(struct kvm_vcpu *vcpu, u32 *pgd)
 	kvm_arm_count_event(EVENT_FLUSH_SHADOW);
 	//kvm_msg("flushing shadow page table at: 0x%08x!", vcpu->arch.regs[15]);
 
-	if (pgd == NULL) {
+	if (shadow->pgd == NULL) {
 		kvm_msg("Weird pgd == NULL!");
 		return -EINVAL;
 	}
 
-	free_l1_shadow_children(vcpu, pgd);
+	free_l1_shadow_children(vcpu, shadow->pgd);
 
 	get_page(virt_to_page(vcpu->arch.shared_page_alloc));
 	ret = map_gva_to_pfn(vcpu,
-			     pgd,
+			     shadow->pgd,
 			     (gva_t) vcpu->arch.shared_page,
 			     page_to_pfn(virt_to_page(vcpu->arch.shared_page_alloc)),
 			     DOMAIN_KVM,
@@ -825,7 +825,7 @@ int kvm_init_l1_shadow(struct kvm_vcpu *vcpu, u32 *pgd)
 	init_l1_map = 1;
 	get_page(virt_to_page(vcpu->arch.guest_vectors));
 	ret = map_gva_to_pfn(vcpu,
-			     pgd,
+			     shadow->pgd,
 			     exception_base,
 			     page_to_pfn(virt_to_page(vcpu->arch.guest_vectors)),
 			     DOMAIN_KVM,
@@ -834,6 +834,7 @@ int kvm_init_l1_shadow(struct kvm_vcpu *vcpu, u32 *pgd)
 			     KVM_MEM_EXEC);
 	init_l1_map = 0;
 
+	kvm_tlb_flush_guest_all(shadow);
 
 	if (ret < 0) {
 		printk(KERN_ERR "Failed to map guest vectorss\n");
@@ -862,6 +863,7 @@ int kvm_switch_host_vectors(struct kvm_vcpu *vcpu, int high)
 	kvm_msg("host switched to using %s vectors", high ? ch : cl);
 
 	if (high) {
+		kvm_trace_activity(70, "Switch host vectors to high vectors");
 		ret = unmap_gva_section(vcpu,
 					vcpu->arch.shadow_pgtable->pgd,
 					EXCEPTION_VECTOR_LOW);
@@ -870,7 +872,10 @@ int kvm_switch_host_vectors(struct kvm_vcpu *vcpu, int high)
 		//kvm_restore_low_vector_domain(vcpu, vcpu->arch.shadow_pgtable);
 		exception_base = EXCEPTION_VECTOR_HIGH;
 		vcpu->arch.host_vectors_high = 1;
+
+		vcpu->arch.shared_page->clear_tlb = 1;
 	} else {
+		kvm_trace_activity(71, "Switch host vectors to low vectors");
 		ret = unmap_gva(vcpu->arch.shadow_pgtable->pgd,
 				EXCEPTION_VECTOR_HIGH);
 		if (ret)
@@ -888,6 +893,7 @@ int kvm_switch_host_vectors(struct kvm_vcpu *vcpu, int high)
 			     KVM_AP_RDWRITE,
 			     KVM_AP_NONE,
 			     KVM_MEM_EXEC);
+	kvm_tlb_flush_guest_all(vcpu->arch.shadow_pgtable);
 	return ret;
 }
 
@@ -983,6 +989,7 @@ int __map_gva_to_pfn(struct kvm_vcpu *vcpu, u32 *pgd, gva_t gva, pfn_t pfn,
 {
 	u32 l1_index;
 	u32 *l1_pte, *l2_base, *l2_pte;
+	bool modify_domain = false;
 	u8 nG = 1;
 	int ret;
 
@@ -1029,6 +1036,7 @@ int __map_gva_to_pfn(struct kvm_vcpu *vcpu, u32 *pgd, gva_t gva, pfn_t pfn,
 	}
 
 skip_domain_check:
+	domain = domain & 0xf;
 	l1_pte = pgd + l1_index;
 	switch ((*l1_pte) & L1_TYPE_MASK) {
 	case (L1_TYPE_FAULT):
@@ -1043,13 +1051,23 @@ skip_domain_check:
 		*l1_pte = page_to_phys(virt_to_page(l2_base));
 		*l1_pte |= ((u32)l2_base) & ~PAGE_MASK;
 		*l1_pte = (*l1_pte & L1_COARSE_MASK) | L1_TYPE_COARSE;
-		*l1_pte |= ((domain & 0xf) << L1_DOMAIN_SHIFT);
+		*l1_pte |= (domain << L1_DOMAIN_SHIFT);
 		clean_dcache_area(l1_pte, sizeof(u32));
 		break;
 	case (L1_TYPE_COARSE):
 		/* Update the domain of the L1 mapping */
+#ifdef flush_tlb_on_map
+		if ((*l1_pte & L1_DOMAIN_MASK) != domain << L1_DOMAIN_SHIFT)
+			modify_domain = true;
+#endif
+
 		*l1_pte &= ~L1_DOMAIN_MASK;
-		*l1_pte |= ((domain & 0xf) << L1_DOMAIN_SHIFT);
+		*l1_pte |= (domain << L1_DOMAIN_SHIFT);
+
+#ifdef flush_tlb_on_map
+		if (modify_domain)
+			clean_dcache_area(l1_pte, sizeof(u32));
+#endif
 		clean_dcache_area(l1_pte, sizeof(u32));
 
 		ret = get_l2_base(*l1_pte, &l2_base);
@@ -1066,7 +1084,12 @@ skip_domain_check:
 
 	l2_pte = l2_base + ((gva >> 12) & 0xff);
 #if __LINUX_ARM_ARCH__ >= 6
-	/* Convert cache bits */
+#ifdef flush_tlb_on_map
+	if ((*l2_pte & L2_TYPE_MASK) != L2_TYPE_FAULT || modify_domain) {
+		/* TODO: Make this independent of current vcpu pg-table */
+		kvm_tlb_flush_guest_all(vcpu->arch.shadow_pgtable);
+	}
+#endif
 
 	/* VMSAv6 and higher */
 	*l2_pte = (pfn << PAGE_SHIFT) | L2_XP_TYPE_EXT_SMALL;
@@ -1089,6 +1112,7 @@ skip_domain_check:
 	*l2_pte |= ap << 4;
 #endif
 	clean_dcache_area(l2_pte, sizeof(u32));
+	kvm_tlb_flush_guest_all(vcpu->arch.shadow_pgtable);
 
 	return 0;
 }
