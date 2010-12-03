@@ -139,7 +139,7 @@ struct shared_page {
 	unsigned long host_asid;
 	unsigned long guest_instr;	/* Inst. causing the excpt. */
 	unsigned long orig_instr;	/* Instr. following SWI instr. */
-	unsigned long clear_tlb;
+	unsigned long full_flush_mode;	/* Flush TLB and caches on WS. */
 };
 
 struct kvm_vcpu_arch {

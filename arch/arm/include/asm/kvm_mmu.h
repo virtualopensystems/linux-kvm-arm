@@ -85,7 +85,7 @@ int __map_gva_to_pfn(struct kvm_vcpu *vcpu, u32 *pgd, gva_t gva, pfn_t pfn,
 		     u8 domain, u8 ap, u8 apx, u8 xn, u32 cache_bits);
 int   map_gva_to_pfn(struct kvm_vcpu *vcpu, u32 *pgd, gva_t gva, pfn_t pfn,
 		     u8 domain, u8 priv_ap, u8 user_ap, u8 exec);
-int   unmap_gva(u32 *pgd, gva_t gva);
+int   unmap_gva(struct kvm_shadow_pgtable *shadow, gva_t gva);
 int   unmap_gva_section(struct kvm_vcpu *vcpu, u32 *pgd, gva_t gva);
 int   kvm_update_special_region_ap(struct kvm_vcpu *vcpu, u32 *pgd, u8 domain);
 int   kvm_restore_low_vector_domain(struct kvm_vcpu *vcpu, u32 *pgd);

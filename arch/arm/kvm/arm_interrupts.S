@@ -239,14 +239,21 @@ __irq_vector_end:
 
 @ Clobbers reg
 .macro flush_prefetch_dwb reg
-	ldr	\reg, SHARED(CLEAR_TLB)
+	ldr	\reg, SHARED(FULL_FLUSH)
 	cmp	\reg, #0
 	mov	\reg, #0
 	beq	10f
 
-	mcr	p15, 0, \reg, c8, c6, 0
-	mcr	p15, 0, \reg, c8, c5, 0
-	mcr	p15, 0, \reg, c7, c5, 6
+#ifdef HARVARD_CACHE
+       mcr     p15, 0, \reg, c7, c14, 0  @ Clean + Invalidate entire D-cache
+       mcr     p15, 0, \reg, c7, c5,  0  @ Invalidate entire I-cache
+#else
+       mcr     p15, 0, \reg, c7, c15, 0  @ Clean + Invalidate unified cache
+#endif
+
+	mcr	p15, 0, \reg, c8, c6, 0  @ Flush D-TLB
+	mcr	p15, 0, \reg, c8, c5, 0  @ Flush I-TLB
+	mcr	p15, 0, \reg, c7, c5, 6  @ Flush branch target cache
 
 10:
 	mcr	p15, 0, \reg, c7, c5,  4	@ Flush Prefetch Buffer

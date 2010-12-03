@@ -560,7 +560,7 @@ struct kvm_vcpu *kvm_arch_vcpu_create(struct kvm *kvm, unsigned int id)
 	 * Start with guest debugging disabled
 	 */
 	guest_debug = 0;
-	vcpu->arch.shared_page->clear_tlb = 0;
+	vcpu->arch.shared_page->full_flush_mode = 0;
 	latest_vcpu = vcpu;
 	kvm_arm_init_eventc();
 

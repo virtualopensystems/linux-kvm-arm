@@ -872,11 +872,9 @@ int kvm_switch_host_vectors(struct kvm_vcpu *vcpu, int high)
 		//kvm_restore_low_vector_domain(vcpu, vcpu->arch.shadow_pgtable);
 		exception_base = EXCEPTION_VECTOR_HIGH;
 		vcpu->arch.host_vectors_high = 1;
-
-		vcpu->arch.shared_page->clear_tlb = 1;
 	} else {
 		kvm_trace_activity(71, "Switch host vectors to low vectors");
-		ret = unmap_gva(vcpu->arch.shadow_pgtable->pgd,
+		ret = unmap_gva(vcpu->arch.shadow_pgtable,
 				EXCEPTION_VECTOR_HIGH);
 		if (ret)
 			return ret;
@@ -1187,6 +1185,8 @@ int unmap_gva_section(struct kvm_vcpu *vcpu, u32 *pgd, gva_t gva)
 		kvm_msg("unmap_gva_section, gva: 0x%08x", gva);
 		free_l2_shadow(vcpu, *l1_pte, gva);
 		*l1_pte = 0x0;
+		clean_dcache_area(l1_pte, sizeof(u32));
+		kvm_tlb_flush_guest_all(vcpu->arch.shadow_pgtable);
 		return 0;
 	default:
 		printk(KERN_ERR "unmap_gva_section: This function supports "
@@ -1196,10 +1196,11 @@ int unmap_gva_section(struct kvm_vcpu *vcpu, u32 *pgd, gva_t gva)
 	}
 }
 
-int unmap_gva(u32 *pgd, gva_t gva)
+int unmap_gva(struct kvm_shadow_pgtable *shadow, gva_t gva)
 {
 	u32 *l1_pte, *l2_base, *l2_pte;
 	int ret;
+	u32 *pgd = shadow->pgd;
 
 	l1_pte = pgd + (gva >> 20);
 	switch ((*l1_pte) & L1_TYPE_MASK) {
@@ -1214,6 +1215,8 @@ int unmap_gva(u32 *pgd, gva_t gva)
 
 		l2_pte = l2_base + ((gva >> 12) & 0xff);
 		*l2_pte = 0x0;
+		clean_dcache_area(l2_pte, sizeof(u32));
+		kvm_tlb_flush_guest_all(shadow);
 		return 0;
 	default:
 		printk(KERN_ERR "unmap_gva: This function supports "
