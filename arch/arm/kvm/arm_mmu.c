@@ -1422,7 +1422,12 @@ int kvm_update_shadow_ap(struct kvm_vcpu *vcpu, kvm_shadow_pgtable *shadow)
 		}
 	}
 
-	kvm_dcache_clean();
+	/*
+	 * A simple d-cache clean should be enough here, but unfortunately it
+	 * has shown to be insufficient and we therefore do a full
+	 * clean+invalidate operation here and suffer the cost.
+	 */
+	kvm_cache_clean_invalidate_all();
 	kvm_tlb_flush_guest_all(shadow);
 	return 0;
 }

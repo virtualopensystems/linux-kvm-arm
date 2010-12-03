@@ -79,6 +79,9 @@ int kvm_instr_index(u32 instr, u32 table[][2], int table_entries)
  *  - kvm_emulate_sensitive (Sensitive instr., patched need to be emulated)
  *****************************************************************************/
 
+extern void print_guest_area(struct kvm_vcpu *vcpu, gva_t gva,
+			     int back, int forwardb);
+
 /*
  * Handle an undefined exception.
  *
@@ -134,12 +137,15 @@ int kvm_handle_undefined(struct kvm_vcpu *vcpu, u32 instr)
 	return ret;
 handle_in_guest:
 	kvm_msg("handle undefined in guest: 0x%08x", vcpu_reg(vcpu, 15));
+	kvm_msg("instruction was: 0x%08x", vcpu_reg(vcpu, 15));
+	print_ws_trace();
+	dump_stack();
+	print_guest_area(vcpu, vcpu_reg(vcpu, 15), 10, 10);
 	KVMARM_NOT_IMPLEMENTED();
 	vcpu->arch.exception_pending |= EXCEPTION_UNDEFINED;
 	return 0;
 }
 
-extern void print_guest_area(struct kvm_vcpu *vcpu, gva_t gva);
 int kvm_emulate_sensitive(struct kvm_vcpu *vcpu, u32 instr)
 {
 	int op, ret = 0;
@@ -208,7 +214,7 @@ int kvm_emulate_sensitive(struct kvm_vcpu *vcpu, u32 instr)
 	kvm_msg("vcpu guest excpt. idx: 0x%08x", vcpu->arch.guest_exception);
 	print_ws_trace();
 	dump_stack();
-	print_guest_area(vcpu, vcpu_reg(vcpu, 15));
+	print_guest_area(vcpu, vcpu_reg(vcpu, 15), 10, 10);
 	return -EINVAL;
 }
 

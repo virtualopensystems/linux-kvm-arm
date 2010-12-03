@@ -39,6 +39,8 @@
 u8 guest_debug = 0;
 u32 irq_return = 0;
 u32 irq_suppress = 0;
+static u32 guest_sp = 0;
+static gva_t guest_bp = 0;
 
 #include <asm/kvm_arm.h>
 #include <asm/kvm_asm.h>
@@ -70,6 +72,7 @@ static inline int	handle_shadow_fault(struct kvm_vcpu *vcpu,
 					   gva_t fault_addr, gva_t instr_addr);
 void			set_host_kernel_ng(struct kvm_vcpu *vcpu,
 					   unsigned int val);
+static void do_guest_bp(struct kvm_vcpu *vcpu, gva_t addr, bool set);
 
 
 u32 get_shadow_l1_entry(struct kvm_vcpu *vcpu, gva_t gva)
@@ -109,7 +112,7 @@ void print_shadow_mapping(struct kvm_vcpu *vcpu, gva_t gva)
 	}
 }
 
-void print_guest_area(struct kvm_vcpu *vcpu, gva_t gva)
+void print_guest_area(struct kvm_vcpu *vcpu, gva_t gva, int back, int forward)
 {
 	//gva_t gva = (gva_t)(vcpu_reg(vcpu, 15));
 	gfn_t gfn;
@@ -138,12 +141,16 @@ void print_guest_area(struct kvm_vcpu *vcpu, gva_t gva)
 	from = to = gpa = (gfn << PAGE_SHIFT) | (gva & ~PAGE_MASK);
 
 	/* Print -/+ 10 instructions, but only if in same page */
-	while (((from - 4) & PAGE_MASK) == (gpa & PAGE_MASK) && (gpa - from) < 40)
+	while (((from - 4) & PAGE_MASK) == (gpa & PAGE_MASK) && (gpa - from)
+			< 4 * back) {
 		from = from - 4;
-	while (((to + 4) & PAGE_MASK) == (gpa & PAGE_MASK) && (to - gpa) < 40)
+	}
+	while (((to + 4) & PAGE_MASK) == (gpa & PAGE_MASK) && (to - gpa)
+			< 4 * forward) {
 		to = to + 4;
+	}
 
-	data = kmalloc(84, GFP_KERNEL);
+	data = kmalloc((2 * 4 * (back + forward)) + 4, GFP_KERNEL);
 	if (!data) {
 		kvm_err(-ENOMEM, "cannot allocate buffer");
 		return;
@@ -563,6 +570,8 @@ struct kvm_vcpu *kvm_arch_vcpu_create(struct kvm *kvm, unsigned int id)
 	vcpu->arch.shared_page->full_flush_mode = 0;
 	latest_vcpu = vcpu;
 	kvm_arm_init_eventc();
+	guest_sp = 0;
+	guest_bp = 0;
 
 	config_shared_page_domain(current->mm);
 
@@ -753,6 +762,11 @@ static inline int kvm_switch_mode(struct kvm_vcpu *vcpu, u8 new_cpsr)
 		return 0;
 
 	vcpu->arch.shared_page->vcpu_mode = new_mode;
+
+	/* XXX: For now flush everything when we start running in user mode */
+	if (new_mode == MODE_USER) {
+		vcpu->arch.shared_page->full_flush_mode = 1;
+	}
 
 	if (new_mode == MODE_USER || old_mode == MODE_USER) {
 		/* Switch btw. priv. and non-priv. */
@@ -1223,6 +1237,19 @@ static inline int handle_swi(struct kvm_vcpu *vcpu)
 	addr = vcpu_reg(vcpu, 15);
 
 	instr = vcpu->arch.shared_page->guest_instr;
+
+	/* Handle primitive breakpoint mechanism */
+	if (addr == guest_bp && guest_bp) {
+		vcpu_put(vcpu);
+		kvm_dump_vcpu_state();
+		vcpu_load(vcpu);
+
+		/* Restore the instruction and re-execute it */
+		do_guest_bp(vcpu, guest_bp, false);
+		return 0;
+	}
+
+	/* Handle primitive debug hyper calls */
 	if ((instr & 0xffff) == 0xdead || (instr & 0xffff) == 0xbabe ||
 	    (instr & 0xffff) == 0xcafe || (instr & 0xffff) == 0xbeef ||
 	    ((instr & 0xffff) >= 0xde00 && (instr & 0xffff) < 0xef00)) {
@@ -1254,6 +1281,7 @@ static inline int handle_swi(struct kvm_vcpu *vcpu)
 		return 0;
 	}
 
+	/* Handle guest system calls and KVM traps */
 	if ((instr & 0xffff) != 0xaaaa || VCPU_MODE(vcpu) == MODE_USER) {
 		/* This is an actual guest SWI instruction */
 		vcpu->arch.exception_pending |= EXCEPTION_SOFTWARE;
@@ -1406,6 +1434,59 @@ static inline int io_mem_abort(struct kvm_vcpu *vcpu,
 	return 0;
 }
 
+void print_guest_init_stack(struct kvm_vcpu *vcpu, u32 addr)
+{
+	print_guest_area(vcpu, (gva_t)addr, 90, 20);
+}
+
+static void do_guest_bp(struct kvm_vcpu *vcpu, gva_t addr, bool set)
+{
+	static u32 orig_instr;
+	int ret;
+	u32 new_instr;
+	gva_t gva = addr;
+	gfn_t gfn;
+	gpa_t gpa;
+
+	/*
+	 * For some reason it's necessary to clean the entire D-cache before
+	 * we start reading guest page table entries - even though the guest
+	 * kernel should flush the write.
+	 */
+	kvm_dcache_clean();
+	ret = gva_to_gfn(vcpu, gva, &gfn, 0, NULL);
+	if (ret < 0) {
+		kvm_err(ret, "could not translate breakpoing address");
+		return;
+	}
+
+	if (!kvm_is_visible_gfn(vcpu->kvm, gfn)) {
+		kvm_err(-EINVAL, "invalid breakpoint address");
+		return;
+	}
+
+	gpa = (gfn << PAGE_SHIFT) | (gva & ~PAGE_MASK);
+
+	if (set) {
+		ret = kvm_read_guest(vcpu->kvm, gpa, &orig_instr, 4);
+		if (ret) {
+			kvm_err(ret, "could not read guest breakpoint!");
+			return;
+		}
+		new_instr = 0xef000000;
+		guest_bp = addr;
+	} else {
+		guest_bp = 0;
+		new_instr = orig_instr;
+	}
+
+	ret = kvm_write_guest(vcpu->kvm, gpa, &new_instr, 4);
+	if (ret) {
+		kvm_err(ret, "could not write guest breakpoint!");
+		return;
+	}
+	kvm_cache_clean_invalidate_all();
+}
 
 static inline int handle_shadow_fault(struct kvm_vcpu *vcpu,
 				      gva_t fault_addr, gva_t instr_addr)
@@ -1437,6 +1518,25 @@ static inline int handle_shadow_fault(struct kvm_vcpu *vcpu,
 		 * fault, we simply inject that fault to the guest.
 		 */
 		if (fault > 0) {
+			if (!VCPU_MODE_PRIV(vcpu)) {
+#if 0
+				if (guest_sp == 0) {
+					guest_sp = vcpu_reg(vcpu, 13);
+					kvm_msg("setting guest_sp: 0x%x",
+							guest_sp);
+				}
+
+				if (vcpu_reg(vcpu, 15) == 0x9cf0) {
+					//print_guest_init_stack(vcpu, guest_sp);
+					//do_guest_bp(vcpu, 0x9cf4, true);
+				}
+
+				kvm_msg("injecting data abort from user mode\n"
+					"   addr: 0x%x, PC: 0x%x, SP: 0x%x\n",
+					fault_addr, vcpu_reg(vcpu, 15),
+					vcpu_reg(vcpu, 13));
+#endif
+			}
 			kvm_generate_mmu_fault(vcpu, fault_addr, fault,
 					       map_info.domain_number);
 			return 0;
