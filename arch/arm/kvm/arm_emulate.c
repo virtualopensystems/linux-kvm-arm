@@ -1492,7 +1492,10 @@ static int emulate_sensitive_dp_instr(struct kvm_vcpu *vcpu, u32 instr)
 	 *
 	 *  TODO: Support ARMv7 (and future architectures)
 	 */
-	asm volatile ("mov r10, %[rn]\n\t"		// Load operands
+	asm volatile ("mrs r0, cpsr\n\t"		// Load guest COND bits
+		      "bic r0, #0xf0000000\n\t"
+		      "msr cpsr, r0\n\t"
+		      "mov r10, %[rn]\n\t"		// Load operands
 		      "mov r9,  %[rm]\n\t"
 		      "mov r8,  %[rs]\n\t"
 		      "mov r0,  %[shadow_instr]\n\t"
