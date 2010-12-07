@@ -10,19 +10,17 @@
 #include <linux/amba/clcd.h>
 #include <linux/clkdev.h>
 
-#include <asm/pgtable.h>
 #include <asm/hardware/arm_timer.h>
 #include <asm/hardware/cache-l2x0.h>
 #include <asm/hardware/gic.h>
-#include <asm/mach-types.h>
 #include <asm/pmu.h>
+#include <asm/smp_scu.h>
 #include <asm/smp_twd.h>
 
 #include <mach/ct-ca9x4.h>
 
 #include <asm/hardware/timer-sp.h>
 
-#include <asm/mach/arch.h>
 #include <asm/mach/map.h>
 #include <asm/mach/time.h>
 
@@ -56,7 +54,7 @@ static void __init ct_ca9x4_map_io(void)
 #ifdef CONFIG_LOCAL_TIMERS
 	twd_base = MMIO_P2V(A9_MPCORE_TWD);
 #endif
-	v2m_map_io(ct_ca9x4_io_desc, ARRAY_SIZE(ct_ca9x4_io_desc));
+	iotable_init(ct_ca9x4_io_desc, ARRAY_SIZE(ct_ca9x4_io_desc));
 }
 
 static void __init ct_ca9x4_init_irq(void)
@@ -242,14 +240,33 @@ static void __init ct_ca9x4_init(void)
 	platform_device_register(&pmu_device);
 }
 
-MACHINE_START(VEXPRESS, "ARM-Versatile Express CA9x4")
-	.boot_params	= PHYS_OFFSET + 0x00000100,
+#ifdef CONFIG_SMP
+static void ct_ca9x4_init_cpu_map(void)
+{
+	int i, ncores = scu_get_core_count(MMIO_P2V(A9_MPCORE_SCU));
+
+	for (i = 0; i < ncores; ++i)
+		set_cpu_possible(i, true);
+}
+
+static void ct_ca9x4_smp_enable(unsigned int max_cpus)
+{
+	int i;
+	for (i = 0; i < max_cpus; i++)
+		set_cpu_present(i, true);
+
+	scu_enable(MMIO_P2V(A9_MPCORE_SCU));
+}
+#endif
+
+struct ct_desc ct_ca9x4_desc __initdata = {
+	.id		= V2M_CT_ID_CA9,
+	.name		= "CA9x4",
 	.map_io		= ct_ca9x4_map_io,
 	.init_irq	= ct_ca9x4_init_irq,
-#if 0
-	.timer		= &ct_ca9x4_timer,
-#else
-	.timer		= &v2m_timer,
+	.init_tile	= ct_ca9x4_init,
+#ifdef CONFIG_SMP
+	.init_cpu_map	= ct_ca9x4_init_cpu_map,
+	.smp_enable	= ct_ca9x4_smp_enable,
 #endif
-	.init_machine	= ct_ca9x4_init,
-MACHINE_END
+};
