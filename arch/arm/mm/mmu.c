@@ -551,7 +551,8 @@ static void __init create_36bit_mapping(struct map_desc *md,
 		int i;
 
 		for (i = 0; i < 16; i++)
-			*pmd++ = __pmd(phys | type->prot_sect | PMD_SECT_SUPER);
+			*pmd++ = __pmd(phys | type->prot_sect | PMD_SECT_SUPER
+							      | PMD_SECT_nG);
 
 		addr += SUPERSECTION_SIZE;
 		phys += SUPERSECTION_SIZE;
