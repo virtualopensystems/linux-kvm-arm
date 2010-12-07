@@ -237,7 +237,9 @@ remap_area_supersections(unsigned long virt, unsigned long pfn,
 			pmd_t *pmd = pmd_offset(pgd, addr);
 
 			pmd[0] = __pmd(super_pmd_val);
+			pmd[0] |= PMD_SECT_nG;
 			pmd[1] = __pmd(super_pmd_val);
+			pmd[1] |= PMD_SECT_nG;
 			flush_pmd_entry(pmd);
 
 			addr += PGDIR_SIZE;
