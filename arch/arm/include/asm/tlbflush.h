@@ -327,12 +327,15 @@ static inline void local_flush_tlb_mm(struct mm_struct *mm)
 			asm("mcr p15, 0, %0, c8, c5, 0" : : "r" (zero) : "cc");
 	}
 
+	local_flush_tlb_all();
+#if 0
 	if (tlb_flag(TLB_V6_U_ASID))
 		asm("mcr p15, 0, %0, c8, c7, 2" : : "r" (asid) : "cc");
 	if (tlb_flag(TLB_V6_D_ASID))
 		asm("mcr p15, 0, %0, c8, c6, 2" : : "r" (asid) : "cc");
 	if (tlb_flag(TLB_V6_I_ASID))
 		asm("mcr p15, 0, %0, c8, c5, 2" : : "r" (asid) : "cc");
+#endif
 
 	if (tlb_flag(TLB_V6_I_FULL | TLB_V6_D_FULL |
 		     TLB_V6_I_PAGE | TLB_V6_D_PAGE |
@@ -367,12 +370,15 @@ local_flush_tlb_page(struct vm_area_struct *vma, unsigned long uaddr)
 			asm("mcr p15, 0, %0, c8, c5, 0" : : "r" (zero) : "cc");
 	}
 
+#if 0
 	if (tlb_flag(TLB_V6_U_PAGE))
 		asm("mcr p15, 0, %0, c8, c7, 1" : : "r" (uaddr) : "cc");
 	if (tlb_flag(TLB_V6_D_PAGE))
 		asm("mcr p15, 0, %0, c8, c6, 1" : : "r" (uaddr) : "cc");
 	if (tlb_flag(TLB_V6_I_PAGE))
 		asm("mcr p15, 0, %0, c8, c5, 1" : : "r" (uaddr) : "cc");
+#endif
+	local_flush_tlb_all();
 
 	if (tlb_flag(TLB_V6_I_FULL | TLB_V6_D_FULL |
 		     TLB_V6_I_PAGE | TLB_V6_D_PAGE |
@@ -393,6 +399,7 @@ static inline void local_flush_tlb_kernel_page(unsigned long kaddr)
 	if (tlb_flag(TLB_WB))
 		dsb();
 
+#if 0
 	if (tlb_flag(TLB_V3_PAGE))
 		asm("mcr p15, 0, %0, c6, c0, 0" : : "r" (kaddr) : "cc");
 	if (tlb_flag(TLB_V4_U_PAGE))
@@ -410,6 +417,9 @@ static inline void local_flush_tlb_kernel_page(unsigned long kaddr)
 		asm("mcr p15, 0, %0, c8, c6, 1" : : "r" (kaddr) : "cc");
 	if (tlb_flag(TLB_V6_I_PAGE))
 		asm("mcr p15, 0, %0, c8, c5, 1" : : "r" (kaddr) : "cc");
+#endif
+
+	local_flush_tlb_all();
 
 	if (tlb_flag(TLB_V6_I_FULL | TLB_V6_D_FULL |
 		     TLB_V6_I_PAGE | TLB_V6_D_PAGE |
@@ -445,6 +455,8 @@ static inline void flush_pmd_entry(pmd_t *pmd)
 	if (tlb_flag(TLB_L2CLEAN_FR))
 		asm("mcr	p15, 1, %0, c15, c9, 1  @ L2 flush_pmd"
 			: : "r" (pmd) : "cc");
+
+	local_flush_tlb_all();
 
 	if (tlb_flag(TLB_WB))
 		dsb();

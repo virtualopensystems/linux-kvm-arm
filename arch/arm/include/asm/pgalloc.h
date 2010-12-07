@@ -101,7 +101,9 @@ static inline void pte_free(struct mm_struct *mm, pgtable_t pte)
 static inline void __pmd_populate(pmd_t *pmdp, unsigned long pmdval)
 {
 	pmdp[0] = __pmd(pmdval);
+	pmdp[0] |= PMD_SECT_nG;
 	pmdp[1] = __pmd(pmdval + 256 * sizeof(pte_t));
+	pmdp[1] |= PMD_SECT_nG;
 	flush_pmd_entry(pmdp);
 }
 

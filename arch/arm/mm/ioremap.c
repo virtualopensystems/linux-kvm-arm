@@ -56,7 +56,7 @@ static int remap_area_pte(pmd_t *pmd, unsigned long addr, unsigned long end,
 		if (!pte_none(*pte))
 			goto bad;
 
-		set_pte_ext(pte, pfn_pte(phys_addr >> PAGE_SHIFT, prot), 0);
+		set_pte_ext(pte, pfn_pte(phys_addr >> PAGE_SHIFT, prot), PTE_EXT_NG);
 		phys_addr += PAGE_SIZE;
 	} while (pte++, addr += PAGE_SIZE, addr != end);
 	return 0;
@@ -197,8 +197,10 @@ remap_area_sections(unsigned long virt, unsigned long pfn,
 		pmd_t *pmd = pmd_offset(pgd, addr);
 
 		pmd[0] = __pmd(__pfn_to_phys(pfn) | type->prot_sect);
+		pmd[0] |= PMD_SECT_nG;
 		pfn += SZ_1M >> PAGE_SHIFT;
 		pmd[1] = __pmd(__pfn_to_phys(pfn) | type->prot_sect);
+		pmd[1] |= PMD_SECT_nG;
 		pfn += SZ_1M >> PAGE_SHIFT;
 		flush_pmd_entry(pmd);
 
@@ -234,7 +236,9 @@ remap_area_supersections(unsigned long virt, unsigned long pfn,
 			pmd_t *pmd = pmd_offset(pgd, addr);
 
 			pmd[0] = __pmd(super_pmd_val);
+			pmd[0] |= PMD_SECT_nG;
 			pmd[1] = __pmd(super_pmd_val);
+			pmd[1] |= PMD_SECT_nG;
 			flush_pmd_entry(pmd);
 
 			addr += PGDIR_SIZE;
