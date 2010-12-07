@@ -487,7 +487,7 @@ static void __init alloc_init_section(pgd_t *pgd, unsigned long addr,
 			pmd++;
 
 		do {
-			*pmd = __pmd(phys | type->prot_sect);
+			*pmd = __pmd(phys | type->prot_sect | PMD_SECT_nG);
 			phys += SECTION_SIZE;
 		} while (pmd++, addr += SECTION_SIZE, addr != end);
 
@@ -551,7 +551,8 @@ static void __init create_36bit_mapping(struct map_desc *md,
 		int i;
 
 		for (i = 0; i < 16; i++)
-			*pmd++ = __pmd(phys | type->prot_sect | PMD_SECT_SUPER);
+			*pmd++ = __pmd(phys | type->prot_sect | PMD_SECT_SUPER
+							      | PMD_SECT_nG);
 
 		addr += SUPERSECTION_SIZE;
 		phys += SUPERSECTION_SIZE;
@@ -937,6 +938,7 @@ void setup_mm_for_reboot(char mode)
 		pgd = init_mm.pgd;
 
 	base_pmdval = PMD_SECT_AP_WRITE | PMD_SECT_AP_READ | PMD_TYPE_SECT;
+	base_pmdval |= PMD_SECT_nG;
 	if (cpu_architecture() <= CPU_ARCH_ARMv5TEJ && !cpu_is_xscale())
 		base_pmdval |= PMD_BIT4;
 

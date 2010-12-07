@@ -90,8 +90,8 @@ static void v6_copy_user_highpage_aliasing(struct page *to,
 	 */
 	spin_lock(&v6_lock);
 
-	set_pte_ext(TOP_PTE(from_address) + offset, pfn_pte(page_to_pfn(from), PAGE_KERNEL), 0);
-	set_pte_ext(TOP_PTE(to_address) + offset, pfn_pte(page_to_pfn(to), PAGE_KERNEL), 0);
+	set_pte_ext(TOP_PTE(from_address) + offset, pfn_pte(page_to_pfn(from), PAGE_KERNEL), PTE_EXT_NG);
+	set_pte_ext(TOP_PTE(to_address) + offset, pfn_pte(page_to_pfn(to), PAGE_KERNEL), PTE_EXT_NG);
 
 	kfrom = from_address + (offset << PAGE_SHIFT);
 	kto   = to_address + (offset << PAGE_SHIFT);
@@ -123,7 +123,7 @@ static void v6_clear_user_highpage_aliasing(struct page *page, unsigned long vad
 	 */
 	spin_lock(&v6_lock);
 
-	set_pte_ext(TOP_PTE(to_address) + offset, pfn_pte(page_to_pfn(page), PAGE_KERNEL), 0);
+	set_pte_ext(TOP_PTE(to_address) + offset, pfn_pte(page_to_pfn(page), PAGE_KERNEL), PTE_EXT_NG);
 	flush_tlb_kernel_page(to);
 	clear_page((void *)to);
 

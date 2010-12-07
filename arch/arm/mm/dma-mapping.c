@@ -239,7 +239,7 @@ __dma_alloc(struct device *dev, size_t size, dma_addr_t *handle, gfp_t gfp,
 			 * x86 does not mark the pages reserved...
 			 */
 			SetPageReserved(page);
-			set_pte_ext(pte, mk_pte(page, prot), 0);
+			set_pte_ext(pte, mk_pte(page, prot), PTE_EXT_NG);
 			page++;
 			pte++;
 			off++;
