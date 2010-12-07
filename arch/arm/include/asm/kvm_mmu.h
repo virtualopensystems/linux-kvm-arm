@@ -246,11 +246,15 @@ static inline void kvm_cache_clean_invalidate_all(void)
 extern void v6_inv_cache_addr(unsigned long addr, unsigned long size);
 static inline void kvm_cache_inv_user(void __user *ptr, unsigned long n)
 {
+#ifdef CONFIG_CPU_V6
 	unsigned long va = (unsigned long)ptr;
 	if (!access_ok(VERIFY_READ, ptr, n))
 		return;
 
 	v6_inv_cache_addr(va, n);
+#else
+	return;
+#endif
 }
 
 void kvm_coherent_to_guest(gva_t gva, void *hva, unsigned long n);

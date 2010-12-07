@@ -221,7 +221,6 @@ static inline int bad_range(struct zone *zone, struct page *page)
 }
 #endif
 
-extern void kvm_dump_vcpu_state(void);
 static void bad_page(struct page *page)
 {
 	static unsigned long resume;
