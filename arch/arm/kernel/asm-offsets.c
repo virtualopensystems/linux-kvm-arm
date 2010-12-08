@@ -120,6 +120,7 @@ int main(void)
 #ifdef CONFIG_KVM
   DEFINE(VCPU_HOST_PGD_PA,      offsetof(struct kvm_vcpu, arch.host_pgd_pa));
   DEFINE(VCPU_HOST_FAR,         offsetof(struct kvm_vcpu, arch.host_far));
+  DEFINE(VCPU_HOST_IFAR,        offsetof(struct kvm_vcpu, arch.host_ifar));
   DEFINE(VCPU_HOST_FSR,         offsetof(struct kvm_vcpu, arch.host_fsr));
   DEFINE(VCPU_HOST_IFSR,        offsetof(struct kvm_vcpu, arch.host_ifsr));
   DEFINE(VCPU_HOST_VEC_HIGH,    offsetof(struct kvm_vcpu, arch.host_vectors_high));

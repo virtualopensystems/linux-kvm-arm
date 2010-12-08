@@ -155,6 +155,7 @@ struct kvm_vcpu_arch {
 		u32 c0_CTR;		/* Cache Type Register */
 		u32 c0_TCMTR;   	/* Tightly Coupled Memory Type Register */
 		u32 c0_TLBTR;   	/* TLB Type Register */
+		u32 c0_CSSELR;   	/* Cache Size Selection Register */
 		u32 c1_CR;		/* Control Register */
 		u32 c1_ACR;		/* Auxilliary Control Register */
 		u32 c1_CAR;		/* Coprocessor Access Register */
@@ -165,6 +166,7 @@ struct kvm_vcpu_arch {
 		u32 c5_DFSR;		/* Fault Status Register */
 		u32 c5_IFSR;		/* Fault Status Register */
 		u32 c6_FAR;		/* Fault Address Register */
+		u32 c6_IFAR;		/* Fault Address Register */
 		u32 c7_CDSR;		/* Cache Dirty Status Register */
 		u32 c7_RBTSR;		/* Read Block Transfer Status Register */
 		u32 c9_DCLR;		/* Data Cache Lockdown Register */
@@ -183,9 +185,10 @@ struct kvm_vcpu_arch {
 	u32 exception_pending;  	/* Exception to raise after emulation */
 
 	/* Host status */
-	u32 host_far;		/* Fault access register */
+	u32 host_far;		/* Fault address register */
+	u32 host_ifar;		/* Instruction fault address register */
 	u32 host_fsr;		/* Fault status register */
-	u32 host_ifsr;		/* Fault status register */
+	u32 host_ifsr;		/* Instruction fault status register */
 
 	/* MMU related fields */
 	u32 *shared_page_alloc; /* Kernel-allocated address for shared page */

@@ -244,20 +244,27 @@ __irq_vector_end:
 	mov	\reg, #0
 	beq	10f
 
-#ifdef HARVARD_CACHE
-       mcr     p15, 0, \reg, c7, c14, 0  @ Clean + Invalidate entire D-cache
-       mcr     p15, 0, \reg, c7, c5,  0  @ Invalidate entire I-cache
-#else
-       mcr     p15, 0, \reg, c7, c15, 0  @ Clean + Invalidate unified cache
-#endif
-
-	mcr	p15, 0, \reg, c8, c6, 0  @ Flush D-TLB
-	mcr	p15, 0, \reg, c8, c5, 0  @ Flush I-TLB
-	mcr	p15, 0, \reg, c7, c5, 6  @ Flush branch target cache
+@#ifdef HARVARD_CACHE
+@       mcr     p15, 0, \reg, c7, c14, 0  @ Clean + Invalidate entire D-cache
+@       mcr     p15, 0, \reg, c7, c5,  0  @ Invalidate entire I-cache
+@#else
+@       mcr     p15, 0, \reg, c7, c15, 0  @ Clean + Invalidate unified cache
+@#endif
+@
+@	mcr	p15, 0, \reg, c8, c6, 0  @ Flush D-TLB
+@	mcr	p15, 0, \reg, c8, c5, 0  @ Flush I-TLB
+@	mcr	p15, 0, \reg, c7, c5, 6  @ Flush branch target cache
 
 10:
+#ifdef CONFIG_CPU_V6
 	mcr	p15, 0, \reg, c7, c5,  4	@ Flush Prefetch Buffer
 	mcr	p15, 0, \reg, c7, c10, 4	@ Data Synchronization Barrier
+#else
+	@mcr	p15, 0, \reg, c8, c7,  0	@ Flush I and D TLBs
+	@mcr	p15, 0, \reg, c7, c5,  6	@ Inval. branch predict. array
+	@dsb
+	@isb
+#endif
 .endm
 
 .globl __shared_page_start
@@ -311,8 +318,9 @@ set_dacr:
 	mcr	p15, 0, r0, c3, c0, 0	@ set with KVM domain set to min. client
 
 #ifdef CONFIG_CPU_HAS_ASID
-	ldr	r1, SHARED(GUEST_ASID)
-	mcr	p15, 0, r1, c13, c0, 1		@ set context ID
+	mov	r1, #0
+	mcr	p15, 0, r1, c13, c0, 1		@ set to reserved ASID
+	isb
 #endif
 
 	@ Set the XP-bit
@@ -329,9 +337,16 @@ set_dacr:
 	str	r0, SHARED(HOST_TTBR)
 	ldr	r0, SHARED(SHADOW_TTBR)
 	mcr	p15, 0, r0, c2, c0, 0	@ Set TTBR0 for shadow page table
+	isb
+
+#ifdef CONFIG_CPU_HAS_ASID
+	ldr	r1, SHARED(GUEST_ASID)
+	mcr	p15, 0, r1, c13, c0, 1		@ set context ID
+#endif
+
 
 	@ Invalidate and clean all caches and TLB entries
-	flush_prefetch_dwb r2
+	@flush_prefetch_dwb r2
 
 #if 0
 	@ Invalidate the kernel global TLB mappings
@@ -384,21 +399,27 @@ __exception_return:
 	orr	r2, r2, r1
 	mcr	p15, 0, r2, c3, c0
 
+#ifdef CONFIG_CPU_HAS_ASID
+	mov	r1, #0
+	mcr	p15, 0, r1, c13, c0, 1		@ set to reserved ASID
+	isb
+#endif
 
 	@ Switch the page tables
 	ldr	r1, SHARED(HOST_TTBR)
 	mcr	p15, 0, r1, c2, c0, 0	@ set TTB 0
-
-	@ Load VCPU pointer
-	ldr	r1, HOST_REGS(0)
+	isb
 
 #ifdef CONFIG_CPU_HAS_ASID
 	ldr	r2, SHARED(HOST_ASID)
 	mcr	p15, 0, r2, c13, c0, 1		@ set context ID
 #endif
 
+	@ Load VCPU pointer
+	ldr	r1, HOST_REGS(0)
+
 	@ Invalidate and clean all caches and TLB entries
-	flush_prefetch_dwb r2
+	@flush_prefetch_dwb r2
 
 	@ Load the host DACR for Domain Access Permissions
 	ldr	r2, SHARED(HOST_DAC)
@@ -431,9 +452,13 @@ save_instr_far_fsr:
 #if defined(CONFIG_CPU_32v5)
 	mrc	p15, 0, r2, c5, c0, 1	@get the instr fault status register
 	str	r2, [r1, #VCPU_HOST_IFSR]
-#elif defined(CONFIG_CPU_32v6)
+#elif defined(CONFIG_CPU_32v6) || defined(CONFIG_CPU_V7)
 	mrc	p15, 0, r2, c5, c0, 1	@get the instr fault status register
 	str	r2, [r1, #VCPU_HOST_IFSR]
+#endif
+#ifdef CONFIG_CPU_V7
+	mrc	p15, 0, r2, c6, c0, 2	@get the instr fault address register
+	str	r2, [r1, #VCPU_HOST_IFAR]
 #endif
 
 	@ Restore host registers

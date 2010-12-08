@@ -262,44 +262,200 @@ struct coproc_params {
 	int is_write;
 };
 
-static int emulate_mrc_idcodes(struct coproc_params *params)
+static int emulate_mrc_idcodes_ccsidr(struct coproc_params *params)
 {
+	u32 clidr_loc, csselr;
 	struct kvm_vcpu *vcpu = params->vcpu;
 	int rd_reg = params->rd_reg;
-	int ret = 0;
 
-	if (params->opcode1 != 0) {
-		kvm_err(-EINVAL, "unsupported opcode1 (%d)", params->opcode1);
+	asm volatile("mrc p15, 1, %[r], c0, c0, 1": [r] "=r" (clidr_loc));
+	clidr_loc = (clidr_loc & 0x7000000) >> 23;
+
+	csselr = vcpu->arch.cp15.c0_CSSELR;
+	if (csselr > clidr_loc) {
+		kvm_err(-EINVAL, "cache level %d not implemented", csselr);
 		return -EINVAL;
 	}
 
-	switch (params->CRm) {
-	case 0:
-		switch (params->opcode2) {
+	/*
+	 * copy the current SSELR, set the guest one, read the CSSIDR,
+	 * restore the orig. SSELR
+	 */
+	asm volatile("mrc p15, 2, r0, c0, c0, 0\n\t"
+		     "mcr p15, 2, %[level], c0, c0, 0\n\t"
+		     "mrc p15, 1, %[res], c0, c0, 0\n\t"
+		     "mcr p15, 2, r0, c0, c0, 0\n\t"
+		     : [res] "=r" (vcpu_reg(vcpu, rd_reg))
+		     : [level] "r" (csselr)
+		     : "r0");
+	return 0;
+}
+
+static int emulate_mrc_idcodes(struct coproc_params *params)
+{
+	struct kvm_vcpu *vcpu = params->vcpu;
+	struct kvm_vcpu_arch *va = &vcpu->arch;
+	int rd_reg = params->rd_reg;
+	int ret = 0;
+
+	switch (params->opcode1) {
+	case 0: /* cp15, opcode1 == 0 */
+		switch (params->CRm) {
 		case 0:
-			vcpu_reg(vcpu, rd_reg) = vcpu->arch.cp15.c0_MIDR;
+			switch (params->opcode2) {
+			case 0:
+				vcpu_reg(vcpu, rd_reg) = va->cp15.c0_MIDR;
+				break;
+			case 1:
+				vcpu_reg(vcpu, rd_reg) = va->cp15.c0_CTR;
+				break;
+			case 2:
+				vcpu_reg(vcpu, rd_reg) = va->cp15.c0_TCMTR;
+				break;
+			case 3:
+				vcpu_reg(vcpu, rd_reg) = va->cp15.c0_TLBTR;
+				break;
+			default:
+				ret = -EINVAL;
+			}
 			break;
-		case 1:
-			vcpu_reg(vcpu, rd_reg) = vcpu->arch.cp15.c0_CTR;
+		case 1: {
+#ifdef CONFIG_CPU_V7
+			switch (params->opcode2) {
+			case 0:
+				asm("mrc p15, 0, %[id_reg], c0, c1, 0":
+				    [id_reg] "=r" (vcpu_reg(vcpu, rd_reg)));
+				break;
+			case 1:
+				asm("mrc p15, 0, %[id_reg], c0, c1, 1":
+				    [id_reg] "=r" (vcpu_reg(vcpu, rd_reg)));
+				break;
+			case 2:
+				asm("mrc p15, 0, %[id_reg], c0, c1, 2":
+				    [id_reg] "=r" (vcpu_reg(vcpu, rd_reg)));
+				break;
+			case 3:
+				asm("mrc p15, 0, %[id_reg], c0, c1, 3":
+				    [id_reg] "=r" (vcpu_reg(vcpu, rd_reg)));
+				break;
+			case 4:
+				asm("mrc p15, 0, %[id_reg], c0, c1, 4":
+				    [id_reg] "=r" (vcpu_reg(vcpu, rd_reg)));
+				break;
+			case 5:
+				asm("mrc p15, 0, %[id_reg], c0, c1, 5":
+				    [id_reg] "=r" (vcpu_reg(vcpu, rd_reg)));
+				break;
+			case 6:
+				asm("mrc p15, 0, %[id_reg], c0, c1, 6":
+				    [id_reg] "=r" (vcpu_reg(vcpu, rd_reg)));
+				break;
+			case 7:
+				asm("mrc p15, 0, %[id_reg], c0, c1, 7":
+				    [id_reg] "=r" (vcpu_reg(vcpu, rd_reg)));
+				break;
+			default:
+				ret = -EINVAL;
+				break;
+			}
+#else
+			ret = -ENOTSUPP;
+			kvm_err(ret, "not supported on current architecture");
+#endif
 			break;
+		}
 		case 2:
-			vcpu_reg(vcpu, rd_reg) = vcpu->arch.cp15.c0_TCMTR;
+#ifdef CONFIG_CPU_V7
+			switch (params->opcode2) {
+			case 0:
+				asm("mrc p15, 0, %[id_reg], c0, c2, 0":
+				    [id_reg] "=r" (vcpu_reg(vcpu, rd_reg)));
+				break;
+			case 1:
+				asm("mrc p15, 0, %[id_reg], c0, c2, 1":
+				    [id_reg] "=r" (vcpu_reg(vcpu, rd_reg)));
+				break;
+			case 2:
+				asm("mrc p15, 0, %[id_reg], c0, c2, 2":
+				    [id_reg] "=r" (vcpu_reg(vcpu, rd_reg)));
+				break;
+			case 3:
+				asm("mrc p15, 0, %[id_reg], c0, c2, 3":
+				    [id_reg] "=r" (vcpu_reg(vcpu, rd_reg)));
+				break;
+			case 4:
+				asm("mrc p15, 0, %[id_reg], c0, c2, 4":
+				    [id_reg] "=r" (vcpu_reg(vcpu, rd_reg)));
+				break;
+			case 5:
+				asm("mrc p15, 0, %[id_reg], c0, c2, 5":
+				    [id_reg] "=r" (vcpu_reg(vcpu, rd_reg)));
+				break;
+			case 6:
+			case 7:
+				vcpu_reg(vcpu, rd_reg) = 0;
+				break;
+			default:
+				ret = -EINVAL;
+				break;
+			}
+#else
+			ret = -ENOTSUPP;
+			kvm_err(ret, "not supported on current architecture");
+#endif
 			break;
+#ifdef CONFIG_CPU_V7
 		case 3:
-			vcpu_reg(vcpu, rd_reg) = vcpu->arch.cp15.c0_TLBTR;
+		case 4:
+		case 5:
+		case 6:
+		case 7:
+			if (params->opcode2 >= 0 && params->opcode2 <= 7)
+				vcpu_reg(vcpu, rd_reg) = 0;
+			else
+				ret = -EINVAL;
 			break;
+#endif
 		default:
 			ret = -EINVAL;
 		}
 		break;
-	case 1:
-		KVMARM_NOT_IMPLEMENTED();
+	case 1: /* cp15, opcode == 1 */
+		if (params->CRm != 0) {
+			ret = -EINVAL;
+			break;
+		}
+
+		switch (params->opcode2) {
+		case 0:
+#ifdef CONFIG_CPU_V7
+			return emulate_mrc_idcodes_ccsidr(params);
+#else
+			KVMARM_NOT_IMPLEMENTED();
+#endif
+		case 1:
+			asm("mrc p15, 1, %[id_reg], c0, c0, 1":
+			    [id_reg] "=r" (vcpu_reg(vcpu, rd_reg)));
+			break;
+		case 7:
+			asm("mrc p15, 1, %[id_reg], c0, c0, 7":
+			    [id_reg] "=r" (vcpu_reg(vcpu, rd_reg)));
+			break;
+		default:
+			ret = -EINVAL;
+			break;
+		}
 		break;
-	case 2:
-		KVMARM_NOT_IMPLEMENTED();
+	case 2: /* cp15, opcode == 2 */
+		if (params->CRm != 0 || params->opcode2 != 0) {
+			ret = -EINVAL;
+			break;
+		}
+		vcpu_reg(vcpu, rd_reg) = vcpu->arch.cp15.c0_CSSELR;
 		break;
 	default:
 		ret = -EINVAL;
+		break;
 	}
 
 	if (ret)
@@ -618,6 +774,9 @@ static int emulate_mrc_far(struct coproc_params *params)
 	case 1:
 		/* TODO: (ARMv6) error, undefined exception */
 		KVMARM_NOT_IMPLEMENTED();
+	case 2:
+		vcpu_reg(vcpu, params->rd_reg) = vcpu->arch.cp15.c6_IFAR;
+		break;
 	default:
 		kvm_err(-EINVAL, "unknown opcode2: %d", params->opcode2);
 		return -EINVAL;
@@ -630,6 +789,7 @@ extern void v6_flush_kern_cache_all(void);
 static int emulate_mcr_cache(struct coproc_params *params)
 {
 	struct kvm_vcpu *vcpu = params->vcpu;
+	int rd_reg = params->rd_reg;
 	int ret = 0;
 
 	if (params->opcode1 != 0) {
@@ -767,8 +927,8 @@ static int emulate_mcr_cache(struct coproc_params *params)
 		switch (params->opcode2) {
 		case 0:	/* Clean entire data cache */
 			kvm_arm_count_event(EVENT_MCR_7_10_0);
-			asm volatile("mcr	p15, 0, %[zero], c7, c10, 0":
-					: [zero] "r" (0));
+			kvm_arm_count_event(FLUSH_CACHE_FULL);
+			flush_cache_all();
 			/*
 			 * TODO: Maybe this is not necessary if we flush everything
 			 * on context switches anyway?
@@ -776,7 +936,9 @@ static int emulate_mcr_cache(struct coproc_params *params)
 			break;
 		case 1:	/* Clean data cache line - MVA */
 			kvm_arm_count_event(EVENT_MCR_7_10_1);
-			v6_clean_dcache_sw(vcpu_reg(vcpu, params->rd_reg));
+			/* TODO: Move this to the guest address space */
+			kvm_arm_count_event(FLUSH_CACHE_FULL);
+			flush_cache_all();
 			/*
 			 * We cannot simply use the MVA directly, since the MVA
 			 * may not make sense in the host address space and
@@ -788,8 +950,14 @@ static int emulate_mcr_cache(struct coproc_params *params)
 		case 3:	/* test and clean */
 		case 4:	/* Data synchronization barrier */
 			kvm_arm_count_event(EVENT_MCR_7_10_4);
+#ifdef CONFIG_CPU_V6
 			asm volatile("mcr	p15, 0, %[zero], c7, c10, 4":
 					: [zero] "r" (0));
+#elif defined CONFIG_CPU_V7
+			asm volatile("dsb");
+#else
+#error "Not supported architecture"
+#endif
 			break;
 		case 5:	/* Data memory barrier */
 			//return kvm_init_l1_shadow(vcpu, vcpu->arch.shadow_pgtable);
@@ -803,7 +971,16 @@ static int emulate_mcr_cache(struct coproc_params *params)
 	case 11:
 		switch (params->opcode2) {
 		case 0:	/* Clean entire unified cache */
+#if defined(CONFIG_CPU_V6)
 		case 1:	/* Clean unified cache line - MVA */
+#elif defined(CONFIG_CPU_V7)
+		case 1:	/* Clean data cache line by MVA - to PoU */
+			kvm_arm_count_event(EVENT_MCR_7_11_1);
+			/* TODO: Optimize this in hypervisor code */
+			kvm_arm_count_event(FLUSH_CACHE_FULL);
+			flush_cache_all();
+			break;
+#endif
 		case 2:	/* Clean unified cache line - set */
 			//return kvm_init_l1_shadow(vcpu, vcpu->arch.shadow_pgtable);
 			kvm_msg("not implemented operation: CRm (%d), Op2 (%d)",
@@ -825,12 +1002,14 @@ static int emulate_mcr_cache(struct coproc_params *params)
 		switch (params->opcode2) {
 		case 0:	/* Clean and invalidate entire d-cache */
 			kvm_arm_count_event(EVENT_MCR_7_14_0);
-			asm volatile("mcr	p15, 0, %[zero], c7, c14, 0":
-					: [zero] "r" (0));
+			kvm_arm_count_event(FLUSH_CACHE_FULL);
+			flush_cache_all();
 			break;
 		case 1:	/* Clean and invalidate d-cache line - MVA */
 			kvm_arm_count_event(EVENT_MCR_7_14_1);
-			v6_clean_inv_dcache_sw(vcpu_reg(vcpu, params->rd_reg));
+			/* TODO: Move this to the guest address space */
+			kvm_arm_count_event(FLUSH_CACHE_FULL);
+			flush_cache_all();
 			/*
 			 * We cannot simply use the MVA directly, since the MVA
 			 * may not make sense in the host address space and
@@ -839,6 +1018,11 @@ static int emulate_mcr_cache(struct coproc_params *params)
 			 */
 			break;
 		case 2:	/* Clean and invalidate d-cache line - set */
+			kvm_arm_count_event(EVENT_MCR_7_14_2);
+			/* TODO: Check validity before cleaning that line */
+			asm("mcr p15, 0, %[reg], c7, c14, 2": :
+				[reg] "r" (vcpu_reg(vcpu, rd_reg)));
+			break;
 		case 3:	/* Test, clean, and invalidate */
 			kvm_msg("not implemented operation: CRm (%d), Op2 (%d)",
 					params->CRm, params->opcode2);
@@ -855,8 +1039,7 @@ static int emulate_mcr_cache(struct coproc_params *params)
 		case 0:	/* Clean and invalidate entire unified cache */
 			/* TODO: Check if the CPU has unified cache */
 			kvm_arm_count_event(EVENT_MCR_7_15_0);
-			asm volatile("mcr	p15, 0, %[zero], c7, c15, 0":
-					: [zero] "r" (0));
+			KVMARM_NOT_IMPLEMENTED();
 			break;
 		case 1:	/* Clean and invalidate unified cache line - MVA */
 		case 2:	/* Clean and invalidate unified cache line - set */
@@ -1218,10 +1401,18 @@ static int emulate_mcr(struct kvm_vcpu *vcpu, u32 instr)
 
 	switch (params.CRn) {
 	case 0: /* Processor ID Codes */
-		/* Not allowed to set anything in CR0 */
+#ifdef CONFIG_CPU_V7
+		if (p->opcode1 == 2 && p->CRm == 0 && p->opcode2 == 0) {
+			vcpu->arch.cp15.c0_CSSELR = vcpu_reg(vcpu, p->rd_reg);
+			return 0;
+		}
+#endif
+		/* Not allowed to set anything else in CR0 */
 		kvm_msg("guest tried to write to ID register at: %08x",
 				vcpu_reg(vcpu, 15));
-		return 0;
+		kvm_msg("CRm: %d, opcode1: %d, opcode2: %d",
+				p->CRm, p->opcode1, p->opcode2);
+		return -EINVAL;
 	case 1: /* System configuration */
 		return emulate_mcr_sysconf(p);
 	case 2: /* Page table */
@@ -1253,7 +1444,6 @@ static int emulate_mrc(struct kvm_vcpu *vcpu, u32 instr)
 	struct coproc_params params, *p;
 	p = &params;
 	init_coproc_params(vcpu, instr, p);
-
 
 	switch (params.CRn) {
 	case 0: /* Processor ID Codes */
@@ -1312,6 +1502,7 @@ static int emulate_mcrr_cache_ranges(struct coproc_params *params)
 		return -EINVAL;
 	}
 
+	/* TODO: Check if this is really CRm to check again? */
 	switch (params->CRm) {
 	case 5: /* Invalidate Instruction Cache Range */
 		if (guest_debug) kvm_msg("Invalidate instruction cache range");
@@ -1395,6 +1586,7 @@ static int emulate_mcrr(struct kvm_vcpu *vcpu, u32 instr)
 	case 6:  /* Invalidate Data Cache Range */
 	case 12: /* Clean D-Cache Range, Pref. I-Cache Range, Pref. D-Cache range */
 	case 14: /* Clean and Invalidate Data Cache Range */
+		kvm_arm_count_event(MCRR_CACHE_RANGES);
 		emulate_mcrr_cache_ranges(&params);
 		break;
 	default:
