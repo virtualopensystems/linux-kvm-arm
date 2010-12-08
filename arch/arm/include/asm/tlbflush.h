@@ -307,6 +307,9 @@ static inline void local_flush_tlb_all(void)
 	}
 }
 
+/*
+ * This is used purely by KVM as of now with nG host kernel mappings.
+ */
 static inline void local_flush_tlb_asid(struct mm_struct *mm, const int asid)
 {
 	const int zero = 0;
@@ -326,15 +329,12 @@ static inline void local_flush_tlb_asid(struct mm_struct *mm, const int asid)
 			asm("mcr p15, 0, %0, c8, c5, 0" : : "r" (zero) : "cc");
 	}
 
-	local_flush_tlb_all();
-#if 0
 	if (tlb_flag(TLB_V6_U_ASID))
 		asm("mcr p15, 0, %0, c8, c7, 2" : : "r" (asid) : "cc");
 	if (tlb_flag(TLB_V6_D_ASID))
 		asm("mcr p15, 0, %0, c8, c6, 2" : : "r" (asid) : "cc");
 	if (tlb_flag(TLB_V6_I_ASID))
 		asm("mcr p15, 0, %0, c8, c5, 2" : : "r" (asid) : "cc");
-#endif
 
 	if (tlb_flag(TLB_V6_I_FULL | TLB_V6_D_FULL |
 		     TLB_V6_I_PAGE | TLB_V6_D_PAGE |
@@ -347,8 +347,8 @@ static inline void local_flush_tlb_asid(struct mm_struct *mm, const int asid)
 
 static inline void local_flush_tlb_mm(struct mm_struct *mm)
 {
-	const int asid = ASID(mm);
-	local_flush_tlb_asid(mm, asid);
+	/* We do this for correct behavior with kernel nG mappings */
+	local_flush_tlb_all();
 }
 
 static inline void
