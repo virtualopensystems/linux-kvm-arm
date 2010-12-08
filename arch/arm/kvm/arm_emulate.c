@@ -2324,7 +2324,7 @@ static int emulate_msr(struct kvm_vcpu *vcpu, u32 instr)
 	if (BIT_CLEAR(instr, MSR_R_BIT)) {
 		/* CPSR */
 		if (VCPU_MODE_PRIV(vcpu)) {
-			if ((operand & state_mask) != 0)
+			if ((operand & unalloc_mask) != 0)
 				return -EINVAL;
 			else
 				mask = byte_mask & (user_mask | priv_mask);
