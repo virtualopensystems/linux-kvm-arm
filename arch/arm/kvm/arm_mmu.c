@@ -986,7 +986,6 @@ int __map_gva_to_pfn(struct kvm_vcpu *vcpu, u32 *pgd, gva_t gva, pfn_t pfn,
 {
 	u32 l1_index;
 	u32 *l1_pte, *l2_base, *l2_pte;
-	bool modify_domain = false;
 	u8 nG = 1;
 	int ret;
 
