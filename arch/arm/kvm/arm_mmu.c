@@ -400,21 +400,12 @@ int gva_to_gfn(struct kvm_vcpu *vcpu, gva_t gva, gfn_t *gfn, u8 uaccess,
 				vcpu->arch.regs[15],
 				(unsigned int)gva);*/
 		*gfn = invisible_gfn(vcpu->kvm);
-		if (gva == 0xf1600018) {
-			kvm_msg("l1 entry for 0xf1600018: 0x%08x", l1_entry);
-			kvm_msg("FSR_TRANS_SEC");
-		}
-
 		return FSR_TRANS_SEC;
 	}
 	case (L1_TYPE_COARSE): {
 		domain_type =  l1_domain_access(vcpu, l1_entry, map_info);
 		if (domain_type == DOMAIN_NOACCESS) {
 			ret = FSR_DOMAIN_PAG;
-			if (gva == 0xf1600018) {
-				kvm_msg("l1 entry for 0xf1600018: 0x%08x", l1_entry);
-				kvm_msg("FSR_DOMAIN_PAG");
-			}
 		}
 
 		l2_base = l1_entry & L1_COARSE_MASK;
@@ -499,10 +490,6 @@ int gva_to_gfn(struct kvm_vcpu *vcpu, gva_t gva, gfn_t *gfn, u8 uaccess,
 				(gva & SECTION_BASE_INDEX_MASK);
 			*gfn = (gpa >> PAGE_SHIFT);
 #endif
-		if (ret > 0) {
-			kvm_msg("l1 entry for 0x%08x: 0x%08x", gva, l1_entry);
-			kvm_msg("ret: %d", ret);
-		}
 		return ret;
 	}
 	default:

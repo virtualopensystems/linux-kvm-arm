@@ -1663,10 +1663,6 @@ static u32 handle_exit(struct kvm_vcpu *vcpu, u32 interrupt)
 			return ret;
 		break;
 	case ARM_EXCEPTION_IRQ:
-		if (vcpu_reg(vcpu, 15) > 0x00368800 &&
-		    vcpu_reg(vcpu, 15) < 0x003688ff) {
-			kvm_msg("irq at: 0x%08x", vcpu_reg(vcpu, 15));
-		}
 		break;
 	default:
 		kvm_err(-EINVAL, "VCPU: Bad exception code: %d", interrupt);
