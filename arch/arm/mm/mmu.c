@@ -458,7 +458,7 @@ static void __init alloc_init_pte(pmd_t *pmd, unsigned long addr,
 
 	if (pmd_none(*pmd)) {
 		pte = alloc_bootmem_low_pages(2 * PTRS_PER_PTE * sizeof(pte_t));
-		__pmd_populate(pmd, __pa(pte) | type->prot_l1 | PMD_SECT_nG);
+		__pmd_populate(pmd, __pa(pte) | type->prot_l1);
 	}
 
 	pte = pte_offset_kernel(pmd, addr);
