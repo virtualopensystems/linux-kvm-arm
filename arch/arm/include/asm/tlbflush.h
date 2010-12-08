@@ -307,10 +307,12 @@ static inline void local_flush_tlb_all(void)
 	}
 }
 
-static inline void local_flush_tlb_mm(struct mm_struct *mm)
+/*
+ * This is used purely by KVM as of now with nG host kernel mappings.
+ */
+static inline void local_flush_tlb_asid(struct mm_struct *mm, const int asid)
 {
 	const int zero = 0;
-	const int asid = ASID(mm);
 	const unsigned int __tlb_flag = __cpu_tlb_flags;
 
 	if (tlb_flag(TLB_WB))
@@ -343,6 +345,12 @@ static inline void local_flush_tlb_mm(struct mm_struct *mm)
 	}
 }
 
+static inline void local_flush_tlb_mm(struct mm_struct *mm)
+{
+	/* We do this for correct behavior with kernel nG mappings */
+	local_flush_tlb_all();
+}
+
 static inline void
 local_flush_tlb_page(struct vm_area_struct *vma, unsigned long uaddr)
 {
@@ -367,12 +375,15 @@ local_flush_tlb_page(struct vm_area_struct *vma, unsigned long uaddr)
 			asm("mcr p15, 0, %0, c8, c5, 0" : : "r" (zero) : "cc");
 	}
 
+#if 0
 	if (tlb_flag(TLB_V6_U_PAGE))
 		asm("mcr p15, 0, %0, c8, c7, 1" : : "r" (uaddr) : "cc");
 	if (tlb_flag(TLB_V6_D_PAGE))
 		asm("mcr p15, 0, %0, c8, c6, 1" : : "r" (uaddr) : "cc");
 	if (tlb_flag(TLB_V6_I_PAGE))
 		asm("mcr p15, 0, %0, c8, c5, 1" : : "r" (uaddr) : "cc");
+#endif
+	local_flush_tlb_all();
 
 	if (tlb_flag(TLB_V6_I_FULL | TLB_V6_D_FULL |
 		     TLB_V6_I_PAGE | TLB_V6_D_PAGE |
@@ -390,9 +401,13 @@ static inline void local_flush_tlb_kernel_page(unsigned long kaddr)
 
 	kaddr &= PAGE_MASK;
 
+	local_flush_tlb_all();
+	return;
+
 	if (tlb_flag(TLB_WB))
 		dsb();
 
+#if 0
 	if (tlb_flag(TLB_V3_PAGE))
 		asm("mcr p15, 0, %0, c6, c0, 0" : : "r" (kaddr) : "cc");
 	if (tlb_flag(TLB_V4_U_PAGE))
@@ -410,6 +425,9 @@ static inline void local_flush_tlb_kernel_page(unsigned long kaddr)
 		asm("mcr p15, 0, %0, c8, c6, 1" : : "r" (kaddr) : "cc");
 	if (tlb_flag(TLB_V6_I_PAGE))
 		asm("mcr p15, 0, %0, c8, c5, 1" : : "r" (kaddr) : "cc");
+#endif
+
+	local_flush_tlb_all();
 
 	if (tlb_flag(TLB_V6_I_FULL | TLB_V6_D_FULL |
 		     TLB_V6_I_PAGE | TLB_V6_D_PAGE |
@@ -445,6 +463,8 @@ static inline void flush_pmd_entry(pmd_t *pmd)
 	if (tlb_flag(TLB_L2CLEAN_FR))
 		asm("mcr	p15, 1, %0, c15, c9, 1  @ L2 flush_pmd"
 			: : "r" (pmd) : "cc");
+
+	local_flush_tlb_all();
 
 	if (tlb_flag(TLB_WB))
 		dsb();

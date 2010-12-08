@@ -12,6 +12,13 @@
 #include <linux/ioctl.h>
 #include <asm/kvm.h>
 
+#define DBA(expr, prefer, fmt, args...) do { 		\
+	if(0 && expr)				\
+		printk(KERN_ALERT fmt, args);	\
+	else					\
+		printk(prefer fmt, args);	\
+} while(0)
+
 #define KVM_API_VERSION 12
 
 /* for KVM_TRACE_ENABLE */
@@ -215,6 +222,7 @@ struct kvm_translation {
 struct kvm_interrupt {
 	/* in */
 	__u32 irq;
+	__u8 raise;
 };
 
 struct kvm_breakpoint {

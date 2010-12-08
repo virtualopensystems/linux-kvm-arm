@@ -289,8 +289,10 @@ struct kvm_vcpu_arch {
 		unsigned long mmu_seq;
 	} update_pte;
 
+	/*
 	struct i387_fxsave_struct host_fx_image;
 	struct i387_fxsave_struct guest_fx_image;
+	*/
 
 	gva_t mmio_fault_cr2;
 	struct kvm_pio_request pio;

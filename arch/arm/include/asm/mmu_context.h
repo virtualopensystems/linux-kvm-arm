@@ -17,6 +17,7 @@
 #include <linux/sched.h>
 #include <asm/cacheflush.h>
 #include <asm/cachetype.h>
+#include <asm/tlbflush.h>
 #include <asm/proc-fns.h>
 #include <asm-generic/mm_hooks.h>
 
@@ -46,6 +47,7 @@ extern unsigned int cpu_last_asid;
 
 void __init_new_context(struct task_struct *tsk, struct mm_struct *mm);
 void __new_context(struct mm_struct *mm);
+unsigned int __new_asid(void);
 
 static inline void check_context(struct mm_struct *mm)
 {

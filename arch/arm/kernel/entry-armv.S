@@ -199,6 +199,7 @@ __dabt_svc:
 ENDPROC(__dabt_svc)
 
 	.align	5
+	.globl __irq_svc
 __irq_svc:
 	svc_entry
 
@@ -341,40 +342,6 @@ ENDPROC(__pabt_svc)
 #if defined(CONFIG_AEABI) && (__LINUX_ARM_ARCH__ >= 5) && (S_FRAME_SIZE & 7)
 #error "sizeof(struct pt_regs) must be a multiple of 8"
 #endif
-
-	.macro	usr_entry
-	sub	sp, sp, #S_FRAME_SIZE
-	stmib	sp, {r1 - r12}
-
-	ldmia	r0, {r1 - r3}
-	add	r0, sp, #S_PC		@ here for interlock avoidance
-	mov	r4, #-1			@  ""  ""     ""        ""
-
-	str	r1, [sp]		@ save the "real" r0 copied
-					@ from the exception stack
-
-	@
-	@ We are now ready to fill in the remaining blanks on the stack:
-	@
-	@  r2 - lr_<exception>, already fixed up for correct return/restart
-	@  r3 - spsr_<exception>
-	@  r4 - orig_r0 (see pt_regs definition in ptrace.h)
-	@
-	@ Also, separately save sp_usr and lr_usr
-	@
-	stmia	r0, {r2 - r4}
-	stmdb	r0, {sp, lr}^
-
-	@
-	@ Enable the alignment trap while in kernel mode
-	@
-	alignment_trap r0
-
-	@
-	@ Clear FP to mark the first stack frame
-	@
-	zero_fp
-	.endm
 
 	.macro	kuser_cmpxchg_check
 #if __LINUX_ARM_ARCH__ < 6 && !defined(CONFIG_NEEDS_SYSCALL_FOR_CMPXCHG)
@@ -1055,6 +1022,8 @@ __stubs_start:
  */
 	vector_stub	irq, IRQ_MODE, 4
 
+	.globl	__branch_irq_vector
+__branch_irq_vector:
 	.long	__irq_usr			@  0  (USR_26 / USR_32)
 	.long	__irq_invalid			@  1  (FIQ_26 / FIQ_32)
 	.long	__irq_invalid			@  2  (IRQ_26 / IRQ_32)
@@ -1078,6 +1047,8 @@ __stubs_start:
  */
 	vector_stub	dabt, ABT_MODE, 8
 
+	.globl	__branch_data_abort_vector
+__branch_data_abort_vector:
 	.long	__dabt_usr			@  0  (USR_26 / USR_32)
 	.long	__dabt_invalid			@  1  (FIQ_26 / FIQ_32)
 	.long	__dabt_invalid			@  2  (IRQ_26 / IRQ_32)
@@ -1100,7 +1071,9 @@ __stubs_start:
  * Enter in ABT mode, spsr = USR CPSR, lr = USR PC
  */
 	vector_stub	pabt, ABT_MODE, 4
-
+	
+	.globl	__branch_prefetch_abort_vector
+__branch_prefetch_abort_vector:
 	.long	__pabt_usr			@  0 (USR_26 / USR_32)
 	.long	__pabt_invalid			@  1 (FIQ_26 / FIQ_32)
 	.long	__pabt_invalid			@  2 (IRQ_26 / IRQ_32)
@@ -1124,6 +1097,8 @@ __stubs_start:
  */
 	vector_stub	und, UND_MODE
 
+	.globl	__branch_undefined_vector
+__branch_undefined_vector:
 	.long	__und_usr			@  0 (USR_26 / USR_32)
 	.long	__und_invalid			@  1 (FIQ_26 / FIQ_32)
 	.long	__und_invalid			@  2 (IRQ_26 / IRQ_32)
@@ -1172,8 +1147,8 @@ vector_addrexcptn:
  * for CPUs with separate I & D caches.
  */
 	.align	5
-
-.LCvswi:
+	.globl	__branch_swi_vector
+__branch_swi_vector:
 	.word	vector_swi
 
 	.globl	__stubs_end
@@ -1185,7 +1160,7 @@ __stubs_end:
 __vectors_start:
 	swi	SYS_ERROR0
 	b	vector_und + stubs_offset
-	ldr	pc, .LCvswi + stubs_offset
+	ldr	pc, __branch_swi_vector + stubs_offset
 	b	vector_pabt + stubs_offset
 	b	vector_dabt + stubs_offset
 	b	vector_addrexcptn + stubs_offset

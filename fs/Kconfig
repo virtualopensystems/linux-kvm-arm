@@ -223,6 +223,13 @@ source "fs/romfs/Kconfig"
 source "fs/sysv/Kconfig"
 source "fs/ufs/Kconfig"
 
+	config VMFS_FS
+	tristate "VMFS file system support (to mount host directories etc.)"
+	select NLS
+	---help---
+	  Provides the ability to mount host file systems under ARM
+	  development tools such as the FAST models.
+
 endif # MISC_FILESYSTEMS
 
 menuconfig NETWORK_FILESYSTEMS

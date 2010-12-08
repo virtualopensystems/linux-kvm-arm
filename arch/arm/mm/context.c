@@ -28,11 +28,10 @@ void __init_new_context(struct task_struct *tsk, struct mm_struct *mm)
 	mm->context.id = 0;
 }
 
-void __new_context(struct mm_struct *mm)
+unsigned int __new_asid(void)
 {
 	unsigned int asid;
 
-	spin_lock(&cpu_asid_lock);
 	asid = ++cpu_last_asid;
 	if (asid == 0)
 		asid = cpu_last_asid = ASID_FIRST_VERSION;
@@ -57,8 +56,16 @@ void __new_context(struct mm_struct *mm)
 			dsb();
 		}
 	}
-	spin_unlock(&cpu_asid_lock);
+	return asid;
+}
 
+void __new_context(struct mm_struct *mm)
+{
+	unsigned int asid;
+
+	spin_lock(&cpu_asid_lock);
+	asid = __new_asid();
 	mm->cpu_vm_mask = cpumask_of_cpu(smp_processor_id());
 	mm->context.id = asid;
+	spin_unlock(&cpu_asid_lock);
 }

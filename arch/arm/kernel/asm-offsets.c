@@ -17,6 +17,9 @@
 #include <asm/memory.h>
 #include <asm/procinfo.h>
 #include <linux/kbuild.h>
+#ifdef CONFIG_KVM
+  #include <linux/kvm_host.h>
+#endif
 
 /*
  * Make sure that the compiler and target are compatible.
@@ -39,6 +42,7 @@
 int main(void)
 {
   DEFINE(TSK_ACTIVE_MM,		offsetof(struct task_struct, active_mm));
+  DEFINE(TSK_FLAGS,		offsetof(struct task_struct, flags));
   BLANK();
   DEFINE(TI_FLAGS,		offsetof(struct thread_info, flags));
   DEFINE(TI_PREEMPT,		offsetof(struct thread_info, preempt_count));
@@ -89,7 +93,7 @@ int main(void)
   DEFINE(VMA_VM_MM,		offsetof(struct vm_area_struct, vm_mm));
   DEFINE(VMA_VM_FLAGS,		offsetof(struct vm_area_struct, vm_flags));
   BLANK();
-  DEFINE(VM_EXEC,	       	VM_EXEC);
+  DEFINE(VM_EXEC,	       	VM_EXEC); 
   BLANK();
   DEFINE(PAGE_SZ,	       	PAGE_SIZE);
   BLANK();
@@ -112,5 +116,44 @@ int main(void)
 #ifdef MULTI_PABORT
   DEFINE(PROCESSOR_PABT_FUNC,	offsetof(struct processor, _prefetch_abort));
 #endif
+
+#ifdef CONFIG_KVM
+  DEFINE(VCPU_HOST_PGD_PA,      offsetof(struct kvm_vcpu, arch.host_pgd_pa));
+  DEFINE(VCPU_HOST_FAR,         offsetof(struct kvm_vcpu, arch.host_far));
+  DEFINE(VCPU_HOST_IFAR,        offsetof(struct kvm_vcpu, arch.host_ifar));
+  DEFINE(VCPU_HOST_FSR,         offsetof(struct kvm_vcpu, arch.host_fsr));
+  DEFINE(VCPU_HOST_IFSR,        offsetof(struct kvm_vcpu, arch.host_ifsr));
+  DEFINE(VCPU_HOST_VEC_HIGH,    offsetof(struct kvm_vcpu, arch.host_vectors_high));
+  DEFINE(VCPU_EXCP_IDX,    	offsetof(struct kvm_vcpu, arch.guest_exception));
+
+  DEFINE(SIZEOF_SHARED_STRUCT,  sizeof(struct shared_page));
+  DEFINE(SHARED_SHARED_SP,      offsetof(struct shared_page, shared_sp));
+  DEFINE(SHARED_RET_PTR,        offsetof(struct shared_page, return_ptr));
+  DEFINE(SHARED_IRQ_SVC_ADDR,   offsetof(struct shared_page, irq_svc_address));
+  DEFINE(SHARED_HOST_SP,        offsetof(struct shared_page, host_sp));
+  DEFINE(SHARED_EXCEPTION_IDX,  offsetof(struct shared_page, exception_index));
+  DEFINE(SHARED_HOST_REGS,      offsetof(struct shared_page, host_regs));
+  DEFINE(SHARED_HOST_CPSR,      offsetof(struct shared_page, host_CPSR));
+  DEFINE(SHARED_HOST_SPSR,      offsetof(struct shared_page, host_SPSR));
+  DEFINE(SHARED_HOST_TTBR,      offsetof(struct shared_page, host_ttbr));
+  DEFINE(SHARED_SHADOW_TTBR,    offsetof(struct shared_page, shadow_ttbr));
+  DEFINE(SHARED_EXEC_CPSR,	offsetof(struct shared_page, execution_CPSR));
+  DEFINE(SHARED_GUEST_DAC,      offsetof(struct shared_page, guest_dac));
+  DEFINE(SHARED_GUEST_ASID,     offsetof(struct shared_page, guest_asid));
+  DEFINE(SHARED_HOST_DAC,       offsetof(struct shared_page, host_dac));
+  DEFINE(SHARED_HOST_ASID,      offsetof(struct shared_page, host_asid));
+  DEFINE(SHARED_GUEST_INSTR,    offsetof(struct shared_page, guest_instr));
+  DEFINE(SHARED_ORIG_INSTR,     offsetof(struct shared_page, orig_instr));
+  DEFINE(SHARED_VCPU_MODE,	offsetof(struct shared_page, vcpu_mode));
+  DEFINE(SHARED_VCPU_REGS,	offsetof(struct shared_page, vcpu_regs));
+  DEFINE(SHARED_FULL_FLUSH,	offsetof(struct shared_page, full_flush_mode));
+
+  DEFINE(VCPU_REGS_FIQ,		offsetof(struct kvm_vcpu_regs, fiq_reg));
+  DEFINE(VCPU_REGS_USR,		offsetof(struct kvm_vcpu_regs, usr_reg));
+  DEFINE(VCPU_REGS_BANKED_FIQ,	offsetof(struct kvm_vcpu_regs, banked_fiq));
+  DEFINE(VCPU_REGS_SHARED_REG,	offsetof(struct kvm_vcpu_regs, shared_reg));
+  DEFINE(VCPU_REGS_R15,		offsetof(struct kvm_vcpu_regs, r15));
+#endif
+
   return 0; 
 }
