@@ -1674,8 +1674,12 @@ static int emulate_sensitive_dp_instr(struct kvm_vcpu *vcpu, u32 instr)
 	/*
 	 * The following piece of code is self-modifying (which greatly
 	 * reduces the number of lines of code in this file and potential bugs,
-	 * but requires strict attention to cache issues. Basically, on ARMv6
-	 * the required steps (in order) are these:
+	 * but requires strict attention to cache issues.
+	 */
+
+#if defined(CONFIG_CPU_V6)
+	/*
+	 * For ARMv6 the required steps (in order) are these:
 	 *  1: Clean data cache
 	 *  2: Data Synchronization Barrier (formerly Drain Write Buffer)
 	 *  3: Invalidate the I-cache
@@ -1684,8 +1688,6 @@ static int emulate_sensitive_dp_instr(struct kvm_vcpu *vcpu, u32 instr)
 	 *
 	 *  All the above operations are done using the MVA to point to specific
 	 *  cache lines for performance reasons.
-	 *
-	 *  TODO: Support ARMv7 (and future architectures)
 	 */
 	asm volatile ("mrs r0, cpsr\n\t"		// Load guest COND bits
 		      "bic r0, #0xf0000000\n\t"
@@ -1696,8 +1698,7 @@ static int emulate_sensitive_dp_instr(struct kvm_vcpu *vcpu, u32 instr)
 		      "mov r0,  %[shadow_instr]\n\t"
 		      "str r0, 1f\n\t"
 		      "mov r0, #0\n\t"
-		      "add r2, pc, #(5 * 4)\n\t" /* WARNING: Update this if adding
-							     instructions below! */
+		      "ldr r2, =1f\n\t"
 		      "mcr p15, 0, r2, c7, c10, 1\n\t"  // Clean data cache line
 		      "mcr p15, 0, r0, c7, c10, 4\n\t"  // Data sync. barrier (DWB)
 		      "mcr p15, 0, r2, c7, c5, 1\n\t"   // Invalidate I-cache line
@@ -1705,13 +1706,59 @@ static int emulate_sensitive_dp_instr(struct kvm_vcpu *vcpu, u32 instr)
 		      "mcr p15, 0, r0, c7, c5, 4\n\t"   // Flush prefetch buffer
 		      "mov r0, r0\n\t"
 		      "1: .word 0\n\t"			// Execute shadow instr.
-		      "mov %[result], r1" :		// Get result
+		      "mov %[result], r1\n\t"		// Get result
+		      "b 2f\n\t"
+		      ".LTORG\n\t"
+		      "2: mov r0, r0":
 		      [result] "=r" (shadow_result) :     // output
 		      [rn] "r" (vcpu_reg(vcpu, rn_num)),  // input
 		      [rm] "r" (vcpu_reg(vcpu, rm_num)),  // input
 		      [rs] "r" (vcpu_reg(vcpu, rs_num)),  // input
 		      [shadow_instr] "r" (shadow_instr) : // input
 		      "r10", "r9", "r8", "r2", "r1", "r0");     // clobber
+#elif defined(CONFIG_CPU_V7)
+	/*
+	 * For ARMv7 the pseudo code for self-modifying code is this:
+	 *
+	 * STR <Rx>, [instruction location]
+	 * Clean data cache by MVA to point of unification [instruction loc.]
+	 * DSB ; Ensures visibility of the data cleaned from the data cache
+	 * Invalidate instruction cache by MVA [instruction location]
+	 * Invalidate BTC entry by MVA [instruction location]
+	 * DSB ; Ensures completion of the instruction cache invalidation
+	 * ISB
+	 */
+	asm volatile ("mrs r0, cpsr\n\t"		// Load guest COND bits
+		      "bic r0, #0xf0000000\n\t"
+		      "msr cpsr, r0\n\t"
+		      "mov r10, %[rn]\n\t"		// Load operands
+		      "mov r9,  %[rm]\n\t"
+		      "mov r8,  %[rs]\n\t"
+		      "mov r0,  %[shadow_instr]\n\t"
+		      "str r0, 1f\n\t"
+		      "mov r0, #0\n\t"
+		      "ldr r2, =1f\n\t"
+		      "mcr p15, 0, r2, c7, c11, 1\n\t"  // Clean d-cache PoU
+		      "dsb\n\t"
+		      "mcr p15, 0, r2, c7, c5, 1\n\t"   // Inv. I-cache PoU
+		      "mcr p15, 0, r2, c7, c5, 7\n\t"   // Inv. BTC
+		      "dsb\n\t"
+		      "isb\n\t"
+		      "1: .word 0\n\t"			// Execute shadow instr.
+		      "mov %[result], r1\n\t"		// Get result
+		      "b 2f\n\t"
+		      ".LTORG\n\t"
+		      "2: mov r0, r0":
+		      [result] "=r" (shadow_result) :     // output
+		      [rn] "r" (vcpu_reg(vcpu, rn_num)),  // input
+		      [rm] "r" (vcpu_reg(vcpu, rm_num)),  // input
+		      [rs] "r" (vcpu_reg(vcpu, rs_num)),  // input
+		      [shadow_instr] "r" (shadow_instr) : // input
+		      "r10", "r9", "r8", "r2", "r1", "r0");     // clobber
+
+#else
+#error "Current CPU not supported by KVM"
+#endif
 
 	vcpu_reg(vcpu, rd_num) = shadow_result;
 	kvm_cpsr_write(vcpu, vcpu_spsr(vcpu));
