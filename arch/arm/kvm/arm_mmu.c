@@ -1425,6 +1425,7 @@ void kvm_generate_mmu_fault(struct kvm_vcpu *vcpu, gva_t fault_addr,
 				(unsigned int)vcpu->arch.regs[15],
 				(unsigned int)fault_addr,
 				(unsigned int)source);*/
+		vcpu->arch.cp15.c6_IFAR = fault_addr;
 		vcpu->arch.cp15.c5_IFSR = 0;
 		vcpu->arch.cp15.c5_IFSR |= source & FSR_TYPE_MASK;
 		vcpu->arch.cp15.c5_IFSR |= (domain & 0xf) << 4;
