@@ -2247,13 +2247,14 @@ static int emulate_mrs(struct kvm_vcpu *vcpu, u32 instr)
  * Define the bitmasks used for by the hardware to execute the
  * MSR instructions. See the ARM DDI 0100I - A4-77.
  */
-static u32 msr_bitmasks[5][4] = {
+static u32 msr_bitmasks[6][4] = {
       /* UnallocMask   UserMask    PrivMask    StateMask     Arch.      */
 	 {0x0FFFFF20, 0xF0000000, 0x000001DF, 0x00000000} /* 4		*/
 	,{0x0FFFFF00, 0xF0000000, 0x000001DF, 0x00000020} /* 4T, 5T     */
 	,{0x07FFFF00, 0xF8000000, 0x000001DF, 0x00000020} /* 5TE, 5TExP */
 	,{0x06FFFF00, 0xF8000000, 0x000001DF, 0x01000020} /* 5TEJ       */
 	,{0x06F0FC00, 0xF80F0200, 0x000001DF, 0x01000020} /* 6		*/
+	,{0x06F0FC00, 0xF80F0200, 0x000001DF, 0x0700FF20} /* 7-A / 7-R  */
 };
 
 static int get_msr_bitmask_table_index(void)
@@ -2272,6 +2273,8 @@ static int get_msr_bitmask_table_index(void)
 		return 3;
 	case CPU_ARCH_ARMv6:
 		return 4;
+	case CPU_ARCH_ARMv7:
+		return 5;
 	default:
 		return -EINVAL;
 	}
