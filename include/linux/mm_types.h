@@ -274,9 +274,6 @@ struct mm_struct {
 #ifdef CONFIG_MMU_NOTIFIER
 	struct mmu_notifier_mm *mmu_notifier_mm;
 #endif
-#ifdef CONFIG_KVM
-	unsigned long kvm_flags;
-#endif
 };
 
 /* Future-safe accessor for struct mm_struct's cpu_vm_mask. */

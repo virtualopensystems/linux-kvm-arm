@@ -1067,64 +1067,6 @@ int kvm_arch_vcpu_ioctl_set_guest_debug(struct kvm_vcpu *vcpu,
 }
 #endif
 
-static void set_section_ng_bits(pmd_t *pmd, unsigned int val)
-{
-	if (val == 0) {
-		*pmd &= (~PMD_SECT_nG);
-	} else {
-		*pmd |= PMD_SECT_nG;
-	}
-}
-
-static void set_table_ng_bits(pmd_t *pmd, unsigned long start, unsigned int val)
-{
-	pte_t *pte;
-	unsigned long addr = start;
-
-	while (addr < (start + PMD_SIZE)) {
-		pte = pte_offset_kernel(pmd, addr);
-		if (!pte_none(pte) && (addr != SHARED_PAGE_BASE))
-			set_pte_ext(pte, *pte, (val) ? PTE_EXT_NG : 0);
-		addr = addr + PAGE_SIZE;
-	}
-}
-
-void set_host_kernel_ng(struct kvm_vcpu *vcpu, unsigned int val)
-{
-	unsigned long irq_flags;
-	unsigned long addr;
-	pgd_t *pgd;
-	pmd_t *pmd;
-
-	val = (val) ? 1 : 0;
-	local_irq_save(irq_flags);
-	current->mm->kvm_flags = val;
-
-	addr = TASK_SIZE;
-	while (addr <= 0xffe00000 && addr > 0x0) {
-		pgd = pgd_offset(current->mm, addr);
-		pmd = pmd_offset(pgd, addr);
-
-		do {
-			if ((*pmd & PMD_TYPE_MASK) == PMD_TYPE_SECT)
-				set_section_ng_bits(pmd, val);
-			else if ((*pmd & PMD_TYPE_MASK) == PMD_TYPE_TABLE)
-				set_table_ng_bits(pmd, addr, val);
-		} while (pmd++ == pmd_offset(pgd, addr));
-
-		addr = (addr + PMD_SIZE) & PMD_MASK;
-	}
-
-	/*
-	 * TODO: Consider if it's more effective only to flush the kernel
-	 * range here
-	 */
-	asm __volatile__("mcr p15, 0, %[zero], c7, c10, 0": : [zero] "r" (0));
-	flush_tlb_all();
-	local_irq_restore(irq_flags);
-}
-
-
 int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 {
 	int ret = 0;
