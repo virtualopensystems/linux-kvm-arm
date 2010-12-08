@@ -210,7 +210,56 @@ void kvm_arch_hardware_unsetup(void)
 
 void kvm_arch_check_processor_compat(void *rtn)
 {
-	*(int *)rtn = 0;
+	u32 ttbr_cr;
+	int ret = 0;
+
+	/*
+	 * TODO: Handle ARMv6 TTBR multiple registers and TTBR CR!
+	 */
+	asm ("mrc	p15, 0, %[res], c2, c0, 2": [res] "=r" (ttbr_cr));
+	if (ttbr_cr != 0) {
+		kvm_msg("multiple TTBRs currently not supported");
+		ret = -ENOTSUPP;
+		goto out;
+	}
+
+#ifdef CONFIG_CPU_V6
+	{
+		u32 c1_acr = 0, c13_fcse = 0, c9_tcm = 0;
+
+		/*
+		 * Check cache cleaning functions
+		 */
+		asm ("mrc p15, 0, %[res], c1, c0, 1": [res] "=r" (c1_acr));
+		if ((c1_acr & 0x10) != 0) {
+			kvm_msg("Clean entire data cache disabled!");
+			ret = -ENOTSUPP;
+			goto out;
+		}
+
+		/*
+		 * Check that FCSE is disabled
+		 */
+		asm ("mrc p15, 0, %[res], c13, c0, 0": [res] "=r" (c13_fcse));
+		if ((c13_fcse & 0xfe000000) != 0) {
+			kvm_msg("FCSE is not disabled (PID != 0) aborting");
+			ret = -ENOTSUPP;
+			goto out;
+		}
+
+		/*
+		 * Check the configuration of the TCM
+		 */
+		asm ("mrc p15, 0, %[res], c9, c1, 0": [res] "=r" (c9_tcm));
+		kvm_msg("Data TCM register:   %08x", c9_tcm);
+
+		asm ("mrc p15, 0, %[res], c9, c1, 1": [res] "=r" (c9_tcm));
+		kvm_msg("Instr. TCM register: %08x", c9_tcm);
+	}
+#endif
+
+out:
+	*(int *)rtn = ret;
 }
 
 struct kvm *kvm_arch_create_vm(void)
@@ -398,49 +447,6 @@ static void config_shared_page_domain(struct mm_struct *mm)
 	local_irq_restore(irq_flags);
 }
 
-static int check_processor_requirements(void)
-{
-	u32 ttbr_cr, c1_acr, c13_fcse, c9_tcm;
-
-	/*
-	 * TODO: Handle ARMv6 TTBR multiple registers and TTBR CR!
-	 */
-	asm ("mrc	p15, 0, %[res], c2, c0, 2": [res] "=r" (ttbr_cr));
-	if (ttbr_cr != 0) {
-		kvm_msg("multiple TTBRs currently not supported");
-		return -EINVAL;
-	}
-
-	/*
-	 * Check cache cleaning functions
-	 */
-	asm ("mrc	p15, 0, %[res], c1, c0, 1": [res] "=r" (c1_acr));
-	if ((c1_acr & 0x10) != 0) {
-		kvm_msg("Clean entire data cache disabled!");
-		return -EINVAL;
-	}
-
-	/*
-	 * Check that FCSE is disabled
-	 */
-	asm ("mrc	p15, 0, %[res], c13, c0, 0": [res] "=r" (c13_fcse));
-	if ((c13_fcse & 0xfe000000) != 0) {
-		kvm_msg("FCSE is not disabled (PID != 0) aborting");
-		return -EINVAL;
-	}
-
-	/*
-	 * Check the configuration of the TCM
-	 */
-	asm ("mrc	p15, 0, %[res], c9, c1, 0": [res] "=r" (c9_tcm));
-	kvm_msg("Data TCM register:   %08x", c9_tcm);
-
-	asm ("mrc	p15, 0, %[res], c9, c1, 1": [res] "=r" (c9_tcm));
-	kvm_msg("Instr. TCM register: %08x", c9_tcm);
-
-	return 0;
-}
-
 struct kvm_vcpu *kvm_arch_vcpu_create(struct kvm *kvm, unsigned int id)
 {
 	int err;
@@ -450,8 +456,6 @@ struct kvm_vcpu *kvm_arch_vcpu_create(struct kvm *kvm, unsigned int id)
 	struct shared_page *shared;
 	int shared_code_len;
 	int vcpu_run_offset, exception_return_offset;
-
-	check_processor_requirements();
 
 	vcpu = kmem_cache_zalloc(kvm_vcpu_cache, GFP_KERNEL);
 	if (!vcpu) {
