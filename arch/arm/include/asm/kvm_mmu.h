@@ -17,6 +17,9 @@
 #ifndef __ARM_KVM_ARM_MMU_H__
 #define __ARM_KVM_ARM_MMU_H__
 
+#include <asm/cachetype.h>
+#include "trace.h"
+
 #define D_CACHE_LINE_SIZE	32
 
 #define KVM_AP_NONE    		0
@@ -227,39 +230,49 @@ static inline u8 convert_guest_to_shadow_ap(struct kvm_vcpu *vcpu, u8 ap)
 	return ap;
 }
 
-/* TODO: Make these work on all platforms */
+/* TODO: Could be optimized for v6 by onlyl cleaning d-cache */
 static inline void kvm_dcache_clean(void)
 {
-	unsigned long zero = 0;
-	asm volatile ("mcr p15, 0, %[zero], c7, c10, 0\n": :
-		      [zero] "r" (zero));
+	kvm_arm_count_event(FLUSH_CACHE_FULL);
+	flush_cache_all();
 }
 
 static inline void kvm_cache_clean_invalidate_all(void)
 {
-	unsigned long zero = 0;
-	asm volatile ("mcr p15, 0, %[zero], c7, c14, 0\n"
-		      "mcr p15, 0, %[zero], c7, c5, 0\n": :
-		      [zero] "r" (zero));
+	kvm_arm_count_event(FLUSH_CACHE_FULL);
+	flush_cache_all();
 }
 
 extern void v6_inv_cache_addr(unsigned long addr, unsigned long size);
 static inline void kvm_cache_inv_user(void __user *ptr, unsigned long n)
 {
-#ifdef CONFIG_CPU_V6
-	unsigned long va = (unsigned long)ptr;
-	if (!access_ok(VERIFY_READ, ptr, n))
-		return;
+	if (cache_is_vipt_aliasing()) {
+#ifdef CONFIG_CPU_32v6
+		unsigned long va = (unsigned long)ptr;
+		if (!access_ok(VERIFY_READ, ptr, n))
+			return;
 
-	v6_inv_cache_addr(va, n);
+		v6_inv_cache_addr(va, n);
 #else
-	return;
+		kvm_arm_count_event(FLUSH_CACHE_FULL);
+		flush_cache_all();
 #endif
+	}
 }
 
 void kvm_coherent_to_guest(gva_t gva, void *hva, unsigned long n);
 void kvm_coherent_from_guest(gva_t gva, void *hva, unsigned long n);
-void v6_clean_inv_dcache_sw(unsigned long addr);
-void v6_clean_dcache_sw(unsigned long addr);
+
+static inline void kvm_coherent_from_guest_all(void) {
+	if (cache_is_vipt_aliasing())
+		kvm_dcache_clean();
+}
+
+static inline void kvm_coherent_kvm_run(struct kvm_run *run)
+{
+	if (cache_is_vipt_aliasing())
+		flush_dcache_page(virt_to_page(run));
+}
+
 
 #endif /* __ARM_KVM_ARM_MMU_H__ */

@@ -325,7 +325,6 @@ static int emulate_mcr_sysconf(struct coproc_params *params)
 		/* Control Register */
 		if ((rd_val & 0x1) != (vcpu->arch.cp15.c1_CR & 0x1)) {
 			kvm_init_l1_shadow(vcpu, vcpu->arch.shadow_pgtable);
-			kvm_cache_clean_invalidate_all();
 			if (rd_val & 0x1)
 				kvm_msg("guest enabled MMU at: %08x",
 						vcpu_reg(vcpu, 15));
@@ -403,7 +402,6 @@ static int emulate_mcr_pgtable(struct coproc_params *params)
 		//kvm_msg("guest changed TTBR0 to: 0x%08x", rd_val);
 		if (kvm_mmu_enabled(vcpu) && prev_base != rd_val) {
 			kvm_arm_count_event(EVENT_MOD_TTBR);
-			kvm_cache_clean_invalidate_all();
 			return kvm_init_l1_shadow(vcpu,
 						  vcpu->arch.shadow_pgtable);
 		}
@@ -418,7 +416,6 @@ static int emulate_mcr_pgtable(struct coproc_params *params)
 			 * TODO: Check if we always have to flush the
 			 * TLB here.
 			 */
-			kvm_cache_clean_invalidate_all();
 			return kvm_init_l1_shadow(vcpu,
 						  vcpu->arch.shadow_pgtable);
 		}
@@ -1832,12 +1829,7 @@ static inline int ls_mult_copy_register(struct kvm_vcpu *vcpu, u32 instr,
 	//printk(KERN_DEBUG "LSM guest_addr: 0x%08x\n", (unsigned int)(*guest_addr));
 
 	// TODO: Check if the guest has permission to this address!
-	/*
-	 * For some reason it's necessary to clean the entire D-cache before
-	 * we start reading guest page table entries - even though the guest
-	 * kernel should flush the write.
-	 */
-	kvm_dcache_clean();
+	kvm_coherent_from_guest_all();
 	host_addr = gva_to_hva(vcpu, *guest_addr, 0);
 	if (kvm_is_error_hva(host_addr))
 		return -EFAULT;
@@ -1964,15 +1956,12 @@ static int emulate_ls_with_trans(struct kvm_vcpu *vcpu, u32 instr)
 	*/
 	kvm_arm_count_event(EVENT_LS_TRANS);
 
-	/*
-	 * For some reason it's necessary to clean the entire D-cache before
-	 * we start reading guest page table entries - even though the guest
-	 * kernel should flush the write.
-	 */
-	kvm_dcache_clean();
+	kvm_coherent_from_guest_all();
 	fault = gva_to_gfn(vcpu, gva, &tmp_gfn, 1, &map_info);
-	if (fault < 0)
+	if (fault < 0) {
+		kvm_err(fault, "cannot translate guest address");
 		return fault;
+	}
 
 	/* Let the PC point to the sens. instr. no matter if we raise excp. or
 	 * execute it natively. */

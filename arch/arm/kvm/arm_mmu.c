@@ -170,7 +170,7 @@ static inline int get_guest_pgtable_entry(struct kvm_vcpu *vcpu, u32 *entry,
 	if (kvm_is_error_hva(addr))
 		return -EFAULT;
 
-	kvm_cache_inv_user((void __user *)addr + offset, sizeof(u32));
+	/* kvm_cache_inv_user((void __user *)addr + offset, sizeof(u32)); */
 
 	ret = copy_from_user(entry, (void __user *)addr + offset, sizeof(u32));
 	if (ret)
@@ -336,8 +336,13 @@ static int l1_domain_access(struct kvm_vcpu *vcpu, u32 l1_entry,
  * Guest virtual to guest physical.
  *
  * This function will actually walk the guest page tables to do
- * the translation and thus map in user space memory in the kernel
- * address space to do the walk.
+ * the translation and thus copy in user space data.
+ *
+ * For some reason it's necessary to clean the entire D-cache before
+ * we start reading guest page table entries on ARMv6 - even though the
+ * guest kernel should flush the write. This may be related to assumptions
+ * about disabled MMU behavior or memory type attributes on the guest page
+ * tables but attempts to accomodate that have not been successful.
  *
  * vcpu:    The virtual cpu
  * gva:     The guest virtual address
@@ -724,6 +729,12 @@ static void free_l2_shadow(struct kvm_vcpu *vcpu, u32 l1_pte, u32 gva_base)
 	for (i = 0; i < L2_TABLE_ENTRIES; i++) {
 		domain = (l1_pte & L1_DOMAIN_MASK) >> L1_DOMAIN_SHIFT;
 		release_l2_shadow_entry(vcpu, domain, *pte, gva_base | (i << 12));
+
+		/*
+		 * There is not need to clean the pte entries in cache here
+		 * as the level-1 entries have been cleaned and cleared.
+		 */
+
 		pte++;
 	}
 
@@ -748,6 +759,7 @@ static void __free_l1_shadow_children(struct kvm_vcpu *vcpu, u32 *pgd)
 		free_l2_shadow(vcpu, l1_pte, i << 20);
 
 		pgd[i] = 0;
+		clean_pmd_entry((pmd_t *)(pgd + i));
 	}
 }
 
@@ -1050,23 +1062,14 @@ skip_domain_check:
 		*l1_pte |= ((u32)l2_base) & ~PAGE_MASK;
 		*l1_pte = (*l1_pte & L1_COARSE_MASK) | L1_TYPE_COARSE;
 		*l1_pte |= (domain << L1_DOMAIN_SHIFT);
-		clean_dcache_area(l1_pte, sizeof(u32));
+		flush_pmd_entry((pmd_t *)l1_pte);
 		break;
 	case (L1_TYPE_COARSE):
 		/* Update the domain of the L1 mapping */
-#ifdef flush_tlb_on_map
-		if ((*l1_pte & L1_DOMAIN_MASK) != domain << L1_DOMAIN_SHIFT)
-			modify_domain = true;
-#endif
-
 		*l1_pte &= ~L1_DOMAIN_MASK;
 		*l1_pte |= (domain << L1_DOMAIN_SHIFT);
 
-#ifdef flush_tlb_on_map
-		if (modify_domain)
-			clean_dcache_area(l1_pte, sizeof(u32));
-#endif
-		clean_dcache_area(l1_pte, sizeof(u32));
+		flush_pmd_entry((pmd_t *)l1_pte);
 
 		ret = get_l2_base(*l1_pte, &l2_base);
 		if (ret)
@@ -1082,12 +1085,6 @@ skip_domain_check:
 
 	l2_pte = l2_base + ((gva >> 12) & 0xff);
 #if __LINUX_ARM_ARCH__ >= 6
-#ifdef flush_tlb_on_map
-	if ((*l2_pte & L2_TYPE_MASK) != L2_TYPE_FAULT || modify_domain) {
-		/* TODO: Make this independent of current vcpu pg-table */
-		kvm_tlb_flush_guest_all(vcpu->arch.shadow_pgtable);
-	}
-#endif
 
 	/* VMSAv6 and higher */
 	*l2_pte = (pfn << PAGE_SHIFT) | L2_XP_TYPE_EXT_SMALL;
@@ -1185,7 +1182,7 @@ int unmap_gva_section(struct kvm_vcpu *vcpu, u32 *pgd, gva_t gva)
 		kvm_msg("unmap_gva_section, gva: 0x%08x", gva);
 		free_l2_shadow(vcpu, *l1_pte, gva);
 		*l1_pte = 0x0;
-		clean_dcache_area(l1_pte, sizeof(u32));
+		clean_pmd_entry((pmd_t *)l1_pte);
 		kvm_tlb_flush_guest_all(vcpu->arch.shadow_pgtable);
 		return 0;
 	default:
@@ -1382,6 +1379,7 @@ static int update_shadow_l2_ap(struct kvm_vcpu *vcpu, u32 *l1_pte, u32 *l2_base)
 
 		*l2_pte &= ~PTE_EXT_AP_MASK;
 		*l2_pte |= (ap & 0x3) << 4;
+		clean_dcache_area(l2_pte, sizeof(u32));
 
 next_l2_entry:
 		l2_pte++;
@@ -1404,12 +1402,7 @@ int kvm_update_shadow_ap(struct kvm_vcpu *vcpu, kvm_shadow_pgtable *shadow)
 	u32 *l2_pte;
 	int ret;
 
-	/*
-	 * For some reason it's necessary to clean the entire D-cache before
-	 * we start reading guest page table entries - even though the guest
-	 * kernel should flush the write.
-	 */
-	kvm_dcache_clean();
+	kvm_coherent_from_guest_all();
 	for (l1_pte = shadow->pgd; l1_pte < shadow->pgd + 4096; l1_pte++) {
 		if ((*l1_pte & L1_TYPE_MASK) != L1_TYPE_FAULT) {
 			ret = get_l2_base(*l1_pte, &l2_pte);
@@ -1422,11 +1415,6 @@ int kvm_update_shadow_ap(struct kvm_vcpu *vcpu, kvm_shadow_pgtable *shadow)
 		}
 	}
 
-	/*
-	 * A simple d-cache clean should be enough here, but unfortunately it
-	 * has shown to be insufficient and we therefore do a full
-	 * clean+invalidate operation here and suffer the cost.
-	 */
 	kvm_cache_clean_invalidate_all();
 	kvm_tlb_flush_guest_all(shadow);
 	return 0;

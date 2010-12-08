@@ -71,6 +71,10 @@ static struct kvm_event kvm_eventc_log[KVM_EVENTC_ITEMS] =
 	{ 0, "MCR 8,  6, 0 - Invalidate data TLB" },
 	{ 0, "MCR 8,  7, 0 - Invalidate unified TLB" },
 	{ 0, "Emulate Load-Store multiple" },
+	{ 0, "MCR 7, 14, 2 - Clean and invalidate D-cache line - set/way" },
+	{ 0, "MCR 7, 11, 1 - Clean data cache line by MVA - to PoU" },
+	{ 0, "Flush cache full"},
+	{ 0, "MCRR - Invalidate Cache Ranges"},
 };
 
 void kvm_arm_count_event(unsigned int event)

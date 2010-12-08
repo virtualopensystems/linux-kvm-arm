@@ -59,8 +59,12 @@
 #define EVENT_MCR_8_6_X		36
 #define EVENT_MCR_8_7_X		37
 #define EVENT_EMUL_LSMULT	38
+#define EVENT_MCR_7_14_2	39
+#define EVENT_MCR_7_11_1	40
+#define FLUSH_CACHE_FULL	41
+#define MCRR_CACHE_RANGES	42
 
-#define KVM_EVENTC_ITEMS	39
+#define KVM_EVENTC_ITEMS	43
 
 void kvm_arm_init_eventc(void);
 void kvm_arm_count_event(unsigned int event);

@@ -121,12 +121,7 @@ void print_guest_area(struct kvm_vcpu *vcpu, gva_t gva, int back, int forward)
 	void *data;
 	u32* ptr;
 
-	/*
-	 * For some reason it's necessary to clean the entire D-cache before
-	 * we start reading guest page table entries - even though the guest
-	 * kernel should flush the write.
-	 */
-	kvm_dcache_clean();
+	kvm_coherent_from_guest_all();
 	ret = gva_to_gfn(vcpu, gva, &gfn, 0, NULL);
 	if (ret < 0) {
 		kvm_err(ret, "could not translate PC address");
@@ -380,8 +375,10 @@ static void config_shared_page_domain(struct mm_struct *mm)
 	addr = SHARED_PAGE_BASE;
 	pgd = pgd_offset(current->mm, addr);
 	pmd = pmd_offset(pgd, addr);
+
 	pmd[1] &= (~PMD_DOMAIN(0xf));
 	pmd[1] |= PMD_DOMAIN(DOMAIN_KVM);
+	flush_pmd_entry(pmd);
 
 	if ((pmd[1] & PMD_TYPE_TABLE) != PMD_TYPE_TABLE) {
 		kvm_msg("unsupported config for shared page host map");
@@ -395,7 +392,7 @@ static void config_shared_page_domain(struct mm_struct *mm)
 	}
 	set_pte_ext(pte, *pte, 0);
 
-	clean_dcache_area(pmd + 1, sizeof(pmd_t));
+	clean_dcache_area(pte, sizeof(pte_t));
 	flush_tlb_kernel_page(addr);
 
 	local_irq_restore(irq_flags);
@@ -1038,12 +1035,7 @@ int kvm_arch_vcpu_ioctl_set_guest_debug(struct kvm_vcpu *vcpu,
 	gfn_t gfn;
 	gpa_t gpa;
 
-	/*
-	 * For some reason it's necessary to clean the entire D-cache before
-	 * we start reading guest page table entries - even though the guest
-	 * kernel should flush the write.
-	 */
-	kvm_dcache_clean();
+	kvm_coherent_from_guest_all();
 	ret = gva_to_gfn(vcpu, gva, &gfn, 0, NULL);
 	if (ret < 0) {
 		kvm_err(ret, "could not translate breakpoing address");
@@ -1077,7 +1069,7 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 	vcpu_load(vcpu);
 
 	vcpu->arch.kvm_run = run;
-	flush_dcache_page(virt_to_page(run));
+	kvm_coherent_kvm_run(run);
 
 	if (run->exit_reason == KVM_EXIT_IRQ_WINDOW_OPEN)
 		run->exit_reason = KVM_EXIT_UNKNOWN;
@@ -1149,10 +1141,12 @@ wait_for_interrupts:
 		}
 	}
 
-	if (ret < 0)
+	if (ret < 0) {
+		kvm_err(ret, "an error occured after ws");
 		run->exit_reason = KVM_EXIT_EXCEPTION;
+	}
 
-	flush_dcache_page(virt_to_page(run));
+	kvm_coherent_kvm_run(run);
 	vcpu_put(vcpu);
 
 	return ret;
@@ -1237,12 +1231,7 @@ static inline int handle_swi(struct kvm_vcpu *vcpu)
 			goto skip_copy_in;
 
 		/* Load the orig. instruction directly from memory */
-		/*
-		 * For some reason it's necessary to clean the entire D-cache before
-		 * we start reading guest page table entries - even though the guest
-		 * kernel should flush the write.
-		 */
-		kvm_dcache_clean();
+		kvm_coherent_from_guest_all();
 		hva = gva_to_hva(vcpu, addr + 4, 0);
 		if (kvm_is_error_hva(hva)) {
 			kvm_err(-EINVAL, "Instruction generated at "
@@ -1258,8 +1247,10 @@ static inline int handle_swi(struct kvm_vcpu *vcpu)
 		 */
 		kvm_cache_inv_user((void *)hva, sizeof(u32));
 		ret = copy_from_user(&orig_instr, (void *)hva, sizeof(u32));
-		if (ret)
+		if (ret) {
+			kvm_err(-EFAULT, "cannot copy orig. instruction");
 			return -EFAULT;
+		}
 
 skip_copy_in:
 		ret = kvm_emulate_sensitive(vcpu, orig_instr);
@@ -1390,12 +1381,7 @@ static void do_guest_bp(struct kvm_vcpu *vcpu, gva_t addr, bool set)
 	gfn_t gfn;
 	gpa_t gpa;
 
-	/*
-	 * For some reason it's necessary to clean the entire D-cache before
-	 * we start reading guest page table entries - even though the guest
-	 * kernel should flush the write.
-	 */
-	kvm_dcache_clean();
+	kvm_coherent_from_guest_all();
 	ret = gva_to_gfn(vcpu, gva, &gfn, 0, NULL);
 	if (ret < 0) {
 		kvm_err(ret, "could not translate breakpoing address");
@@ -1441,12 +1427,7 @@ static inline int handle_shadow_fault(struct kvm_vcpu *vcpu,
 
 	uaccess = VCPU_MODE_PRIV(vcpu) ? 0 : 1;
 
-	/*
-	 * For some reason it's necessary to clean the entire D-cache before
-	 * we start reading guest page table entries - even though the guest
-	 * kernel should flush the write.
-	 */
-	kvm_dcache_clean();
+	kvm_coherent_from_guest_all();
 	fault = gva_to_gfn(vcpu, fault_addr, &gfn, uaccess, &map_info);
 	if (fault < 0)
 		return fault;
@@ -1529,12 +1510,7 @@ int handle_shadow_perm(struct kvm_vcpu *vcpu,
 		kvm_msg("\n");
 		kvm_msg("Guest mapping info:");
 
-		/*
-		 * For some reason it's necessary to clean the entire D-cache before
-		 * we start reading guest page table entries - even though the guest
-		 * kernel should flush the write.
-		 */
-		kvm_dcache_clean();
+		kvm_coherent_from_guest_all();
 		trace_gva_to_gfn = true;
 		ret = gva_to_gfn(vcpu, fault_addr, &gfn, 0, &map_info);
 		trace_gva_to_gfn = false;
@@ -1576,12 +1552,7 @@ int handle_shadow_perm(struct kvm_vcpu *vcpu,
 
 	uaccess = VCPU_MODE_PRIV(vcpu) ? 0 : 1;
 
-	/*
-	 * For some reason it's necessary to clean the entire D-cache before
-	 * we start reading guest page table entries - even though the guest
-	 * kernel should flush the write.
-	 */
-	kvm_dcache_clean();
+	kvm_coherent_from_guest_all();
 	ret = gva_to_gfn(vcpu, fault_addr, &gfn, uaccess, &map_info);
 	if (ret < 0) {
 		kvm_msg("error in gva_to_gfn");
