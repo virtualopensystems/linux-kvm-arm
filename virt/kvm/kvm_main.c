@@ -1349,7 +1349,7 @@ int kvm_write_guest_cached(struct kvm *kvm, struct gfn_to_hva_cache *ghc,
 
 	if (slots->generation != ghc->generation)
 		kvm_gfn_to_hva_cache_init(kvm, ghc, ghc->gpa);
-	
+
 	if (kvm_is_error_hva(ghc->hva))
 		return -EFAULT;
 

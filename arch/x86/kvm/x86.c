@@ -1092,7 +1092,7 @@ static int kvm_guest_time_update(struct kvm_vcpu *v)
 			tsc_timestamp = tsc;
 		}
 	}
-	
+
 	local_irq_restore(flags);
 
 	if (!vcpu->time_page)
@@ -5341,7 +5341,7 @@ static int __vcpu_run(struct kvm_vcpu *vcpu)
 			vcpu->run->exit_reason = KVM_EXIT_INTR;
 			++vcpu->stat.request_irq_exits;
 		}
-		
+
 		kvm_check_async_pf_completion(vcpu);
 
 		if (signal_pending(current)) {

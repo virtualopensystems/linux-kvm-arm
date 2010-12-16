@@ -2644,7 +2644,7 @@ static bool try_async_pf(struct kvm_vcpu *vcpu, bool prefault, gfn_t gfn,
 	}
 
 	*pfn = gfn_to_pfn_prot(vcpu->kvm, gfn, write, writable);
-	
+
 	return false;
 }
 
