@@ -1921,8 +1921,7 @@ static void ept_update_paging_mode_cr0(unsigned long *hw_cr0,
 					unsigned long cr0,
 					struct kvm_vcpu *vcpu)
 {
-	ulong cr3;
-
+	vmx_decache_cr3(vcpu);
 	if (!(cr0 & X86_CR0_PG)) {
 		/* From paging/starting to nonpaging */
 		vmcs_write32(CPU_BASED_VM_EXEC_CONTROL,
@@ -1937,11 +1936,8 @@ static void ept_update_paging_mode_cr0(unsigned long *hw_cr0,
 			     vmcs_read32(CPU_BASED_VM_EXEC_CONTROL) &
 			     ~(CPU_BASED_CR3_LOAD_EXITING |
 			       CPU_BASED_CR3_STORE_EXITING));
-		/* Must fetch cr3 before updating cr0 */
-		cr3 = kvm_read_cr3(vcpu);
 		vcpu->arch.cr0 = cr0;
 		vmx_set_cr4(vcpu, kvm_read_cr4(vcpu));
-		vmx_set_cr3(vcpu, cr3);
 	}
 
 	if (!(cr0 & X86_CR0_WP))
