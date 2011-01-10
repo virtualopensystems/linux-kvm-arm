@@ -11,10 +11,10 @@
 #include <linux/spinlock.h>
 #include <linux/sysdev.h>
 #include <linux/usb/isp1760.h>
-#include <linux/mtd/physmap.h>
 
 #include <asm/clkdev.h>
 #include <asm/sizes.h>
+#include <asm/mach/flash.h>
 #include <asm/mach/map.h>
 #include <asm/mach/time.h>
 #include <asm/hardware/arm_timer.h>
@@ -194,13 +194,27 @@ static struct platform_device v2m_usb_device = {
 	.dev.platform_data = &v2m_usb_config,
 };
 
-static void v2m_flash_set_vpp(struct map_info *map, int on)
+static int v2m_flash_init(void)
+{
+	writel(0, MMIO_P2V(V2M_SYS_FLASH));
+	return 0;
+}
+
+static void v2m_flash_exit(void)
+{
+	writel(0, MMIO_P2V(V2M_SYS_FLASH));
+}
+
+static void v2m_flash_set_vpp(int on)
 {
 	writel(on != 0, MMIO_P2V(V2M_SYS_FLASH));
 }
 
-static struct physmap_flash_data v2m_flash_data = {
+static struct flash_platform_data v2m_flash_data = {
+	.map_name	= "cfi_probe",
 	.width		= 4,
+	.init		= v2m_flash_init,
+	.exit		= v2m_flash_exit,
 	.set_vpp	= v2m_flash_set_vpp,
 };
 
@@ -217,7 +231,7 @@ static struct resource v2m_flash_resources[] = {
 };
 
 static struct platform_device v2m_flash_device = {
-	.name		= "physmap-flash",
+	.name		= "armflash",
 	.id		= -1,
 	.resource	= v2m_flash_resources,
 	.num_resources	= ARRAY_SIZE(v2m_flash_resources),
