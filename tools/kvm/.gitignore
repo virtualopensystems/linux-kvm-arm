@@ -1,0 +1,5 @@
+/kvm
+*.o
+*.d
+.cscope
+tags
