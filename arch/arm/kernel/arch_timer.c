@@ -20,9 +20,12 @@
 
 #include <asm/cputype.h>
 #include <asm/localtimer.h>
+#include <asm/sched_clock.h>
 #include <asm/hardware/gic.h>
 
 static unsigned long arch_timer_rate;
+
+static DEFINE_CLOCK_DATA(cd);
 
 /*
  * Architected system timer support.
@@ -187,6 +190,28 @@ static struct clocksource clocksource_counter = {
 	.flags	= (CLOCK_SOURCE_IS_CONTINUOUS | CLOCK_SOURCE_VALID_FOR_HRES),
 };
 
+DEFINE_SCHED_CLOCK_FUNC(arch_timer_sched_clock)
+{
+	u32 cvall, cvalh;
+
+	asm volatile("mrrc p15, 1, %0, %1, c14" : "=r" (cvall), "=r" (cvalh));
+
+	/*
+	 * The sched_clock infrastructure only knows about counters
+	 * with at most 32bits. Forget about the upper 24 bits for the
+	 * time being...
+	 */
+	return cyc_to_sched_clock(&cd, cvall, (u32)~0);
+}
+
+static void notrace arch_timer_update_sched_clock(void)
+{
+	u32 cvall, cvalh;
+
+	asm volatile("mrrc p15, 1, %0, %1, c14" : "=r" (cvall), "=r" (cvalh));
+	update_sched_clock(&cd, cvall, (u32)~0);
+}
+
 static int __init arch_timer_clocksource_init(void)
 {
 	struct clocksource *cs = &clocksource_counter;
@@ -194,6 +219,9 @@ static int __init arch_timer_clocksource_init(void)
 	percpu_timer_setup();
 
 	clocksource_register_hz(cs, arch_timer_rate);
+
+	init_arch_sched_clock(&cd, arch_timer_update_sched_clock,
+			      arch_timer_sched_clock, 32, arch_timer_rate);
 
 	return 0;
 }
