@@ -4,5 +4,6 @@
 struct resource;
 
 int arch_timer_register(struct resource *res, int res_nr);
+int arch_timer_sched_clock_init(void);
 
 #endif
