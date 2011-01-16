@@ -1441,13 +1441,10 @@ int __get_user_pages(struct task_struct *tsk, struct mm_struct *mm,
 			cond_resched();
 			while (!(page = follow_page(vma, start, foll_flags))) {
 				int ret;
-				unsigned int fault_fl =
-					((foll_flags & FOLL_WRITE) ?
-					FAULT_FLAG_WRITE : 0) |
-					((foll_flags & FOLL_MINOR) ?
-					FAULT_FLAG_MINOR : 0);
 
-				ret = handle_mm_fault(mm, vma, start, fault_fl);
+				ret = handle_mm_fault(mm, vma, start,
+					(foll_flags & FOLL_WRITE) ?
+					FAULT_FLAG_WRITE : 0);
 
 				if (ret & VM_FAULT_ERROR) {
 					if (ret & VM_FAULT_OOM)
@@ -1455,8 +1452,6 @@ int __get_user_pages(struct task_struct *tsk, struct mm_struct *mm,
 					if (ret &
 					    (VM_FAULT_HWPOISON|VM_FAULT_HWPOISON_LARGE|
 					     VM_FAULT_SIGBUS))
-						return i ? i : -EFAULT;
-					else if (ret & VM_FAULT_MAJOR)
 						return i ? i : -EFAULT;
 					BUG();
 				}
@@ -1567,23 +1562,6 @@ int get_user_pages(struct task_struct *tsk, struct mm_struct *mm,
 	return __get_user_pages(tsk, mm, start, nr_pages, flags, pages, vmas);
 }
 EXPORT_SYMBOL(get_user_pages);
-
-int get_user_pages_noio(struct task_struct *tsk, struct mm_struct *mm,
-		unsigned long start, int nr_pages, int write, int force,
-		struct page **pages, struct vm_area_struct **vmas)
-{
-	int flags = FOLL_TOUCH | FOLL_MINOR;
-
-	if (pages)
-		flags |= FOLL_GET;
-	if (write)
-		flags |= FOLL_WRITE;
-	if (force)
-		flags |= FOLL_FORCE;
-
-	return __get_user_pages(tsk, mm, start, nr_pages, flags, pages, vmas);
-}
-EXPORT_SYMBOL(get_user_pages_noio);
 
 /**
  * get_dump_page() - pin user page in memory while writing it to core dump
@@ -2673,9 +2651,6 @@ static int do_swap_page(struct mm_struct *mm, struct vm_area_struct *vma,
 	delayacct_set_flag(DELAYACCT_PF_SWAPIN);
 	page = lookup_swap_cache(entry);
 	if (!page) {
-		if (flags & FAULT_FLAG_MINOR)
-			return VM_FAULT_MAJOR | VM_FAULT_ERROR;
-
 		grab_swap_token(mm); /* Contend for token _before_ read-in */
 		page = swapin_readahead(entry,
 					GFP_HIGHUSER_MOVABLE, vma, address);
