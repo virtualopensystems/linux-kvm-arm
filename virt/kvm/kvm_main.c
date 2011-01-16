@@ -1013,15 +1013,7 @@ static pfn_t hva_to_pfn(struct kvm *kvm, unsigned long addr, bool atomic,
 		if (writable)
 			*writable = write_fault;
 
-		if (async) {
-			down_read(&current->mm->mmap_sem);
-			npages = get_user_pages_noio(current, current->mm,
-						     addr, 1, write_fault, 0,
-						     page, NULL);
-			up_read(&current->mm->mmap_sem);
-		} else
-			npages = get_user_pages_fast(addr, 1, write_fault,
-						     page);
+		npages = get_user_pages_fast(addr, 1, write_fault, page);
 
 		/* map read fault as writable if possible */
 		if (unlikely(!write_fault) && npages == 1) {
