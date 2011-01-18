@@ -48,6 +48,14 @@ config SYS_SUPPORTS_APM_EMULATION
 config HAVE_SCHED_CLOCK
 	bool
 
+config ARCH_SCHED_CLOCK
+	bool
+	help
+	  Allow the default sched_clock() to be overloaded at runtime.
+	  Use this option if you build a kernel for a platform with
+	  multiplee sched_clock sources, one of which will be selected
+	  at runtime.
+
 config GENERIC_GPIO
 	bool
 
@@ -269,6 +277,7 @@ config ARCH_VEXPRESS
 	select GENERIC_CLOCKEVENTS
 	select HAVE_CLK
 	select HAVE_SCHED_CLOCK
+	select ARCH_SCHED_CLOCK
 	select ICST
 	select PLAT_VERSATILE
 	help

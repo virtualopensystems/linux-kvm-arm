@@ -21,6 +21,17 @@ struct clock_data {
 
 #define DEFINE_CLOCK_DATA(name)	struct clock_data name
 
+#ifdef CONFIG_ARCH_SCHED_CLOCK
+#define __DEFINE_SCHED_CLOCK_ALIAS(name)
+#else
+#define __DEFINE_SCHED_CLOCK_ALIAS(name) \
+	unsigned long long sched_clock(void) __attribute__ ((alias (#name)));
+#endif
+
+#define DEFINE_SCHED_CLOCK_FUNC(name) \
+	__DEFINE_SCHED_CLOCK_ALIAS(name)	\
+	static unsigned long long notrace name(void)
+
 static inline u64 cyc_to_ns(u64 cyc, u32 mult, u32 shift)
 {
 	return (cyc * mult) >> shift;
@@ -94,25 +105,47 @@ static inline unsigned long long cyc_to_sched_clock(struct clock_data *cd,
  * and shift.  Also setup a timer to ensure that the epoch is refreshed
  * at the appropriate time interval, which will call your update
  * handler.
+ *
+ * Use the _arch_ version if you want your sched_clock function to be
+ * selected at run time (if CONFIG_ARCH_SCHED_CLOCK is enabled).
  */
-void init_sched_clock(struct clock_data *, void (*)(void),
+void init_arch_sched_clock(struct clock_data *, void (*)(void),
+	unsigned long long (*)(void),
 	unsigned int, unsigned long);
+
+static inline void init_sched_clock(struct clock_data *cd,
+				    void (*update)(void),
+				    unsigned int bits, unsigned long rate)
+{
+	init_arch_sched_clock(cd, update, NULL, bits, rate);
+}
 
 /*
  * Use this initialization function rather than init_sched_clock() if
  * you're using cyc_to_fixed_sched_clock, which will warn if your
  * constants are incorrect.
+ *
+ * Use the _arch_ version if you want your sched_clock function to be
+ * selected at run time (if CONFIG_ARCH_SCHED_CLOCK is enabled).
  */
-static inline void init_fixed_sched_clock(struct clock_data *cd,
-	void (*update)(void), unsigned int bits, unsigned long rate,
+static inline void init_fixed_arch_sched_clock(struct clock_data *cd,
+	void (*update)(void), unsigned long long (*sched_clock_fn)(void),
+	unsigned int bits, unsigned long rate,
 	u32 mult, u32 shift)
 {
-	init_sched_clock(cd, update, bits, rate);
+	init_arch_sched_clock(cd, update, sched_clock_fn, bits, rate);
 	if (cd->mult != mult || cd->shift != shift) {
 		pr_crit("sched_clock: wrong multiply/shift: %u>>%u vs calculated %u>>%u\n"
 			"sched_clock: fix multiply/shift to avoid scheduler hiccups\n",
 			mult, shift, cd->mult, cd->shift);
 	}
+}
+
+static inline void init_fixed_sched_clock(struct clock_data *cd,
+	void (*update)(void), unsigned int bits, unsigned long rate,
+	u32 mult, u32 shift)
+{
+	init_fixed_arch_sched_clock(cd, update, NULL, bits, rate, mult, shift);
 }
 
 extern void sched_clock_postinit(void);
