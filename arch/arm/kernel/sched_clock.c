@@ -18,13 +18,29 @@ static void sched_clock_poll(unsigned long wrap_ticks);
 static DEFINE_TIMER(sched_clock_timer, sched_clock_poll, 0, 0);
 static void (*sched_clock_update_fn)(void);
 
+#ifdef CONFIG_ARCH_SCHED_CLOCK
+static unsigned long long notrace default_sched_clock(void)
+{
+	return (unsigned long long)(jiffies - INITIAL_JIFFIES)
+					* (NSEC_PER_SEC / HZ);
+}
+
+static unsigned long long __read_mostly (*sched_clock_fn)(void) = default_sched_clock;
+
+unsigned long long notrace sched_clock(void)
+{
+	return sched_clock_fn();
+}
+#endif
+
 static void sched_clock_poll(unsigned long wrap_ticks)
 {
 	mod_timer(&sched_clock_timer, round_jiffies(jiffies + wrap_ticks));
 	sched_clock_update_fn();
 }
 
-void __init init_sched_clock(struct clock_data *cd, void (*update)(void),
+void __init init_arch_sched_clock(struct clock_data *cd, void (*update)(void),
+	unsigned long long (*arch_sched_clock_fn)(void),
 	unsigned int clock_bits, unsigned long rate)
 {
 	unsigned long r, w;
@@ -32,6 +48,11 @@ void __init init_sched_clock(struct clock_data *cd, void (*update)(void),
 	char r_unit;
 
 	sched_clock_update_fn = update;
+
+#ifdef CONFIG_ARCH_SCHED_CLOCK
+	if (arch_sched_clock_fn)
+		sched_clock_fn = arch_sched_clock_fn;
+#endif
 
 	/* calculate the mult/shift to convert counter ticks to ns. */
 	clocks_calc_mult_shift(&cd->mult, &cd->shift, rate, NSEC_PER_SEC, 0);
