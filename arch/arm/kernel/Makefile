@@ -33,6 +33,7 @@ obj-$(CONFIG_PM_SLEEP)		+= sleep.o
 obj-$(CONFIG_HAVE_SCHED_CLOCK)	+= sched_clock.o
 obj-$(CONFIG_SMP)		+= smp.o smp_tlb.o
 obj-$(CONFIG_HAVE_ARM_SCU)	+= smp_scu.o
+obj-$(CONFIG_HAVE_ARCH_TIMERS)	+= arch_timer.o
 obj-$(CONFIG_HAVE_ARM_TWD)	+= smp_twd.o
 obj-$(CONFIG_LOCAL_TIMERS)	+= percpu_timer.o
 obj-$(CONFIG_DYNAMIC_FTRACE)	+= ftrace.o
