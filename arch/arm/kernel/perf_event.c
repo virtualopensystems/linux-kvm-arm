@@ -633,6 +633,9 @@ init_hw_perf_events(void)
 		case 0xC090:	/* Cortex-A9 */
 			armpmu = armv7_a9_pmu_init();
 			break;
+		case 0xC0F0:	/* Cortex-A15 */
+			armpmu = armv7_a15_pmu_init();
+			break;
 		}
 	/* Intel CPUs [xscale]. */
 	} else if (0x69 == implementor) {
