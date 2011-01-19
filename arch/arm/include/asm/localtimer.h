@@ -13,6 +13,7 @@
 #include <linux/clockchips.h>
 
 #include <asm/smp_twd.h>
+#include <asm/arch_timer.h>
 
 struct seq_file;
 
