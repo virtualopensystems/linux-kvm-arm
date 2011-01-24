@@ -30,6 +30,7 @@
 
 #include <mach/ct-ca9x4.h>
 #include <mach/ct-ca15x4.h>
+#include <mach/ct-ca5s.h>
 #include <mach/motherboard.h>
 
 #include <plat/sched_clock.h>
@@ -485,6 +486,9 @@ static void v2m_restart(char str, const char *cmd)
 }
 
 static struct ct_desc *ct_descs[] __initdata = {
+#ifdef CONFIG_ARCH_VEXPRESS_CA5S
+	&ct_ca5s_desc,
+#endif
 #ifdef CONFIG_ARCH_VEXPRESS_CA9X4
 	&ct_ca9x4_desc,
 #endif
