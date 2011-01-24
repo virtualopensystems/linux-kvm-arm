@@ -43,4 +43,11 @@ config ARCH_VEXPRESS_CA15X4
 	select ARM_GIC_VPPI
 	select HAVE_SMP
 
+config ARCH_VEXPRESS_CA5S
+	bool "Versatile Express Cortex-A5 dual-core tile (V2P-CA5s)"
+	depends on VEXPRESS_EXTENDED_MEMORY_MAP
+	select CPU_V7
+	select ARM_GIC
+	select MIGHT_HAVE_CACHE_L2X0
+
 endmenu
