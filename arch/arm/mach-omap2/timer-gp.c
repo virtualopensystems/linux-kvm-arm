@@ -39,7 +39,9 @@
 #include <asm/mach/time.h>
 #include <plat/dmtimer.h>
 #include <asm/localtimer.h>
+#include <asm/smp_twd.h>
 #include <asm/sched_clock.h>
+#include <asm/hardware/gic.h>
 #include <plat/common.h>
 #include <plat/omap_hwmod.h>
 
@@ -247,12 +249,22 @@ static void __init omap2_gp_clocksource_init(void)
 }
 #endif
 
+#ifdef CONFIG_LOCAL_TIMERS
+static int __cpuinit omap4_local_timer_setup(struct clock_event_device *evt)
+{
+	evt->irq = gic_ppi_to_vppi(OMAP44XX_IRQ_LOCALTIMER);
+	return 0;
+}
+#endif
+
 static void __init omap2_gp_timer_init(void)
 {
 #ifdef CONFIG_LOCAL_TIMERS
-	if (cpu_is_omap44xx()) {
+	if (cpu_is_omap44xx() && omap_rev() != OMAP4430_REV_ES1_0) {
 		twd_base = ioremap(OMAP44XX_LOCAL_TWD_BASE, SZ_256);
 		BUG_ON(!twd_base);
+
+		twd_timer_register_setup(omap4_local_timer_setup);
 	}
 #endif
 	omap_dm_timer_init();
