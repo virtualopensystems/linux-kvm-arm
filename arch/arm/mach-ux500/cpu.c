@@ -8,11 +8,13 @@
 #include <linux/platform_device.h>
 #include <linux/io.h>
 #include <linux/clk.h>
+#include <linux/clockchips.h>
 
 #include <asm/cacheflush.h>
 #include <asm/hardware/cache-l2x0.h>
 #include <asm/hardware/gic.h>
 #include <asm/mach/map.h>
+#include <asm/irq.h>
 #include <asm/localtimer.h>
 
 #include <plat/mtu.h>
@@ -115,6 +117,13 @@ static int ux500_l2x0_init(void)
 early_initcall(ux500_l2x0_init);
 #endif
 
+#ifdef CONFIG_LOCAL_TIMERS
+static void __cpuinit ux500_local_timer_setup(struct clock_event_device *evt)
+{
+	evt->irq = IRQ_LOCALTIMER;
+}
+#endif
+
 static void __init ux500_timer_init(void)
 {
 #ifdef CONFIG_LOCAL_TIMERS
@@ -125,6 +134,8 @@ static void __init ux500_timer_init(void)
 		twd_base = __io_address(U8500_TWD_BASE);
 	else
 		ux500_unknown_soc();
+
+	twd_timer_register_setup(ux500_local_timer_setup);
 #endif
 	if (cpu_is_u5500())
 		mtu_base = __io_address(U5500_MTU0_BASE);
