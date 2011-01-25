@@ -31,10 +31,12 @@
 #include <linux/amba/mmci.h>
 #include <linux/gfp.h>
 #include <linux/clkdev.h>
+#include <linux/clockchips.h>
 
 #include <asm/system.h>
 #include <mach/hardware.h>
 #include <asm/irq.h>
+#include <asm/localtimer.h>
 #include <asm/leds.h>
 #include <asm/mach-types.h>
 #include <asm/hardware/arm_timer.h>
@@ -655,6 +657,15 @@ void realview_leds_event(led_event_t ledevt)
 }
 #endif	/* CONFIG_LEDS */
 
+#ifdef CONFIG_LOCAL_TIMERS
+static void __cpuinit realview_local_timer_setup(struct clock_event_device *evt)
+{
+	evt->irq = IRQ_LOCALTIMER;
+}
+#else
+#define realview_local_timer_setup	NULL
+#endif
+
 /*
  * The sched_clock counter
  */
@@ -675,6 +686,8 @@ void __iomem *timer3_va_base;
 void __init realview_timer_init(unsigned int timer_irq)
 {
 	u32 val;
+
+	twd_timer_register_setup(realview_local_timer_setup);
 
 	versatile_sched_clock_init(REFCOUNTER, 24000000);
 
