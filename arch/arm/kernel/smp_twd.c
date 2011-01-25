@@ -149,20 +149,12 @@ static struct local_timer_ops twd_timer_ops = {
 	.ack		= twd_timer_ack,
 };
 
-struct local_timer_ops *local_timer_get_twd_ops(void)
+int __init twd_timer_register_setup(void (*setup)(struct clock_event_device *))
 {
 	if (!twd_base) {
 		pr_warn("TWD base address not set\n");
-		return NULL;
-	}
-
-	return &twd_timer_ops;
-}
-
-int __init twd_timer_register_setup(void (*setup)(struct clock_event_device *))
-{
-	if (!twd_base)
 		return -ENODEV;
+	}
 
 	percpu_timer_register_setup(&twd_timer_ops, setup);
 	return 0;

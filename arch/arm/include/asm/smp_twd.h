@@ -23,14 +23,8 @@
 extern void __iomem *twd_base;
 
 #ifdef CONFIG_HAVE_ARM_TWD
-struct local_timer_ops *local_timer_get_twd_ops(void);
 int twd_timer_register_setup(void (*setup)(struct clock_event_device *));
 #else
-static inline struct local_timer_ops *local_timer_get_twd_ops(void)
-{
-	return NULL;
-}
-
 static inline int twd_timer_register_setup(void (*setup)(struct clock_event_device *))
 {
 	return -ENODEV;
