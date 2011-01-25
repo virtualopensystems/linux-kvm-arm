@@ -22,6 +22,7 @@
 #include <linux/delay.h>
 #include <linux/io.h>
 
+#include <asm/localtimer.h>
 #include <asm/mach/time.h>
 #include <mach/msm_iomap.h>
 
@@ -215,6 +216,19 @@ static struct msm_clock msm_clocks[] = {
 	}
 };
 
+#ifdef CONFIG_SMP
+static void __cpuinit msm_local_timer_setup(struct clock_event_device *evt);
+static int msm_local_timer_ack(void);
+
+static struct local_timer_ops msm_timer_ops = {
+	.setup	= msm_local_timer_setup,
+	.ack	= msm_local_timer_ack,
+};
+#define msm_timer_ops_ptr	(&msm_timer_ops)
+#else
+#define msm_timer_ops_ptr	NULL
+#endif
+
 static void __init msm_timer_init(void)
 {
 	int i;
@@ -223,6 +237,8 @@ static void __init msm_timer_init(void)
 #ifdef CONFIG_ARCH_MSM_SCORPIONMP
 	writel(DGT_CLK_CTL_DIV_4, MSM_TMR_BASE + DGT_CLK_CTL);
 #endif
+
+	percpu_timer_register(msm_timer_ops_ptr);
 
 	for (i = 0; i < ARRAY_SIZE(msm_clocks); i++) {
 		struct msm_clock *clock = &msm_clocks[i];
@@ -255,7 +271,7 @@ static void __init msm_timer_init(void)
 }
 
 #ifdef CONFIG_SMP
-void __cpuinit local_timer_setup(struct clock_event_device *evt)
+static void __cpuinit msm_local_timer_setup(struct clock_event_device *evt)
 {
 	struct msm_clock *clock = &msm_clocks[MSM_GLOBAL_TIMER];
 
@@ -289,7 +305,7 @@ void __cpuinit local_timer_setup(struct clock_event_device *evt)
 	clockevents_register_device(evt);
 }
 
-inline int local_timer_ack(void)
+static int msm_local_timer_ack(void)
 {
 	return 1;
 }
