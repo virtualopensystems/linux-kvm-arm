@@ -19,9 +19,10 @@
 #include <linux/clockchips.h>
 #include <linux/platform_device.h>
 
-#include <asm/smp_twd.h>
+#include <asm/localtimer.h>
 
 #include <mach/map.h>
+#include <mach/irqs.h>
 #include <plat/regs-timer.h>
 #include <asm/mach/time.h>
 
@@ -267,10 +268,18 @@ static void __init s5pv310_timer_resources(void)
 	clk_enable(tin4);
 }
 
+#ifdef CONFIG_LOCAL_TIMERS
+static void __cpuinit s5pv310_local_timer_setup(struct clock_event_device *evt)
+{
+	evt->irq = IRQ_LOCALTIMER;
+}
+#endif
+
 static void __init s5pv310_timer_init(void)
 {
 #ifdef CONFIG_LOCAL_TIMERS
 	twd_base = S5P_VA_TWD;
+	twd_timer_register_setup(s5pv310_local_timer_setup);
 #endif
 
 	s5pv310_timer_resources();
