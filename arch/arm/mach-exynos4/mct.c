@@ -318,7 +318,7 @@ static inline void exynos4_tick_set_mode(enum clock_event_mode mode,
 	}
 }
 
-int local_timer_ack(void)
+static int exynos4_mct_timer_ack(void)
 {
 	unsigned int cpu = smp_processor_id();
 	struct mct_clock_event_device *mevt = &mct_tick[cpu];
@@ -338,7 +338,7 @@ int local_timer_ack(void)
 	return 1;
 }
 
-int __cpuinit local_timer_setup(struct clock_event_device *evt)
+static int __cpuinit exynos4_mct_timer_setup(struct clock_event_device *evt)
 {
 	unsigned int cpu = smp_processor_id();
 	int err;
@@ -384,6 +384,18 @@ int __cpuinit local_timer_setup(struct clock_event_device *evt)
 
 	return err;
 }
+
+static struct local_timer_ops exynos4_mct_ops = {
+	.setup	= exynos4_mct_timer_setup,
+	.ack	= exynos4_mct_timer_ack,
+};
+
+#define exynos4_mct_ops_ptr	(&exynos4_mct_ops)
+
+#else
+
+#define exynos4_mct_ops_ptr	NULL
+
 #endif /* CONFIG_LOCAL_TIMERS */
 
 static void __init exynos4_timer_resources(void)
@@ -399,6 +411,7 @@ static void __init exynos4_timer_init(void)
 	exynos4_timer_resources();
 	exynos4_clocksource_init();
 	exynos4_clockevent_init();
+	percpu_timer_register(exynos4_mct_ops_ptr);
 }
 
 struct sys_timer exynos4_timer = {

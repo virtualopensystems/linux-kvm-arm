@@ -19,9 +19,12 @@
 #include <linux/clockchips.h>
 #include <linux/platform_device.h>
 
+#include <asm/localtimer.h>
 #include <asm/smp_twd.h>
+#include <asm/hardware/gic.h>
 
 #include <mach/map.h>
+#include <mach/irqs.h>
 #include <plat/regs-timer.h>
 #include <asm/mach/time.h>
 
@@ -283,10 +286,19 @@ static void __init exynos4_timer_resources(void)
 	clk_enable(tin4);
 }
 
+#ifdef CONFIG_LOCAL_TIMERS
+static int __cpuinit exynos4_local_timer_setup(struct clock_event_device *evt)
+{
+	evt->irq = gic_ppi_to_vppi(IRQ_LOCALTIMER);
+	return 0;
+}
+#endif
+
 static void __init exynos4_timer_init(void)
 {
 #ifdef CONFIG_LOCAL_TIMERS
 	twd_base = S5P_VA_TWD;
+	twd_timer_register_setup(exynos4_local_timer_setup);
 #endif
 
 	exynos4_timer_resources();
