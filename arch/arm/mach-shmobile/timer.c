@@ -36,8 +36,18 @@ static void __init shmobile_late_time_init(void)
 	early_platform_driver_probe("earlytimer", 2, 0);
 }
 
+#ifdef CONFIG_LOCAL_TIMERS
+static void __cpuinit shmobile_local_timer_setup(struct clock_event_device *evt)
+{
+	evt->irq = 29;
+}
+#else
+#define shmobile_local_timer_setup	NULL
+#endif
+
 static void __init shmobile_timer_init(void)
 {
+	twd_timer_register_setup(shmobile_local_timer_setup);
 	late_time_init = shmobile_late_time_init;
 }
 
