@@ -242,6 +242,13 @@ static void __init omap2_gp_clocksource_init(void)
 }
 #endif
 
+#ifdef CONFIG_LOCAL_TIMERS
+static void __cpuinit omap4_local_timer_setup(struct clock_event_device *evt)
+{
+	evt->irq = OMAP44XX_IRQ_LOCALTIMER;
+}
+#endif
+
 static void __init omap2_gp_timer_init(void)
 {
 #ifdef CONFIG_LOCAL_TIMERS
@@ -249,6 +256,8 @@ static void __init omap2_gp_timer_init(void)
 		twd_base = ioremap(OMAP44XX_LOCAL_TWD_BASE, SZ_256);
 		BUG_ON(!twd_base);
 	}
+
+	twd_timer_register_setup(omap4_local_timer_setup);
 #endif
 	omap_dm_timer_init();
 
