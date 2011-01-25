@@ -48,12 +48,7 @@ static struct local_timer_ops broadcast_timer_ops = {
 	.setup	= broadcast_timer_setup,
 };
 
-static struct local_timer_ops *timer_ops;
-
-int __attribute__ ((weak)) local_timer_setup(struct clock_event_device *evt)
-{
-	return -ENXIO;
-}
+static struct local_timer_ops *timer_ops = &broadcast_timer_ops;
 
 void percpu_timer_register(struct local_timer_ops *ops)
 {
@@ -110,18 +105,6 @@ void __cpuinit percpu_timer_setup(void)
 
 	if (evt->name)
 		return;
-
-	/*
-	 * All this can go away once we've migrated all users to
-	 * properly register the timer they use, and broadcast can
-	 * become the fallback.
-	 */
-	if (!timer_ops)
-		timer_ops = local_timer_get_twd_ops();
-	if (!timer_ops)
-		timer_ops = &broadcast_timer_ops;
-	if (!timer_ops->plat_setup)
-		timer_ops->plat_setup = local_timer_setup;
 
 	evt->cpumask = cpumask_of(cpu);
 

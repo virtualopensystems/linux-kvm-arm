@@ -40,11 +40,6 @@ struct local_timer_ops {
 
 #ifdef CONFIG_LOCAL_TIMERS
 /*
- * Setup a local timer interrupt for a CPU.
- */
-int local_timer_setup(struct clock_event_device *);
-
-/*
  * Register a local timer.
  */
 void percpu_timer_register(struct local_timer_ops *);
