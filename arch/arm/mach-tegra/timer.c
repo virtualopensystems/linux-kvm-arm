@@ -148,6 +148,13 @@ static struct irqaction tegra_timer_irq = {
 	.irq		= INT_TMR3,
 };
 
+#ifdef CONFIG_HAVE_ARM_TWD
+static void __cpuinit tegra_local_timer_setup(struct clock_event_device *evt)
+{
+	evt->irq = IRQ_LOCALTIMER;
+}
+#endif
+
 static void __init tegra_init_timer(void)
 {
 	unsigned long rate = clk_measure_input_freq();
@@ -155,6 +162,8 @@ static void __init tegra_init_timer(void)
 
 #ifdef CONFIG_HAVE_ARM_TWD
 	twd_base = IO_ADDRESS(TEGRA_ARM_PERIF_BASE + 0x600);
+
+	twd_timer_register_setup(tegra_local_timer_setup);
 #endif
 
 	switch (rate) {
