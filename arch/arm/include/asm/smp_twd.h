@@ -37,11 +37,4 @@ static inline int twd_timer_register_setup(void (*setup)(struct clock_event_devi
 }
 #endif
 
-/*
- * Dummy function, to be removed once there is no in-tree user anymore.
- */
-static inline void twd_timer_setup(void *dummy)
-{
-}
-
 #endif
