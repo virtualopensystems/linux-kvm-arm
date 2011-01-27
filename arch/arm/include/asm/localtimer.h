@@ -11,8 +11,9 @@
 #define __ASM_ARM_LOCALTIMER_H
 
 #include <linux/interrupt.h>
+#include <linux/clockchips.h>
 
-struct clock_event_device;
+struct seq_file;
 
 /*
  * Setup a per-cpu timer, whether it be a local timer or dummy broadcast
@@ -24,35 +25,47 @@ void percpu_timer_setup(void);
  */
 irqreturn_t percpu_timer_handler(int irq, void *dev_id);
 
-#ifdef CONFIG_LOCAL_TIMERS
-
-#ifdef CONFIG_HAVE_ARM_TWD
-
-#include "smp_twd.h"
-
-#define local_timer_ack()	twd_timer_ack()
-
-#else
-
 /*
- * Platform provides this to acknowledge a local timer IRQ.
- * Returns true if the local timer IRQ is to be processed.
+ * Stop a per-cpu timer
  */
-int local_timer_ack(void);
+void percpu_timer_stop(void);
 
-#endif
+struct local_timer_ops {
+	void	(*const pre_setup)(struct clock_event_device *clk);
+	int	(*plat_setup)(struct clock_event_device *clk);
+	void	(*plat_teardown)(struct clock_event_device *clk);
+	void	(*const setup)(struct clock_event_device *clk);
+	int	(*const ack)(void);
+};
 
+#ifdef CONFIG_LOCAL_TIMERS
 /*
  * Setup a local timer interrupt for a CPU.
  */
 int local_timer_setup(struct clock_event_device *);
 
+/*
+ * Register a local timer.
+ */
+void percpu_timer_register(struct local_timer_ops *);
 #else
-
-static inline int local_timer_setup(struct clock_event_device *evt)
+static inline void percpu_timer_register(void *dummy)
 {
-	return -ENXIO;
 }
 #endif
+
+static inline int percpu_timer_register_setup(struct local_timer_ops *ops,
+					      int (*plat_setup)(struct clock_event_device *),
+					      void (*plat_teardown)(struct clock_event_device *))
+{
+	if (ops) {
+		ops->plat_setup = plat_setup;
+		ops->plat_teardown = plat_teardown;
+		percpu_timer_register(ops);
+		return 0;
+	}
+
+	return -ENODEV;
+}
 
 #endif

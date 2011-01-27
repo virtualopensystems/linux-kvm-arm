@@ -18,6 +18,7 @@
 #include <linux/interrupt.h>
 #include <linux/io.h>
 
+#include <asm/localtimer.h>
 #include <asm/smp_twd.h>
 #include <asm/localtimer.h>
 #include <asm/hardware/gic.h>
@@ -73,7 +74,7 @@ static int twd_set_next_event(unsigned long evt,
  * If a local timer interrupt has occurred, acknowledge and return 1.
  * Otherwise, return 0.
  */
-int twd_timer_ack(void)
+static int twd_timer_ack(void)
 {
 	if (__raw_readl(twd_base + TWD_TIMER_INTSTAT)) {
 		__raw_writel(1, twd_base + TWD_TIMER_INTSTAT);
@@ -125,7 +126,7 @@ static void __cpuinit twd_calibrate_rate(void)
 /*
  * Setup the local clock events for a CPU.
  */
-void __cpuinit twd_timer_setup(struct clock_event_device *clk)
+static void __cpuinit twd_setup(struct clock_event_device *clk)
 {
 	int err;
 
@@ -152,4 +153,28 @@ void __cpuinit twd_timer_setup(struct clock_event_device *clk)
 	}
 
 	clockevents_register_device(clk);
+}
+
+static struct local_timer_ops twd_timer_ops = {
+	.setup		= twd_setup,
+	.ack		= twd_timer_ack,
+};
+
+struct local_timer_ops *local_timer_get_twd_ops(void)
+{
+	if (!twd_base) {
+		pr_warn("TWD base address not set\n");
+		return NULL;
+	}
+
+	return &twd_timer_ops;
+}
+
+int __init twd_timer_register_setup(int (*setup)(struct clock_event_device *))
+{
+	if (!twd_base)
+		return -ENODEV;
+
+	percpu_timer_register_setup(&twd_timer_ops, setup, NULL);
+	return 0;
 }
