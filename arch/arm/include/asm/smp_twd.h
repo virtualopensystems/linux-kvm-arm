@@ -1,6 +1,8 @@
 #ifndef __ASMARM_SMP_TWD_H
 #define __ASMARM_SMP_TWD_H
 
+#include <linux/clockchips.h>
+
 #define TWD_TIMER_LOAD			0x00
 #define TWD_TIMER_COUNTER		0x04
 #define TWD_TIMER_CONTROL		0x08
@@ -18,11 +20,28 @@
 #define TWD_TIMER_CONTROL_PERIODIC	(1 << 1)
 #define TWD_TIMER_CONTROL_IT_ENABLE	(1 << 2)
 
-struct clock_event_device;
-
 extern void __iomem *twd_base;
 
-int twd_timer_ack(void);
-void twd_timer_setup(struct clock_event_device *);
+#ifdef CONFIG_HAVE_ARM_TWD
+struct local_timer_ops *local_timer_get_twd_ops(void);
+int twd_timer_register_setup(void (*setup)(struct clock_event_device *));
+#else
+static inline struct local_timer_ops *local_timer_get_twd_ops(void)
+{
+	return NULL;
+}
+
+static inline int twd_timer_register_setup(void (*setup)(struct clock_event_device *))
+{
+	return -ENODEV;
+}
+#endif
+
+/*
+ * Dummy function, to be removed once there is no in-tree user anymore.
+ */
+static inline void twd_timer_setup(void *dummy)
+{
+}
 
 #endif

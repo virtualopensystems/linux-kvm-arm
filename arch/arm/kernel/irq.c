@@ -38,6 +38,7 @@
 #include <linux/ftrace.h>
 
 #include <asm/system.h>
+#include <asm/localtimer.h>
 #include <asm/mach/arch.h>
 #include <asm/mach/irq.h>
 #include <asm/mach/time.h>

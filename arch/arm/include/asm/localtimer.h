@@ -10,7 +10,11 @@
 #ifndef __ASM_ARM_LOCALTIMER_H
 #define __ASM_ARM_LOCALTIMER_H
 
-struct clock_event_device;
+#include <linux/clockchips.h>
+
+#include <asm/smp_twd.h>
+
+struct seq_file;
 
 /*
  * Setup a per-cpu timer, whether it be a local timer or dummy broadcast
@@ -18,34 +22,57 @@ struct clock_event_device;
 void percpu_timer_setup(void);
 
 /*
+ * Call a per-cpu timer handler
+ */
+void percpu_timer_run(void);
+
+/*
+ * Stop a per-cpu timer
+ */
+void percpu_timer_stop(void);
+
+/*
  * Called from assembly, this is the local timer IRQ handler
  */
 asmlinkage void do_local_timer(struct pt_regs *);
 
-
-#ifdef CONFIG_LOCAL_TIMERS
-
-#ifdef CONFIG_HAVE_ARM_TWD
-
-#include "smp_twd.h"
-
-#define local_timer_ack()	twd_timer_ack()
-
-#else
-
-/*
- * Platform provides this to acknowledge a local timer IRQ.
- * Returns true if the local timer IRQ is to be processed.
- */
-int local_timer_ack(void);
-
-#endif
+struct local_timer_ops {
+	void	(*plat_setup)(struct clock_event_device *clk);
+	void	(*const setup)(struct clock_event_device *clk);
+	int	(*const ack)(void);
+};
 
 /*
  * Setup a local timer interrupt for a CPU.
  */
 void local_timer_setup(struct clock_event_device *);
 
+/*
+ * Register a local timer.
+ */
+#ifdef CONFIG_LOCAL_TIMERS
+void percpu_timer_register(struct local_timer_ops *);
+#else
+static inline void percpu_timer_register(void *dummy)
+{
+}
 #endif
+
+static inline int percpu_timer_register_setup(struct local_timer_ops *ops,
+					      void (*plat_setup)(struct clock_event_device *))
+{
+	if (ops) {
+		ops->plat_setup = plat_setup;
+		percpu_timer_register(ops);
+		return 0;
+	}
+
+	return -1;
+}
+
+/*
+ * show local interrupt info
+ */
+extern void show_local_irqs(struct seq_file *, int);
 
 #endif

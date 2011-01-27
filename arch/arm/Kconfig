@@ -1282,6 +1282,7 @@ config SMP
 		 ARCH_MSM_SCORPIONMP || ARCH_SHMOBILE || ARCH_VEXPRESS_CA15X4
 	select USE_GENERIC_SMP_HELPERS
 	select HAVE_ARM_SCU if !ARCH_MSM_SCORPIONMP
+	select HAVE_ARM_TWD if !ARCH_MSM_SCORPIONMP
 	help
 	  This enables support for systems with more than one CPU. If you have
 	  a system with only one CPU, like most personal computers, say N. If
@@ -1363,10 +1364,8 @@ config HOTPLUG_CPU
 	  can be controlled through /sys/devices/system/cpu.
 
 config LOCAL_TIMERS
-	bool "Use local timer interrupts"
-	depends on SMP
-	default y
-	select HAVE_ARM_TWD if !ARCH_MSM_SCORPIONMP
+	bool
+	default HAVE_ARM_TWD || ARCH_MSM_SCORPIONMP
 	help
 	  Enable support for local timers on SMP platforms, rather then the
 	  legacy IPI broadcast method.  Local timers allows the system
