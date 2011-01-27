@@ -15,6 +15,7 @@
 
 #include <asm/mach-types.h>
 #include <asm/sizes.h>
+#include <asm/localtimer.h>
 #include <asm/mach/arch.h>
 #include <asm/mach/flash.h>
 #include <asm/mach/map.h>
@@ -40,9 +41,23 @@ static struct map_desc v2m_io_desc[] __initdata = {
 	},
 };
 
+static void __cpuinit v2m_local_timer_setup(struct clock_event_device *evt)
+{
+	evt->irq = IRQ_LOCALTIMER;
+}
+
 static void __init v2m_timer_init(void)
 {
 	u32 scctrl;
+
+	/*
+	 * Try architected timers first. If they are not available,
+	 * fallback to TWD and versatile sched_clock.
+	 */
+	if (!arch_timer_register_setup(v2m_local_timer_setup))
+		return;
+
+	twd_timer_register_setup(v2m_local_timer_setup);
 
 	versatile_sched_clock_init(MMIO_P2V(V2M_SYS_24MHZ), 24000000);
 

@@ -34,5 +34,6 @@ config ARCH_VEXPRESS_CA15X4
 	depends on VEXPRESS_EXTENDED_MEMORY_MAP
 	select CPU_V7
 	select ARM_GIC
+	select HAVE_ARCH_TIMERS
 
 endmenu
