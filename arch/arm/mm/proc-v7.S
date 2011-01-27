@@ -276,6 +276,7 @@ cpu_resume_l1_flags:
  *	- cache type register is implemented
  */
 __v7_ca9mp_setup:
+__v7_ca5mp_setup:
 	mov	r10, #(1 << 0)			@ TLB ops broadcasting
 	b	1f
 __v7_ca15mp_setup:
@@ -470,6 +471,35 @@ __v7_ca9mp_proc_info:
 	.long	v6_user_fns
 	.long	v7_cache_fns
 	.size	__v7_ca9mp_proc_info, . - __v7_ca9mp_proc_info
+
+	.type   __v7_ca5mp_proc_info, #object
+__v7_ca5mp_proc_info:
+	.long	0x410fc050		@ Required ID value
+	.long	0xff0ffff0		@ Mask for ID
+	ALT_SMP(.long \
+		PMD_TYPE_SECT | \
+		PMD_SECT_AP_WRITE | \
+		PMD_SECT_AP_READ | \
+		PMD_FLAGS_SMP)
+	ALT_UP(.long \
+		PMD_TYPE_SECT | \
+		PMD_SECT_AP_WRITE | \
+		PMD_SECT_AP_READ | \
+		PMD_FLAGS_UP)
+	.long   PMD_TYPE_SECT | \
+		PMD_SECT_XN | \
+		PMD_SECT_AP_WRITE | \
+		PMD_SECT_AP_READ
+	W(b)	__v7_ca5mp_setup
+	.long	cpu_arch_name
+	.long	cpu_elf_name
+	.long	HWCAP_SWP|HWCAP_HALF|HWCAP_THUMB|HWCAP_FAST_MULT|HWCAP_EDSP|HWCAP_TLS
+	.long	cpu_v7_name
+	.long	v7_processor_functions
+	.long	v7wbi_tlb_fns
+	.long	v6_user_fns
+	.long	v7_cache_fns
+	.size	__v7_ca5mp_proc_info, . - __v7_ca5mp_proc_info
 
 	.type	__v7_ca15mp_proc_info, #object
 __v7_ca15mp_proc_info:
