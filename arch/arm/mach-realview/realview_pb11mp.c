@@ -46,6 +46,8 @@
 #include <mach/board-pb11mp.h>
 #include <mach/irqs.h>
 
+#include <plat/localtimer.h>
+
 #include "core.h"
 
 static struct map_desc realview_pb11mp_io_desc[] __initdata = {
@@ -306,7 +308,7 @@ static void __init realview_pb11mp_timer_init(void)
 	timer3_va_base = __io_address(REALVIEW_PB11MP_TIMER2_3_BASE) + 0x20;
 
 #ifdef CONFIG_LOCAL_TIMERS
-	twd_base = __io_address(REALVIEW_TC11MP_TWD_BASE);
+	versatile_local_timer_init(__io_address(REALVIEW_TC11MP_TWD_BASE));
 #endif
 	realview_timer_init(IRQ_TC11MP_TIMER0_1);
 }

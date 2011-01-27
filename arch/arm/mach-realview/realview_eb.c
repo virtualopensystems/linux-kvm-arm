@@ -45,6 +45,8 @@
 #include <mach/board-eb.h>
 #include <mach/irqs.h>
 
+#include <plat/localtimer.h>
+
 #include "core.h"
 
 static struct map_desc realview_eb_io_desc[] __initdata = {
@@ -402,7 +404,7 @@ static void __init realview_eb_timer_init(void)
 
 	if (core_tile_eb11mp() || core_tile_a9mp()) {
 #ifdef CONFIG_LOCAL_TIMERS
-		twd_base = __io_address(REALVIEW_EB11MP_TWD_BASE);
+		versatile_local_timer_init(__io_address(REALVIEW_EB11MP_TWD_BASE));
 #endif
 		timer_irq = IRQ_EB11MP_TIMER0_1;
 	} else

@@ -31,7 +31,6 @@
 #include <asm/leds.h>
 #include <asm/mach-types.h>
 #include <asm/pmu.h>
-#include <asm/smp_twd.h>
 #include <asm/pgtable.h>
 #include <asm/hardware/gic.h>
 #include <asm/hardware/cache-l2x0.h>
@@ -43,6 +42,8 @@
 #include <mach/hardware.h>
 #include <mach/board-pbx.h>
 #include <mach/irqs.h>
+
+#include <plat/localtimer.h>
 
 #include "core.h"
 
@@ -310,7 +311,7 @@ static void __init realview_pbx_timer_init(void)
 
 #ifdef CONFIG_LOCAL_TIMERS
 	if (core_tile_pbx11mp() || core_tile_pbxa9mp())
-		twd_base = __io_address(REALVIEW_PBX_TILE_TWD_BASE);
+		versatile_local_timer_init(__io_address(REALVIEW_PBX_TILE_TWD_BASE));
 #endif
 	realview_timer_init(IRQ_PBX_TIMER0_1);
 }
