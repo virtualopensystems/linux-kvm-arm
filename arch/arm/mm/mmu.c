@@ -62,7 +62,7 @@ EXPORT_SYMBOL(pgprot_kernel);
 struct cachepolicy {
 	const char	policy[16];
 	unsigned int	cr_mask;
-	unsigned int	pmd;
+	pmdval_t	pmd;
 	pteval_t	pte;
 };
 
@@ -290,7 +290,7 @@ static void __init build_mem_type_table(void)
 {
 	struct cachepolicy *cp;
 	unsigned int cr = get_cr();
-	unsigned int user_pgprot, kern_pgprot, vecs_pgprot;
+	pgprotval_t user_pgprot, kern_pgprot, vecs_pgprot;
 	int cpu_arch = cpu_architecture();
 	int i;
 
