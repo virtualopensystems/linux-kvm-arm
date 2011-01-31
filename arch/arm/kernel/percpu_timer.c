@@ -60,10 +60,6 @@ void percpu_timer_register(struct local_timer_ops *ops)
  *
  * If a local timer interrupt has occurred, acknowledge and return 1.
  * Otherwise, return 0.
- *
- * This can be overloaded by platform code that doesn't provide its
- * timer in timer_fns way (msm at the moment). Once all platforms have
- * migrated, the weak alias can be removed.
  * If no ack() function has been registered, consider the acknowledgement
  * to be done.
  */
@@ -74,8 +70,6 @@ static int percpu_timer_ack(void)
 
 	return 1;
 }
-
-int local_timer_ack(void) __attribute__ ((weak, alias("percpu_timer_ack")));
 
 /*
  * Timer (local or broadcast) support
@@ -89,7 +83,7 @@ irqreturn_t percpu_timer_handler(int irq, void *dev_id)
 	if (!evt)
 		evt = &__get_cpu_var(percpu_clockevent);
 
-	if (local_timer_ack()) {
+	if (percpu_timer_ack()) {
 		evt->event_handler(evt);
 		return IRQ_HANDLED;
 	}
