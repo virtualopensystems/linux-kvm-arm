@@ -263,6 +263,18 @@
 
 #define cpu_switch_mm(pgd,mm) cpu_do_switch_mm(virt_to_phys(pgd),mm)
 
+#ifdef CONFIG_ARM_LPAE
+#define cpu_get_pgd()	\
+	({						\
+		unsigned long pg, pg2;			\
+		__asm__("mrrc	p15, 0, %0, %1, c2"	\
+			: "=r" (pg), "=r" (pg2)		\
+			:				\
+			: "cc");			\
+		pg &= ~(PTRS_PER_PGD*sizeof(pgd_t)-1);	\
+		(pgd_t *)phys_to_virt(pg);		\
+	})
+#else
 #define cpu_get_pgd()	\
 	({						\
 		unsigned long pg;			\
@@ -271,6 +283,7 @@
 		pg &= ~0x3fff;				\
 		(pgd_t *)phys_to_virt(pg);		\
 	})
+#endif
 
 #endif
 

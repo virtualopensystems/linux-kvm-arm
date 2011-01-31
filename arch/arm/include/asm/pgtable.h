@@ -164,6 +164,31 @@ extern pgd_t swapper_pg_dir[PTRS_PER_PGD];
 /* to find an entry in a kernel page-table-directory */
 #define pgd_offset_k(addr)	pgd_offset(&init_mm, addr)
 
+#ifdef CONFIG_ARM_LPAE
+
+#define pgd_none(pgd)		(!pgd_val(pgd))
+#define pgd_bad(pgd)		(!(pgd_val(pgd) & 2))
+#define pgd_present(pgd)	(pgd_val(pgd))
+
+#define pgd_clear(pgdp)			\
+	do {				\
+		*pgdp = __pgd(0);	\
+		clean_pmd_entry(pgdp);	\
+	} while (0)
+
+#define set_pgd(pgdp, pgd)		\
+	do {				\
+		*pgdp = pgd;		\
+		flush_pmd_entry(pgdp);	\
+	} while (0)
+
+static inline pmd_t *pgd_page_vaddr(pgd_t pgd)
+{
+	return __va(pgd_val(pgd) & PHYS_MASK & (s32)PAGE_MASK);
+}
+
+#else	/* !CONFIG_ARM_LPAE */
+
 /*
  * The "pgd_xxx()" functions here are trivial for a folded two-level
  * setup: the pgd is never bad, and a pmd always exists (as it's folded
@@ -175,12 +200,38 @@ extern pgd_t swapper_pg_dir[PTRS_PER_PGD];
 #define pgd_clear(pgdp)		do { } while (0)
 #define set_pgd(pgd,pgdp)	do { } while (0)
 
+#endif	/* CONFIG_ARM_LPAE */
 
 /* Find an entry in the second-level page table.. */
+#ifdef CONFIG_ARM_LPAE
+#define pmd_index(addr)		(((addr) >> PMD_SHIFT) & (PTRS_PER_PMD - 1))
+#define pmd_offset(pgdp, addr)	((pmd_t *)(pgd_page_vaddr(*(pgdp))) + \
+				 pmd_index(addr))
+#else
 #define pmd_offset(dir, addr)	((pmd_t *)(dir))
+#endif
 
 #define pmd_none(pmd)		(!pmd_val(pmd))
 #define pmd_present(pmd)	(pmd_val(pmd))
+
+#ifdef CONFIG_ARM_LPAE
+
+#define pmd_bad(pmd)		(!(pmd_val(pmd) & 2))
+
+#define copy_pmd(pmdpd,pmdps)		\
+	do {				\
+		*pmdpd = *pmdps;	\
+		flush_pmd_entry(pmdpd);	\
+	} while (0)
+
+#define pmd_clear(pmdp)			\
+	do {				\
+		*pmdp = __pmd(0);	\
+		clean_pmd_entry(pmdp);	\
+	} while (0)
+
+#else	/* !CONFIG_ARM_LPAE */
+
 #define pmd_bad(pmd)		(pmd_val(pmd) & 2)
 
 #define copy_pmd(pmdpd,pmdps)		\
@@ -196,6 +247,8 @@ extern pgd_t swapper_pg_dir[PTRS_PER_PGD];
 		pmdp[1] = __pmd(0);	\
 		clean_pmd_entry(pmdp);	\
 	} while (0)
+
+#endif	/* CONFIG_ARM_LPAE */
 
 static inline pte_t *pmd_page_vaddr(pmd_t pmd)
 {
@@ -229,8 +282,13 @@ static inline pte_t *pmd_page_vaddr(pmd_t pmd)
 #define pte_page(pte)		pfn_to_page(pte_pfn(pte))
 #define mk_pte(page,prot)	pfn_pte(page_to_pfn(page), prot)
 
-#define set_pte_ext(ptep,pte,ext) cpu_set_pte_ext(ptep,pte,ext)
 #define pte_clear(mm,addr,ptep)	set_pte_ext(ptep, __pte(0), 0)
+
+#ifdef CONFIG_ARM_LPAE
+#define set_pte_ext(ptep,pte,ext) cpu_set_pte_ext(ptep,__pte(pte_val(pte)|(ext)))
+#else
+#define set_pte_ext(ptep,pte,ext) cpu_set_pte_ext(ptep,pte,ext)
+#endif
 
 #if __LINUX_ARM_ARCH__ < 6
 static inline void __sync_icache_dcache(pte_t pteval)

@@ -130,6 +130,13 @@ ENDPROC(cpu_v7_switch_mm)
  */
 ENTRY(cpu_v7_set_pte_ext)
 #ifdef CONFIG_MMU
+#ifdef CONFIG_ARM_LPAE
+	tst	r2, #L_PTE_PRESENT
+	beq	1f
+	tst	r3, #1 << (55 - 32)		@ L_PTE_DIRTY
+	orreq	r2, #L_PTE_RDONLY
+1:	strd	r2, r3, [r0]
+#else	/* !CONFIG_ARM_LPAE */
 	str	r1, [r0]			@ linux version
 
 	bic	r3, r1, #0x000003f0
@@ -162,6 +169,7 @@ ENTRY(cpu_v7_set_pte_ext)
  ARM(	str	r3, [r0, #2048]! )
  THUMB(	add	r0, r0, #2048 )
  THUMB(	str	r3, [r0] )
+#endif	/* CONFIG_ARM_LPAE */
 	mcr	p15, 0, r0, c7, c10, 1		@ flush_pte
 #endif
 	mov	pc, lr

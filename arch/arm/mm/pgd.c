@@ -10,12 +10,21 @@
 #include <linux/mm.h>
 #include <linux/gfp.h>
 #include <linux/highmem.h>
+#include <linux/slab.h>
 
 #include <asm/pgalloc.h>
 #include <asm/page.h>
 #include <asm/tlbflush.h>
 
 #include "mm.h"
+
+#ifdef CONFIG_ARM_LPAE
+#define __pgd_alloc()	kmalloc(PTRS_PER_PGD * sizeof(pgd_t), GFP_KERNEL)
+#define __pgd_free(pgd)	kfree(pgd)
+#else
+#define __pgd_alloc()	(pgd_t *)__get_free_pages(GFP_KERNEL, 2)
+#define __pgd_free(pgd)	free_pages((unsigned long)pgd, 2)
+#endif
 
 /*
  * need to get a 16k page for level 1
@@ -26,7 +35,7 @@ pgd_t *pgd_alloc(struct mm_struct *mm)
 	pmd_t *new_pmd, *init_pmd;
 	pte_t *new_pte, *init_pte;
 
-	new_pgd = (pgd_t *)__get_free_pages(GFP_KERNEL, 2);
+	new_pgd = __pgd_alloc();
 	if (!new_pgd)
 		goto no_pgd;
 
@@ -41,12 +50,21 @@ pgd_t *pgd_alloc(struct mm_struct *mm)
 
 	clean_dcache_area(new_pgd, PTRS_PER_PGD * sizeof(pgd_t));
 
+#ifdef CONFIG_ARM_LPAE
+	/*
+	 * Allocate PMD table for modules and pkmap mappings.
+	 */
+	new_pmd = pmd_alloc(mm, new_pgd + pgd_index(MODULES_VADDR), 0);
+	if (!new_pmd)
+		goto no_pmd;
+#endif
+
 	if (!vectors_high()) {
 		/*
 		 * On ARM, first page must always be allocated since it
 		 * contains the machine vectors.
 		 */
-		new_pmd = pmd_alloc(mm, new_pgd, 0);
+		new_pmd = pmd_alloc(mm, new_pgd + pgd_index(0), 0);
 		if (!new_pmd)
 			goto no_pmd;
 
@@ -66,7 +84,7 @@ pgd_t *pgd_alloc(struct mm_struct *mm)
 no_pte:
 	pmd_free(mm, new_pmd);
 no_pmd:
-	free_pages((unsigned long)new_pgd, 2);
+	__pgd_free(new_pgd);
 no_pgd:
 	return NULL;
 }
@@ -95,5 +113,19 @@ no_pmd:
 	pgd_clear(pgd);
 	pmd_free(mm, pmd);
 no_pgd:
-	free_pages((unsigned long) pgd_base, 2);
+#ifdef CONFIG_ARM_LPAE
+	/*
+	 * Free modules/pkmap or identity pmd tables.
+	 */
+	for (pgd = pgd_base; pgd < pgd_base + PTRS_PER_PGD; pgd++) {
+		if (pgd_none_or_clear_bad(pgd))
+			continue;
+		if (pgd_val(*pgd) & L_PGD_SWAPPER)
+			continue;
+		pmd = pmd_offset(pgd, 0);
+		pgd_clear(pgd);
+		pmd_free(mm, pmd);
+	}
+#endif
+	__pgd_free(pgd_base);
 }
