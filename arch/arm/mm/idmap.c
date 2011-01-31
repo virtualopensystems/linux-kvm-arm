@@ -1,3 +1,5 @@
+#define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
+
 #include <linux/kernel.h>
 
 #include <asm/cputype.h>
@@ -7,12 +9,27 @@
 static void idmap_add_pmd(pgd_t *pgd, unsigned long addr, unsigned long end,
 	unsigned long prot)
 {
-	pmd_t *pmd = pmd_offset(pgd, addr);
+	pmd_t *pmd;
+
+#ifdef CONFIG_ARM_LPAE
+	if (pgd_none_or_clear_bad(pgd) || (pgd_val(*pgd) & L_PGD_SWAPPER)) {
+		pmd = pmd_alloc_one(NULL, addr);
+		if (!pmd) {
+			pr_warning("Failed to allocate identity pmd.\n");
+			return;
+		}
+		pgd_populate(NULL, pgd, pmd);
+		pmd += pmd_index(addr);
+	} else
+#endif
+		pmd = pmd_offset(pgd, addr);
 
 	addr = (addr & PMD_MASK) | prot;
 	pmd[0] = __pmd(addr);
+#ifndef CONFIG_ARM_LPAE
 	addr += SECTION_SIZE;
 	pmd[1] = __pmd(addr);
+#endif
 	flush_pmd_entry(pmd);
 }
 
@@ -20,21 +37,24 @@ void identity_mapping_add(pgd_t *pgd, unsigned long addr, unsigned long end)
 {
 	unsigned long prot, next;
 
-	prot = PMD_TYPE_SECT | PMD_SECT_AP_WRITE;
+	prot = PMD_TYPE_SECT | PMD_SECT_AP_WRITE | PMD_SECT_AF;
 	if (cpu_architecture() <= CPU_ARCH_ARMv5TEJ && !cpu_is_xscale())
 		prot |= PMD_BIT4;
 
-	pgd += pgd_index(addr);
 	do {
-		next = pgd_addr_end(addr, end);
-		idmap_add_pmd(pgd, addr, next, prot);
-	} while (pgd++, addr = next, addr != end);
+		next = pmd_addr_end(addr, end);
+		idmap_add_pmd(pgd + pgd_index(addr), addr, next, prot);
+	} while (addr = next, addr < end);
 }
 
 #ifdef CONFIG_SMP
 static void idmap_del_pmd(pgd_t *pgd, unsigned long addr, unsigned long end)
 {
-	pmd_t *pmd = pmd_offset(pgd, addr);
+	pmd_t *pmd;
+
+	if (pgd_none_or_clear_bad(pgd))
+		return;
+	pmd = pmd_offset(pgd, addr);
 	pmd_clear(pmd);
 }
 
@@ -42,11 +62,10 @@ void identity_mapping_del(pgd_t *pgd, unsigned long addr, unsigned long end)
 {
 	unsigned long next;
 
-	pgd += pgd_index(addr);
 	do {
-		next = pgd_addr_end(addr, end);
-		idmap_del_pmd(pgd, addr, next);
-	} while (pgd++, addr = next, addr != end);
+		next = pmd_addr_end(addr, end);
+		idmap_del_pmd(pgd + pgd_index(addr), addr, next);
+	} while (addr = next, addr < end);
 }
 #endif
 
