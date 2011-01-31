@@ -91,7 +91,11 @@ obj-$(CONFIG_CPU_MOHAWK)	+= proc-mohawk.o
 obj-$(CONFIG_CPU_FEROCEON)	+= proc-feroceon.o
 obj-$(CONFIG_CPU_V6)		+= proc-v6.o
 obj-$(CONFIG_CPU_V6K)		+= proc-v6.o
+ifeq ($(CONFIG_ARM_LPAE),y)
+obj-$(CONFIG_CPU_V7)		+= proc-v7lpae.o
+else
 obj-$(CONFIG_CPU_V7)		+= proc-v7.o
+endif
 
 AFLAGS_proc-v6.o	:=-Wa,-march=armv6
 AFLAGS_proc-v7.o	:=-Wa,-march=armv7-a
