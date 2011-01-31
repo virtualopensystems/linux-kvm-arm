@@ -86,8 +86,8 @@ static struct tag * __init memtag(struct tag *tag, unsigned long start, unsigned
 	tag = tag_next(tag);
 	tag->hdr.tag = ATAG_MEM;
 	tag->hdr.size = tag_size(tag_mem32);
-	tag->u.mem.size = size;
-	tag->u.mem.start = start;
+	tag->u.mem32.size = size;
+	tag->u.mem32.start = start;
 
 	return tag;
 }
