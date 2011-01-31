@@ -99,4 +99,9 @@
 #define L_PTE_MT_DEV_CACHED	(_AT(pteval_t, 3) << 2)	/* normal inner write-back */
 #define L_PTE_MT_MASK		(_AT(pteval_t, 7) << 2)
 
+/*
+ * Software PGD flags.
+ */
+#define L_PGD_SWAPPER		(_AT(pgdval_t, 1) << 55)	/* swapper_pg_dir entry */
+
 #endif /* _ASM_PGTABLE_3LEVEL_H */
