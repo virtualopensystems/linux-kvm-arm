@@ -19,6 +19,19 @@
 
 #include "proc-macros.S"
 
+#ifdef CONFIG_ARM_LPAE
+#define TTB_IRGN_NC	(0 << 8)
+#define TTB_IRGN_WBWA	(1 << 8)
+#define TTB_IRGN_WT	(2 << 8)
+#define TTB_IRGN_WB	(3 << 8)
+#define TTB_RGN_NC	(0 << 10)
+#define TTB_RGN_OC_WBWA	(1 << 10)
+#define TTB_RGN_OC_WT	(2 << 10)
+#define TTB_RGN_OC_WB	(3 << 10)
+#define TTB_S		(3 << 12)
+#define TTB_NOS		(0)
+#define TTB_EAE		(1 << 31)
+#else
 #define TTB_S		(1 << 1)
 #define TTB_RGN_NC	(0 << 3)
 #define TTB_RGN_OC_WBWA	(1 << 3)
@@ -29,14 +42,15 @@
 #define TTB_IRGN_WBWA	((0 << 0) | (1 << 6))
 #define TTB_IRGN_WT	((1 << 0) | (0 << 6))
 #define TTB_IRGN_WB	((1 << 0) | (1 << 6))
+#endif
 
 /* PTWs cacheable, inner WB not shareable, outer WB not shareable */
-#define TTB_FLAGS_UP	TTB_IRGN_WB|TTB_RGN_OC_WB
-#define PMD_FLAGS_UP	PMD_SECT_WB
+#define TTB_FLAGS_UP	(TTB_IRGN_WB|TTB_RGN_OC_WB)
+#define PMD_FLAGS_UP	(PMD_SECT_WB)
 
 /* PTWs cacheable, inner WBWA shareable, outer WBWA not shareable */
-#define TTB_FLAGS_SMP	TTB_IRGN_WBWA|TTB_S|TTB_NOS|TTB_RGN_OC_WBWA
-#define PMD_FLAGS_SMP	PMD_SECT_WBWA|PMD_SECT_S
+#define TTB_FLAGS_SMP	(TTB_IRGN_WBWA|TTB_S|TTB_NOS|TTB_RGN_OC_WBWA)
+#define PMD_FLAGS_SMP	(PMD_SECT_WBWA|PMD_SECT_S)
 
 ENTRY(cpu_v7_proc_init)
 	mov	pc, lr
@@ -292,10 +306,46 @@ __v7_setup:
 	dsb
 #ifdef CONFIG_MMU
 	mcr	p15, 0, r10, c8, c7, 0		@ invalidate I + D TLBs
+#ifdef CONFIG_ARM_LPAE
+	mov	r5, #TTB_EAE
+	ALT_SMP(orr	r5, r5, #TTB_FLAGS_SMP)
+	ALT_SMP(orr	r5, r5, #TTB_FLAGS_SMP << 16)
+	ALT_UP(orr	r5, r5, #TTB_FLAGS_UP)
+	ALT_UP(orr	r5, r5, #TTB_FLAGS_UP << 16)
+	mrc	p15, 0, r10, c2, c0, 2
+	orr	r10, r10, r5
+#if PHYS_OFFSET <= PAGE_OFFSET
+	/*
+	 * TTBR0/TTBR1 split (PAGE_OFFSET):
+	 *   0x40000000: T0SZ = 2, T1SZ = 0 (not used)
+	 *   0x80000000: T0SZ = 0, T1SZ = 1
+	 *   0xc0000000: T0SZ = 0, T1SZ = 2
+	 *
+	 * Only use this feature if PAGE_OFFSET <=  PAGE_OFFSET, otherwise
+	 * booting secondary CPUs would end up using TTBR1 for the identity
+	 * mapping set up in TTBR0.
+	 */
+	orr	r10, r10, #(((PAGE_OFFSET >> 30) - 1) << 16)	@ TTBCR.T1SZ
+#endif
+#endif
 	mcr	p15, 0, r10, c2, c0, 2		@ TTB control register
+#ifdef CONFIG_ARM_LPAE
+	mov	r5, #0
+#if defined CONFIG_VMSPLIT_2G
+	/* PAGE_OFFSET == 0x80000000, T1SZ == 1 */
+	add	r6, r4, #1 << 4			@ skip two L1 entries
+#elif defined CONFIG_VMSPLIT_3G
+	/* PAGE_OFFSET == 0xc0000000, T1SZ == 2 */
+	add	r6, r4, #4096 * (1 + 3)		@ only L2 used, skip pgd+3*pmd
+#else
+	mov	r6, r4
+#endif
+	mcrr	p15, 1, r6, r5, c2		@ load TTBR1
+#else	/* !CONFIG_ARM_LPAE */
 	ALT_SMP(orr	r4, r4, #TTB_FLAGS_SMP)
 	ALT_UP(orr	r4, r4, #TTB_FLAGS_UP)
 	mcr	p15, 0, r4, c2, c0, 1		@ load TTB1
+#endif	/* CONFIG_ARM_LPAE */
 	/*
 	 * Memory region attributes with SCTLR.TRE=1
 	 *
@@ -323,11 +373,33 @@ __v7_setup:
 	 *   NS0 = PRRR[18] = 0		- normal shareable property
 	 *   NS1 = PRRR[19] = 1		- normal shareable property
 	 *   NOS = PRRR[24+n] = 1	- not outer shareable
+	 *
+	 * Memory region attributes for LPAE (defined in pgtable-3level.h):
+	 *
+	 *   n = AttrIndx[2:0]
+	 *
+	 *			n	MAIR
+	 *   UNCACHED		000	00000000
+	 *   BUFFERABLE		001	01000100
+	 *   DEV_WC		001	01000100
+	 *   WRITETHROUGH	010	10101010
+	 *   WRITEBACK		011	11101110
+	 *   DEV_CACHED		011	11101110
+	 *   DEV_SHARED		100	00000100
+	 *   DEV_NONSHARED	100	00000100
+	 *   unused		101
+	 *   unused		110
+	 *   WRITEALLOC		111	11111111
 	 */
+#ifdef CONFIG_ARM_LPAE
+	ldr	r5, =0xeeaa4400			@ MAIR0
+	ldr	r6, =0xff000004			@ MAIR1
+#else
 	ldr	r5, =0xff0a81a8			@ PRRR
 	ldr	r6, =0x40e040e0			@ NMRR
-	mcr	p15, 0, r5, c10, c2, 0		@ write PRRR
-	mcr	p15, 0, r6, c10, c2, 1		@ write NMRR
+#endif
+	mcr	p15, 0, r5, c10, c2, 0		@ write PRRR/MAIR0
+	mcr	p15, 0, r6, c10, c2, 1		@ write NMRR/MAIR1
 #endif
 	adr	r5, v7_crval
 	ldmia	r5, {r5, r6}
@@ -346,14 +418,19 @@ __v7_setup:
 ENDPROC(__v7_setup)
 
 	/*   AT
-	 *  TFR   EV X F   I D LR    S
-	 * .EEE ..EE PUI. .T.T 4RVI ZWRS BLDP WCAM
+	 *  TFR   EV X F   IHD LR    S
+	 * .EEE ..EE PUI. .TAT 4RVI ZWRS BLDP WCAM
 	 * rxxx rrxx xxx0 0101 xxxx xxxx x111 xxxx < forced
 	 *    1    0 110       0011 1100 .111 1101 < we want
+	 *   11    0 110    1  0011 1100 .111 1101 < we want (LPAE)
 	 */
 	.type	v7_crval, #object
 v7_crval:
+#ifdef CONFIG_ARM_LPAE
+	crval	clear=0x0120c302, mmuset=0x30c23c7d, ucset=0x00c01c7c
+#else
 	crval	clear=0x0120c302, mmuset=0x10c03c7d, ucset=0x00c01c7c
+#endif
 
 __v7_setup_stack:
 	.space	4 * 11				@ 11 registers
@@ -425,17 +502,20 @@ __v7_ca15mp_proc_info:
 		PMD_TYPE_SECT | \
 		PMD_SECT_AP_WRITE | \
 		PMD_SECT_AP_READ | \
+		PMD_SECT_AF | \
 		PMD_FLAGS_SMP)
 	ALT_UP(.long \
 		PMD_TYPE_SECT | \
 		PMD_SECT_AP_WRITE | \
 		PMD_SECT_AP_READ | \
+		PMD_SECT_AF | \
 		PMD_FLAGS_UP)
 		/* PMD_SECT_XN is set explicitly in head.S for LPAE */
 	.long   PMD_TYPE_SECT | \
 		PMD_SECT_XN | \
 		PMD_SECT_AP_WRITE | \
-		PMD_SECT_AP_READ
+		PMD_SECT_AP_READ | \
+		PMD_SECT_AF
 	b	__v7_ca15mp_setup
 	.long	cpu_arch_name
 	.long	cpu_elf_name
@@ -458,16 +538,20 @@ __v7_proc_info:
 		PMD_TYPE_SECT | \
 		PMD_SECT_AP_WRITE | \
 		PMD_SECT_AP_READ | \
+		PMD_SECT_AF | \
 		PMD_FLAGS_SMP)
 	ALT_UP(.long \
 		PMD_TYPE_SECT | \
 		PMD_SECT_AP_WRITE | \
 		PMD_SECT_AP_READ | \
+		PMD_SECT_AF | \
 		PMD_FLAGS_UP)
+		/* PMD_SECT_XN is set explicitly in head.S for LPAE */
 	.long   PMD_TYPE_SECT | \
 		PMD_SECT_XN | \
 		PMD_SECT_AP_WRITE | \
-		PMD_SECT_AP_READ
+		PMD_SECT_AP_READ | \
+		PMD_SECT_AF
 	W(b)	__v7_setup
 	.long	cpu_arch_name
 	.long	cpu_elf_name
