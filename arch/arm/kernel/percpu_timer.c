@@ -60,24 +60,18 @@ void percpu_timer_register(struct local_timer_ops *ops)
  *
  * If a local timer interrupt has occurred, acknowledge and return 1.
  * Otherwise, return 0.
- *
- * This can be overloaded by platform code that doesn't provide its
- * timer in timer_fns way (msm at the moment). Once all platforms have
- * migrated, the weak alias can be removed.
  */
 static int percpu_timer_ack(void)
 {
 	return timer_ops->ack();
 }
 
-int local_timer_ack(void) __attribute__ ((weak, alias("percpu_timer_ack")));
-
 asmlinkage void __exception_irq_entry do_local_timer(struct pt_regs *regs)
 {
 	struct pt_regs *old_regs = set_irq_regs(regs);
 	int cpu = smp_processor_id();
 
-	if (local_timer_ack()) {
+	if (percpu_timer_ack()) {
 		__inc_irq_stat(cpu, local_timer_irqs);
 		percpu_timer_run();
 	}
