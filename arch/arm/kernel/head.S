@@ -332,6 +332,10 @@ ENTRY(secondary_startup)
  THUMB( it	eq )		@ force fixup-able long branch encoding
 	beq	__error_p
 
+	pgtbl	r4
+	add	r12, r10, #BSYM(PROCINFO_INITFUNC)
+	blx	r12				@ initialise processor
+						@ (return control reg)
 	/*
 	 * Use the page tables supplied from  __cpu_up.
 	 */
@@ -339,12 +343,8 @@ ENTRY(secondary_startup)
 	ldmia	r4, {r5, r7, r12}		@ address to jump to after
 	sub	r4, r4, r5			@ mmu has been enabled
 	ldr	r4, [r7, r4]			@ get secondary_data.pgdir
-	adr	lr, BSYM(__enable_mmu)		@ return address
 	mov	r13, r12			@ __secondary_switched address
- ARM(	add	pc, r10, #PROCINFO_INITFUNC	) @ initialise processor
-						  @ (return control reg)
- THUMB(	add	r12, r10, #PROCINFO_INITFUNC	)
- THUMB(	mov	pc, r12				)
+	b	__enable_mmu
 ENDPROC(secondary_startup)
 
 	/*
