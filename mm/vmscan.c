@@ -41,7 +41,6 @@
 #include <linux/memcontrol.h>
 #include <linux/delayacct.h>
 #include <linux/sysctl.h>
-#include <linux/compaction.h>
 
 #include <asm/tlbflush.h>
 #include <asm/div64.h>
@@ -1271,16 +1270,14 @@ putback_lru_pages(struct zone *zone, struct scan_control *sc,
 			spin_lock_irq(&zone->lru_lock);
 			continue;
 		}
+		SetPageLRU(page);
 		lru = page_lru(page);
+		add_page_to_lru_list(zone, page, lru);
 		if (is_active_lru(lru)) {
 			int file = is_file_lru(lru);
 			int numpages = hpage_nr_pages(page);
 			reclaim_stat->recent_rotated[file] += numpages;
-			if (putback_active_lru_page(zone, page))
-				continue;
 		}
-		SetPageLRU(page);
-		add_page_to_lru_list(zone, page, lru);
 		if (!pagevec_add(&pvec, page)) {
 			spin_unlock_irq(&zone->lru_lock);
 			__pagevec_release(&pvec);
@@ -2086,7 +2083,8 @@ static unsigned long do_try_to_free_pages(struct zonelist *zonelist,
 			struct zone *preferred_zone;
 
 			first_zones_zonelist(zonelist, gfp_zone(sc->gfp_mask),
-							NULL, &preferred_zone);
+						&cpuset_current_mems_allowed,
+						&preferred_zone);
 			wait_iff_congested(preferred_zone, BLK_RW_ASYNC, HZ/10);
 		}
 	}
