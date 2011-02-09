@@ -2780,6 +2780,8 @@ static int dr_interception(struct vcpu_svm *svm)
 			kvm_register_write(&svm->vcpu, reg, val);
 	}
 
+	skip_emulated_instruction(&svm->vcpu);
+
 	return 1;
 }
 
