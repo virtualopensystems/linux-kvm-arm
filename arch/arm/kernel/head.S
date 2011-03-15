@@ -48,6 +48,9 @@
 	.globl	swapper_pg_dir
 	.equ	swapper_pg_dir, KERNEL_RAM_VADDR - 0x4000
 
+	.globl	swapper_pg_dir_phys
+	.equ	swapper_pg_dir_phys, KERNEL_RAM_PADDR - 0x4000
+
 	.macro	pgtbl, rd
 	ldr	\rd, =(KERNEL_RAM_PADDR - 0x4000)
 	.endm
