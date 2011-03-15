@@ -499,6 +499,10 @@ void smp_call_function_many(const struct cpumask *mask,
 	smp_wmb();
 
 	atomic_set(&data->refs, cpumask_weight(data->cpumask));
+	if (unlikely(!atomic_read(&data->refs))) {
+		csd_unlock(&data->csd);
+		return;
+	}
 
 	raw_spin_lock_irqsave(&call_function.lock, flags);
 	/*
