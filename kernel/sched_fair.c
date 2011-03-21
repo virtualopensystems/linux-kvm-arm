@@ -1870,16 +1870,18 @@ static void check_preempt_wakeup(struct rq *rq, struct task_struct *p, int wake_
 	if (test_tsk_need_resched(curr))
 		return;
 
+	/* Idle tasks are by definition preempted by non-idle tasks. */
+	if (unlikely(curr->policy == SCHED_IDLE) &&
+	    likely(p->policy != SCHED_IDLE))
+		goto preempt;
+
 	/*
-	 * Batch and idle tasks do not preempt (their preemption is driven by
-	 * the tick):
+	 * Batch and idle tasks do not preempt non-idle tasks (their preemption
+	 * is driven by the tick):
 	 */
 	if (unlikely(p->policy != SCHED_NORMAL))
 		return;
 
-	/* Idle tasks are by definition preempted by everybody. */
-	if (unlikely(curr->policy == SCHED_IDLE))
-		goto preempt;
 
 	if (!sched_feat(WAKEUP_PREEMPT))
 		return;
@@ -1984,10 +1986,6 @@ static bool yield_to_task_fair(struct rq *rq, struct task_struct *p, bool preemp
 
 	/* Tell the scheduler that we'd really like pse to run next. */
 	set_next_buddy(se);
-
-	/* Make p's CPU reschedule; pick_next_entity takes care of fairness. */
-	if (preempt)
-		resched_task(rq->curr);
 
 	yield_task_fair(rq);
 
@@ -2672,7 +2670,6 @@ fix_small_capacity(struct sched_domain *sd, struct sched_group *group)
  * @this_cpu: Cpu for which load balance is currently performed.
  * @idle: Idle status of this_cpu
  * @load_idx: Load index of sched_domain of this_cpu for load calc.
- * @sd_idle: Idle status of the sched_domain containing group.
  * @local_group: Does group contain this_cpu.
  * @cpus: Set of cpus considered for load balancing.
  * @balance: Should we balance.
@@ -2680,7 +2677,7 @@ fix_small_capacity(struct sched_domain *sd, struct sched_group *group)
  */
 static inline void update_sg_lb_stats(struct sched_domain *sd,
 			struct sched_group *group, int this_cpu,
-			enum cpu_idle_type idle, int load_idx, int *sd_idle,
+			enum cpu_idle_type idle, int load_idx,
 			int local_group, const struct cpumask *cpus,
 			int *balance, struct sg_lb_stats *sgs)
 {
@@ -2699,9 +2696,6 @@ static inline void update_sg_lb_stats(struct sched_domain *sd,
 
 	for_each_cpu_and(i, sched_group_cpus(group), cpus) {
 		struct rq *rq = cpu_rq(i);
-
-		if (*sd_idle && rq->nr_running)
-			*sd_idle = 0;
 
 		/* Bias balancing toward cpus of our domain */
 		if (local_group) {
@@ -2747,7 +2741,7 @@ static inline void update_sg_lb_stats(struct sched_domain *sd,
 
 	/*
 	 * Consider the group unbalanced when the imbalance is larger
-	 * than the average weight of two tasks.
+	 * than the average weight of a task.
 	 *
 	 * APZ: with cgroup the avg task weight can vary wildly and
 	 *      might not be a suitable number - should we keep a
@@ -2757,7 +2751,7 @@ static inline void update_sg_lb_stats(struct sched_domain *sd,
 	if (sgs->sum_nr_running)
 		avg_load_per_task = sgs->sum_weighted_load / sgs->sum_nr_running;
 
-	if ((max_cpu_load - min_cpu_load) > 2*avg_load_per_task && max_nr_running > 1)
+	if ((max_cpu_load - min_cpu_load) >= avg_load_per_task && max_nr_running > 1)
 		sgs->group_imb = 1;
 
 	sgs->group_capacity = DIV_ROUND_CLOSEST(group->cpu_power, SCHED_LOAD_SCALE);
@@ -2817,15 +2811,13 @@ static bool update_sd_pick_busiest(struct sched_domain *sd,
  * @sd: sched_domain whose statistics are to be updated.
  * @this_cpu: Cpu for which load balance is currently performed.
  * @idle: Idle status of this_cpu
- * @sd_idle: Idle status of the sched_domain containing sg.
  * @cpus: Set of cpus considered for load balancing.
  * @balance: Should we balance.
  * @sds: variable to hold the statistics for this sched_domain.
  */
 static inline void update_sd_lb_stats(struct sched_domain *sd, int this_cpu,
-			enum cpu_idle_type idle, int *sd_idle,
-			const struct cpumask *cpus, int *balance,
-			struct sd_lb_stats *sds)
+			enum cpu_idle_type idle, const struct cpumask *cpus,
+			int *balance, struct sd_lb_stats *sds)
 {
 	struct sched_domain *child = sd->child;
 	struct sched_group *sg = sd->groups;
@@ -2843,7 +2835,7 @@ static inline void update_sd_lb_stats(struct sched_domain *sd, int this_cpu,
 
 		local_group = cpumask_test_cpu(this_cpu, sched_group_cpus(sg));
 		memset(&sgs, 0, sizeof(sgs));
-		update_sg_lb_stats(sd, sg, this_cpu, idle, load_idx, sd_idle,
+		update_sg_lb_stats(sd, sg, this_cpu, idle, load_idx,
 				local_group, cpus, balance, &sgs);
 
 		if (local_group && !(*balance))
@@ -3095,7 +3087,6 @@ static inline void calculate_imbalance(struct sd_lb_stats *sds, int this_cpu,
  * @imbalance: Variable which stores amount of weighted load which should
  *		be moved to restore balance/put a group to idle.
  * @idle: The idle status of this_cpu.
- * @sd_idle: The idleness of sd
  * @cpus: The set of CPUs under consideration for load-balancing.
  * @balance: Pointer to a variable indicating if this_cpu
  *	is the appropriate cpu to perform load balancing at this_level.
@@ -3108,7 +3099,7 @@ static inline void calculate_imbalance(struct sd_lb_stats *sds, int this_cpu,
 static struct sched_group *
 find_busiest_group(struct sched_domain *sd, int this_cpu,
 		   unsigned long *imbalance, enum cpu_idle_type idle,
-		   int *sd_idle, const struct cpumask *cpus, int *balance)
+		   const struct cpumask *cpus, int *balance)
 {
 	struct sd_lb_stats sds;
 
@@ -3118,22 +3109,11 @@ find_busiest_group(struct sched_domain *sd, int this_cpu,
 	 * Compute the various statistics relavent for load balancing at
 	 * this level.
 	 */
-	update_sd_lb_stats(sd, this_cpu, idle, sd_idle, cpus,
-					balance, &sds);
+	update_sd_lb_stats(sd, this_cpu, idle, cpus, balance, &sds);
 
-	/* Cases where imbalance does not exist from POV of this_cpu */
-	/* 1) this_cpu is not the appropriate cpu to perform load balancing
-	 *    at this level.
-	 * 2) There is no busy sibling group to pull from.
-	 * 3) This group is the busiest group.
-	 * 4) This group is more busy than the avg busieness at this
-	 *    sched_domain.
-	 * 5) The imbalance is within the specified limit.
-	 *
-	 * Note: when doing newidle balance, if the local group has excess
-	 * capacity (i.e. nr_running < group_capacity) and the busiest group
-	 * does not have any capacity, we force a load balance to pull tasks
-	 * to the local group. In this case, we skip past checks 3, 4 and 5.
+	/*
+	 * this_cpu is not the appropriate cpu to perform load balancing at
+	 * this level.
 	 */
 	if (!(*balance))
 		goto ret;
@@ -3142,40 +3122,54 @@ find_busiest_group(struct sched_domain *sd, int this_cpu,
 	    check_asym_packing(sd, &sds, this_cpu, imbalance))
 		return sds.busiest;
 
+	/* There is no busy sibling group to pull tasks from */
 	if (!sds.busiest || sds.busiest_nr_running == 0)
 		goto out_balanced;
 
-	/*  SD_BALANCE_NEWIDLE trumps SMP nice when underutilized */
+	/*
+	 * If the busiest group is imbalanced the below checks don't
+	 * work because they assumes all things are equal, which typically
+	 * isn't true due to cpus_allowed constraints and the like.
+	 */
+	if (sds.group_imb)
+		goto force_balance;
+
+	/* SD_BALANCE_NEWIDLE trumps SMP nice when underutilized */
 	if (idle == CPU_NEWLY_IDLE && sds.this_has_capacity &&
 			!sds.busiest_has_capacity)
 		goto force_balance;
 
+	/*
+	 * If the local group is more busy than the selected busiest group
+	 * don't try and pull any tasks.
+	 */
 	if (sds.this_load >= sds.max_load)
 		goto out_balanced;
 
+	/*
+	 * Don't pull any tasks if this group is already above the domain
+	 * average load.
+	 */
 	sds.avg_load = (SCHED_LOAD_SCALE * sds.total_load) / sds.total_pwr;
-
 	if (sds.this_load >= sds.avg_load)
 		goto out_balanced;
 
-	/*
-	 * In the CPU_NEWLY_IDLE, use imbalance_pct to be conservative.
-	 * And to check for busy balance use !idle_cpu instead of
-	 * CPU_NOT_IDLE. This is because HT siblings will use CPU_NOT_IDLE
-	 * even when they are idle.
-	 */
-	if (idle == CPU_NEWLY_IDLE || !idle_cpu(this_cpu)) {
-		if (100 * sds.max_load <= sd->imbalance_pct * sds.this_load)
-			goto out_balanced;
-	} else {
+	if (idle == CPU_IDLE) {
 		/*
 		 * This cpu is idle. If the busiest group load doesn't
 		 * have more tasks than the number of available cpu's and
 		 * there is no imbalance between this and busiest group
 		 * wrt to idle cpu's, it is balanced.
 		 */
-		if ((sds.this_idle_cpus  <= sds.busiest_idle_cpus + 1) &&
+		if ((sds.this_idle_cpus <= sds.busiest_idle_cpus + 1) &&
 		    sds.busiest_nr_running <= sds.busiest_group_weight)
+			goto out_balanced;
+	} else {
+		/*
+		 * In the CPU_NEWLY_IDLE, CPU_NOT_IDLE cases, use
+		 * imbalance_pct to be conservative.
+		 */
+		if (100 * sds.max_load <= sd->imbalance_pct * sds.this_load)
 			goto out_balanced;
 	}
 
@@ -3255,7 +3249,7 @@ find_busiest_queue(struct sched_domain *sd, struct sched_group *group,
 /* Working cpumask for load_balance and load_balance_newidle. */
 static DEFINE_PER_CPU(cpumask_var_t, load_balance_tmpmask);
 
-static int need_active_balance(struct sched_domain *sd, int sd_idle, int idle,
+static int need_active_balance(struct sched_domain *sd, int idle,
 			       int busiest_cpu, int this_cpu)
 {
 	if (idle == CPU_NEWLY_IDLE) {
@@ -3287,10 +3281,6 @@ static int need_active_balance(struct sched_domain *sd, int sd_idle, int idle,
 		 * move_tasks() will succeed.  ld_moved will be true and this
 		 * active balance code will not be triggered.
 		 */
-		if (!sd_idle && sd->flags & SD_SHARE_CPUPOWER &&
-		    !test_sd_parent(sd, SD_POWERSAVINGS_BALANCE))
-			return 0;
-
 		if (sched_mc_power_savings < POWERSAVINGS_BALANCE_WAKEUP)
 			return 0;
 	}
@@ -3308,7 +3298,7 @@ static int load_balance(int this_cpu, struct rq *this_rq,
 			struct sched_domain *sd, enum cpu_idle_type idle,
 			int *balance)
 {
-	int ld_moved, all_pinned = 0, active_balance = 0, sd_idle = 0;
+	int ld_moved, all_pinned = 0, active_balance = 0;
 	struct sched_group *group;
 	unsigned long imbalance;
 	struct rq *busiest;
@@ -3317,20 +3307,10 @@ static int load_balance(int this_cpu, struct rq *this_rq,
 
 	cpumask_copy(cpus, cpu_active_mask);
 
-	/*
-	 * When power savings policy is enabled for the parent domain, idle
-	 * sibling can pick up load irrespective of busy siblings. In this case,
-	 * let the state of idle sibling percolate up as CPU_IDLE, instead of
-	 * portraying it as CPU_NOT_IDLE.
-	 */
-	if (idle != CPU_NOT_IDLE && sd->flags & SD_SHARE_CPUPOWER &&
-	    !test_sd_parent(sd, SD_POWERSAVINGS_BALANCE))
-		sd_idle = 1;
-
 	schedstat_inc(sd, lb_count[idle]);
 
 redo:
-	group = find_busiest_group(sd, this_cpu, &imbalance, idle, &sd_idle,
+	group = find_busiest_group(sd, this_cpu, &imbalance, idle,
 				   cpus, balance);
 
 	if (*balance == 0)
@@ -3392,8 +3372,7 @@ redo:
 		if (idle != CPU_NEWLY_IDLE)
 			sd->nr_balance_failed++;
 
-		if (need_active_balance(sd, sd_idle, idle, cpu_of(busiest),
-					this_cpu)) {
+		if (need_active_balance(sd, idle, cpu_of(busiest), this_cpu)) {
 			raw_spin_lock_irqsave(&busiest->lock, flags);
 
 			/* don't kick the active_load_balance_cpu_stop,
@@ -3448,10 +3427,6 @@ redo:
 			sd->balance_interval *= 2;
 	}
 
-	if (!ld_moved && !sd_idle && sd->flags & SD_SHARE_CPUPOWER &&
-	    !test_sd_parent(sd, SD_POWERSAVINGS_BALANCE))
-		ld_moved = -1;
-
 	goto out;
 
 out_balanced:
@@ -3465,11 +3440,7 @@ out_one_pinned:
 			(sd->balance_interval < sd->max_interval))
 		sd->balance_interval *= 2;
 
-	if (!sd_idle && sd->flags & SD_SHARE_CPUPOWER &&
-	    !test_sd_parent(sd, SD_POWERSAVINGS_BALANCE))
-		ld_moved = -1;
-	else
-		ld_moved = 0;
+	ld_moved = 0;
 out:
 	return ld_moved;
 }
@@ -3893,8 +3864,7 @@ static void rebalance_domains(int cpu, enum cpu_idle_type idle)
 			if (load_balance(cpu, rq, sd, idle, &balance)) {
 				/*
 				 * We've pulled tasks over so either we're no
-				 * longer idle, or one of our SMT siblings is
-				 * not idle.
+				 * longer idle.
 				 */
 				idle = CPU_NOT_IDLE;
 			}
