@@ -145,7 +145,8 @@ static struct srcu_struct pmus_srcu;
  */
 int sysctl_perf_event_paranoid __read_mostly = 1;
 
-int sysctl_perf_event_mlock __read_mostly = 512; /* 'free' kb per user */
+/* Minimum for 512 kiB + 1 user control page */
+int sysctl_perf_event_mlock __read_mostly = 512 + (PAGE_SIZE / 1024); /* 'free' kiB per user */
 
 /*
  * max perf event sample rate
@@ -941,6 +942,7 @@ static void perf_group_attach(struct perf_event *event)
 static void
 list_del_event(struct perf_event *event, struct perf_event_context *ctx)
 {
+	struct perf_cpu_context *cpuctx;
 	/*
 	 * We can have double detach due to exit/hot-unplug + close.
 	 */
@@ -949,8 +951,17 @@ list_del_event(struct perf_event *event, struct perf_event_context *ctx)
 
 	event->attach_state &= ~PERF_ATTACH_CONTEXT;
 
-	if (is_cgroup_event(event))
+	if (is_cgroup_event(event)) {
 		ctx->nr_cgroups--;
+		cpuctx = __get_cpu_context(ctx);
+		/*
+		 * if there are no more cgroup events
+		 * then cler cgrp to avoid stale pointer
+		 * in update_cgrp_time_from_cpuctx()
+		 */
+		if (!ctx->nr_cgroups)
+			cpuctx->cgrp = NULL;
+	}
 
 	ctx->nr_events--;
 	if (event->attr.inherit_stat)
@@ -6518,6 +6529,11 @@ SYSCALL_DEFINE5(perf_event_open,
 	if (IS_ERR(ctx)) {
 		err = PTR_ERR(ctx);
 		goto err_alloc;
+	}
+
+	if (task) {
+		put_task_struct(task);
+		task = NULL;
 	}
 
 	/*
