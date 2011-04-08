@@ -26,6 +26,11 @@ OBJS	+= mmio.o
 OBJS	+= pci.o
 OBJS	+= util.o
 OBJS	+= term.o
+OBJS    += util/parse-options.o
+OBJS    += util/strbuf.o
+OBJS    += kvm-help.o
+OBJS    += kvm-cmd.o
+OBJS    += kvm-run.o
 
 DEPS	:= $(patsubst %.o,%.d,$(OBJS))
 
@@ -55,7 +60,8 @@ endif
 DEFINES	+= -D_FILE_OFFSET_BITS=64
 DEFINES	+= -D_GNU_SOURCE
 
-CFLAGS	+= $(CPPFLAGS) $(DEFINES) -Iinclude -I../../include -I../../arch/$(ARCH)/include/  -Os -g
+KVM_INCLUDE := include
+CFLAGS	+= $(CPPFLAGS) $(DEFINES) -I$(KVM_INCLUDE) -I../../include -I../../arch/$(ARCH)/include/ -Os -g
 
 WARNINGS += -Werror
 WARNINGS += -Wall
@@ -87,11 +93,21 @@ $(DEPS):
 %.d: %.c
 	$(Q) $(CC) -M -MT $(patsubst %.d,%.o,$@) $(CFLAGS) $< -o $@
 
+# The header file common-cmds.h is needed for compilation of kvm-help.c.
+kvm-help.d: $(KVM_INCLUDE)/common-cmds.h
+
 $(OBJS):
 
 %.o: %.c
 	$(E) "  CC      " $@
 	$(Q) $(CC) -c $(CFLAGS) $< -o $@
+
+
+$(KVM_INCLUDE)/common-cmds.h: util/generate-cmdlist.sh command-list.txt
+
+$(KVM_INCLUDE)/common-cmds.h: $(wildcard Documentation/kvm-*.txt)
+	$(E) "  GEN     " $@
+	$(Q) util/generate-cmdlist.sh > $@+ && mv $@+ $@
 
 #
 # BIOS assembly weirdness
@@ -118,7 +134,7 @@ bios/bios-rom.bin: bios/bios-rom.S bios/e820.c
 
 check: $(PROGRAM)
 	$(MAKE) -C tests
-	./$(PROGRAM) tests/pit/tick.bin
+	./$(PROGRAM) run tests/pit/tick.bin
 .PHONY: check
 
 clean:
@@ -129,6 +145,7 @@ clean:
 	$(Q) rm -f bios/bios-rom.h
 	$(Q) rm -f $(DEPS) $(OBJS) $(PROGRAM)
 	$(Q) rm -f cscope.*
+	$(Q) rm -f $(KVM_INCLUDE)/common-cmds.h
 .PHONY: clean
 
 KVM_DEV	?= /dev/kvm
