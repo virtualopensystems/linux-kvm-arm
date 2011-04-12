@@ -33,6 +33,8 @@
 #define GIC_DIST_SOFTINT		0xf00
 
 #ifndef __ASSEMBLY__
+#include <linux/cpumask.h>
+
 extern void __iomem *gic_cpu_base_addr;
 extern struct irq_chip gic_arch_extn;
 
@@ -41,6 +43,15 @@ void gic_secondary_init(unsigned int);
 void gic_cascade_irq(unsigned int gic_nr, unsigned int irq);
 void gic_raise_softirq(const struct cpumask *mask, unsigned int irq);
 void gic_enable_ppi(unsigned int);
+#ifdef CONFIG_ARM_GIC_VPPI
+unsigned int gic_ppi_to_vppi(unsigned int irq);
+#else
+static inline unsigned int gic_ppi_to_vppi(unsigned int irq)
+{
+	return irq;
+}
+#endif
+
 #endif
 
 #endif

@@ -124,8 +124,14 @@ void __init init_IRQ(void)
 #ifdef CONFIG_SPARSE_IRQ
 int __init arch_probe_nr_irqs(void)
 {
+	int initcnt;
+
 	nr_irqs = machine_desc->nr_irqs ? machine_desc->nr_irqs : NR_IRQS;
-	return nr_irqs;
+	initcnt = nr_irqs;
+#ifdef CONFIG_ARM_GIC_VPPI
+	nr_irqs += 16 * 8;	/* 16 PPIs, 8 CPUs */
+#endif
+	return initcnt;
 }
 #endif
 

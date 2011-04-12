@@ -42,6 +42,12 @@ struct gic_chip_data {
 	unsigned int irq_offset;
 	void __iomem *dist_base;
 	void __iomem *cpu_base;
+#ifdef CONFIG_ARM_GIC_VPPI
+	/* These fields must be 0 on secondary GICs */
+	int	     ppi_base;
+	int	     vppi_base;
+	u16	     nrppis;
+#endif
 };
 
 /*
@@ -262,12 +268,88 @@ void __init gic_cascade_irq(unsigned int gic_nr, unsigned int irq)
 	irq_set_chained_handler(irq, gic_handle_cascade_irq);
 }
 
+#ifdef CONFIG_ARM_GIC_VPPI
+unsigned int gic_ppi_to_vppi(unsigned int irq)
+{
+	struct gic_chip_data *chip_data = irq_get_chip_data(irq);
+	unsigned int vppi_irq;
+	unsigned int ppi;
+
+	WARN_ON(!chip_data->vppi_base);
+
+	ppi = irq - chip_data->ppi_base;
+	vppi_irq = ppi + chip_data->nrppis * smp_processor_id();
+	vppi_irq += chip_data->vppi_base;
+
+	return vppi_irq;
+}
+
+static void gic_handle_ppi(unsigned int irq, struct irq_desc *desc)
+{
+	unsigned int vppi_irq;
+
+	vppi_irq = gic_ppi_to_vppi(irq);
+	generic_handle_irq(vppi_irq);
+}
+
+static struct irq_data *gic_vppi_to_ppi(struct irq_data *d)
+{
+	struct gic_chip_data *chip_data = irq_data_get_irq_chip_data(d);
+	unsigned int ppi_irq;
+
+	ppi_irq = d->irq - chip_data->vppi_base - chip_data->nrppis * smp_processor_id();
+	ppi_irq += chip_data->ppi_base;
+
+	return irq_get_irq_data(ppi_irq);
+}
+
+static void gic_ppi_eoi_irq(struct irq_data *d)
+{
+	gic_eoi_irq(gic_vppi_to_ppi(d));
+}
+
+static void gic_ppi_mask_irq(struct irq_data *d)
+{
+	gic_mask_irq(gic_vppi_to_ppi(d));
+}
+
+static void gic_ppi_unmask_irq(struct irq_data *d)
+{
+	gic_unmask_irq(gic_vppi_to_ppi(d));
+}
+
+static int gic_ppi_set_type(struct irq_data *d, unsigned int type)
+{
+	return gic_set_type(gic_vppi_to_ppi(d), type);
+}
+
+static int gic_ppi_set_wake(struct irq_data *d, unsigned int on)
+{
+	return gic_set_wake(gic_vppi_to_ppi(d), on);
+}
+
+static int __init gic_irq_is_ppi(struct gic_chip_data *gic, unsigned int irq)
+{
+	return (irq >= (gic->irq_offset + 16) && irq <= (gic->irq_offset + 31));
+}
+
+static struct irq_chip gic_ppi_chip = {
+	.name			= "GIC-PPI",
+	.irq_eoi		= gic_ppi_eoi_irq,
+	.irq_mask		= gic_ppi_mask_irq,
+	.irq_unmask		= gic_ppi_unmask_irq,
+	.irq_set_type		= gic_ppi_set_type,
+	.irq_set_wake		= gic_ppi_set_wake,
+};
+#endif
+
 static void __init gic_dist_init(struct gic_chip_data *gic,
 	unsigned int irq_start)
 {
-	unsigned int gic_irqs, irq_limit, i;
+	unsigned int gic_irqs, irq_limit, i, nrvppis = 0;
 	void __iomem *base = gic->dist_base;
 	u32 cpumask = 1 << smp_processor_id();
+	u32 dist_ctr, nrcpus;
 
 	cpumask |= cpumask << 8;
 	cpumask |= cpumask << 16;
@@ -278,10 +360,31 @@ static void __init gic_dist_init(struct gic_chip_data *gic,
 	 * Find out how many interrupts are supported.
 	 * The GIC only supports up to 1020 interrupt sources.
 	 */
-	gic_irqs = readl(base + GIC_DIST_CTR) & 0x1f;
-	gic_irqs = (gic_irqs + 1) * 32;
+	dist_ctr = readl(base + GIC_DIST_CTR);
+	gic_irqs = ((dist_ctr & 0x1f) + 1) * 32;
 	if (gic_irqs > 1020)
 		gic_irqs = 1020;
+
+	/* Find out how many CPUs are supported (8 max). */
+	nrcpus = ((dist_ctr >> 5) & 7) + 1;
+
+#ifdef CONFIG_ARM_GIC_VPPI
+	/*
+	 * Nobody would be insane enough to use PPIs on a secondary
+	 * GIC, right?
+	 */
+	if (gic == &gic_data[0]) {
+		gic->nrppis = 16 - (irq_start % 16);
+		gic->ppi_base = gic->irq_offset + 32 - gic->nrppis;
+		nrvppis = gic->nrppis * nrcpus;
+	} else {
+		gic->ppi_base = 0;
+		gic->vppi_base = 0;
+	}
+#endif
+
+	pr_info("Configuring GIC with %d sources (%d additional PPIs)\n",
+		gic_irqs, nrvppis);
 
 	/*
 	 * Set all global interrupts to be level triggered, active low.
@@ -319,10 +422,32 @@ static void __init gic_dist_init(struct gic_chip_data *gic,
 	 * Setup the Linux IRQ subsystem.
 	 */
 	for (i = irq_start; i < irq_limit; i++) {
-		irq_set_chip_and_handler(i, &gic_chip, handle_fasteoi_irq);
+#ifdef CONFIG_ARM_GIC_VPPI
+		if (nrvppis && gic_irq_is_ppi(gic, i))
+			irq_set_chip_and_handler(i, &gic_chip, gic_handle_ppi);
+		else
+#endif
+		{
+			irq_set_chip_and_handler(i, &gic_chip,
+						 handle_fasteoi_irq);
+			set_irq_flags(i, IRQF_VALID | IRQF_PROBE);
+		}
+		irq_set_chip_data(i, gic);
+	}
+
+#ifdef CONFIG_ARM_GIC_VPPI
+	if (!nrvppis)
+		goto out;
+	gic->vppi_base = irq_alloc_descs(-1, 0, nrvppis, 0);
+	if (WARN_ON(gic->vppi_base < 0))
+		goto out;
+	for (i = gic->vppi_base; i < (gic->vppi_base + nrvppis); i++) {
+		irq_set_chip_and_handler(i, &gic_ppi_chip, handle_percpu_irq);
 		irq_set_chip_data(i, gic);
 		set_irq_flags(i, IRQF_VALID | IRQF_PROBE);
 	}
+out:
+#endif
 
 	writel(1, base + GIC_DIST_CTRL);
 }

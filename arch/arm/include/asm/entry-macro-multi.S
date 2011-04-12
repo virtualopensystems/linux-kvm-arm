@@ -24,7 +24,7 @@
 	adrne	lr, BSYM(1b)
 	bne	do_IPI
 
-#ifdef CONFIG_LOCAL_TIMERS
+#if defined(CONFIG_LOCAL_TIMERS) && !defined(CONFIG_ARM_GIC_VPPI)
 	test_for_ltirq r0, r6, r5, lr
 	movne	r0, sp
 	adrne	lr, BSYM(1b)

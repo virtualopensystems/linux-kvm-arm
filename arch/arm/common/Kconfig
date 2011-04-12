@@ -1,6 +1,11 @@
 config ARM_GIC
 	bool
 
+config ARM_GIC_VPPI
+	depends on ARM_GIC
+	select SPARSE_IRQ
+        bool
+
 config ARM_VIC
 	bool
 
