@@ -452,6 +452,18 @@ asmlinkage void __exception_irq_entry do_local_timer(struct pt_regs *regs)
 	set_irq_regs(old_regs);
 }
 
+irqreturn_t percpu_timer_handler(int irq, void *dev_id)
+{
+	struct clock_event_device *evt = dev_id;
+
+	if (local_timer_ack()) {
+		evt->event_handler(evt);
+		return IRQ_HANDLED;
+	}
+
+	return IRQ_NONE;
+}
+
 void show_local_irqs(struct seq_file *p, int prec)
 {
 	unsigned int cpu;
