@@ -22,7 +22,9 @@
 #include <linux/delay.h>
 #include <linux/io.h>
 
+#include <asm/localtimer.h>
 #include <asm/mach/time.h>
+#include <asm/hardware/gic.h>
 #include <mach/msm_iomap.h>
 #include <mach/cpu.h>
 
@@ -67,7 +69,7 @@ enum timer_location {
 struct msm_clock {
 	struct clock_event_device   clockevent;
 	struct clocksource          clocksource;
-	struct irqaction            irq;
+	unsigned int		    irq;
 	void __iomem                *regbase;
 	uint32_t                    freq;
 	uint32_t                    shift;
@@ -83,18 +85,7 @@ enum {
 
 
 static struct msm_clock msm_clocks[];
-static struct clock_event_device *local_clock_event;
-
-static irqreturn_t msm_timer_interrupt(int irq, void *dev_id)
-{
-	struct clock_event_device *evt = dev_id;
-	if (smp_processor_id() != 0)
-		evt = local_clock_event;
-	if (evt->event_handler == NULL)
-		return IRQ_HANDLED;
-	evt->event_handler(evt);
-	return IRQ_HANDLED;
-}
+static int local_timer_inited;
 
 static cycle_t msm_read_timer_count(struct clocksource *cs)
 {
@@ -140,6 +131,8 @@ static void msm_timer_set_mode(enum clock_event_mode mode,
 		writel(TIMER_ENABLE_EN, clock->regbase + TIMER_ENABLE);
 		break;
 	case CLOCK_EVT_MODE_UNUSED:
+		free_irq(evt->irq, evt);
+		/* fall through */
 	case CLOCK_EVT_MODE_SHUTDOWN:
 		writel(0, clock->regbase + TIMER_ENABLE);
 		break;
@@ -163,13 +156,7 @@ static struct msm_clock msm_clocks[] = {
 			.mask           = CLOCKSOURCE_MASK(32),
 			.flags          = CLOCK_SOURCE_IS_CONTINUOUS,
 		},
-		.irq = {
-			.name    = "gp_timer",
-			.flags   = IRQF_DISABLED | IRQF_TIMER | IRQF_TRIGGER_RISING,
-			.handler = msm_timer_interrupt,
-			.dev_id  = &msm_clocks[0].clockevent,
-			.irq     = INT_GP_TIMER_EXP
-		},
+		.irq = INT_GP_TIMER_EXP,
 		.freq = GPT_HZ,
 	},
 	[MSM_CLOCK_DGT] = {
@@ -188,13 +175,7 @@ static struct msm_clock msm_clocks[] = {
 			.mask           = CLOCKSOURCE_MASK((32 - MSM_DGT_SHIFT)),
 			.flags          = CLOCK_SOURCE_IS_CONTINUOUS,
 		},
-		.irq = {
-			.name    = "dg_timer",
-			.flags   = IRQF_DISABLED | IRQF_TIMER | IRQF_TRIGGER_RISING,
-			.handler = msm_timer_interrupt,
-			.dev_id  = &msm_clocks[1].clockevent,
-			.irq     = INT_DEBUG_TIMER_EXP
-		},
+		.irq = INT_DEBUG_TIMER_EXP,
 		.freq = DGT_HZ >> MSM_DGT_SHIFT,
 		.shift = MSM_DGT_SHIFT,
 	}
@@ -253,10 +234,13 @@ static void __init msm_timer_init(void)
 			printk(KERN_ERR "msm_timer_init: clocksource_register "
 			       "failed for %s\n", cs->name);
 
-		res = setup_irq(clock->irq.irq, &clock->irq);
+		ce->irq = gic_ppi_to_vppi(clock->irq);
+		res = request_irq(ce->irq, percpu_timer_handler,
+				  IRQF_TIMER | IRQF_NOBALANCING | IRQF_TRIGGER_RISING,
+				  ce->name, ce);
 		if (res)
-			printk(KERN_ERR "msm_timer_init: setup_irq "
-			       "failed for %s\n", cs->name);
+			pr_err("msm_timer_init: request_irq failed for %s\n",
+			       ce->name);
 
 		clockevents_register_device(ce);
 	}
@@ -266,6 +250,7 @@ static void __init msm_timer_init(void)
 int __cpuinit local_timer_setup(struct clock_event_device *evt)
 {
 	struct msm_clock *clock = &msm_clocks[MSM_GLOBAL_TIMER];
+	int res;
 
 	/* Use existing clock_event for cpu 0 */
 	if (!smp_processor_id())
@@ -273,12 +258,13 @@ int __cpuinit local_timer_setup(struct clock_event_device *evt)
 
 	writel(DGT_CLK_CTL_DIV_4, MSM_TMR_BASE + DGT_CLK_CTL);
 
-	if (!local_clock_event) {
+	if (!local_timer_inited) {
 		writel(0, clock->regbase  + TIMER_ENABLE);
 		writel(0, clock->regbase + TIMER_CLEAR);
 		writel(~0, clock->regbase + TIMER_MATCH_VAL);
+		local_timer_inited = 1;
 	}
-	evt->irq = clock->irq.irq;
+	evt->irq = gic_ppi_to_vppi(clock->irq);
 	evt->name = "local_timer";
 	evt->features = CLOCK_EVT_FEAT_ONESHOT;
 	evt->rating = clock->clockevent.rating;
@@ -290,9 +276,14 @@ int __cpuinit local_timer_setup(struct clock_event_device *evt)
 		clockevent_delta2ns(0xf0000000 >> clock->shift, evt);
 	evt->min_delta_ns = clockevent_delta2ns(4, evt);
 
-	local_clock_event = evt;
-
-	gic_enable_ppi(clock->irq.irq);
+	res = request_irq(evt->irq, percpu_timer_handler,
+			  IRQF_TIMER | IRQF_NOBALANCING | IRQF_TRIGGER_RISING,
+			  clock->clockevent.name, evt);
+	if (res) {
+		pr_err("local_timer_setup: request_irq failed for %s\n",
+		       clock->clockevent.name);
+		return res;
+	}
 
 	clockevents_register_device(evt);
 	return 0;

@@ -42,6 +42,7 @@ config ARCH_MSM8X60
 				  && !MACH_MSM8X60_FFA)
 	select ARCH_MSM_SCORPIONMP
 	select ARM_GIC
+	select ARM_GIC_VPPI
 	select CPU_V7
 	select MSM_V2_TLMM
 	select MSM_GPIOMUX
@@ -52,6 +53,7 @@ config ARCH_MSM8960
 	select ARCH_MSM_SCORPIONMP
 	select MACH_MSM8960_SIM if (!MACH_MSM8960_RUMI3)
 	select ARM_GIC
+	select ARM_GIC_VPPI
 	select CPU_V7
 	select MSM_V2_TLMM
 	select MSM_GPIOMUX
