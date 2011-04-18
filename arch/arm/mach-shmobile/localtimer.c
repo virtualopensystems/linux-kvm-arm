@@ -14,13 +14,14 @@
 #include <linux/clockchips.h>
 #include <asm/smp_twd.h>
 #include <asm/localtimer.h>
+#include <asm/hardware/gic.h>
 
 /*
  * Setup the local clock events for a CPU.
  */
 int __cpuinit local_timer_setup(struct clock_event_device *evt)
 {
-	evt->irq = 29;
+	evt->irq = gic_ppi_to_vppi(29);
 	twd_timer_setup(evt);
 	return 0;
 }
