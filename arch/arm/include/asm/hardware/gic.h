@@ -42,7 +42,6 @@ void gic_init(unsigned int, unsigned int, void __iomem *, void __iomem *);
 void gic_secondary_init(unsigned int);
 void gic_cascade_irq(unsigned int gic_nr, unsigned int irq);
 void gic_raise_softirq(const struct cpumask *mask, unsigned int irq);
-void gic_enable_ppi(unsigned int);
 #ifdef CONFIG_ARM_GIC_VPPI
 unsigned int gic_ppi_to_vppi(unsigned int irq);
 #else

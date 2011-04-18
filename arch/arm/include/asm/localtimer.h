@@ -20,11 +20,6 @@ struct clock_event_device;
 void percpu_timer_setup(void);
 
 /*
- * Called from assembly, this is the local timer IRQ handler
- */
-asmlinkage void do_local_timer(struct pt_regs *);
-
-/*
  * Per-cpu timer IRQ handler
  */
 irqreturn_t percpu_timer_handler(int irq, void *dev_id);

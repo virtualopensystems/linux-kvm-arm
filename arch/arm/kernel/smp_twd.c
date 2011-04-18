@@ -44,10 +44,8 @@ static void twd_set_mode(enum clock_event_mode mode,
 		ctrl = TWD_TIMER_CONTROL_IT_ENABLE | TWD_TIMER_CONTROL_ONESHOT;
 		break;
 	case CLOCK_EVT_MODE_UNUSED:
-#ifdef CONFIG_ARM_GIC_VPPI
 		free_irq(clk->irq, clk);
 		/* fall through */
-#endif
 	case CLOCK_EVT_MODE_SHUTDOWN:
 	default:
 		ctrl = 0;
@@ -144,7 +142,6 @@ void __cpuinit twd_timer_setup(struct clock_event_device *clk)
 	clk->max_delta_ns = clockevent_delta2ns(0xffffffff, clk);
 	clk->min_delta_ns = clockevent_delta2ns(0xf, clk);
 
-#ifdef CONFIG_ARM_GIC_VPPI
 	err = request_irq(clk->irq, percpu_timer_handler,
 			  IRQF_PERCPU | IRQF_NOBALANCING | IRQF_TIMER,
 			  clk->name, clk);
@@ -153,10 +150,6 @@ void __cpuinit twd_timer_setup(struct clock_event_device *clk)
 		       clk->name, clk->irq, smp_processor_id(), err);
 		return;
 	}
-#else
-	/* Make sure our local interrupt controller has this enabled */
-	gic_enable_ppi(clk->irq);
-#endif
 
 	clockevents_register_device(clk);
 }

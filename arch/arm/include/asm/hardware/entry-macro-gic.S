@@ -65,16 +65,3 @@
 	strcc	\irqstat, [\base, #GIC_CPU_EOI]
 	cmpcs	\irqnr, \irqnr
 	.endm
-
-#ifndef CONFIG_ARM_GIC_VPPI
-/* As above, this assumes that irqstat and base are preserved.. */
-
-	.macro test_for_ltirq, irqnr, irqstat, base, tmp
-	bic	\irqnr, \irqstat, #0x1c00
-	mov 	\tmp, #0
-	cmp	\irqnr, #29
-	moveq	\tmp, #1
-	streq	\irqstat, [\base, #GIC_CPU_EOI]
-	cmp	\tmp, #0
-	.endm
-#endif
