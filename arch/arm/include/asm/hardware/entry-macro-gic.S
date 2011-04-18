@@ -50,6 +50,9 @@
 	cmpcc	\irqnr, \irqnr
 	cmpne	\irqnr, \tmp
 	cmpcs	\irqnr, \irqnr
+#ifdef HAVE_GIC_BASE_OFFSET
+	compute_irqnr	\irqnr, \tmp
+#endif
 	.endm
 
 /* We assume that irqstat (the raw value of the IRQ acknowledge
