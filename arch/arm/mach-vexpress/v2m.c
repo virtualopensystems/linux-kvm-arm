@@ -399,10 +399,12 @@ static struct ct_desc *ct_descs[] __initdata = {
 static void __init v2m_populate_ct_desc(void)
 {
 	int i;
-	u32 current_tile_id;
+	u32 procid_reg, current_tile_id;
 
 	ct_desc = NULL;
-	current_tile_id = readl(MMIO_P2V(V2M_SYS_PROCID0)) & V2M_CT_ID_MASK;
+	procid_reg = readl(MMIO_P2V(V2M_SYS_MISC)) & SYS_MISC_MASTERSITE ?
+			V2M_SYS_PROCID1 : V2M_SYS_PROCID0;
+	current_tile_id = readl(MMIO_P2V(procid_reg)) & V2M_CT_ID_MASK;
 
 	for (i = 0; i < ARRAY_SIZE(ct_descs) && !ct_desc; ++i)
 		if (ct_descs[i]->id == current_tile_id)
