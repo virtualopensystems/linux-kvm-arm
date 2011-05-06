@@ -175,7 +175,11 @@ int kvm_dev_ioctl_check_extension(long ext)
 	int r;
 
 	switch (ext) {
+#ifdef CONFIG_BOOKE
+	case KVM_CAP_PPC_BOOKE_SREGS:
+#else
 	case KVM_CAP_PPC_SEGSTATE:
+#endif
 	case KVM_CAP_PPC_PAIRED_SINGLES:
 	case KVM_CAP_PPC_UNSET_IRQ:
 	case KVM_CAP_PPC_IRQ_LEVEL:
@@ -298,12 +302,25 @@ void kvm_arch_vcpu_uninit(struct kvm_vcpu *vcpu)
 
 void kvm_arch_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
 {
+#ifdef CONFIG_BOOKE
+	/*
+	 * vrsave (formerly usprg0) isn't used by Linux, but may
+	 * be used by the guest.
+	 *
+	 * On non-booke this is associated with Altivec and
+	 * is handled by code in book3s.c.
+	 */
+	mtspr(SPRN_VRSAVE, vcpu->arch.vrsave);
+#endif
 	kvmppc_core_vcpu_load(vcpu, cpu);
 }
 
 void kvm_arch_vcpu_put(struct kvm_vcpu *vcpu)
 {
 	kvmppc_core_vcpu_put(vcpu);
+#ifdef CONFIG_BOOKE
+	vcpu->arch.vrsave = mfspr(SPRN_VRSAVE);
+#endif
 }
 
 int kvm_arch_vcpu_ioctl_set_guest_debug(struct kvm_vcpu *vcpu,
