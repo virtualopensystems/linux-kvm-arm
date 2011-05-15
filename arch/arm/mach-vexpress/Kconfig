@@ -33,6 +33,7 @@ config ARCH_VEXPRESS_CA15X4
 	bool "Versatile Express Cortex-A15x4 tile"
 	depends on VEXPRESS_EXTENDED_MEMORY_MAP
 	select CPU_V7
+	select ARM_VIRT_EXT
 	select ARM_GIC
 	select HAVE_ARCH_TIMERS
 

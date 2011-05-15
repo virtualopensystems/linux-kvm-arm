@@ -310,6 +310,7 @@ struct kvm_translation {
 struct kvm_interrupt {
 	/* in */
 	__u32 irq;
+	__u8  raise;
 };
 
 /* for KVM_GET_DIRTY_LOG */
