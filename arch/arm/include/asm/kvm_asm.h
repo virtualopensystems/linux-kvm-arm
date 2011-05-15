@@ -24,5 +24,17 @@
 #define ARM_EXCEPTION_DATA_ABORT  4
 #define ARM_EXCEPTION_IRQ	  5
 #define ARM_EXCEPTION_FIQ	  6
+#define ARM_EXCEPTION_HVC	  7
+
+/*
+ * SMC Hypervisor API call numbers
+ */
+#ifdef __ASSEMBLY__
+#define SMC_HYP_CALL(n, x) .equ n, x
+#else /* !__ASSEMBLY__ */
+#define SMC_HYP_CALL(n, x) asm(".equ " #n ", " #x);
+#endif /* __ASSEMBLY__ */
+
+SMC_HYP_CALL(SMCHYP_HVBAR_W  , 0xfffffff0)
 
 #endif /* __ARM_KVM_ASM_H__ */

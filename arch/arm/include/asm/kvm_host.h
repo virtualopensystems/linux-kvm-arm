@@ -31,6 +31,7 @@ struct kvm_vcpu;
 u32* kvm_vcpu_reg(struct kvm_vcpu *vcpu, u8 reg_num, u32 mode);
 
 struct kvm_arch {
+	pgd_t *pgd;     /* 1-level 2nd stage table */
 };
 
 #define EXCEPTION_NONE      0

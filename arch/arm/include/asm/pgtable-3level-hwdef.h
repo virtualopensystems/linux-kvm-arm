@@ -31,6 +31,9 @@
 #define PMD_TYPE_SECT		(_AT(pmdval_t, 1) << 0)
 #define PMD_BIT4		(_AT(pmdval_t, 0))
 #define PMD_DOMAIN(x)		(_AT(pmdval_t, 0))
+#define PMD_APTABLE_SHIFT	(61)
+#define PMD_APTABLE		(_AT(pgdval_t, 3) << PGD_APTABLE_SHIFT)
+#define PMD_PXNTABLE		(_AT(pgdval_t, 1) << 59)
 
 /*
  *   - section
@@ -43,8 +46,10 @@
 #ifdef __ASSEMBLY__
 /* avoid 'shift count out of range' warning */
 #define PMD_SECT_XN		(0)
+#define PMD_SECT_PXN		(0)
 #else
 #define PMD_SECT_XN		((pmdval_t)1 << 54)
+#define PMD_SECT_PXN		((pmdval_t)1 << 53)
 #endif
 #define PMD_SECT_AP_WRITE	(_AT(pmdval_t, 0))
 #define PMD_SECT_AP_READ	(_AT(pmdval_t, 0))
