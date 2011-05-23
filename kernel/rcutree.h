@@ -84,9 +84,11 @@
  * Dynticks per-CPU state.
  */
 struct rcu_dynticks {
-	int dynticks_nesting;	/* Track irq/process nesting level. */
-	int dynticks_nmi_nesting; /* Track NMI nesting level. */
-	atomic_t dynticks;	/* Even value for dynticks-idle, else odd. */
+	int dynticks_nesting;	/* Track nesting level, sort of. */
+	int dynticks;		/* Even value for dynticks-idle, else odd. */
+	int dynticks_nmi;	/* Even value for either dynticks-idle or */
+				/*  not in nmi handler, else odd.  So this */
+				/*  remains even for nmi from irq handler. */
 };
 
 /* RCU's kthread states for tracing. */
@@ -282,6 +284,7 @@ struct rcu_data {
 	/* 3) dynticks interface. */
 	struct rcu_dynticks *dynticks;	/* Shared per-CPU dynticks state. */
 	int dynticks_snap;		/* Per-GP tracking for dynticks. */
+	int dynticks_nmi_snap;		/* Per-GP tracking for dynticks_nmi. */
 #endif /* #ifdef CONFIG_NO_HZ */
 
 	/* 4) reasons this CPU needed to be kicked by force_quiescent_state */
@@ -444,15 +447,12 @@ static void rcu_preempt_send_cbs_to_online(void);
 static void __init __rcu_init_preempt(void);
 static void rcu_needs_cpu_flush(void);
 static void __init rcu_init_boost_waitqueue(struct rcu_node *rnp);
-static void rcu_initiate_boost(struct rcu_node *rnp);
+static void rcu_initiate_boost(struct rcu_node *rnp, unsigned long flags);
 static void rcu_boost_kthread_setaffinity(struct rcu_node *rnp,
 					  cpumask_var_t cm);
 static void rcu_preempt_boost_start_gp(struct rcu_node *rnp);
 static int __cpuinit rcu_spawn_one_boost_kthread(struct rcu_state *rsp,
 						 struct rcu_node *rnp,
 						 int rnp_index);
-#ifdef CONFIG_HOTPLUG_CPU
-static void rcu_stop_boost_kthread(struct rcu_node *rnp);
-#endif /* #ifdef CONFIG_HOTPLUG_CPU */
 
 #endif /* #ifndef RCU_TREE_NONCORE */

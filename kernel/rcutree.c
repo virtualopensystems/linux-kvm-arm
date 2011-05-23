@@ -49,6 +49,7 @@
 #include <linux/kernel_stat.h>
 #include <linux/wait.h>
 #include <linux/kthread.h>
+#include <linux/prefetch.h>
 
 #include "rcutree.h"
 
@@ -162,7 +163,7 @@ EXPORT_SYMBOL_GPL(rcu_note_context_switch);
 #ifdef CONFIG_NO_HZ
 DEFINE_PER_CPU(struct rcu_dynticks, rcu_dynticks) = {
 	.dynticks_nesting = 1,
-	.dynticks = ATOMIC_INIT(1),
+	.dynticks = 1,
 };
 #endif /* #ifdef CONFIG_NO_HZ */
 
@@ -321,25 +322,13 @@ void rcu_enter_nohz(void)
 	unsigned long flags;
 	struct rcu_dynticks *rdtp;
 
+	smp_mb(); /* CPUs seeing ++ must see prior RCU read-side crit sects */
 	local_irq_save(flags);
 	rdtp = &__get_cpu_var(rcu_dynticks);
-	if (--rdtp->dynticks_nesting) {
-		local_irq_restore(flags);
-		return;
-	}
-	/* CPUs seeing atomic_inc() must see prior RCU read-side crit sects */
-	smp_mb__before_atomic_inc();  /* See above. */
-	atomic_inc(&rdtp->dynticks);
-	smp_mb__after_atomic_inc();  /* Force ordering with next sojourn. */
-	WARN_ON_ONCE(atomic_read(&rdtp->dynticks) & 0x1);
+	rdtp->dynticks++;
+	rdtp->dynticks_nesting--;
+	WARN_ON_ONCE(rdtp->dynticks & 0x1);
 	local_irq_restore(flags);
-
-	/* If the interrupt queued a callback, get out of dyntick mode. */
-	if (in_irq() &&
-	    (__get_cpu_var(rcu_sched_data).nxtlist ||
-	     __get_cpu_var(rcu_bh_data).nxtlist ||
-	     rcu_preempt_needs_cpu(smp_processor_id())))
-		set_need_resched();
 }
 
 /*
@@ -355,16 +344,11 @@ void rcu_exit_nohz(void)
 
 	local_irq_save(flags);
 	rdtp = &__get_cpu_var(rcu_dynticks);
-	if (rdtp->dynticks_nesting++) {
-		local_irq_restore(flags);
-		return;
-	}
-	smp_mb__before_atomic_inc();  /* Force ordering w/previous sojourn. */
-	atomic_inc(&rdtp->dynticks);
-	/* CPUs seeing atomic_inc() must see later RCU read-side crit sects */
-	smp_mb__after_atomic_inc();  /* See above. */
-	WARN_ON_ONCE(!(atomic_read(&rdtp->dynticks) & 0x1));
+	rdtp->dynticks++;
+	rdtp->dynticks_nesting++;
+	WARN_ON_ONCE(!(rdtp->dynticks & 0x1));
 	local_irq_restore(flags);
+	smp_mb(); /* CPUs seeing ++ must see later RCU read-side crit sects */
 }
 
 /**
@@ -378,15 +362,11 @@ void rcu_nmi_enter(void)
 {
 	struct rcu_dynticks *rdtp = &__get_cpu_var(rcu_dynticks);
 
-	if (rdtp->dynticks_nmi_nesting == 0 &&
-	    (atomic_read(&rdtp->dynticks) & 0x1))
+	if (rdtp->dynticks & 0x1)
 		return;
-	rdtp->dynticks_nmi_nesting++;
-	smp_mb__before_atomic_inc();  /* Force delay from prior write. */
-	atomic_inc(&rdtp->dynticks);
-	/* CPUs seeing atomic_inc() must see later RCU read-side crit sects */
-	smp_mb__after_atomic_inc();  /* See above. */
-	WARN_ON_ONCE(!(atomic_read(&rdtp->dynticks) & 0x1));
+	rdtp->dynticks_nmi++;
+	WARN_ON_ONCE(!(rdtp->dynticks_nmi & 0x1));
+	smp_mb(); /* CPUs seeing ++ must see later RCU read-side crit sects */
 }
 
 /**
@@ -400,14 +380,11 @@ void rcu_nmi_exit(void)
 {
 	struct rcu_dynticks *rdtp = &__get_cpu_var(rcu_dynticks);
 
-	if (rdtp->dynticks_nmi_nesting == 0 ||
-	    --rdtp->dynticks_nmi_nesting != 0)
+	if (rdtp->dynticks & 0x1)
 		return;
-	/* CPUs seeing atomic_inc() must see prior RCU read-side crit sects */
-	smp_mb__before_atomic_inc();  /* See above. */
-	atomic_inc(&rdtp->dynticks);
-	smp_mb__after_atomic_inc();  /* Force delay to next write. */
-	WARN_ON_ONCE(atomic_read(&rdtp->dynticks) & 0x1);
+	smp_mb(); /* CPUs seeing ++ must see prior RCU read-side crit sects */
+	rdtp->dynticks_nmi++;
+	WARN_ON_ONCE(rdtp->dynticks_nmi & 0x1);
 }
 
 /**
@@ -418,7 +395,13 @@ void rcu_nmi_exit(void)
  */
 void rcu_irq_enter(void)
 {
-	rcu_exit_nohz();
+	struct rcu_dynticks *rdtp = &__get_cpu_var(rcu_dynticks);
+
+	if (rdtp->dynticks_nesting++)
+		return;
+	rdtp->dynticks++;
+	WARN_ON_ONCE(!(rdtp->dynticks & 0x1));
+	smp_mb(); /* CPUs seeing ++ must see later RCU read-side crit sects */
 }
 
 /**
@@ -430,7 +413,18 @@ void rcu_irq_enter(void)
  */
 void rcu_irq_exit(void)
 {
-	rcu_enter_nohz();
+	struct rcu_dynticks *rdtp = &__get_cpu_var(rcu_dynticks);
+
+	if (--rdtp->dynticks_nesting)
+		return;
+	smp_mb(); /* CPUs seeing ++ must see prior RCU read-side crit sects */
+	rdtp->dynticks++;
+	WARN_ON_ONCE(rdtp->dynticks & 0x1);
+
+	/* If the interrupt queued a callback, get out of dyntick mode. */
+	if (__this_cpu_read(rcu_sched_data.nxtlist) ||
+	    __this_cpu_read(rcu_bh_data.nxtlist))
+		set_need_resched();
 }
 
 #ifdef CONFIG_SMP
@@ -442,8 +436,19 @@ void rcu_irq_exit(void)
  */
 static int dyntick_save_progress_counter(struct rcu_data *rdp)
 {
-	rdp->dynticks_snap = atomic_add_return(0, &rdp->dynticks->dynticks);
-	return 0;
+	int ret;
+	int snap;
+	int snap_nmi;
+
+	snap = rdp->dynticks->dynticks;
+	snap_nmi = rdp->dynticks->dynticks_nmi;
+	smp_mb();	/* Order sampling of snap with end of grace period. */
+	rdp->dynticks_snap = snap;
+	rdp->dynticks_nmi_snap = snap_nmi;
+	ret = ((snap & 0x1) == 0) && ((snap_nmi & 0x1) == 0);
+	if (ret)
+		rdp->dynticks_fqs++;
+	return ret;
 }
 
 /*
@@ -454,11 +459,16 @@ static int dyntick_save_progress_counter(struct rcu_data *rdp)
  */
 static int rcu_implicit_dynticks_qs(struct rcu_data *rdp)
 {
-	unsigned long curr;
-	unsigned long snap;
+	long curr;
+	long curr_nmi;
+	long snap;
+	long snap_nmi;
 
-	curr = (unsigned long)atomic_add_return(0, &rdp->dynticks->dynticks);
-	snap = (unsigned long)rdp->dynticks_snap;
+	curr = rdp->dynticks->dynticks;
+	snap = rdp->dynticks_snap;
+	curr_nmi = rdp->dynticks->dynticks_nmi;
+	snap_nmi = rdp->dynticks_nmi_snap;
+	smp_mb(); /* force ordering with cpu entering/leaving dynticks. */
 
 	/*
 	 * If the CPU passed through or entered a dynticks idle phase with
@@ -468,7 +478,8 @@ static int rcu_implicit_dynticks_qs(struct rcu_data *rdp)
 	 * read-side critical section that started before the beginning
 	 * of the current RCU grace period.
 	 */
-	if ((curr & 0x1) == 0 || ULONG_CMP_GE(curr, snap + 2)) {
+	if ((curr != snap || (curr & 0x1) == 0) &&
+	    (curr_nmi != snap_nmi || (curr_nmi & 0x1) == 0)) {
 		rdp->dynticks_fqs++;
 		return 1;
 	}
@@ -897,12 +908,6 @@ static void rcu_report_qs_rsp(struct rcu_state *rsp, unsigned long flags)
 	unsigned long gp_duration;
 
 	WARN_ON_ONCE(!rcu_gp_in_progress(rsp));
-
-	/*
-	 * Ensure that all grace-period and pre-grace-period activity
-	 * is seen before the assignment to rsp->completed.
-	 */
-	smp_mb(); /* See above block comment. */
 	gp_duration = jiffies - rsp->gp_start;
 	if (gp_duration > rsp->gp_max)
 		rsp->gp_max = gp_duration;
@@ -1133,22 +1138,7 @@ static void __rcu_offline_cpu(int cpu, struct rcu_state *rsp)
 		raw_spin_unlock_irqrestore(&rnp->lock, flags);
 	if (need_report & RCU_OFL_TASKS_EXP_GP)
 		rcu_report_exp_rnp(rsp, rnp);
-
-	/*
-	 * If there are no more online CPUs for this rcu_node structure,
-	 * kill the rcu_node structure's kthread.  Otherwise, adjust its
-	 * affinity.
-	 */
-	t = rnp->node_kthread_task;
-	if (t != NULL &&
-	    rnp->qsmaskinit == 0) {
-		raw_spin_lock_irqsave(&rnp->lock, flags);
-		rnp->node_kthread_task = NULL;
-		raw_spin_unlock_irqrestore(&rnp->lock, flags);
-		kthread_stop(t);
-		rcu_stop_boost_kthread(rnp);
-	} else
-		rcu_node_kthread_setaffinity(rnp, -1);
+	rcu_node_kthread_setaffinity(rnp, -1);
 }
 
 /*
@@ -1320,8 +1310,7 @@ static void force_qs_rnp(struct rcu_state *rsp, int (*f)(struct rcu_data *))
 			return;
 		}
 		if (rnp->qsmask == 0) {
-			rcu_initiate_boost(rnp);
-			raw_spin_unlock_irqrestore(&rnp->lock, flags);
+			rcu_initiate_boost(rnp, flags); /* releases rnp->lock */
 			continue;
 		}
 		cpu = rnp->grplo;
@@ -1340,10 +1329,10 @@ static void force_qs_rnp(struct rcu_state *rsp, int (*f)(struct rcu_data *))
 		raw_spin_unlock_irqrestore(&rnp->lock, flags);
 	}
 	rnp = rcu_get_root(rsp);
-	raw_spin_lock_irqsave(&rnp->lock, flags);
-	if (rnp->qsmask == 0)
-		rcu_initiate_boost(rnp);
-	raw_spin_unlock_irqrestore(&rnp->lock, flags);
+	if (rnp->qsmask == 0) {
+		raw_spin_lock_irqsave(&rnp->lock, flags);
+		rcu_initiate_boost(rnp, flags); /* releases rnp->lock. */
+	}
 }
 
 /*
@@ -1466,10 +1455,24 @@ __rcu_process_callbacks(struct rcu_state *rsp, struct rcu_data *rdp)
  */
 static void rcu_process_callbacks(void)
 {
+	/*
+	 * Memory references from any prior RCU read-side critical sections
+	 * executed by the interrupted code must be seen before any RCU
+	 * grace-period manipulations below.
+	 */
+	smp_mb(); /* See above block comment. */
+
 	__rcu_process_callbacks(&rcu_sched_state,
 				&__get_cpu_var(rcu_sched_data));
 	__rcu_process_callbacks(&rcu_bh_state, &__get_cpu_var(rcu_bh_data));
 	rcu_preempt_process_callbacks();
+
+	/*
+	 * Memory references from any later RCU read-side critical sections
+	 * executed by the interrupted code must be seen after any RCU
+	 * grace-period manipulations above.
+	 */
+	smp_mb(); /* See above block comment. */
 
 	/* If we are last CPU on way to dyntick-idle mode, accelerate it. */
 	rcu_needs_cpu_flush();
@@ -1497,7 +1500,8 @@ static void invoke_rcu_cpu_kthread(void)
 
 /*
  * Wake up the specified per-rcu_node-structure kthread.
- * The caller must hold ->lock.
+ * Because the per-rcu_node kthreads are immortal, we don't need
+ * to do anything to keep them alive.
  */
 static void invoke_rcu_node_kthread(struct rcu_node *rnp)
 {
@@ -1546,8 +1550,8 @@ static void rcu_cpu_kthread_timer(unsigned long arg)
 
 	raw_spin_lock_irqsave(&rnp->lock, flags);
 	rnp->wakemask |= rdp->grpmask;
-	invoke_rcu_node_kthread(rnp);
 	raw_spin_unlock_irqrestore(&rnp->lock, flags);
+	invoke_rcu_node_kthread(rnp);
 }
 
 /*
@@ -1694,16 +1698,12 @@ static int rcu_node_kthread(void *arg)
 
 	for (;;) {
 		rnp->node_kthread_status = RCU_KTHREAD_WAITING;
-		wait_event_interruptible(rnp->node_wq, rnp->wakemask != 0 ||
-						       kthread_should_stop());
-		if (kthread_should_stop())
-			break;
+		wait_event_interruptible(rnp->node_wq, rnp->wakemask != 0);
 		rnp->node_kthread_status = RCU_KTHREAD_RUNNING;
 		raw_spin_lock_irqsave(&rnp->lock, flags);
 		mask = rnp->wakemask;
 		rnp->wakemask = 0;
-		rcu_initiate_boost(rnp);
-		raw_spin_unlock_irqrestore(&rnp->lock, flags);
+		rcu_initiate_boost(rnp, flags); /* releases rnp->lock. */
 		for (cpu = rnp->grplo; cpu <= rnp->grphi; cpu++, mask >>= 1) {
 			if ((mask & 0x1) == 0)
 				continue;
@@ -1719,6 +1719,7 @@ static int rcu_node_kthread(void *arg)
 			preempt_enable();
 		}
 	}
+	/* NOTREACHED */
 	rnp->node_kthread_status = RCU_KTHREAD_STOPPED;
 	return 0;
 }
@@ -1738,7 +1739,7 @@ static void rcu_node_kthread_setaffinity(struct rcu_node *rnp, int outgoingcpu)
 	int cpu;
 	unsigned long mask = rnp->qsmaskinit;
 
-	if (rnp->node_kthread_task == NULL || mask == 0)
+	if (rnp->node_kthread_task == NULL)
 		return;
 	if (!alloc_cpumask_var(&cm, GFP_KERNEL))
 		return;
