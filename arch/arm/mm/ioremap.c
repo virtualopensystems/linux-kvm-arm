@@ -83,7 +83,8 @@ static void unmap_area_sections(unsigned long virt, unsigned long size)
 	flush_cache_vunmap(addr, end);
 	pgd = pgd_offset_k(addr);
 	do {
-		pmd_t pmd, *pmdp = pmd_offset(pgd, addr);
+		pud_t *pud = pud_offset(pgd, addr);
+		pmd_t pmd, *pmdp = pmd_offset(pud, addr);
 
 		pmd = *pmdp;
 		if (!pmd_none(pmd)) {
@@ -133,7 +134,8 @@ remap_area_sections(unsigned long virt, unsigned long pfn,
 
 	pgd = pgd_offset_k(addr);
 	do {
-		pmd_t *pmd = pmd_offset(pgd, addr);
+		pud_t *pud = pud_offset(pgd, addr);
+		pmd_t *pmd = pmd_offset(pud, addr);
 
 		pmd[0] = __pmd(__pfn_to_phys(pfn) | type->prot_sect);
 		pfn += SZ_1M >> PAGE_SHIFT;
@@ -170,7 +172,8 @@ remap_area_supersections(unsigned long virt, unsigned long pfn,
 		super_pmd_val |= ((pfn >> (32 - PAGE_SHIFT)) & 0xf) << 20;
 
 		for (i = 0; i < 8; i++) {
-			pmd_t *pmd = pmd_offset(pgd, addr);
+			pud_t *pud = pud_offset(pgd, addr);
+			pmd_t *pmd = pmd_offset(pud, addr);
 
 			pmd[0] = __pmd(super_pmd_val);
 			pmd[1] = __pmd(super_pmd_val);
