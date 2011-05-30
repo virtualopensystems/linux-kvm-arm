@@ -210,6 +210,7 @@ MACHINE_START(ARMLEX4210, "ARMLEX4210")
 	.boot_params	= S5P_PA_SDRAM + 0x100,
 	.init_irq	= exynos4_init_irq,
 	.map_io		= armlex4210_map_io,
+	.handle_irq	= exynos4_handle_irq,
 	.init_machine	= armlex4210_machine_init,
 	.timer		= &exynos4_timer,
 MACHINE_END

@@ -160,4 +160,6 @@
 /* Set the default NR_IRQS */
 #define NR_IRQS			(IRQ_GPIO_END + 64)
 
+asmlinkage void exynos4_handle_irq(struct pt_regs *regs);
+
 #endif /* __ASM_ARCH_IRQS_H */
