@@ -1155,6 +1155,7 @@ MACHINE_START(NURI, "NURI")
 	.boot_params	= S5P_PA_SDRAM + 0x100,
 	.init_irq	= exynos4_init_irq,
 	.map_io		= nuri_map_io,
+	.handle_irq	= exynos4_handle_irq,
 	.init_machine	= nuri_machine_init,
 	.timer		= &exynos4_timer,
 	.reserve        = &nuri_reserve,
