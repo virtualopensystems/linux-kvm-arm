@@ -15,6 +15,7 @@
 #include <asm/mach/irq.h>
 
 #include <asm/proc-fns.h>
+#include <asm/exception.h>
 #include <asm/hardware/cache-l2x0.h>
 #include <asm/hardware/gic.h>
 
