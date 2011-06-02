@@ -16,9 +16,10 @@
 
 #include <linux/mman.h>
 #include <linux/kvm_host.h>
+#include <asm/pgalloc.h>
 #include <asm/kvm_arm.h>
 #include <asm/kvm_mmu.h>
-#include <asm/pgalloc.h>
+#include <asm/kvm_emulate.h>
 
 #include "../mm/mm.h"
 #include "trace.h"
@@ -297,6 +298,105 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
 	return 0;
 }
 
+/**
+ * kvm_handle_mmio_return -- Handle MMIO loads after user space emulation
+ * @vcpu: The VCPU pointer
+ * @run:  The VCPU run struct containing the mmio data
+ *
+ * This should only be called after returning to QEMU for MMIO load emulation.
+ */
+int kvm_handle_mmio_return(struct kvm_vcpu *vcpu, struct kvm_run *run)
+{
+	int *dest;
+	unsigned int len;
+	int mask;
+
+	if (!run->mmio.is_write) {
+		dest = &vcpu_reg(vcpu, vcpu->arch.mmio_rd);
+		memset(dest, 0, sizeof(int));
+
+		if (run->mmio.len > 4) {
+			kvm_err(-EINVAL, "Incorrect mmio length");
+			return -EINVAL;
+		}
+
+		len = run->mmio.len;
+		memcpy(dest, run->mmio.data, len);
+
+		if (vcpu->arch.mmio_sign_extend && len < 4) {
+			mask = 1U << ((len * 8) - 1);
+			*dest = (*dest ^ mask) - mask;
+		}
+	}
+
+	return 0;
+}
+
+static int io_mem_abort(struct kvm_vcpu *vcpu, struct kvm_run *run,
+			phys_addr_t fault_ipa, struct kvm_memory_slot *memslot)
+{
+	unsigned long rd, len, instr_len;
+	bool is_write, sign_extend;
+
+	if (!((vcpu->arch.hsr >> 24) & 1) || ((vcpu->arch.hsr >> 8) & 1)) {
+		kvm_err(-EFAULT, "Invalid I/O abort");
+		return -EFAULT;
+	}
+
+	if ((vcpu->arch.hsr >> 7) & 1) {
+		kvm_err(-EFAULT, "Translation table accesses I/O memory");
+		return -EFAULT;
+	}
+
+	switch ((vcpu->arch.hsr >> 22) & 0x3) {
+	case 0: len = 1; break;
+	case 1: len = 2; break;
+	case 2: len = 4; break;
+	default:
+		kvm_err(-EFAULT, "Invalid I/O abort");
+		return -EFAULT;
+	}
+
+	is_write = ((vcpu->arch.hsr >> 6) & 1);
+	sign_extend = ((vcpu->arch.hsr >> 21) & 1);
+	rd = (vcpu->arch.hsr >> 16) & 0xf;
+	BUG_ON(rd > 15);
+
+	if (rd == 15) {
+		kvm_err(-EFAULT, "I/O memory trying to read/write pc");
+		return -EFAULT;
+	}
+
+	/* Get instruction length in bytes */
+	instr_len = ((vcpu->arch.hsr >> 25) & 1) ? 4 : 2;
+
+	if (!memslot) {
+		/* QEMU hack for missing devices - simply return 0 */
+		if (!is_write)
+			vcpu_reg(vcpu, rd) = 0;
+		vcpu_reg(vcpu, 15) += instr_len;
+		return 0;
+	}
+
+	/* Export MMIO operations to user space */
+	vcpu->run->exit_reason = KVM_EXIT_MMIO;
+	vcpu->run->mmio.is_write = is_write;
+	vcpu->run->mmio.phys_addr = fault_ipa;
+	vcpu->run->mmio.len = len;
+	vcpu->arch.mmio_sign_extend = sign_extend;
+	vcpu->arch.mmio_rd = rd;
+
+	if (is_write)
+		memcpy(run->mmio.data, &vcpu_reg(vcpu, rd), len);
+
+	/*
+	 * The MMIO instruction is emulated and should not be re-executed
+	 * in the guest.
+	 */
+	vcpu_reg(vcpu, 15) += instr_len;
+	return 0;
+}
+
 #define HSR_ABT_FS	(0x3f)
 #define HPFAR_MASK	(~0xf)
 int kvm_handle_guest_abort(struct kvm_vcpu *vcpu, struct kvm_run *run)
@@ -335,7 +435,5 @@ io_mem_abort:
 		return -EFAULT;
 	}
 
-	kvm_msg("I/O address abort...");
-	KVMARM_NOT_IMPLEMENTED();
-	return -EINVAL;
+	return io_mem_abort(vcpu, run, fault_ipa, memslot);
 }

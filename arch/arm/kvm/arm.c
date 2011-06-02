@@ -349,6 +349,12 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 	int ret;
 
 	for (;;) {
+		if (run->exit_reason == KVM_EXIT_MMIO) {
+			ret = kvm_handle_mmio_return(vcpu, vcpu->run);
+			if (ret)
+				break;
+		}
+
 		local_irq_save(flags);
 		ret = __kvm_vcpu_run(vcpu);
 		local_irq_restore(flags);
@@ -367,8 +373,13 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 			kvm_err(ret, "Error in handle_exit");
 			break;
 		}
+
+		if (run->exit_reason == KVM_EXIT_MMIO)
+			break;
 	}
 
+	if (ret < 0)
+		run->exit_reason = KVM_EXIT_EXCEPTION;
 	return ret;
 }
 

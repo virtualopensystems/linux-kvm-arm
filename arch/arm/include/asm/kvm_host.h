@@ -86,6 +86,7 @@ struct kvm_vcpu_arch {
 	u32 hpfar;		/* Hyp IPA Fault Address Register */
 
 	/* IO related fields */
+	bool mmio_sign_extend;	/* for byte/halfword loads */
 	u32 mmio_rd;
 
 	/* Misc. fields */
