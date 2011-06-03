@@ -73,6 +73,8 @@ struct kvm_vcpu_arch {
 		u64 c2_TTBR1;		/* Translation Table Base Register 1 */
 		u32 c2_TTBCR;		/* Translation Table Base Control Register */
 		u32 c3_DACR;		/* Domain Access Control Register */
+		u32 c10_PRRR;		/* Primary Region Remap Register */
+		u32 c10_NMRR;		/* Normal Memory Remap Register */
 	} cp15;
 
 	u32 exception_pending;  	/* Exception to raise after emulation */

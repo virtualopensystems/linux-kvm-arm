@@ -245,7 +245,19 @@ int kvm_cpu_has_pending_timer(struct kvm_vcpu *vcpu)
 
 int kvm_arch_vcpu_init(struct kvm_vcpu *vcpu)
 {
-	KVMARM_NOT_IMPLEMENTED();
+	unsigned long cpsr;
+	unsigned long sctlr;
+
+	/* Init execution CPSR */
+	asm volatile ("mrs	%[cpsr], cpsr": [cpsr] "=r" (cpsr));
+	vcpu->arch.regs.cpsr = SVC_MODE | PSR_I_BIT | PSR_F_BIT | PSR_A_BIT |
+				(cpsr & PSR_E_BIT);
+
+	/* Init SCTLR with MMU disabled */
+	asm volatile ("mrc	p15, 0, %[sctlr], c1, c0, 0":
+			[sctlr] "=r" (sctlr));
+	vcpu->arch.cp15.c1_SCTLR = sctlr & ~1U;
+
 	return 0;
 }
 
@@ -287,6 +299,12 @@ int kvm_arch_vcpu_runnable(struct kvm_vcpu *v)
 
 int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 {
+	unsigned long flags;
+
+	local_irq_save(flags);
+	__kvm_vcpu_run(vcpu);
+	local_irq_restore(flags);
+
 	KVMARM_NOT_IMPLEMENTED();
 	return -EINVAL;
 }
