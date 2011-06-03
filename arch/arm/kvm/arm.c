@@ -33,6 +33,7 @@
 #include <asm/kvm_arm.h>
 #include <asm/kvm_asm.h>
 #include <asm/kvm_mmu.h>
+#include <asm/kvm_emulate.h>
 
 #include "trace.h"
 
@@ -297,16 +298,78 @@ int kvm_arch_vcpu_runnable(struct kvm_vcpu *v)
 	return 0;
 }
 
+static inline int handle_exit(struct kvm_vcpu *vcpu, struct kvm_run *run)
+{
+	unsigned long hsr_ec;
+
+	hsr_ec = (vcpu->arch.hsr & HSR_EC) >> HSR_EC_SHIFT;
+	switch (hsr_ec) {
+	case HSR_EC_WFI:
+		return kvm_handle_wfi(vcpu, run);
+	case HSR_EC_CP15_32:
+	case HSR_EC_CP15_64:
+		return kvm_handle_cp15_access(vcpu, run);
+	case HSR_EC_CP14_MR:
+		return kvm_handle_cp14_access(vcpu, run);
+	case HSR_EC_CP14_LS:
+		return kvm_handle_cp14_load_store(vcpu, run);
+	case HSR_EC_CP14_64:
+		return kvm_handle_cp14_access(vcpu, run);
+	case HSR_EC_CP_0_13:
+		return kvm_handle_cp_0_13_access(vcpu, run);
+	case HSR_EC_CP10_ID:
+		return kvm_handle_cp10_id(vcpu, run);
+	case HSR_EC_SVC_HYP:
+		/* SVC called from Hyp mode should never get here */
+		kvm_msg("SVC called from Hyp mode shouldn't go here");
+		BUG();
+	case HSR_EC_HVC:
+		kvm_err(-EINVAL, "Guest called HVC, not supported");
+		return -EINVAL;
+	case HSR_EC_IABT:
+	case HSR_EC_DABT:
+		return kvm_handle_guest_abort(vcpu, run);
+	case HSR_EC_IABT_HYP:
+	case HSR_EC_DABT_HYP:
+		/* The hypervisor should never cause aborts */
+		kvm_msg("The hypervisor itself shouldn't cause aborts");
+		BUG();
+	default:
+		kvm_msg("Unkown exception class: %08x (%08x)", hsr_ec,
+				vcpu->arch.hsr);
+		BUG();
+	}
+
+	return 0;
+}
+
 int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 {
 	unsigned long flags;
+	int ret;
 
-	local_irq_save(flags);
-	__kvm_vcpu_run(vcpu);
-	local_irq_restore(flags);
+	for (;;) {
+		local_irq_save(flags);
+		ret = __kvm_vcpu_run(vcpu);
+		local_irq_restore(flags);
 
-	KVMARM_NOT_IMPLEMENTED();
-	return -EINVAL;
+		if (ret == ARM_EXCEPTION_IRQ)
+			continue;
+
+		if (ret != ARM_EXCEPTION_HVC) {
+			ret = -EINVAL;
+			kvm_err(ret, "Unsupported exception type");
+			break;
+		}
+
+		ret = handle_exit(vcpu, run);
+		if (ret) {
+			kvm_err(ret, "Error in handle_exit");
+			break;
+		}
+	}
+
+	return ret;
 }
 
 static int kvm_vcpu_ioctl_interrupt(struct kvm_vcpu *vcpu,
