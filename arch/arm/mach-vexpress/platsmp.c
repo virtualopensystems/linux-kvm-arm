@@ -15,6 +15,7 @@
 
 #include <asm/smp_plat.h>
 #include <asm/soc.h>
+#include <asm/hardware/gic.h>
 
 #include <mach/motherboard.h>
 #define V2M_PA_CS7 0x10000000
@@ -29,6 +30,7 @@
  */
 static void __init vexpress_smp_init_cpus(void)
 {
+	set_smp_cross_call(gic_raise_softirq);
 	ct_desc->init_cpu_map();
 }
 
