@@ -39,6 +39,7 @@
 #include <asm/system.h>
 #include <asm/thread_notify.h>
 #include <asm/stacktrace.h>
+#include <asm/pgalloc.h>
 #include <asm/mach/time.h>
 
 #ifdef CONFIG_CC_STACKPROTECTOR
@@ -91,6 +92,8 @@ static int __init hlt_setup(char *__unused)
 __setup("nohlt", nohlt_setup);
 __setup("hlt", hlt_setup);
 
+static char reboot_mode = 'h';
+
 void arm_machine_restart(char mode, const char *cmd)
 {
 	/* Disable interrupts first */
@@ -125,6 +128,73 @@ void arm_machine_restart(char mode, const char *cmd)
 	mdelay(1000);
 	printk("Reboot failed -- System halted\n");
 	while (1);
+}
+
+extern void call_with_stack(void (*fn)(void *), void *arg, void *sp);
+typedef void (*phys_reset_t)(unsigned long);
+
+#define ARM_RESET_STACK_WORDS	32
+
+struct arm_machine_reset_args {
+	unsigned long reset_code_phys;
+	pgd_t *reboot_tables;
+	u32 stack[ARM_RESET_STACK_WORDS];
+};
+
+/*
+ * State required for CPU reset. This is static so that we don't clobber
+ * it with the identity mapping.
+ */
+static struct arm_machine_reset_args arm_machine_reset_args;
+
+static void __arm_machine_reset(void *args)
+{
+	struct arm_machine_reset_args *reset_args = args;
+	phys_reset_t phys_reset;
+
+	/* Take out a flat memory mapping. */
+	setup_mm_for_reboot(reboot_mode, reset_args->reboot_tables);
+
+	/* Clean and invalidate caches */
+	flush_cache_all();
+
+	/* Turn off caching */
+	cpu_proc_fin();
+
+	/* Push out any further dirty data, and ensure cache is empty */
+	flush_cache_all();
+
+	/* Switch to the identity mapping. */
+	phys_reset = (phys_reset_t)virt_to_phys(cpu_reset);
+	phys_reset(reset_args->reset_code_phys);
+
+	/* Should never get here. */
+	BUG();
+}
+
+void arm_machine_reset(unsigned long reset_code_phys)
+{
+	struct arm_machine_reset_args *reset_args;
+	u32 *stack;
+
+	/* Populate the reset args. */
+	reset_args = &arm_machine_reset_args;
+	reset_args->reset_code_phys = reset_code_phys;
+	reset_args->reboot_tables = pgd_alloc(&init_mm);
+	stack = reset_args->stack + ARM_RESET_STACK_WORDS;
+
+	/* Disable interrupts first. */
+	local_irq_disable();
+	local_fiq_disable();
+
+	/* Disable the L2. */
+	outer_disable();
+
+	/* Change to the new stack and continue with the reset. */
+	call_with_stack(__arm_machine_reset, (void *)reset_args, (void *)stack);
+
+	/* Should never get here. */
+	BUG();
 }
 
 /*
@@ -215,8 +285,6 @@ void cpu_idle(void)
 		preempt_disable();
 	}
 }
-
-static char reboot_mode = 'h';
 
 int __init reboot_setup(char *str)
 {
