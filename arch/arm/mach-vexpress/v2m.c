@@ -4,6 +4,7 @@
 #include <linux/device.h>
 #include <linux/amba/bus.h>
 #include <linux/amba/mmci.h>
+#include <linux/amba/clcd.h>
 #include <linux/io.h>
 #include <linux/init.h>
 #include <linux/platform_device.h>
@@ -13,6 +14,7 @@
 #include <linux/device.h>
 #include <linux/usb/isp1760.h>
 #include <linux/clkdev.h>
+#include <linux/mm.h>
 #include <linux/mtd/physmap.h>
 
 #include <asm/mach-types.h>
@@ -31,6 +33,7 @@
 
 #include <plat/sched_clock.h>
 #include <plat/platsmp.h>
+#include <plat/clcd.h>
 
 #include "core.h"
 
@@ -272,6 +275,69 @@ static struct mmci_platform_data v2m_mmci_data = {
 	.status		= v2m_mmci_status,
 };
 
+/*
+ * Motherboard CLCD controller.
+ */
+static void v2m_clcd_enable(struct clcd_fb *fb)
+{
+	v2m_cfg_write(SYS_CFG_MUXFPGA | SYS_CFG_SITE_MB, 0);
+	v2m_cfg_write(SYS_CFG_DVIMODE | SYS_CFG_SITE_MB, 2);
+}
+
+static int v2m_clcd_setup(struct clcd_fb *fb)
+{
+	unsigned long framesize = 640 * 480 * 2;
+
+	fb->panel = versatile_clcd_get_panel("VGA");
+	if (!fb->panel)
+		return -EINVAL;
+
+	fb->fb.screen_base = ioremap_wc(V2M_VIDEO_SRAM, framesize);
+
+	if (!fb->fb.screen_base) {
+		pr_err("CLCD: unable to map frame buffer\n");
+		return -ENOMEM;
+	}
+
+	fb->fb.fix.smem_start = V2M_VIDEO_SRAM;
+	fb->fb.fix.smem_len = framesize;
+	
+	return 0;
+}
+
+static int v2m_clcd_mmap(struct clcd_fb *fb, struct vm_area_struct *vma)
+{
+	unsigned long off, user_size, kern_size;
+
+	off = vma->vm_pgoff << PAGE_SHIFT;
+	user_size = vma->vm_end - vma->vm_start;
+	kern_size = fb->fb.fix.smem_len;
+
+	if (off >= kern_size || user_size > (kern_size - off))
+		return -ENXIO;
+
+	return remap_pfn_range(vma, vma->vm_start,
+			__phys_to_pfn(fb->fb.fix.smem_start) + vma->vm_pgoff,
+			user_size,
+			pgprot_writecombine(vma->vm_page_prot));
+}
+
+static void v2m_clcd_remove(struct clcd_fb *fb)
+{
+	iounmap(fb->fb.screen_base);
+}
+
+static struct clcd_board v2m_clcd_data = {
+	.name		= "V2M",
+	.caps		= CLCD_CAP_5551 | CLCD_CAP_565,
+	.check		= clcdfb_check,
+	.decode		= clcdfb_decode,
+	.enable		= v2m_clcd_enable,
+	.setup		= v2m_clcd_setup,
+	.mmap		= v2m_clcd_mmap,
+	.remove		= v2m_clcd_remove,
+};
+
 static AMBA_DEVICE(aaci,  "mb:aaci",  V2M_AACI, NULL);
 static AMBA_DEVICE(mmci,  "mb:mmci",  V2M_MMCI, &v2m_mmci_data);
 static AMBA_DEVICE(kmi0,  "mb:kmi0",  V2M_KMI0, NULL);
@@ -282,6 +348,7 @@ static AMBA_DEVICE(uart2, "mb:uart2", V2M_UART2, NULL);
 static AMBA_DEVICE(uart3, "mb:uart3", V2M_UART3, NULL);
 static AMBA_DEVICE(wdt,   "mb:wdt",   V2M_WDT, NULL);
 static AMBA_DEVICE(rtc,   "mb:rtc",   V2M_RTC, NULL);
+static AMBA_DEVICE(clcd,  "mb:clcd",  V2M_CLCD, &v2m_clcd_data);
 
 static struct amba_device *v2m_amba_devs[] __initdata = {
 	&aaci_device,
@@ -445,6 +512,9 @@ static void __init v2m_init(void)
 	pm_power_off = v2m_power_off;
 
 	ct_desc->init_tile();
+
+	/* Register mb:clcd last to prioritize the tile version */
+	amba_device_register(&clcd_device, &iomem_resource);
 }
 
 static struct arm_soc_desc vexpress_soc_desc __initdata = {
