@@ -39,6 +39,7 @@
 #include <asm/tlbflush.h>
 #include <asm/ptrace.h>
 #include <asm/localtimer.h>
+#include <asm/idmap.h>
 
 /*
  * as from 2.5, kernels no longer have an init_tasks structure

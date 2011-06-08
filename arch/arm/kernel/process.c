@@ -33,6 +33,7 @@
 #include <linux/cpuidle.h>
 
 #include <asm/cacheflush.h>
+#include <asm/idmap.h>
 #include <asm/leds.h>
 #include <asm/processor.h>
 #include <asm/system.h>
@@ -56,8 +57,6 @@ static const char *processor_modes[] = {
 static const char *isa_modes[] = {
   "ARM" , "Thumb" , "Jazelle", "ThumbEE"
 };
-
-extern void setup_mm_for_reboot(char mode);
 
 static volatile int hlt_counter;
 
