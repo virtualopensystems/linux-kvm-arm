@@ -323,10 +323,14 @@ static int gic_ppi_set_type(struct irq_data *d, unsigned int type)
 	return gic_set_type(gic_vppi_to_ppi(d), type);
 }
 
+#ifdef CONFIG_PM
 static int gic_ppi_set_wake(struct irq_data *d, unsigned int on)
 {
 	return gic_set_wake(gic_vppi_to_ppi(d), on);
 }
+#else
+#define gic_ppi_set_wake	NULL
+#endif
 
 static int __init gic_irq_is_ppi(struct gic_chip_data *gic, unsigned int irq)
 {
