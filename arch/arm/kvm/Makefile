@@ -3,7 +3,8 @@
 #
 
 ccflags-y += -Ivirt/kvm -Iarch/arm/kvm
-CFLAGS_arm.o := -I.
+CFLAGS_arm.o     := -I.
+CFLAGS_arm_mmu.o := -I.
 
 EXTRA_CFLAGS += -Ivirt/kvm -Iarch/arm/kvm
 AFLAGS_arm_interrupts.o := -I$(obj)

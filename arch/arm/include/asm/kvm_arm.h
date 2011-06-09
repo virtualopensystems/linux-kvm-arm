@@ -104,6 +104,8 @@
 #define HSR_EC		(0x3fU << HSR_EC_SHIFT)
 #define HSR_IL		(1U << 25)
 #define HSR_ISS		(HSR_IL - 1)
+#define HSR_ISV_SHIFT	(24)
+#define HSR_ISV		(1U << HSR_ISV_SHIFT)
 
 #define HSR_EC_UNKNOWN	(0x00)
 #define HSR_EC_WFI	(0x01)

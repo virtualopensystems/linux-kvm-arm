@@ -406,17 +406,28 @@ guest_trap:
 	sub	r1, r1, #VCPU_USR_REG(0)
 
 	@ Check if we need the fault information
-	lsr	r0, r0, #HSR_EC_SHIFT
-	cmp	r0, #HSR_EC_IABT
+	lsr	r2, r0, #HSR_EC_SHIFT
+	cmp	r2, #HSR_EC_IABT
 	beq	2f
-	cmp	r0, #HSR_EC_DABT
-	beq	2f
-	b	1f
+	cmpne	r2, #HSR_EC_DABT
+	bne	1f
+
+	@ For non-valid data aborts, get the offending instr. PA
+	lsr	r2, r0, #HSR_ISV_SHIFT
+	ands	r2, r2, #1
+	bne	2f
+	mrs	r3, ELR_hyp
+	mcr	p15, 0, r3, c7, c8, 0	@ VA to PA, V2PCWPR
+	mrrc	p15, 0, r4, r5, c7	@ PAR
+	add	r6, r1, #VCPU_PC_IPA
+	strd	r4, r5, [r6]
+
 2:	mrc	p15, 4, r2, c6, c0, 0	@ HDFAR
 	mrc	p15, 4, r3, c6, c0, 2	@ HIFAR
 	mrc	p15, 4, r4, c6, c0, 4	@ HPFAR
 	add	r5, r1, #VCPU_HDFAR
 	stmia	r5, {r2, r3, r4}
+
 1:	mov	r0, #ARM_EXCEPTION_HVC
 	b	__kvm_vcpu_return
 

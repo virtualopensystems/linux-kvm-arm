@@ -358,6 +358,14 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 	int ret;
 
 	for (;;) {
+		if (run->exit_reason == KVM_EXIT_MMIO) {
+			ret = kvm_handle_mmio_return(vcpu, vcpu->run);
+			if (ret)
+				break;
+		}
+
+		run->exit_reason = KVM_EXIT_UNKNOWN;
+
 		trace_kvm_entry(vcpu->arch.regs.pc);
 		debug_ws_enter(vcpu->arch.regs.pc);
 		kvm_guest_enter();
