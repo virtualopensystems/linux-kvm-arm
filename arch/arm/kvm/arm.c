@@ -75,12 +75,55 @@ void kvm_arch_sync_events(struct kvm *kvm)
 
 int kvm_arch_init_vm(struct kvm *kvm)
 {
-	return 0;
+	int ret = 0;
+	phys_addr_t pgd_phys;
+	unsigned long vmid;
+	unsigned long start, end;
+
+
+	mutex_lock(&kvm_vmids_mutex);
+	vmid = find_first_zero_bit(kvm_vmids, VMID_SIZE);
+	if (vmid >= VMID_SIZE) {
+		mutex_unlock(&kvm_vmids_mutex);
+		return -EBUSY;
+	}
+	__set_bit(vmid, kvm_vmids);
+	kvm->arch.vmid = vmid;
+	mutex_unlock(&kvm_vmids_mutex);
+
+	ret = kvm_alloc_stage2_pgd(kvm);
+	if (ret)
+		goto out_fail_alloc;
+
+	pgd_phys = virt_to_phys(kvm->arch.pgd);
+	kvm->arch.vttbr = (pgd_phys & ((1LLU << 40) - 1) & ~((2 << VTTBR_X) - 1)) |
+			  ((u64)vmid << 48);
+
+	start = (unsigned long)kvm,
+	end = start + sizeof(struct kvm);
+	ret = create_hyp_mappings(kvm_hyp_pgd, start, end);
+	if (ret)
+		goto out_fail_hyp_mappings;
+
+	return ret;
+out_fail_hyp_mappings:
+	remove_hyp_mappings(kvm_hyp_pgd, start, end);
+out_fail_alloc:
+	clear_bit(vmid, kvm_vmids);
+	return ret;
 }
 
 void kvm_arch_destroy_vm(struct kvm *kvm)
 {
 	int i;
+
+	kvm_free_stage2_pgd(kvm);
+
+	if (kvm->arch.vmid != 0) {
+		mutex_lock(&kvm_vmids_mutex);
+		clear_bit(kvm->arch.vmid, kvm_vmids);
+		mutex_unlock(&kvm_vmids_mutex);
+	}
 
 	for (i = 0; i < KVM_MAX_VCPUS; ++i) {
 		if (kvm->vcpus[i]) {
@@ -156,6 +199,7 @@ struct kvm_vcpu *kvm_arch_vcpu_create(struct kvm *kvm, unsigned int id)
 {
 	int err;
 	struct kvm_vcpu *vcpu;
+	unsigned long start, end;
 
 	vcpu = kmem_cache_zalloc(kvm_vcpu_cache, GFP_KERNEL);
 	if (!vcpu) {
@@ -167,7 +211,15 @@ struct kvm_vcpu *kvm_arch_vcpu_create(struct kvm *kvm, unsigned int id)
 	if (err)
 		goto free_vcpu;
 
+	start = (unsigned long)vcpu,
+	end = start + sizeof(struct kvm_vcpu);
+	err = create_hyp_mappings(kvm_hyp_pgd, start, end);
+	if (err)
+		goto out_fail_hyp_mappings;
+
 	return vcpu;
+out_fail_hyp_mappings:
+	remove_hyp_mappings(kvm_hyp_pgd, start, end);
 free_vcpu:
 	kmem_cache_free(kvm_vcpu_cache, vcpu);
 out:
