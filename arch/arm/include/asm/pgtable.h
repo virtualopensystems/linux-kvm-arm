@@ -403,6 +403,11 @@ static inline pte_t pte_modify(pte_t pte, pgprot_t newprot)
 void identity_mapping_add(pgd_t *, unsigned long, unsigned long);
 void identity_mapping_del(pgd_t *, unsigned long, unsigned long);
 
+#ifdef CONFIG_KVM_ARM_HOST
+void hyp_identity_mapping_add(pgd_t *, unsigned long, unsigned long);
+void hyp_identity_mapping_del(pgd_t *pgd, unsigned long addr, unsigned long end);
+#endif
+
 #endif /* !__ASSEMBLY__ */
 
 #endif /* CONFIG_MMU */

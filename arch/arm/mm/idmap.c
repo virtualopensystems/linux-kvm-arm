@@ -33,11 +33,16 @@ static void idmap_add_pmd(pgd_t *pgd, unsigned long addr, unsigned long end,
 	flush_pmd_entry(pmd);
 }
 
-void identity_mapping_add(pgd_t *pgd, unsigned long addr, unsigned long end)
+static void __identity_mapping_add(pgd_t *pgd, unsigned long addr,
+				   unsigned long end, bool hyp_mapping)
 {
 	unsigned long prot, next;
 
 	prot = PMD_TYPE_SECT | PMD_SECT_AP_WRITE | PMD_SECT_AF;
+
+	if (hyp_mapping)
+		prot |= PMD_SECT_AP1;
+
 	if (cpu_architecture() <= CPU_ARCH_ARMv5TEJ && !cpu_is_xscale())
 		prot |= PMD_BIT4;
 
@@ -46,6 +51,12 @@ void identity_mapping_add(pgd_t *pgd, unsigned long addr, unsigned long end)
 		idmap_add_pmd(pgd + pgd_index(addr), addr, next, prot);
 	} while (addr = next, addr < end);
 }
+
+void identity_mapping_add(pgd_t *pgd, unsigned long addr, unsigned long end)
+{
+	__identity_mapping_add(pgd, addr, end, false);
+}
+
 
 #ifdef CONFIG_SMP
 static void idmap_del_pmd(pgd_t *pgd, unsigned long addr, unsigned long end)
@@ -65,6 +76,40 @@ void identity_mapping_del(pgd_t *pgd, unsigned long addr, unsigned long end)
 	do {
 		next = pmd_addr_end(addr, end);
 		idmap_del_pmd(pgd + pgd_index(addr), addr, next);
+	} while (addr = next, addr < end);
+}
+#endif
+
+#ifdef CONFIG_KVM_ARM_HOST
+void hyp_identity_mapping_add(pgd_t *pgd, unsigned long addr, unsigned long end)
+{
+	__identity_mapping_add(pgd, addr, end, true);
+}
+
+static void hyp_idmap_del_pmd(pgd_t *pgd, unsigned long addr)
+{
+	pmd_t *pmd;
+
+	pmd = pmd_offset(pgd, addr);
+	pmd_free(NULL, pmd);
+}
+
+/*
+ * This version actually frees the underlying pmds for all pgds in range and
+ * clear the pgds themselves afterwards.
+ */
+void hyp_identity_mapping_del(pgd_t *pgd, unsigned long addr, unsigned long end)
+{
+	unsigned long next;
+	pgd_t *next_pgd;
+
+	do {
+		next = pgd_addr_end(addr, end);
+		next_pgd = pgd + pgd_index(addr);
+		if (!pgd_none_or_clear_bad(next_pgd)) {
+			hyp_idmap_del_pmd(next_pgd, addr);
+			pgd_clear(next_pgd);
+		}
 	} while (addr = next, addr < end);
 }
 #endif
