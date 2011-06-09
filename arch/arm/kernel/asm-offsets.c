@@ -139,6 +139,9 @@ int main(void)
   DEFINE(VCPU_PC,		offsetof(struct kvm_vcpu, arch.regs.pc));
   DEFINE(VCPU_CPSR,		offsetof(struct kvm_vcpu, arch.regs.cpsr));
   DEFINE(VCPU_HSR,		offsetof(struct kvm_vcpu, arch.hsr));
+  DEFINE(VCPU_HDFAR,		offsetof(struct kvm_vcpu, arch.hdfar));
+  DEFINE(VCPU_HIFAR,		offsetof(struct kvm_vcpu, arch.hifar));
+  DEFINE(VCPU_HPFAR,		offsetof(struct kvm_vcpu, arch.hpfar));
   DEFINE(KVM_VTTBR,		offsetof(struct kvm, arch.vttbr));
 #endif
   return 0; 

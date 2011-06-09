@@ -245,8 +245,96 @@ void kvm_free_stage2_pgd(struct kvm *kvm)
 	KVMARM_NOT_IMPLEMENTED();
 }
 
+static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
+			  gfn_t gfn, struct kvm_memory_slot *memslot)
+{
+	pfn_t pfn;
+	pgd_t *pgd;
+	pmd_t *pmd;
+	pte_t *pte, new_pte;
+
+	pfn = gfn_to_pfn(vcpu->kvm, gfn);
+
+	if (is_error_pfn(pfn)) {
+		kvm_err(-EFAULT, "Guest gfn %u (0x%08lx) does not have "
+				"corresponding host mapping",
+				gfn, gfn << PAGE_SHIFT);
+		return -EFAULT;
+	}
+
+	/* Create 2nd stage page table mapping - Level 1 */
+	pgd = vcpu->kvm->arch.pgd + pgd_index(fault_ipa);
+	if (pgd_none(*pgd)) {
+		pmd = pmd_alloc_one(NULL, fault_ipa);
+		if (!pmd) {
+			kvm_err(-ENOMEM, "Cannot allocate 2nd stage pmd");
+			return -ENOMEM;
+		}
+		pgd_populate(NULL, pgd, pmd);
+		pmd += pmd_index(fault_ipa);
+	} else
+		pmd = pmd_offset(pgd, fault_ipa);
+
+	/* Create 2nd stage page table mapping - Level 2 */
+	if (pmd_none(*pmd)) {
+		pte = pte_alloc_one_kernel(NULL, fault_ipa);
+		if (!pte) {
+			kvm_err(-ENOMEM, "Cannot allocate 2nd stage pte");
+			return -ENOMEM;
+		}
+		pmd_populate_kernel(NULL, pmd, pte);
+		pte += pte_index(fault_ipa);
+	} else
+		pte = pte_offset_kernel(pmd, fault_ipa);
+
+	/* Create 2nd stage page table mapping - Level 3 */
+	new_pte = pfn_pte(pfn, PAGE_KVM_GUEST);
+	set_pte_ext(pte, new_pte, 0);
+
+	return 0;
+}
+
+#define HSR_ABT_FS	(0x3f)
+#define HPFAR_MASK	(~0xf)
 int kvm_handle_guest_abort(struct kvm_vcpu *vcpu, struct kvm_run *run)
 {
-	KVMARM_NOT_IMPLEMENTED();
-	return -EINVAL;
+	unsigned long hsr_ec;
+	unsigned long fault_status;
+	phys_addr_t fault_ipa;
+	struct kvm_memory_slot *memslot = NULL;
+	bool is_iabt;
+	gfn_t gfn;
+
+	hsr_ec = vcpu->arch.hsr >> HSR_EC_SHIFT;
+	is_iabt = (hsr_ec == HSR_EC_IABT);
+
+	/* Check that the second stage fault is a translation fault */
+	fault_status = vcpu->arch.hsr & HSR_ABT_FS;
+	if ((fault_status & 0x3c) != 0x4) {
+		kvm_err(-EFAULT, "Unsupported fault status: %x",
+				fault_status & 0x3c);
+		return -EFAULT;
+	}
+
+	fault_ipa = ((phys_addr_t)vcpu->arch.hpfar & HPFAR_MASK) << 8;
+
+	gfn = fault_ipa >> PAGE_SHIFT;
+	if (!kvm_is_visible_gfn(vcpu->kvm, gfn)) {
+		if (is_iabt) {
+			kvm_err(-EFAULT, "Inst. abort on I/O address");
+			return -EFAULT;
+		}
+
+		kvm_msg("I/O address abort...");
+		KVMARM_NOT_IMPLEMENTED();
+		return -EINVAL;
+	}
+
+	memslot = gfn_to_memslot(vcpu->kvm, gfn);
+	if (!memslot->user_alloc) {
+		kvm_err(-EINVAL, "non user-alloc memslots not supported");
+		return -EINVAL;
+	}
+
+	return user_mem_abort(vcpu, fault_ipa, gfn, memslot);
 }

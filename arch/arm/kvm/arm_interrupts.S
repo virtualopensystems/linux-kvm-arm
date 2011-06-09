@@ -405,7 +405,19 @@ guest_trap:
 	stmia	r1, {r3, r4, r5}
 	sub	r1, r1, #VCPU_USR_REG(0)
 
-	mov	r0, #ARM_EXCEPTION_HVC
+	@ Check if we need the fault information
+	lsr	r0, r0, #HSR_EC_SHIFT
+	cmp	r0, #HSR_EC_IABT
+	beq	2f
+	cmp	r0, #HSR_EC_DABT
+	beq	2f
+	b	1f
+2:	mrc	p15, 4, r2, c6, c0, 0	@ HDFAR
+	mrc	p15, 4, r3, c6, c0, 2	@ HIFAR
+	mrc	p15, 4, r4, c6, c0, 4	@ HPFAR
+	add	r5, r1, #VCPU_HDFAR
+	stmia	r5, {r2, r3, r4}
+1:	mov	r0, #ARM_EXCEPTION_HVC
 	b	__kvm_vcpu_return
 
 	.align
