@@ -351,12 +351,10 @@ static void realview_pbx_restart(char mode, const char *cmd)
 	dsb();
 }
 
-static void __init realview_pbx_init(void)
-{
-	int i;
-
 #ifdef CONFIG_CACHE_L2X0
-	if (core_tile_pbxa9mp()) {
+static int __init realview_pbx_l2x0_init(void)
+{
+	if (machine_is_realview_pbx() && core_tile_pbxa9mp()) {
 		void __iomem *l2x0_base =
 			__io_address(REALVIEW_PBX_TILE_L220_BASE);
 
@@ -367,9 +365,16 @@ static void __init realview_pbx_init(void)
 		/* 16KB way size, 8-way associativity, parity disabled
 		 * Bits:  .. 0 0 0 0 1 00 1 0 1 001 0 000 0 .... .... .... */
 		l2x0_init(l2x0_base, 0x02520000, 0xc0000fff);
-		platform_device_register(&pmu_device);
 	}
+
+	return 0;
+}
+early_initcall(realview_pbx_l2x0_init);
 #endif
+
+static void __init realview_pbx_init(void)
+{
+	int i;
 
 	realview_flash_register(realview_pbx_flash_resources,
 				ARRAY_SIZE(realview_pbx_flash_resources));
@@ -377,6 +382,9 @@ static void __init realview_pbx_init(void)
 	platform_device_register(&realview_i2c_device);
 	platform_device_register(&realview_cf_device);
 	realview_usb_register(realview_pbx_isp1761_resources);
+
+	if (machine_is_realview_pbx() && core_tile_pbxa9mp())
+		platform_device_register(&pmu_device);
 
 	for (i = 0; i < ARRAY_SIZE(amba_devs); i++) {
 		struct amba_device *d = amba_devs[i];
