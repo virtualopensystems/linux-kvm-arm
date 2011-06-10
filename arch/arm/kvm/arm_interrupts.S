@@ -13,5 +13,34 @@
  * Foundation, 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  *
  */
+
+#include <linux/linkage.h>
+#include <asm/unified.h>
+#include <asm/page.h>
 #include <asm/asm-offsets.h>
 #include <asm/kvm_asm.h>
+#include <asm/kvm_arm.h>
+
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+@  Hypervisor world-switch code
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+/*
+ * This is a stub
+ */
+ENTRY(__kvm_vcpu_run)
+	mov	pc, lr
+__kvm_vcpu_run_end:
+	.globl __kvm_vcpu_run_end
+
+
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+@  Hypervisor exception vector and handlers
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+	.align 5
+__kvm_hyp_vector:
+	.globl __kvm_hyp_vector
+	nop
+__kvm_hyp_vector_end:
+	.globl __kvm_hyp_vector_end

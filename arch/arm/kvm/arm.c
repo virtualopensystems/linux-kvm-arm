@@ -31,8 +31,19 @@
 #include <asm/uaccess.h>
 #include <asm/ptrace.h>
 #include <asm/mman.h>
+#include <asm/tlbflush.h>
+#include <asm/kvm_arm.h>
+#include <asm/kvm_asm.h>
+#include <asm/kvm_mmu.h>
 
 #include "debug.h"
+
+static void *kvm_arm_hyp_stack_page = NULL;
+
+/* The VMID used in the VTTBR */
+#define VMID_SIZE (1<<8)
+static DECLARE_BITMAP(kvm_vmids, VMID_SIZE);
+static DEFINE_MUTEX(kvm_vmids_mutex);
 
 int kvm_arch_hardware_enable(void *garbage)
 {
@@ -41,6 +52,7 @@ int kvm_arch_hardware_enable(void *garbage)
 
 void kvm_arch_hardware_disable(void *garbage)
 {
+	/* There is no need for this now, so we just ignore that */
 }
 
 int kvm_arch_hardware_setup(void)
@@ -292,13 +304,156 @@ long kvm_arch_vm_ioctl(struct file *filp,
 	return -EINVAL;
 }
 
+static int init_hyp_mode(void)
+{
+	phys_addr_t init_phys_addr, init_end_phys_addr;
+	unsigned long vector_ptr, hyp_stack_ptr;
+	int err = 0;
+
+	/*
+	 * Allocate Hyp level-1 page table
+	 */
+	kvm_hyp_pgd = kzalloc(PTRS_PER_PGD * sizeof(pgd_t), GFP_KERNEL);
+	if (!kvm_hyp_pgd)
+		return -ENOMEM;
+
+	/*
+	 * Allocate stack page for Hypervisor-mode
+	 */
+	kvm_arm_hyp_stack_page = (void *)__get_free_page(GFP_KERNEL);
+	if (!kvm_arm_hyp_stack_page) {
+		err = -ENOMEM;
+		goto out_free_pgd;
+	}
+
+	hyp_stack_ptr = (unsigned long)kvm_arm_hyp_stack_page + PAGE_SIZE;
+
+	init_phys_addr = virt_to_phys((void *)&__kvm_hyp_init);
+	init_end_phys_addr = virt_to_phys((void *)&__kvm_hyp_init_end);
+
+	/*
+	 * Create identity mapping
+	 */
+	hyp_identity_mapping_add(kvm_hyp_pgd,
+				 (unsigned long)init_phys_addr,
+				 (unsigned long)init_end_phys_addr);
+
+	/*
+	 * Set the HVBAR
+	 */
+	BUG_ON(init_phys_addr & 0x1f);
+	asm volatile (
+		"mov	r0, %[vector_ptr]\n\t"
+		"ldr	r7, =SMCHYP_HVBAR_W\n\t"
+		"smc	#0\n\t" :
+		: [vector_ptr] "r" ((unsigned long)init_phys_addr)
+		: "r0", "r7");
+
+	/*
+	 * Call initialization code
+	 */
+	asm volatile (
+		"mov	r0, %[pgd_ptr]\n\t"
+		"mov	r1, %[stack_ptr]\n\t"
+		"hvc	#0\n\t" :
+		: [pgd_ptr] "r" (virt_to_phys(kvm_hyp_pgd)),
+		  [stack_ptr] "r" (hyp_stack_ptr)
+		: "r0", "r1");
+
+	/*
+	 * Unmap the identity mapping
+	 */
+	hyp_identity_mapping_del(kvm_hyp_pgd,
+				 (unsigned long)init_phys_addr,
+				 (unsigned long)init_end_phys_addr);
+
+	/*
+	 * Set the HVBAR to the virtual kernel address
+	 */
+	vector_ptr = (unsigned long)&__kvm_hyp_vector;
+	asm volatile (
+		"mov	r0, %[vector_ptr]\n\t"
+		"ldr	r7, =SMCHYP_HVBAR_W\n\t"
+		"smc	#0\n\t" :
+		: [vector_ptr] "r" ((unsigned long)vector_ptr)
+		: "r0", "r7");
+
+	return err;
+out_free_pgd:
+	kfree(kvm_hyp_pgd);
+	kvm_hyp_pgd = NULL;
+	return err;
+}
+
+static int init_hyp_memory(void)
+{
+	int err = 0;
+	unsigned long start, end;
+
+	/*
+	 * Map Hyp exception vectors
+	 */
+	start = (unsigned long)&__kvm_hyp_vector;
+	end = (unsigned long)&__kvm_hyp_vector_end;
+	err = create_hyp_mappings(kvm_hyp_pgd, start, end);
+	if (err) {
+		kvm_err(err, "Cannot map hyp vector");
+		goto out_free_mappings;
+	}
+
+	/*
+	 * Map the world-switch code
+	 */
+	start = (unsigned long)&__kvm_vcpu_run;
+	end = (unsigned long)&__kvm_vcpu_run_end;
+	err = create_hyp_mappings(kvm_hyp_pgd, start, end);
+	if (err) {
+		kvm_err(err, "Cannot map world-switch code");
+		goto out_free_mappings;
+	}
+
+	/*
+	 * Map the Hyp stack page
+	 */
+	start = (unsigned long)kvm_arm_hyp_stack_page;
+	end = start + PAGE_SIZE - 1;
+	err = create_hyp_mappings(kvm_hyp_pgd, start, end);
+	if (err) {
+		kvm_err(err, "Cannot map hyp stack");
+		goto out_free_mappings;
+	}
+
+	return err;
+out_free_mappings:
+	free_hyp_pmds(kvm_hyp_pgd);
+	return err;
+}
+
 int kvm_arch_init(void *opaque)
 {
+	int err;
+
+	err = init_hyp_mode();
+	if (err)
+		goto out_err;
+
+	err = init_hyp_memory();
+	if (err)
+		goto out_err;
+
+	set_bit(0, kvm_vmids);
 	return 0;
+out_err:
+	return err;
 }
 
 void kvm_arch_exit(void)
 {
+	if (kvm_hyp_pgd) {
+		free_hyp_pmds(kvm_hyp_pgd);
+		kfree(kvm_hyp_pgd);
+		kvm_hyp_pgd = NULL;
+	}
 }
 
 static int arm_init(void)

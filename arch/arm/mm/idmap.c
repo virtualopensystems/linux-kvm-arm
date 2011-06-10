@@ -1,5 +1,6 @@
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
+#include <linux/module.h>
 #include <linux/kernel.h>
 
 #include <asm/cputype.h>
@@ -85,6 +86,7 @@ void hyp_identity_mapping_add(pgd_t *pgd, unsigned long addr, unsigned long end)
 {
 	__identity_mapping_add(pgd, addr, end, true);
 }
+EXPORT_SYMBOL_GPL(hyp_identity_mapping_add);
 
 static void hyp_idmap_del_pmd(pgd_t *pgd, unsigned long addr)
 {
@@ -112,6 +114,7 @@ void hyp_identity_mapping_del(pgd_t *pgd, unsigned long addr, unsigned long end)
 		}
 	} while (addr = next, addr < end);
 }
+EXPORT_SYMBOL_GPL(hyp_identity_mapping_del);
 #endif
 
 /*

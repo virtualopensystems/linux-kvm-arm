@@ -14,9 +14,13 @@
  */
 
 #include <linux/module.h>
-
-extern unsigned long __kvm_hyp_init;
-extern unsigned long __kvm_hyp_init_end;
+#include <asm/kvm_asm.h>
 
 EXPORT_SYMBOL_GPL(__kvm_hyp_init);
 EXPORT_SYMBOL_GPL(__kvm_hyp_init_end);
+
+EXPORT_SYMBOL_GPL(__kvm_hyp_vector);
+EXPORT_SYMBOL_GPL(__kvm_hyp_vector_end);
+
+EXPORT_SYMBOL_GPL(__kvm_vcpu_run);
+EXPORT_SYMBOL_GPL(__kvm_vcpu_run_end);
