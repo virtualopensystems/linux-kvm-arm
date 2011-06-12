@@ -210,6 +210,10 @@ ENTRY(__kvm_vcpu_run)
 	@ Trap coprocessor CRx for all x except 2 and 14
 	set_hstr 1
 
+	@ Write standard A-9 CPU id in MIDR
+	ldr	r1, [r0, #VCPU_MIDR]
+	mcr	p15, 4, r1, c0, c0, 0
+
 	@ Load guest registers
 	add	r0, r0, #(VCPU_USR_SP)
 	load_mode_state r0, usr
@@ -251,6 +255,10 @@ __kvm_vcpu_return:
 
 	@ Reset Hyp-role
 	configure_hyp_role 0
+
+	@ Let guest read hardware MIDR
+	mrc	p15, 0, r2, c0, c0, 0
+	mcr	p15, 4, r2, c0, c0, 0
 
 	@ Set VMID == 0
 	mov	r2, #0

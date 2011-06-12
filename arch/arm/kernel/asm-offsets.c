@@ -121,6 +121,7 @@ int main(void)
   DEFINE(DMA_FROM_DEVICE,	DMA_FROM_DEVICE);
 #ifdef CONFIG_KVM_ARM_HOST
   DEFINE(VCPU_KVM,		offsetof(struct kvm_vcpu, kvm));
+  DEFINE(VCPU_MIDR,		offsetof(struct kvm_vcpu, arch.cp15.c0_MIDR));
   DEFINE(VCPU_SCTLR,		offsetof(struct kvm_vcpu, arch.cp15.c1_SCTLR));
   DEFINE(VCPU_CPACR,		offsetof(struct kvm_vcpu, arch.cp15.c1_CPACR));
   DEFINE(VCPU_TTBR0,		offsetof(struct kvm_vcpu, arch.cp15.c2_TTBR0));

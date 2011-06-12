@@ -43,6 +43,7 @@ struct kvm_regs {
 	__u32 cpsr;
 	__u32 spsr[5];		/* Banked SPSR,  indexed by MODE_  */
 	struct {
+		__u32 c0_midr;
 		__u32 c1_sys;
 		__u32 c2_base0;
 		__u32 c2_base1;
