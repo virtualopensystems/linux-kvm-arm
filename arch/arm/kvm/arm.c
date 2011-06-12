@@ -35,6 +35,7 @@
 #include <asm/kvm_arm.h>
 #include <asm/kvm_asm.h>
 #include <asm/kvm_mmu.h>
+#include <asm/kvm_emulate.h>
 
 #include "debug.h"
 
@@ -295,24 +296,102 @@ int kvm_arch_vcpu_runnable(struct kvm_vcpu *v)
 	return 0;
 }
 
+static inline int handle_exit(struct kvm_vcpu *vcpu, struct kvm_run *run,
+			      int exception_index)
+{
+	unsigned long hsr_ec;
+
+	if (exception_index == ARM_EXCEPTION_IRQ)
+		return 0;
+
+	if (exception_index != ARM_EXCEPTION_HVC) {
+		kvm_err(-EINVAL, "Unsupported exception type");
+		return -EINVAL;
+	}
+
+	hsr_ec = (vcpu->arch.hsr & HSR_EC) >> HSR_EC_SHIFT;
+	switch (hsr_ec) {
+	case HSR_EC_WFI:
+		return kvm_handle_wfi(vcpu, run);
+	case HSR_EC_CP15_32:
+	case HSR_EC_CP15_64:
+		return kvm_handle_cp15_access(vcpu, run);
+	case HSR_EC_CP14_MR:
+		return kvm_handle_cp14_access(vcpu, run);
+	case HSR_EC_CP14_LS:
+		return kvm_handle_cp14_load_store(vcpu, run);
+	case HSR_EC_CP14_64:
+		return kvm_handle_cp14_access(vcpu, run);
+	case HSR_EC_CP_0_13:
+		return kvm_handle_cp_0_13_access(vcpu, run);
+	case HSR_EC_CP10_ID:
+		return kvm_handle_cp10_id(vcpu, run);
+	case HSR_EC_SVC_HYP:
+		/* SVC called from Hyp mode should never get here */
+		kvm_msg("SVC called from Hyp mode shouldn't go here");
+		BUG();
+	case HSR_EC_HVC:
+		kvm_msg("hvc: %x (at %08x)", vcpu->arch.hsr & ((1 << 16) - 1),
+					     vcpu->arch.regs.pc);
+		kvm_msg("         HSR: %8x", vcpu->arch.hsr);
+		break;
+	case HSR_EC_IABT:
+	case HSR_EC_DABT:
+		return kvm_handle_guest_abort(vcpu, run);
+	case HSR_EC_IABT_HYP:
+	case HSR_EC_DABT_HYP:
+		/* The hypervisor should never cause aborts */
+		kvm_msg("The hypervisor itself shouldn't cause aborts");
+		BUG();
+	default:
+		kvm_msg("Unkown exception class: %08x (%08x)", hsr_ec,
+				vcpu->arch.hsr);
+		BUG();
+	}
+
+	return 0;
+}
+
 int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 {
 	unsigned long flags;
+	int ret;
 
-	trace_kvm_entry(vcpu->arch.regs.pc);
-	debug_ws_enter(vcpu->arch.regs.pc);
-	kvm_guest_enter();
+	for (;;) {
+		trace_kvm_entry(vcpu->arch.regs.pc);
+		debug_ws_enter(vcpu->arch.regs.pc);
+		kvm_guest_enter();
 
-	local_irq_save(flags);
-	__kvm_vcpu_run(vcpu);
-	local_irq_restore(flags);
+		local_irq_save(flags);
+		ret = __kvm_vcpu_run(vcpu);
+		local_irq_restore(flags);
 
-	kvm_guest_exit();
-	debug_ws_exit(vcpu->arch.regs.pc);
-	trace_kvm_exit(vcpu->arch.regs.pc);
+		kvm_guest_exit();
+		debug_ws_exit(vcpu->arch.regs.pc);
+		trace_kvm_exit(vcpu->arch.regs.pc);
 
-	KVMARM_NOT_IMPLEMENTED();
-	return -EINVAL;
+		ret = handle_exit(vcpu, run, ret);
+		if (ret) {
+			kvm_err(ret, "Error in handle_exit");
+			break;
+		}
+
+		if (run->exit_reason == KVM_EXIT_MMIO)
+			break;
+
+		if (need_resched()) {
+			vcpu_put(vcpu);
+			schedule();
+			vcpu_load(vcpu);
+		}
+
+		if (signal_pending(current) && !(run->exit_reason)) {
+			run->exit_reason = KVM_EXIT_IRQ_WINDOW_OPEN;
+			break;
+		}
+	}
+
+	return ret;
 }
 
 static int kvm_vcpu_ioctl_interrupt(struct kvm_vcpu *vcpu,
