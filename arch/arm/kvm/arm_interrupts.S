@@ -115,6 +115,19 @@
 	str	r10, [\vcpup, #VCPU_PRRR]
 	str	r11, [\vcpup, #VCPU_NMRR]
 	.endif
+
+	mrc	p15, 0, r2, c13, c0, 1	@ CID
+	mrc	p15, 0, r3, c13, c0, 2	@ TID_URW
+	mrc	p15, 0, r4, c13, c0, 3	@ TID_URO
+	mrc	p15, 0, r5, c13, c0, 4	@ TID_PRIV
+	.if \vcpu == 0
+	push	{r2-r5}			@ Push CP15 registers
+	.else
+	str	r2, [\vcpup, #VCPU_CID]
+	str	r3, [\vcpup, #VCPU_TID_URW]
+	str	r4, [\vcpup, #VCPU_TID_URO]
+	str	r5, [\vcpup, #VCPU_TID_PRIV]
+	.endif
 .endm
 
 /* Reads cp15 registers from memory and writes them to hardware
@@ -123,6 +136,20 @@
  * @vcpup:  Register pointing to VCPU struct
  */
 .macro write_cp15_state vcpu=0, vcpup
+	.if \vcpu == 0
+	pop	{r2-r5}
+	.else
+	ldr	r2, [\vcpup, #VCPU_CID]
+	ldr	r3, [\vcpup, #VCPU_TID_URW]
+	ldr	r4, [\vcpup, #VCPU_TID_URO]
+	ldr	r5, [\vcpup, #VCPU_TID_PRIV]
+	.endif
+
+	mcr	p15, 0, r2, c13, c0, 1	@ CID
+	mcr	p15, 0, r3, c13, c0, 2	@ TID_URW
+	mcr	p15, 0, r4, c13, c0, 3	@ TID_URO
+	mcr	p15, 0, r5, c13, c0, 4	@ TID_PRIV
+
 	.if \vcpu == 0
 	pop	{r2-r11}
 	.else
@@ -153,9 +180,9 @@
  * (hardware reset value is 0) */
 .macro set_hstr entry
 	mrc	p15, 4, r2, c1, c1, 3
-	ldr	r3, =0xbe00
+	ldr	r3, =0x9e00
 	.if \entry == 1
-	orr	r2, r2, r3		@ Trap CR{9,10,11,12,13,15}
+	orr	r2, r2, r3		@ Trap CR{9,10,11,12,15}
 	.else
 	bic	r2, r2, r3		@ Don't trap any CRx accesses
 	.endif

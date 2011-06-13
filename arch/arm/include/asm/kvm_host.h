@@ -76,6 +76,10 @@ struct kvm_vcpu_arch {
 		u32 c3_DACR;		/* Domain Access Control Register */
 		u32 c10_PRRR;		/* Primary Region Remap Register */
 		u32 c10_NMRR;		/* Normal Memory Remap Register */
+		u32 c13_CID;		/* Context ID Register */
+		u32 c13_TID_URW;	/* Thread ID, User R/W */
+		u32 c13_TID_URO;	/* Thread ID, User R/O */
+		u32 c13_TID_PRIV;	/* Thread ID, Priveleged */
 	} cp15;
 
 	u32 virt_irq;		/* HCR exception mask */
