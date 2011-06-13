@@ -304,8 +304,8 @@ unsupp_err_out:
 
 int kvm_handle_wfi(struct kvm_vcpu *vcpu, struct kvm_run *run)
 {
-	KVMARM_NOT_IMPLEMENTED();
-	return -EINVAL;
+	vcpu->arch.wait_for_interrupts = 1;
+	return 0;
 }
 
 

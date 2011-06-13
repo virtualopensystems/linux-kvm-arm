@@ -358,6 +358,9 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 	int ret;
 
 	for (;;) {
+		if (vcpu->arch.wait_for_interrupts)
+			goto wait_for_interrupts;
+
 		if (run->exit_reason == KVM_EXIT_MMIO) {
 			ret = kvm_handle_mmio_return(vcpu, vcpu->run);
 			if (ret)
@@ -392,6 +395,10 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 			schedule();
 			vcpu_load(vcpu);
 		}
+
+wait_for_interrupts:
+		if (vcpu->arch.wait_for_interrupts)
+			kvm_vcpu_block(vcpu);
 
 		if (signal_pending(current) && !(run->exit_reason)) {
 			run->exit_reason = KVM_EXIT_IRQ_WINDOW_OPEN;
