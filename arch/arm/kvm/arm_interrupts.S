@@ -163,10 +163,13 @@
 .endm
 
 /* Enable/Disable: stage-2 trans., trap interrupts, trap wfi/wfe, trap smc */
-.macro configure_hyp_role entry
+.macro configure_hyp_role entry, vcpu_ptr
 	mrc	p15, 4, r2, c1, c1, 0	@ HCR
+	bic	r2, r2, #HCR_VIRT_EXCP_MASK
 	ldr	r3, =HCR_GUEST_MASK
 	.if \entry == 1
+	orr	r2, r2, r3
+	ldr	r3, [\vcpu_ptr, #VCPU_VIRT_IRQ]
 	orr	r2, r2, r3
 	.else
 	bic	r2, r2, r3
@@ -205,7 +208,7 @@ ENTRY(__kvm_vcpu_run)
 	mcrr	p15, 6, r2, r3, c2	@ Write VTTBR
 
 	@ Configure Hyp-role
-	configure_hyp_role 1
+	configure_hyp_role 1, r0
 
 	@ Trap coprocessor CRx for all x except 2 and 14
 	set_hstr 1
@@ -254,7 +257,7 @@ __kvm_vcpu_return:
 	set_hstr 0
 
 	@ Reset Hyp-role
-	configure_hyp_role 0
+	configure_hyp_role 0, r1
 
 	@ Let guest read hardware MIDR
 	mrc	p15, 0, r2, c0, c0, 0

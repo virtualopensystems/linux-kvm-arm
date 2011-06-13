@@ -78,7 +78,7 @@ struct kvm_vcpu_arch {
 		u32 c10_NMRR;		/* Normal Memory Remap Register */
 	} cp15;
 
-	u32 exception_pending;  	/* Exception to raise after emulation */
+	u32 virt_irq;		/* HCR exception mask */
 
 	/* Exception Information */
 	u32 hsr;		/* Hyp Syndrom Register */

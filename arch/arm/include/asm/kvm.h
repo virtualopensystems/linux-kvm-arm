@@ -20,6 +20,15 @@
 #include <asm/types.h>
 
 /*
+ * KVM_IRQ_LINE macros to set/read IRQ/FIQ for specific VCPU index.
+ */
+enum KVM_ARM_IRQ_LINE_TYPE
+{
+	KVM_ARM_IRQ_LINE = 0,
+	KVM_ARM_FIQ_LINE = 1,
+};
+
+/*
  * Modes used for short-hand mode determinition in the world-switch code and
  * in emulation code.
  *

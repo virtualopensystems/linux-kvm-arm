@@ -402,30 +402,37 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 	return ret;
 }
 
-static int kvm_vcpu_ioctl_interrupt(struct kvm_vcpu *vcpu,
-				    struct kvm_interrupt *intr)
+static int kvm_arch_vm_ioctl_irq_line(struct kvm *kvm,
+				      struct kvm_irq_level *irq_level)
 {
 	u32 mask;
+	unsigned int vcpu_idx;
+	struct kvm_vcpu *vcpu;
 
-	switch (intr->irq) {
-	case EXCEPTION_IRQ:
-		/* IRQ */
-		mask = EXCEPTION_IRQ;
+	vcpu_idx = irq_level->irq / 2;
+	if (vcpu_idx >= KVM_MAX_VCPUS)
+		return -EINVAL;
+
+	vcpu = kvm_get_vcpu(kvm, vcpu_idx);
+	if (!vcpu)
+		return -EINVAL;
+
+	switch (irq_level->irq % 2) {
+	case KVM_ARM_IRQ_LINE:
+		mask = HCR_VI;
 		break;
-	case EXCEPTION_FIQ:
-		/* FIQ */
-		mask = EXCEPTION_FIQ;
+	case KVM_ARM_FIQ_LINE:
+		mask = HCR_VF;
 		break;
 	default:
-		/* Only async exceptions are supported here */
 		return -EINVAL;
 	}
 
-	if (intr->irq & 4) { /* FIXME: use IRQ_LINE instead */
-		vcpu->arch.exception_pending |= mask;
+	if (irq_level->level) {
+		vcpu->arch.virt_irq |= mask;
 		vcpu->arch.wait_for_interrupts = 0;
 	} else
-		vcpu->arch.exception_pending &= ~mask;
+		vcpu->arch.virt_irq &= ~mask;
 
 	return 0;
 }
@@ -433,40 +440,33 @@ static int kvm_vcpu_ioctl_interrupt(struct kvm_vcpu *vcpu,
 long kvm_arch_vcpu_ioctl(struct file *filp,
 			 unsigned int ioctl, unsigned long arg)
 {
-	struct kvm_vcpu *vcpu = filp->private_data;
-	void __user *argp = (void __user *)arg;
-	int r;
-
-	switch (ioctl) {
-	case KVM_S390_STORE_STATUS: {
-		return -EINVAL;
-	}
-	case KVM_INTERRUPT: {
-		struct kvm_interrupt intr;
-
-		r = -EFAULT;
-		if (copy_from_user(&intr, argp, sizeof intr))
-			break;
-		r = kvm_vcpu_ioctl_interrupt(vcpu, &intr);
-		break;
-	}
-	default:
-		r = -EINVAL;
-	}
-
-	return r;
+	kvm_err(-EINVAL, "Unsupported ioctl (%d)", ioctl);
+	return -EINVAL;
 }
 
 int kvm_vm_ioctl_get_dirty_log(struct kvm *kvm, struct kvm_dirty_log *log)
 {
-	return -ENOTSUPP;
+	return -EINVAL;
 }
 
 long kvm_arch_vm_ioctl(struct file *filp,
 		       unsigned int ioctl, unsigned long arg)
 {
-	printk(KERN_ERR "kvm_arch_vm_ioctl: Unsupported ioctl (%d)\n", ioctl);
-	return -EINVAL;
+	struct kvm *kvm = filp->private_data;
+	void __user *argp = (void __user *)arg;
+
+	switch (ioctl) {
+	case KVM_IRQ_LINE: {
+		struct kvm_irq_level irq_event;
+
+		if (copy_from_user(&irq_event, argp, sizeof irq_event))
+			return -EFAULT;
+		return kvm_arch_vm_ioctl_irq_line(kvm, &irq_event);
+	}
+	default:
+		kvm_err(-EINVAL, "Unsupported ioctl (%d)", ioctl);
+		return -EINVAL;
+	}
 }
 
 static int init_hyp_mode(void)
