@@ -38,7 +38,6 @@
 
 #include "core.h"
 
-
 static struct map_desc v2m_io_desc[] __initdata = {
 	{
 		.virtual	= __MMIO_P2V(V2M_PA_CS7),
