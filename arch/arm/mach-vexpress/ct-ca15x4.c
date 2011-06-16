@@ -10,6 +10,7 @@
 
 #include <asm/cacheflush.h>
 #include <asm/clkdev.h>
+#include <asm/arch_timer.h>
 #include <asm/hardware/gic.h>
 
 #include <mach/clkdev.h>
@@ -21,6 +22,7 @@
 
 #include <mach/motherboard.h>
 
+#include <plat/sched_clock.h>
 #include <plat/clcd.h>
 
 static struct map_desc ct_ca15x4_io_desc[] __initdata = {
@@ -47,8 +49,20 @@ static void __init ct_ca15x4_init_irq(void)
 		 MMIO_P2V(A15_MPCORE_GIC_CPU));
 }
 
+static struct arch_timer ct_ca15x4_arch_timer __initdata = {
+	.res	= {
+		DEFINE_RES_IRQ(29),
+		DEFINE_RES_IRQ(30),
+	},
+};
+
 static void __init ct_ca15x4_timer_init(void)
 {
+	int err = arch_timer_register(&ct_ca15x4_arch_timer);
+	if (err)
+		pr_err("ct_ca15x4_arch_timer_timer_register failed %d\n", err);
+	if (err || arch_timer_sched_clock_init())
+		versatile_sched_clock_init(MMIO_P2V(V2M_SYS_24MHZ), 24000000);
 }
 
 static int ct_ca15x4_has_clcdc;
