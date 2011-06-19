@@ -402,14 +402,15 @@ int main(void)
 	DEFINE(VCPU_SPRG6, offsetof(struct kvm_vcpu, arch.sprg6));
 	DEFINE(VCPU_SPRG7, offsetof(struct kvm_vcpu, arch.sprg7));
 	DEFINE(VCPU_SHADOW_PID, offsetof(struct kvm_vcpu, arch.shadow_pid));
+	DEFINE(VCPU_SHADOW_PID1, offsetof(struct kvm_vcpu, arch.shadow_pid1));
 	DEFINE(VCPU_SHARED, offsetof(struct kvm_vcpu, arch.shared));
 	DEFINE(VCPU_SHARED_MSR, offsetof(struct kvm_vcpu_arch_shared, msr));
+	DEFINE(VCPU_SHADOW_MSR, offsetof(struct kvm_vcpu, arch.shadow_msr));
 
 	/* book3s */
 #ifdef CONFIG_PPC_BOOK3S
 	DEFINE(VCPU_HOST_RETIP, offsetof(struct kvm_vcpu, arch.host_retip));
 	DEFINE(VCPU_HOST_MSR, offsetof(struct kvm_vcpu, arch.host_msr));
-	DEFINE(VCPU_SHADOW_MSR, offsetof(struct kvm_vcpu, arch.shadow_msr));
 	DEFINE(VCPU_TRAMPOLINE_LOWMEM, offsetof(struct kvm_vcpu, arch.trampoline_lowmem));
 	DEFINE(VCPU_TRAMPOLINE_ENTER, offsetof(struct kvm_vcpu, arch.trampoline_enter));
 	DEFINE(VCPU_HIGHMEM_HANDLER, offsetof(struct kvm_vcpu, arch.highmem_handler));
@@ -495,6 +496,13 @@ int main(void)
 	DEFINE(TLBCAM_MAS2, offsetof(struct tlbcam, MAS2));
 	DEFINE(TLBCAM_MAS3, offsetof(struct tlbcam, MAS3));
 	DEFINE(TLBCAM_MAS7, offsetof(struct tlbcam, MAS7));
+#endif
+
+#if defined(CONFIG_KVM) && defined(CONFIG_SPE)
+	DEFINE(VCPU_EVR, offsetof(struct kvm_vcpu, arch.evr[0]));
+	DEFINE(VCPU_ACC, offsetof(struct kvm_vcpu, arch.acc));
+	DEFINE(VCPU_SPEFSCR, offsetof(struct kvm_vcpu, arch.spefscr));
+	DEFINE(VCPU_HOST_SPEFSCR, offsetof(struct kvm_vcpu, arch.host_spefscr));
 #endif
 
 #ifdef CONFIG_KVM_EXIT_TIMING

@@ -195,6 +195,12 @@ struct kvm_vcpu_arch {
 	u64 fpr[32];
 	u64 fpscr;
 
+#ifdef CONFIG_SPE
+	ulong evr[32];
+	ulong spefscr;
+	ulong host_spefscr;
+	u64 acc;
+#endif
 #ifdef CONFIG_ALTIVEC
 	vector128 vr[32];
 	vector128 vscr;
@@ -219,12 +225,12 @@ struct kvm_vcpu_arch {
 #endif
 
 #ifdef CONFIG_PPC_BOOK3S
-	ulong shadow_msr;
 	ulong hflags;
 	ulong guest_owned_ext;
 #endif
 	u32 vrsave; /* also USPRG0 */
 	u32 mmucr;
+	ulong shadow_msr;
 	ulong sprg4;
 	ulong sprg5;
 	ulong sprg6;
@@ -249,6 +255,7 @@ struct kvm_vcpu_arch {
 	u32 pvr;
 
 	u32 shadow_pid;
+	u32 shadow_pid1;
 	u32 pid;
 	u32 swap_pid;
 
