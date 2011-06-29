@@ -153,18 +153,17 @@ void v2m_timer_init(void);
 #define SYS_MISC_MASTERSITE	(1 << 14)
 
 /*
- * Core tile IDs
+ * Core tile description
  */
-#define V2M_CT_ID_CA9		0x0c000191
-#define V2M_CT_ID_CA5S		0x12000225
-#define V2M_CT_ID_CA15		0x0c000000 /* FIXME: this is almost certainly
-					      wrong, but is what the model
-					      currently provides. */
-#define V2M_CT_ID_UNSUPPORTED	0xff000191
+struct ct_id {
+	u32 id;
+	u32 mask;
+};
+
 #define V2M_CT_ID_MASK		0xff000fff
 
 struct ct_desc {
-	u32			id;
+	const struct ct_id	*id_table;
 	const char		*name;
 	void			(*map_io)(void);
 	void			(*init_early)(void);
