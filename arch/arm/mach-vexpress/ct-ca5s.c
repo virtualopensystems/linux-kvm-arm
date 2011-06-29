@@ -115,8 +115,16 @@ static void ct_ca5s_smp_enable(unsigned int max_cpus)
 }
 #endif
 
+static struct ct_id ct_ca5s_ids[] = {
+	{
+		.id	= 0x12000225,
+		.mask	= V2M_CT_ID_MASK,
+	},
+	{ },
+};
+
 struct ct_desc ct_ca5s_desc __initdata = {
-	.id		= V2M_CT_ID_CA5S,
+	.id_table	= ct_ca5s_ids,
 	.name		= "CA5s",
 	.map_io		= ct_ca5s_map_io,
 	.init_early	= ct_ca5s_init_early,

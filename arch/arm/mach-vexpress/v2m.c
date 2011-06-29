@@ -505,11 +505,19 @@ static void __init v2m_populate_ct_desc(void)
 	ct_desc = NULL;
 	procid_reg = readl(MMIO_P2V(V2M_SYS_MISC)) & SYS_MISC_MASTERSITE ?
 			V2M_SYS_PROCID1 : V2M_SYS_PROCID0;
-	current_tile_id = readl(MMIO_P2V(procid_reg)) & V2M_CT_ID_MASK;
+	current_tile_id = readl(MMIO_P2V(procid_reg));
 
-	for (i = 0; i < ARRAY_SIZE(ct_descs) && !ct_desc; ++i)
-		if (ct_descs[i]->id == current_tile_id)
-			ct_desc = ct_descs[i];
+	for (i = 0; i < ARRAY_SIZE(ct_descs) && !ct_desc; ++i) {
+		const struct ct_id *ct_id = ct_descs[i]->id_table;
+
+		while (ct_id->id) {
+			if ((current_tile_id & ct_id->mask) == ct_id->id) {
+				ct_desc = ct_descs[i];
+				break;
+			}
+			ct_id++;
+		}
+	}
 
 	if (!ct_desc)
 		panic("vexpress: failed to populate core tile description "
