@@ -163,8 +163,24 @@ static void ct_ca15x4_smp_enable(unsigned int max_cpus)
 }
 #endif
 
+static struct ct_id ct_ca15x4_ids[] = {
+	{ /* Old model */
+		.id	= 0x0c000000,
+		.mask	= V2M_CT_ID_MASK,
+	},
+	{ /* New model */
+		.id	= 0x14000000,
+		.mask	= V2M_CT_ID_MASK,
+	},
+	{ /* V2F-2XV6 Logic Tile */
+		.id	= 0x14000217,
+		.mask	= V2M_CT_ID_MASK,
+	},
+	{ },
+};
+
 struct ct_desc ct_ca15x4_desc __initdata = {
-	.id		= V2M_CT_ID_CA15,
+	.id_table	= ct_ca15x4_ids,
 	.name		= "CA15x4",
 	.map_io		= ct_ca15x4_map_io,
 	.init_early	= ct_ca15x4_init_early,
