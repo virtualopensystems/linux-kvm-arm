@@ -714,7 +714,7 @@ static void pxa_camera_wakeup(struct pxa_camera_dev *pcdev,
  *
  * The DMA chaining is done with DMA running. This means a tiny temporal window
  * remains, where a buffer is queued on the chain, while the chain is already
- * stopped. This means the tailed buffer would never be transfered by DMA.
+ * stopped. This means the tailed buffer would never be transferred by DMA.
  * This function restarts the capture for this corner case, where :
  *  - DADR() == DADDR_STOP
  *  - a videobuffer is queued on the pcdev->capture list
@@ -852,7 +852,7 @@ static void pxa_camera_init_videobuf(struct videobuf_queue *q,
 	 */
 	videobuf_queue_sg_init(q, &pxa_videobuf_ops, NULL, &pcdev->lock,
 				V4L2_BUF_TYPE_VIDEO_CAPTURE, V4L2_FIELD_NONE,
-				sizeof(struct pxa_buffer), icd, NULL);
+				sizeof(struct pxa_buffer), icd, &icd->video_lock);
 }
 
 static u32 mclk_get_divisor(struct platform_device *pdev,
@@ -1155,15 +1155,11 @@ static int pxa_camera_set_bus_param(struct soc_camera_device *icd, __u32 pixfmt)
 	struct soc_camera_host *ici = to_soc_camera_host(icd->dev.parent);
 	struct pxa_camera_dev *pcdev = ici->priv;
 	unsigned long bus_flags, camera_flags, common_flags;
-	const struct soc_mbus_pixelfmt *fmt;
 	int ret;
 	struct pxa_cam *cam = icd->host_priv;
 
-	fmt = soc_mbus_get_fmtdesc(icd->current_fmt->code);
-	if (!fmt)
-		return -EINVAL;
-
-	ret = test_platform_param(pcdev, fmt->bits_per_sample, &bus_flags);
+	ret = test_platform_param(pcdev, icd->current_fmt->host_fmt->bits_per_sample,
+				  &bus_flags);
 	if (ret < 0)
 		return ret;
 

@@ -192,7 +192,7 @@ static inline void wl3501_switch_page(struct wl3501_card *this, u8 page)
 }
 
 /*
- * Get Ethernet MAC addresss.
+ * Get Ethernet MAC address.
  *
  * WARNING: We switch to FPAGE0 and switc back again.
  *          Making sure there is no other WL function beening called by ISR.
@@ -290,7 +290,7 @@ static void wl3501_get_from_wla(struct wl3501_card *this, u16 src, void *dest,
  *  \               \- IEEE 802.11 -/ \-------------- len --------------/
  *   \-struct wl3501_80211_tx_hdr--/   \-------- Ethernet Frame -------/
  *
- * Return = Postion in Card
+ * Return = Position in Card
  */
 static u16 wl3501_get_tx_buffer(struct wl3501_card *this, u16 len)
 {
@@ -1932,7 +1932,7 @@ static int wl3501_config(struct pcmcia_device *link)
 	this->base_addr = dev->base_addr;
 
 	if (!wl3501_get_flash_mac_addr(this)) {
-		printk(KERN_WARNING "%s: Cant read MAC addr in flash ROM?\n",
+		printk(KERN_WARNING "%s: Can't read MAC addr in flash ROM?\n",
 		       dev->name);
 		unregister_netdev(dev);
 		goto failed;
@@ -2000,7 +2000,7 @@ static int wl3501_resume(struct pcmcia_device *link)
 }
 
 
-static struct pcmcia_device_id wl3501_ids[] = {
+static const struct pcmcia_device_id wl3501_ids[] = {
 	PCMCIA_DEVICE_MANF_CARD(0xd601, 0x0001),
 	PCMCIA_DEVICE_NULL
 };

@@ -1442,7 +1442,7 @@ int wm831x_device_init(struct wm831x *wm831x, unsigned long id, int irq)
 	struct wm831x_pdata *pdata = wm831x->dev->platform_data;
 	int rev;
 	enum wm831x_parent parent;
-	int ret;
+	int ret, i;
 
 	mutex_init(&wm831x->io_lock);
 	mutex_init(&wm831x->key_lock);
@@ -1541,6 +1541,12 @@ int wm831x_device_init(struct wm831x *wm831x, unsigned long id, int irq)
 		dev_info(wm831x->dev, "WM8325 revision %c\n", 'A' + rev);
 		break;
 
+	case WM8326:
+		parent = WM8326;
+		wm831x->num_gpio = 12;
+		dev_info(wm831x->dev, "WM8326 revision %c\n", 'A' + rev);
+		break;
+
 	default:
 		dev_err(wm831x->dev, "Unknown WM831x device %04x\n", ret);
 		ret = -EINVAL;
@@ -1572,6 +1578,17 @@ int wm831x_device_init(struct wm831x *wm831x, unsigned long id, int irq)
 		if (ret != 0) {
 			dev_err(wm831x->dev, "pre_init() failed: %d\n", ret);
 			goto err;
+		}
+	}
+
+	if (pdata) {
+		for (i = 0; i < ARRAY_SIZE(pdata->gpio_defaults); i++) {
+			if (!pdata->gpio_defaults[i])
+				continue;
+
+			wm831x_reg_write(wm831x,
+					 WM831X_GPIO1_CONTROL + i,
+					 pdata->gpio_defaults[i] & 0xffff);
 		}
 	}
 
@@ -1610,18 +1627,9 @@ int wm831x_device_init(struct wm831x *wm831x, unsigned long id, int irq)
 		break;
 
 	case WM8320:
-		ret = mfd_add_devices(wm831x->dev, -1,
-				      wm8320_devs, ARRAY_SIZE(wm8320_devs),
-				      NULL, 0);
-		break;
-
 	case WM8321:
-		ret = mfd_add_devices(wm831x->dev, -1,
-				      wm8320_devs, ARRAY_SIZE(wm8320_devs),
-				      NULL, 0);
-		break;
-
 	case WM8325:
+	case WM8326:
 		ret = mfd_add_devices(wm831x->dev, -1,
 				      wm8320_devs, ARRAY_SIZE(wm8320_devs),
 				      NULL, wm831x->irq_base);

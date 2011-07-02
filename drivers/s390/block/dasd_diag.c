@@ -10,6 +10,7 @@
 
 #define KMSG_COMPONENT "dasd"
 
+#include <linux/kernel_stat.h>
 #include <linux/stddef.h>
 #include <linux/kernel.h>
 #include <linux/slab.h>
@@ -23,7 +24,7 @@
 #include <asm/debug.h>
 #include <asm/ebcdic.h>
 #include <asm/io.h>
-#include <asm/s390_ext.h>
+#include <asm/irq.h>
 #include <asm/vtoc.h>
 #include <asm/diag.h>
 
@@ -248,6 +249,7 @@ static void dasd_ext_handler(unsigned int ext_int_code,
 	default:
 		return;
 	}
+	kstat_cpu(smp_processor_id()).irqs[EXTINT_DSD]++;
 	if (!ip) {		/* no intparm: unsolicited interrupt */
 		DBF_EVENT(DBF_NOTICE, "%s", "caught unsolicited "
 			      "interrupt");
@@ -617,6 +619,7 @@ static struct dasd_discipline dasd_diag_discipline = {
 	.ebcname = "DIAG",
 	.max_blocks = DIAG_MAX_BLOCKS,
 	.check_device = dasd_diag_check_device,
+	.verify_path = dasd_generic_verify_path,
 	.fill_geometry = dasd_diag_fill_geometry,
 	.start_IO = dasd_start_diag,
 	.term_IO = dasd_diag_term_IO,
@@ -639,7 +642,7 @@ dasd_diag_init(void)
 	}
 	ASCEBC(dasd_diag_discipline.ebcname, 4);
 
-	ctl_set_bit(0, 9);
+	service_subclass_irq_register();
 	register_external_interrupt(0x2603, dasd_ext_handler);
 	dasd_diag_discipline_pointer = &dasd_diag_discipline;
 	return 0;
@@ -649,7 +652,7 @@ static void __exit
 dasd_diag_cleanup(void)
 {
 	unregister_external_interrupt(0x2603, dasd_ext_handler);
-	ctl_clear_bit(0, 9);
+	service_subclass_irq_unregister();
 	dasd_diag_discipline_pointer = NULL;
 }
 

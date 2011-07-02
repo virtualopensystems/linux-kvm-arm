@@ -1463,7 +1463,7 @@ failed:
 
 /*====================================================================*/
 
-static struct pcmcia_device_id pcnet_ids[] = {
+static const struct pcmcia_device_id pcnet_ids[] = {
 	PCMCIA_PFC_DEVICE_MANF_CARD(0, 0x0057, 0x0021),
 	PCMCIA_PFC_DEVICE_MANF_CARD(0, 0x0104, 0x000a),
 	PCMCIA_PFC_DEVICE_MANF_CARD(0, 0x0105, 0xea15),
@@ -1536,6 +1536,7 @@ static struct pcmcia_device_id pcnet_ids[] = {
 	PCMCIA_DEVICE_PROD_ID12("CONTEC", "C-NET(PC)C-10L", 0x21cab552, 0xf6f90722),
 	PCMCIA_DEVICE_PROD_ID12("corega", "FEther PCC-TXF", 0x0a21501a, 0xa51564a2),
 	PCMCIA_DEVICE_PROD_ID12("corega", "Ether CF-TD", 0x0a21501a, 0x6589340a),
+	PCMCIA_DEVICE_PROD_ID12("corega K.K.", "corega Ether CF-TD LAN Card", 0x5261440f, 0x8797663b),
 	PCMCIA_DEVICE_PROD_ID12("corega K.K.", "corega EtherII PCC-T", 0x5261440f, 0xfa9d85bd),
 	PCMCIA_DEVICE_PROD_ID12("corega K.K.", "corega EtherII PCC-TD", 0x5261440f, 0xc49bd73d),
 	PCMCIA_DEVICE_PROD_ID12("Corega K.K.", "corega EtherII PCC-TD", 0xd4fdcbd8, 0xc49bd73d),

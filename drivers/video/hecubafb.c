@@ -231,10 +231,9 @@ static int __devinit hecubafb_probe(struct platform_device *dev)
 
 	videomemorysize = (DPY_W*DPY_H)/8;
 
-	if (!(videomemory = vmalloc(videomemorysize)))
+	videomemory = vzalloc(videomemorysize);
+	if (!videomemory)
 		return retval;
-
-	memset(videomemory, 0, videomemorysize);
 
 	info = framebuffer_alloc(sizeof(struct hecubafb_par), &dev->dev);
 	if (!info)
@@ -299,7 +298,7 @@ static int __devexit hecubafb_remove(struct platform_device *dev)
 
 static struct platform_driver hecubafb_driver = {
 	.probe	= hecubafb_probe,
-	.remove = hecubafb_remove,
+	.remove = __devexit_p(hecubafb_remove),
 	.driver	= {
 		.owner	= THIS_MODULE,
 		.name	= "hecubafb",

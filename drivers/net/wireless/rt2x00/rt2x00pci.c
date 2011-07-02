@@ -60,14 +60,15 @@ int rt2x00pci_regbusy_read(struct rt2x00_dev *rt2x00dev,
 }
 EXPORT_SYMBOL_GPL(rt2x00pci_regbusy_read);
 
-void rt2x00pci_rxdone(struct rt2x00_dev *rt2x00dev)
+bool rt2x00pci_rxdone(struct rt2x00_dev *rt2x00dev)
 {
 	struct data_queue *queue = rt2x00dev->rx;
 	struct queue_entry *entry;
 	struct queue_entry_priv_pci *entry_priv;
 	struct skb_frame_desc *skbdesc;
+	int max_rx = 16;
 
-	while (1) {
+	while (--max_rx) {
 		entry = rt2x00queue_get_entry(queue, Q_INDEX);
 		entry_priv = entry->priv_data;
 
@@ -82,12 +83,30 @@ void rt2x00pci_rxdone(struct rt2x00_dev *rt2x00dev)
 		skbdesc->desc_len = entry->queue->desc_size;
 
 		/*
+		 * DMA is already done, notify rt2x00lib that
+		 * it finished successfully.
+		 */
+		rt2x00lib_dmastart(entry);
+		rt2x00lib_dmadone(entry);
+
+		/*
 		 * Send the frame to rt2x00lib for further processing.
 		 */
 		rt2x00lib_rxdone(entry);
 	}
+
+	return !max_rx;
 }
 EXPORT_SYMBOL_GPL(rt2x00pci_rxdone);
+
+void rt2x00pci_flush_queue(struct data_queue *queue, bool drop)
+{
+	unsigned int i;
+
+	for (i = 0; !rt2x00queue_empty(queue) && i < 10; i++)
+		msleep(10);
+}
+EXPORT_SYMBOL_GPL(rt2x00pci_flush_queue);
 
 /*
  * Device initialization handlers.
@@ -105,7 +124,7 @@ static int rt2x00pci_alloc_queue_dma(struct rt2x00_dev *rt2x00dev,
 	 */
 	addr = dma_alloc_coherent(rt2x00dev->dev,
 				  queue->limit * queue->desc_size,
-				  &dma, GFP_KERNEL | GFP_DMA);
+				  &dma, GFP_KERNEL);
 	if (!addr)
 		return -ENOMEM;
 
@@ -153,10 +172,9 @@ int rt2x00pci_initialize(struct rt2x00_dev *rt2x00dev)
 	/*
 	 * Register interrupt handler.
 	 */
-	status = request_threaded_irq(rt2x00dev->irq,
-				      rt2x00dev->ops->lib->irq_handler,
-				      rt2x00dev->ops->lib->irq_handler_thread,
-				      IRQF_SHARED, rt2x00dev->name, rt2x00dev);
+	status = request_irq(rt2x00dev->irq,
+			     rt2x00dev->ops->lib->irq_handler,
+			     IRQF_SHARED, rt2x00dev->name, rt2x00dev);
 	if (status) {
 		ERROR(rt2x00dev, "IRQ %d allocation failed (error %d).\n",
 		      rt2x00dev->irq, status);
@@ -233,9 +251,8 @@ exit:
 	return -ENOMEM;
 }
 
-int rt2x00pci_probe(struct pci_dev *pci_dev, const struct pci_device_id *id)
+int rt2x00pci_probe(struct pci_dev *pci_dev, const struct rt2x00_ops *ops)
 {
-	struct rt2x00_ops *ops = (struct rt2x00_ops *)id->driver_data;
 	struct ieee80211_hw *hw;
 	struct rt2x00_dev *rt2x00dev;
 	int retval;
@@ -279,7 +296,7 @@ int rt2x00pci_probe(struct pci_dev *pci_dev, const struct pci_device_id *id)
 	rt2x00dev->irq = pci_dev->irq;
 	rt2x00dev->name = pci_name(pci_dev);
 
-	if (pci_dev->is_pcie)
+	if (pci_is_pcie(pci_dev))
 		rt2x00_set_chip_intf(rt2x00dev, RT2X00_CHIP_INTF_PCIE);
 	else
 		rt2x00_set_chip_intf(rt2x00dev, RT2X00_CHIP_INTF_PCI);
@@ -356,12 +373,12 @@ int rt2x00pci_resume(struct pci_dev *pci_dev)
 	struct rt2x00_dev *rt2x00dev = hw->priv;
 
 	if (pci_set_power_state(pci_dev, PCI_D0) ||
-	    pci_enable_device(pci_dev) ||
-	    pci_restore_state(pci_dev)) {
+	    pci_enable_device(pci_dev)) {
 		ERROR(rt2x00dev, "Failed to resume device.\n");
 		return -EIO;
 	}
 
+	pci_restore_state(pci_dev);
 	return rt2x00lib_resume(rt2x00dev);
 }
 EXPORT_SYMBOL_GPL(rt2x00pci_resume);

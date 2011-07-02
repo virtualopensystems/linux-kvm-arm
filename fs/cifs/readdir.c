@@ -79,7 +79,7 @@ cifs_readdir_lookup(struct dentry *parent, struct qstr *name,
 	cFYI(1, "For %s", name->name);
 
 	if (parent->d_op && parent->d_op->d_hash)
-		parent->d_op->d_hash(parent, name);
+		parent->d_op->d_hash(parent, parent->d_inode, name);
 	else
 		name->hash = full_name_hash(name->name, name->len);
 
@@ -101,11 +101,6 @@ cifs_readdir_lookup(struct dentry *parent, struct qstr *name,
 		dput(dentry);
 		return NULL;
 	}
-
-	if (cifs_sb_master_tcon(CIFS_SB(sb))->nocase)
-		dentry->d_op = &cifs_ci_dentry_ops;
-	else
-		dentry->d_op = &cifs_dentry_ops;
 
 	alias = d_materialise_unique(dentry, inode);
 	if (alias != NULL) {
@@ -160,6 +155,7 @@ cifs_dir_info_to_fattr(struct cifs_fattr *fattr, FILE_DIRECTORY_INFO *info,
 	fattr->cf_cifsattrs = le32_to_cpu(info->ExtFileAttributes);
 	fattr->cf_eof = le64_to_cpu(info->EndOfFile);
 	fattr->cf_bytes = le64_to_cpu(info->AllocationSize);
+	fattr->cf_createtime = le64_to_cpu(info->CreationTime);
 	fattr->cf_atime = cifs_NTtimeToUnix(info->LastAccessTime);
 	fattr->cf_ctime = cifs_NTtimeToUnix(info->ChangeTime);
 	fattr->cf_mtime = cifs_NTtimeToUnix(info->LastWriteTime);
@@ -199,7 +195,7 @@ int get_symlink_reparse_path(char *full_path, struct cifs_sb_info *cifs_sb,
 	int len;
 	int oplock = 0;
 	int rc;
-	struct cifsTconInfo *ptcon = cifs_sb_tcon(cifs_sb);
+	struct cifs_tcon *ptcon = cifs_sb_tcon(cifs_sb);
 	char *tmpbuffer;
 
 	rc = CIFSSMBOpen(xid, ptcon, full_path, FILE_OPEN, GENERIC_READ,
@@ -227,7 +223,7 @@ static int initiate_cifs_search(const int xid, struct file *file)
 	struct cifsFileInfo *cifsFile;
 	struct cifs_sb_info *cifs_sb = CIFS_SB(file->f_path.dentry->d_sb);
 	struct tcon_link *tlink = NULL;
-	struct cifsTconInfo *pTcon;
+	struct cifs_tcon *pTcon;
 
 	if (file->private_data == NULL) {
 		tlink = cifs_sb_tlink(cifs_sb);
@@ -500,7 +496,7 @@ static int cifs_save_resume_key(const char *current_entry,
    assume that they are located in the findfirst return buffer.*/
 /* We start counting in the buffer with entry 2 and increment for every
    entry (do not increment for . or .. entry) */
-static int find_cifs_entry(const int xid, struct cifsTconInfo *pTcon,
+static int find_cifs_entry(const int xid, struct cifs_tcon *pTcon,
 	struct file *file, char **ppCurrentEntry, int *num_to_ret)
 {
 	int rc = 0;
@@ -768,8 +764,7 @@ int cifs_readdir(struct file *file, void *direntry, filldir_t filldir)
 {
 	int rc = 0;
 	int xid, i;
-	struct cifs_sb_info *cifs_sb;
-	struct cifsTconInfo *pTcon;
+	struct cifs_tcon *pTcon;
 	struct cifsFileInfo *cifsFile = NULL;
 	char *current_entry;
 	int num_to_fill = 0;
@@ -778,8 +773,6 @@ int cifs_readdir(struct file *file, void *direntry, filldir_t filldir)
 	unsigned int max_len;
 
 	xid = GetXid();
-
-	cifs_sb = CIFS_SB(file->f_path.dentry->d_sb);
 
 	/*
 	 * Ensure FindFirst doesn't fail before doing filldir() for '.' and

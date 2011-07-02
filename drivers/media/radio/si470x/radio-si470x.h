@@ -37,7 +37,6 @@
 #include <linux/mutex.h>
 #include <media/v4l2-common.h>
 #include <media/v4l2-ioctl.h>
-#include <media/rds.h>
 #include <asm/unaligned.h>
 
 
@@ -159,6 +158,9 @@ struct si470x_device {
 	unsigned int rd_index;
 	unsigned int wr_index;
 
+	struct completion completion;
+	bool stci_enabled;		/* Seek/Tune Complete Interrupt */
+
 #if defined(CONFIG_USB_SI470X) || defined(CONFIG_USB_SI470X_MODULE)
 	/* reference to USB and video device */
 	struct usb_device *usbdev;
@@ -180,7 +182,6 @@ struct si470x_device {
 
 #if defined(CONFIG_I2C_SI470X) || defined(CONFIG_I2C_SI470X_MODULE)
 	struct i2c_client *client;
-	struct work_struct radio_work;
 #endif
 };
 

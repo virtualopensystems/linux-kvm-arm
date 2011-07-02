@@ -76,7 +76,8 @@ const char *ceph_pr_addr(const struct sockaddr_storage *ss)
 		break;
 
 	default:
-		sprintf(s, "(unknown sockaddr family %d)", (int)ss->ss_family);
+		snprintf(s, MAX_ADDR_STR_LEN, "(unknown sockaddr family %d)",
+			 (int)ss->ss_family);
 	}
 
 	return s;
@@ -96,7 +97,7 @@ struct workqueue_struct *ceph_msgr_wq;
 
 int ceph_msgr_init(void)
 {
-	ceph_msgr_wq = create_workqueue("ceph-msgr");
+	ceph_msgr_wq = alloc_workqueue("ceph-msgr", WQ_NON_REENTRANT, 0);
 	if (!ceph_msgr_wq) {
 		pr_err("msgr_init failed to create workqueue\n");
 		return -ENOMEM;
@@ -252,8 +253,12 @@ static int ceph_tcp_recvmsg(struct socket *sock, void *buf, size_t len)
 {
 	struct kvec iov = {buf, len};
 	struct msghdr msg = { .msg_flags = MSG_DONTWAIT | MSG_NOSIGNAL };
+	int r;
 
-	return kernel_recvmsg(sock, &msg, &iov, 1, len, msg.msg_flags);
+	r = kernel_recvmsg(sock, &msg, &iov, 1, len, msg.msg_flags);
+	if (r == -EAGAIN)
+		r = 0;
+	return r;
 }
 
 /*
@@ -264,13 +269,17 @@ static int ceph_tcp_sendmsg(struct socket *sock, struct kvec *iov,
 		     size_t kvlen, size_t len, int more)
 {
 	struct msghdr msg = { .msg_flags = MSG_DONTWAIT | MSG_NOSIGNAL };
+	int r;
 
 	if (more)
 		msg.msg_flags |= MSG_MORE;
 	else
 		msg.msg_flags |= MSG_EOR;  /* superfluous, but what the hell */
 
-	return kernel_sendmsg(sock, &msg, iov, kvlen, len);
+	r = kernel_sendmsg(sock, &msg, iov, kvlen, len);
+	if (r == -EAGAIN)
+		r = 0;
+	return r;
 }
 
 
@@ -328,7 +337,6 @@ static void reset_connection(struct ceph_connection *con)
 		ceph_msg_put(con->out_msg);
 		con->out_msg = NULL;
 	}
-	con->out_keepalive_pending = false;
 	con->in_seq = 0;
 	con->in_seq_acked = 0;
 }
@@ -591,7 +599,7 @@ static void prepare_write_keepalive(struct ceph_connection *con)
  * Connection negotiation.
  */
 
-static void prepare_connect_authorizer(struct ceph_connection *con)
+static int prepare_connect_authorizer(struct ceph_connection *con)
 {
 	void *auth_buf;
 	int auth_len = 0;
@@ -605,13 +613,20 @@ static void prepare_connect_authorizer(struct ceph_connection *con)
 					 con->auth_retry);
 	mutex_lock(&con->mutex);
 
+	if (test_bit(CLOSED, &con->state) ||
+	    test_bit(OPENING, &con->state))
+		return -EAGAIN;
+
 	con->out_connect.authorizer_protocol = cpu_to_le32(auth_protocol);
 	con->out_connect.authorizer_len = cpu_to_le32(auth_len);
 
-	con->out_kvec[con->out_kvec_left].iov_base = auth_buf;
-	con->out_kvec[con->out_kvec_left].iov_len = auth_len;
-	con->out_kvec_left++;
-	con->out_kvec_bytes += auth_len;
+	if (auth_len) {
+		con->out_kvec[con->out_kvec_left].iov_base = auth_buf;
+		con->out_kvec[con->out_kvec_left].iov_len = auth_len;
+		con->out_kvec_left++;
+		con->out_kvec_bytes += auth_len;
+	}
+	return 0;
 }
 
 /*
@@ -633,9 +648,9 @@ static void prepare_write_banner(struct ceph_messenger *msgr,
 	set_bit(WRITE_PENDING, &con->state);
 }
 
-static void prepare_write_connect(struct ceph_messenger *msgr,
-				  struct ceph_connection *con,
-				  int after_banner)
+static int prepare_write_connect(struct ceph_messenger *msgr,
+				 struct ceph_connection *con,
+				 int after_banner)
 {
 	unsigned global_seq = get_global_seq(con->msgr, 0);
 	int proto;
@@ -676,7 +691,7 @@ static void prepare_write_connect(struct ceph_messenger *msgr,
 	con->out_more = 0;
 	set_bit(WRITE_PENDING, &con->state);
 
-	prepare_connect_authorizer(con);
+	return prepare_connect_authorizer(con);
 }
 
 
@@ -847,6 +862,8 @@ static int write_partial_msg_pages(struct ceph_connection *con)
 		    (msg->pages || msg->pagelist || msg->bio || in_trail))
 			kunmap(page);
 
+		if (ret == -EAGAIN)
+			ret = 0;
 		if (ret <= 0)
 			goto out;
 
@@ -1056,8 +1073,10 @@ static void addr_set_port(struct sockaddr_storage *ss, int p)
 	switch (ss->ss_family) {
 	case AF_INET:
 		((struct sockaddr_in *)ss)->sin_port = htons(p);
+		break;
 	case AF_INET6:
 		((struct sockaddr_in6 *)ss)->sin6_port = htons(p);
+		break;
 	}
 }
 
@@ -1207,6 +1226,7 @@ static int process_connect(struct ceph_connection *con)
 	u64 sup_feat = con->msgr->supported_features;
 	u64 req_feat = con->msgr->required_features;
 	u64 server_feat = le64_to_cpu(con->in_reply.features);
+	int ret;
 
 	dout("process_connect on %p tag %d\n", con, (int)con->in_tag);
 
@@ -1238,12 +1258,12 @@ static int process_connect(struct ceph_connection *con)
 		     con->auth_retry);
 		if (con->auth_retry == 2) {
 			con->error_msg = "connect authorization failure";
-			reset_connection(con);
-			set_bit(CLOSED, &con->state);
 			return -1;
 		}
 		con->auth_retry = 1;
-		prepare_write_connect(con->msgr, con, 0);
+		ret = prepare_write_connect(con->msgr, con, 0);
+		if (ret < 0)
+			return ret;
 		prepare_read_connect(con);
 		break;
 
@@ -1270,6 +1290,9 @@ static int process_connect(struct ceph_connection *con)
 		if (con->ops->peer_reset)
 			con->ops->peer_reset(con);
 		mutex_lock(&con->mutex);
+		if (test_bit(CLOSED, &con->state) ||
+		    test_bit(OPENING, &con->state))
+			return -EAGAIN;
 		break;
 
 	case CEPH_MSGR_TAG_RETRY_SESSION:
@@ -1334,7 +1357,9 @@ static int process_connect(struct ceph_connection *con)
 		 * to WAIT.  This shouldn't happen if we are the
 		 * client.
 		 */
-		pr_err("process_connect peer connecting WAIT\n");
+		pr_err("process_connect got WAIT as client\n");
+		con->error_msg = "protocol error, got WAIT as client";
+		return -1;
 
 	default:
 		pr_err("connect protocol error, will retry\n");
@@ -1705,14 +1730,6 @@ more:
 
 	/* open the socket first? */
 	if (con->sock == NULL) {
-		/*
-		 * if we were STANDBY and are reconnecting _this_
-		 * connection, bump connect_seq now.  Always bump
-		 * global_seq.
-		 */
-		if (test_and_clear_bit(STANDBY, &con->state))
-			con->connect_seq++;
-
 		prepare_write_banner(msgr, con);
 		prepare_write_connect(msgr, con, 1);
 		prepare_read_banner(con);
@@ -1737,16 +1754,12 @@ more_kvec:
 	if (con->out_skip) {
 		ret = write_partial_skip(con);
 		if (ret <= 0)
-			goto done;
-		if (ret < 0) {
-			dout("try_write write_partial_skip err %d\n", ret);
-			goto done;
-		}
+			goto out;
 	}
 	if (con->out_kvec_left) {
 		ret = write_partial_kvec(con);
 		if (ret <= 0)
-			goto done;
+			goto out;
 	}
 
 	/* msg pages? */
@@ -1761,11 +1774,11 @@ more_kvec:
 		if (ret == 1)
 			goto more_kvec;  /* we need to send the footer, too! */
 		if (ret == 0)
-			goto done;
+			goto out;
 		if (ret < 0) {
 			dout("try_write write_partial_msg_pages err %d\n",
 			     ret);
-			goto done;
+			goto out;
 		}
 	}
 
@@ -1789,10 +1802,9 @@ do_next:
 	/* Nothing to do! */
 	clear_bit(WRITE_PENDING, &con->state);
 	dout("try_write nothing else to write.\n");
-done:
 	ret = 0;
 out:
-	dout("try_write done on %p\n", con);
+	dout("try_write done on %p ret %d\n", con, ret);
 	return ret;
 }
 
@@ -1816,24 +1828,33 @@ static int try_read(struct ceph_connection *con)
 more:
 	dout("try_read tag %d in_base_pos %d\n", (int)con->in_tag,
 	     con->in_base_pos);
+
+	/*
+	 * process_connect and process_message drop and re-take
+	 * con->mutex.  make sure we handle a racing close or reopen.
+	 */
+	if (test_bit(CLOSED, &con->state) ||
+	    test_bit(OPENING, &con->state)) {
+		ret = -EAGAIN;
+		goto out;
+	}
+
 	if (test_bit(CONNECTING, &con->state)) {
 		if (!test_bit(NEGOTIATING, &con->state)) {
 			dout("try_read connecting\n");
 			ret = read_partial_banner(con);
 			if (ret <= 0)
-				goto done;
-			if (process_banner(con) < 0) {
-				ret = -1;
 				goto out;
-			}
+			ret = process_banner(con);
+			if (ret < 0)
+				goto out;
 		}
 		ret = read_partial_connect(con);
 		if (ret <= 0)
-			goto done;
-		if (process_connect(con) < 0) {
-			ret = -1;
 			goto out;
-		}
+		ret = process_connect(con);
+		if (ret < 0)
+			goto out;
 		goto more;
 	}
 
@@ -1848,7 +1869,7 @@ more:
 		dout("skipping %d / %d bytes\n", skip, -con->in_base_pos);
 		ret = ceph_tcp_recvmsg(con->sock, buf, skip);
 		if (ret <= 0)
-			goto done;
+			goto out;
 		con->in_base_pos += ret;
 		if (con->in_base_pos)
 			goto more;
@@ -1859,7 +1880,7 @@ more:
 		 */
 		ret = ceph_tcp_recvmsg(con->sock, &con->in_tag, 1);
 		if (ret <= 0)
-			goto done;
+			goto out;
 		dout("try_read got tag %d\n", (int)con->in_tag);
 		switch (con->in_tag) {
 		case CEPH_MSGR_TAG_MSG:
@@ -1870,7 +1891,7 @@ more:
 			break;
 		case CEPH_MSGR_TAG_CLOSE:
 			set_bit(CLOSED, &con->state);   /* fixme */
-			goto done;
+			goto out;
 		default:
 			goto bad_tag;
 		}
@@ -1882,13 +1903,12 @@ more:
 			case -EBADMSG:
 				con->error_msg = "bad crc";
 				ret = -EIO;
-				goto out;
+				break;
 			case -EIO:
 				con->error_msg = "io error";
-				goto out;
-			default:
-				goto done;
+				break;
 			}
+			goto out;
 		}
 		if (con->in_tag == CEPH_MSGR_TAG_READY)
 			goto more;
@@ -1898,15 +1918,13 @@ more:
 	if (con->in_tag == CEPH_MSGR_TAG_ACK) {
 		ret = read_partial_ack(con);
 		if (ret <= 0)
-			goto done;
+			goto out;
 		process_ack(con);
 		goto more;
 	}
 
-done:
-	ret = 0;
 out:
-	dout("try_read done on %p\n", con);
+	dout("try_read done on %p ret %d\n", con, ret);
 	return ret;
 
 bad_tag:
@@ -1920,20 +1938,6 @@ bad_tag:
 /*
  * Atomically queue work on a connection.  Bump @con reference to
  * avoid races with connection teardown.
- *
- * There is some trickery going on with QUEUED and BUSY because we
- * only want a _single_ thread operating on each connection at any
- * point in time, but we want to use all available CPUs.
- *
- * The worker thread only proceeds if it can atomically set BUSY.  It
- * clears QUEUED and does it's thing.  When it thinks it's done, it
- * clears BUSY, then rechecks QUEUED.. if it's set again, it loops
- * (tries again to set BUSY).
- *
- * To queue work, we first set QUEUED, _then_ if BUSY isn't set, we
- * try to queue work.  If that fails (work is already queued, or BUSY)
- * we give up (work also already being done or is queued) but leave QUEUED
- * set so that the worker thread will loop if necessary.
  */
 static void queue_con(struct ceph_connection *con)
 {
@@ -1948,11 +1952,7 @@ static void queue_con(struct ceph_connection *con)
 		return;
 	}
 
-	set_bit(QUEUED, &con->state);
-	if (test_bit(BUSY, &con->state)) {
-		dout("queue_con %p - already BUSY\n", con);
-		con->ops->put(con);
-	} else if (!queue_work(ceph_msgr_wq, &con->work.work)) {
+	if (!queue_delayed_work(ceph_msgr_wq, &con->work, 0)) {
 		dout("queue_con %p - already queued\n", con);
 		con->ops->put(con);
 	} else {
@@ -1967,18 +1967,28 @@ static void con_work(struct work_struct *work)
 {
 	struct ceph_connection *con = container_of(work, struct ceph_connection,
 						   work.work);
-	int backoff = 0;
-
-more:
-	if (test_and_set_bit(BUSY, &con->state) != 0) {
-		dout("con_work %p BUSY already set\n", con);
-		goto out;
-	}
-	dout("con_work %p start, clearing QUEUED\n", con);
-	clear_bit(QUEUED, &con->state);
+	int ret;
 
 	mutex_lock(&con->mutex);
+restart:
+	if (test_and_clear_bit(BACKOFF, &con->state)) {
+		dout("con_work %p backing off\n", con);
+		if (queue_delayed_work(ceph_msgr_wq, &con->work,
+				       round_jiffies_relative(con->delay))) {
+			dout("con_work %p backoff %lu\n", con, con->delay);
+			mutex_unlock(&con->mutex);
+			return;
+		} else {
+			con->ops->put(con);
+			dout("con_work %p FAILED to back off %lu\n", con,
+			     con->delay);
+		}
+	}
 
+	if (test_bit(STANDBY, &con->state)) {
+		dout("con_work %p STANDBY\n", con);
+		goto done;
+	}
 	if (test_bit(CLOSED, &con->state)) { /* e.g. if we are replaced */
 		dout("con_work CLOSED\n");
 		con_close_socket(con);
@@ -1990,33 +2000,31 @@ more:
 		con_close_socket(con);
 	}
 
-	if (test_and_clear_bit(SOCK_CLOSED, &con->state) ||
-	    try_read(con) < 0 ||
-	    try_write(con) < 0) {
-		mutex_unlock(&con->mutex);
-		backoff = 1;
-		ceph_fault(con);     /* error/fault path */
-		goto done_unlocked;
-	}
+	if (test_and_clear_bit(SOCK_CLOSED, &con->state))
+		goto fault;
+
+	ret = try_read(con);
+	if (ret == -EAGAIN)
+		goto restart;
+	if (ret < 0)
+		goto fault;
+
+	ret = try_write(con);
+	if (ret == -EAGAIN)
+		goto restart;
+	if (ret < 0)
+		goto fault;
 
 done:
 	mutex_unlock(&con->mutex);
-
 done_unlocked:
-	clear_bit(BUSY, &con->state);
-	dout("con->state=%lu\n", con->state);
-	if (test_bit(QUEUED, &con->state)) {
-		if (!backoff || test_bit(OPENING, &con->state)) {
-			dout("con_work %p QUEUED reset, looping\n", con);
-			goto more;
-		}
-		dout("con_work %p QUEUED reset, but just faulted\n", con);
-		clear_bit(QUEUED, &con->state);
-	}
-	dout("con_work %p done\n", con);
-
-out:
 	con->ops->put(con);
+	return;
+
+fault:
+	mutex_unlock(&con->mutex);
+	ceph_fault(con);     /* error/fault path */
+	goto done_unlocked;
 }
 
 
@@ -2050,10 +2058,12 @@ static void ceph_fault(struct ceph_connection *con)
 	/* Requeue anything that hasn't been acked */
 	list_splice_init(&con->out_sent, &con->out_queue);
 
-	/* If there are no messages in the queue, place the connection
-	 * in a STANDBY state (i.e., don't try to reconnect just yet). */
-	if (list_empty(&con->out_queue) && !con->out_keepalive_pending) {
-		dout("fault setting STANDBY\n");
+	/* If there are no messages queued or keepalive pending, place
+	 * the connection in a STANDBY state */
+	if (list_empty(&con->out_queue) &&
+	    !test_bit(KEEPALIVE_PENDING, &con->state)) {
+		dout("fault %p setting STANDBY clearing WRITE_PENDING\n", con);
+		clear_bit(WRITE_PENDING, &con->state);
 		set_bit(STANDBY, &con->state);
 	} else {
 		/* retry after a delay. */
@@ -2061,11 +2071,24 @@ static void ceph_fault(struct ceph_connection *con)
 			con->delay = BASE_DELAY_INTERVAL;
 		else if (con->delay < MAX_DELAY_INTERVAL)
 			con->delay *= 2;
-		dout("fault queueing %p delay %lu\n", con, con->delay);
 		con->ops->get(con);
 		if (queue_delayed_work(ceph_msgr_wq, &con->work,
-				       round_jiffies_relative(con->delay)) == 0)
+				       round_jiffies_relative(con->delay))) {
+			dout("fault queued %p delay %lu\n", con, con->delay);
+		} else {
 			con->ops->put(con);
+			dout("fault failed to queue %p delay %lu, backoff\n",
+			     con, con->delay);
+			/*
+			 * In many cases we see a socket state change
+			 * while con_work is running and end up
+			 * queuing (non-delayed) work, such that we
+			 * can't backoff with a delay.  Set a flag so
+			 * that when con_work restarts we schedule the
+			 * delay then.
+			 */
+			set_bit(BACKOFF, &con->state);
+		}
 	}
 
 out_unlock:
@@ -2136,6 +2159,19 @@ void ceph_messenger_destroy(struct ceph_messenger *msgr)
 }
 EXPORT_SYMBOL(ceph_messenger_destroy);
 
+static void clear_standby(struct ceph_connection *con)
+{
+	/* come back from STANDBY? */
+	if (test_and_clear_bit(STANDBY, &con->state)) {
+		mutex_lock(&con->mutex);
+		dout("clear_standby %p and ++connect_seq\n", con);
+		con->connect_seq++;
+		WARN_ON(test_bit(WRITE_PENDING, &con->state));
+		WARN_ON(test_bit(KEEPALIVE_PENDING, &con->state));
+		mutex_unlock(&con->mutex);
+	}
+}
+
 /*
  * Queue up an outgoing message on the given connection.
  */
@@ -2168,6 +2204,7 @@ void ceph_con_send(struct ceph_connection *con, struct ceph_msg *msg)
 
 	/* if there wasn't anything waiting to send before, queue
 	 * new work */
+	clear_standby(con);
 	if (test_and_set_bit(WRITE_PENDING, &con->state) == 0)
 		queue_con(con);
 }
@@ -2233,6 +2270,8 @@ void ceph_con_revoke_message(struct ceph_connection *con, struct ceph_msg *msg)
  */
 void ceph_con_keepalive(struct ceph_connection *con)
 {
+	dout("con_keepalive %p\n", con);
+	clear_standby(con);
 	if (test_and_set_bit(KEEPALIVE_PENDING, &con->state) == 0 &&
 	    test_and_set_bit(WRITE_PENDING, &con->state) == 0)
 		queue_con(con);
@@ -2272,6 +2311,19 @@ struct ceph_msg *ceph_msg_new(int type, int front_len, gfp_t flags)
 	m->more_to_follow = false;
 	m->pool = NULL;
 
+	/* middle */
+	m->middle = NULL;
+
+	/* data */
+	m->nr_pages = 0;
+	m->page_alignment = 0;
+	m->pages = NULL;
+	m->pagelist = NULL;
+	m->bio = NULL;
+	m->bio_iter = NULL;
+	m->bio_seg = 0;
+	m->trail = NULL;
+
 	/* front */
 	if (front_len) {
 		if (front_len > PAGE_CACHE_SIZE) {
@@ -2290,19 +2342,6 @@ struct ceph_msg *ceph_msg_new(int type, int front_len, gfp_t flags)
 		m->front.iov_base = NULL;
 	}
 	m->front.iov_len = front_len;
-
-	/* middle */
-	m->middle = NULL;
-
-	/* data */
-	m->nr_pages = 0;
-	m->page_alignment = 0;
-	m->pages = NULL;
-	m->pagelist = NULL;
-	m->bio = NULL;
-	m->bio_iter = NULL;
-	m->bio_seg = 0;
-	m->trail = NULL;
 
 	dout("ceph_msg_new %p front %d\n", m, front_len);
 	return m;

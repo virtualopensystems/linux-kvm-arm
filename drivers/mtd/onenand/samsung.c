@@ -147,9 +147,7 @@ struct s3c_onenand {
 	struct resource *dma_res;
 	unsigned long	phys_base;
 	struct completion	complete;
-#ifdef CONFIG_MTD_PARTITIONS
 	struct mtd_partition *parts;
-#endif
 };
 
 #define CMD_MAP_00(dev, addr)		(dev->cmd_map(MAP_00, ((addr) << 1)))
@@ -159,9 +157,7 @@ struct s3c_onenand {
 
 static struct s3c_onenand *onenand;
 
-#ifdef CONFIG_MTD_PARTITIONS
 static const char *part_probes[] = { "cmdlinepart", NULL, };
-#endif
 
 static inline int s3c_read_reg(int offset)
 {
@@ -651,7 +647,7 @@ static int s5pc110_read_bufferram(struct mtd_info *mtd, int area,
 	void __iomem *p;
 	void *buf = (void *) buffer;
 	dma_addr_t dma_src, dma_dst;
-	int err, page_dma = 0;
+	int err, ofs, page_dma = 0;
 	struct device *dev = &onenand->pdev->dev;
 
 	p = this->base + area;
@@ -677,10 +673,13 @@ static int s5pc110_read_bufferram(struct mtd_info *mtd, int area,
 		if (!page)
 			goto normal;
 
+		/* Page offset */
+		ofs = ((size_t) buf & ~PAGE_MASK);
 		page_dma = 1;
+
 		/* DMA routine */
 		dma_src = onenand->phys_base + (p - this->base);
-		dma_dst = dma_map_page(dev, page, 0, count, DMA_FROM_DEVICE);
+		dma_dst = dma_map_page(dev, page, ofs, count, DMA_FROM_DEVICE);
 	} else {
 		/* DMA routine */
 		dma_src = onenand->phys_base + (p - this->base);
@@ -1018,15 +1017,13 @@ static int s3c_onenand_probe(struct platform_device *pdev)
 	if (s3c_read_reg(MEM_CFG_OFFSET) & ONENAND_SYS_CFG1_SYNC_READ)
 		dev_info(&onenand->pdev->dev, "OneNAND Sync. Burst Read enabled\n");
 
-#ifdef CONFIG_MTD_PARTITIONS
 	err = parse_mtd_partitions(mtd, part_probes, &onenand->parts, 0);
 	if (err > 0)
-		add_mtd_partitions(mtd, onenand->parts, err);
+		mtd_device_register(mtd, onenand->parts, err);
 	else if (err <= 0 && pdata && pdata->parts)
-		add_mtd_partitions(mtd, pdata->parts, pdata->nr_parts);
+		mtd_device_register(mtd, pdata->parts, pdata->nr_parts);
 	else
-#endif
-		err = add_mtd_device(mtd);
+		err = mtd_device_register(mtd, NULL, 0);
 
 	platform_set_drvdata(pdev, mtd);
 

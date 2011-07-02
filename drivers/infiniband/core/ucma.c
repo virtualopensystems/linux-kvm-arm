@@ -367,13 +367,28 @@ done:
 	return ret;
 }
 
-static ssize_t ucma_create_id(struct ucma_file *file,
-				const char __user *inbuf,
-				int in_len, int out_len)
+static int ucma_get_qp_type(struct rdma_ucm_create_id *cmd, enum ib_qp_type *qp_type)
+{
+	switch (cmd->ps) {
+	case RDMA_PS_TCP:
+		*qp_type = IB_QPT_RC;
+		return 0;
+	case RDMA_PS_UDP:
+	case RDMA_PS_IPOIB:
+		*qp_type = IB_QPT_UD;
+		return 0;
+	default:
+		return -EINVAL;
+	}
+}
+
+static ssize_t ucma_create_id(struct ucma_file *file, const char __user *inbuf,
+			      int in_len, int out_len)
 {
 	struct rdma_ucm_create_id cmd;
 	struct rdma_ucm_create_id_resp resp;
 	struct ucma_context *ctx;
+	enum ib_qp_type qp_type;
 	int ret;
 
 	if (out_len < sizeof(resp))
@@ -382,6 +397,10 @@ static ssize_t ucma_create_id(struct ucma_file *file,
 	if (copy_from_user(&cmd, inbuf, sizeof(cmd)))
 		return -EFAULT;
 
+	ret = ucma_get_qp_type(&cmd, &qp_type);
+	if (ret)
+		return ret;
+
 	mutex_lock(&file->mut);
 	ctx = ucma_alloc_ctx(file);
 	mutex_unlock(&file->mut);
@@ -389,7 +408,7 @@ static ssize_t ucma_create_id(struct ucma_file *file,
 		return -ENOMEM;
 
 	ctx->uid = cmd.uid;
-	ctx->cm_id = rdma_create_id(ucma_event_handler, ctx, cmd.ps);
+	ctx->cm_id = rdma_create_id(ucma_event_handler, ctx, cmd.ps, qp_type);
 	if (IS_ERR(ctx->cm_id)) {
 		ret = PTR_ERR(ctx->cm_id);
 		goto err1;
@@ -636,6 +655,16 @@ static void ucma_copy_iboe_route(struct rdma_ucm_query_route_resp *resp,
 	}
 }
 
+static void ucma_copy_iw_route(struct rdma_ucm_query_route_resp *resp,
+			       struct rdma_route *route)
+{
+	struct rdma_dev_addr *dev_addr;
+
+	dev_addr = &route->addr.dev_addr;
+	rdma_addr_get_dgid(dev_addr, (union ib_gid *) &resp->ib_route[0].dgid);
+	rdma_addr_get_sgid(dev_addr, (union ib_gid *) &resp->ib_route[0].sgid);
+}
+
 static ssize_t ucma_query_route(struct ucma_file *file,
 				const char __user *inbuf,
 				int in_len, int out_len)
@@ -670,8 +699,10 @@ static ssize_t ucma_query_route(struct ucma_file *file,
 
 	resp.node_guid = (__force __u64) ctx->cm_id->device->node_guid;
 	resp.port_num = ctx->cm_id->port_num;
-	if (rdma_node_get_transport(ctx->cm_id->device->node_type) == RDMA_TRANSPORT_IB) {
-		switch (rdma_port_get_link_layer(ctx->cm_id->device, ctx->cm_id->port_num)) {
+	switch (rdma_node_get_transport(ctx->cm_id->device->node_type)) {
+	case RDMA_TRANSPORT_IB:
+		switch (rdma_port_get_link_layer(ctx->cm_id->device,
+			ctx->cm_id->port_num)) {
 		case IB_LINK_LAYER_INFINIBAND:
 			ucma_copy_ib_route(&resp, &ctx->cm_id->route);
 			break;
@@ -681,6 +712,12 @@ static ssize_t ucma_query_route(struct ucma_file *file,
 		default:
 			break;
 		}
+		break;
+	case RDMA_TRANSPORT_IWARP:
+		ucma_copy_iw_route(&resp, &ctx->cm_id->route);
+		break;
+	default:
+		break;
 	}
 
 out:
@@ -864,6 +901,13 @@ static int ucma_set_option_id(struct ucma_context *ctx, int optname,
 			break;
 		}
 		rdma_set_service_type(ctx->cm_id, *((u8 *) optval));
+		break;
+	case RDMA_OPTION_ID_REUSEADDR:
+		if (optlen != sizeof(int)) {
+			ret = -EINVAL;
+			break;
+		}
+		ret = rdma_set_reuseaddr(ctx->cm_id, *((int *) optval) ? 1 : 0);
 		break;
 	default:
 		ret = -ENOSYS;
@@ -1313,9 +1357,11 @@ static const struct file_operations ucma_fops = {
 };
 
 static struct miscdevice ucma_misc = {
-	.minor	= MISC_DYNAMIC_MINOR,
-	.name	= "rdma_cm",
-	.fops	= &ucma_fops,
+	.minor		= MISC_DYNAMIC_MINOR,
+	.name		= "rdma_cm",
+	.nodename	= "infiniband/rdma_cm",
+	.mode		= 0666,
+	.fops		= &ucma_fops,
 };
 
 static ssize_t show_abi_version(struct device *dev,

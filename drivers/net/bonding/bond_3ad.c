@@ -246,7 +246,7 @@ static inline void __enable_port(struct port *port)
  */
 static inline int __port_is_enabled(struct port *port)
 {
-	return port->slave->state == BOND_STATE_ACTIVE;
+	return bond_is_active_slave(port->slave);
 }
 
 /**
@@ -281,23 +281,23 @@ static inline int __check_agg_selection_timer(struct port *port)
 }
 
 /**
- * __get_rx_machine_lock - lock the port's RX machine
+ * __get_state_machine_lock - lock the port's state machines
  * @port: the port we're looking at
  *
  */
-static inline void __get_rx_machine_lock(struct port *port)
+static inline void __get_state_machine_lock(struct port *port)
 {
-	spin_lock_bh(&(SLAVE_AD_INFO(port->slave).rx_machine_lock));
+	spin_lock_bh(&(SLAVE_AD_INFO(port->slave).state_machine_lock));
 }
 
 /**
- * __release_rx_machine_lock - unlock the port's RX machine
+ * __release_state_machine_lock - unlock the port's state machines
  * @port: the port we're looking at
  *
  */
-static inline void __release_rx_machine_lock(struct port *port)
+static inline void __release_state_machine_lock(struct port *port)
 {
-	spin_unlock_bh(&(SLAVE_AD_INFO(port->slave).rx_machine_lock));
+	spin_unlock_bh(&(SLAVE_AD_INFO(port->slave).state_machine_lock));
 }
 
 /**
@@ -388,14 +388,14 @@ static u8 __get_duplex(struct port *port)
 }
 
 /**
- * __initialize_port_locks - initialize a port's RX machine spinlock
+ * __initialize_port_locks - initialize a port's STATE machine spinlock
  * @port: the port we're looking at
  *
  */
 static inline void __initialize_port_locks(struct port *port)
 {
 	// make sure it isn't called twice
-	spin_lock_init(&(SLAVE_AD_INFO(port->slave).rx_machine_lock));
+	spin_lock_init(&(SLAVE_AD_INFO(port->slave).state_machine_lock));
 }
 
 //conversions
@@ -716,11 +716,9 @@ static void __set_agg_ports_ready(struct aggregator *aggregator, int val)
 static u32 __get_agg_bandwidth(struct aggregator *aggregator)
 {
 	u32 bandwidth = 0;
-	u32 basic_speed;
 
 	if (aggregator->num_of_ports) {
-		basic_speed = __get_link_speed(aggregator->lag_ports);
-		switch (basic_speed) {
+		switch (__get_link_speed(aggregator->lag_ports)) {
 		case AD_LINK_SPEED_BITMASK_1MBPS:
 			bandwidth = aggregator->num_of_ports;
 			break;
@@ -840,7 +838,7 @@ static int ad_lacpdu_send(struct port *port)
 	lacpdu_header = (struct lacpdu_header *)skb_put(skb, length);
 
 	memcpy(lacpdu_header->hdr.h_dest, lacpdu_mcast_addr, ETH_ALEN);
-	/* Note: source addres is set to be the member's PERMANENT address,
+	/* Note: source address is set to be the member's PERMANENT address,
 	   because we use it to identify loopback lacpdus in receive. */
 	memcpy(lacpdu_header->hdr.h_source, slave->perm_hwaddr, ETH_ALEN);
 	lacpdu_header->hdr.h_proto = PKT_TYPE_LACPDU;
@@ -881,7 +879,7 @@ static int ad_marker_send(struct port *port, struct bond_marker *marker)
 	marker_header = (struct bond_marker_header *)skb_put(skb, length);
 
 	memcpy(marker_header->hdr.h_dest, lacpdu_mcast_addr, ETH_ALEN);
-	/* Note: source addres is set to be the member's PERMANENT address,
+	/* Note: source address is set to be the member's PERMANENT address,
 	   because we use it to identify loopback MARKERs in receive. */
 	memcpy(marker_header->hdr.h_source, slave->perm_hwaddr, ETH_ALEN);
 	marker_header->hdr.h_proto = PKT_TYPE_LACPDU;
@@ -1025,9 +1023,6 @@ static void ad_rx_machine(struct lacpdu *lacpdu, struct port *port)
 {
 	rx_states_t last_state;
 
-	// Lock to prevent 2 instances of this function to run simultaneously(rx interrupt and periodic machine callback)
-	__get_rx_machine_lock(port);
-
 	// keep current State Machine state to compare later if it was changed
 	last_state = port->sm_rx_state;
 
@@ -1133,7 +1128,6 @@ static void ad_rx_machine(struct lacpdu *lacpdu, struct port *port)
 				pr_err("%s: An illegal loopback occurred on adapter (%s).\n"
 				       "Check the configuration to verify that all adapters are connected to 802.3ad compliant switch ports\n",
 				       port->slave->dev->master->name, port->slave->dev->name);
-				__release_rx_machine_lock(port);
 				return;
 			}
 			__update_selected(lacpdu, port);
@@ -1153,7 +1147,6 @@ static void ad_rx_machine(struct lacpdu *lacpdu, struct port *port)
 			break;
 		}
 	}
-	__release_rx_machine_lock(port);
 }
 
 /**
@@ -1487,8 +1480,11 @@ static struct aggregator *ad_agg_selection_test(struct aggregator *best,
 
 static int agg_device_up(const struct aggregator *agg)
 {
-	return (netif_running(agg->slave->dev) &&
-		netif_carrier_ok(agg->slave->dev));
+	struct port *port = agg->lag_ports;
+	if (!port)
+		return 0;
+	return (netif_running(port->slave->dev) &&
+		netif_carrier_ok(port->slave->dev));
 }
 
 /**
@@ -1916,7 +1912,7 @@ int bond_3ad_bind_slave(struct slave *slave)
 		return -1;
 	}
 
-	//check that the slave has not been intialized yet.
+	//check that the slave has not been initialized yet.
 	if (SLAVE_AD_INFO(slave).port.slave != slave) {
 
 		// port initialization
@@ -2155,6 +2151,12 @@ void bond_3ad_state_machine_handler(struct work_struct *work)
 			goto re_arm;
 		}
 
+		/* Lock around state machines to protect data accessed
+		 * by all (e.g., port->sm_vars).  ad_rx_machine may run
+		 * concurrently due to incoming LACPDU.
+		 */
+		__get_state_machine_lock(port);
+
 		ad_rx_machine(NULL, port);
 		ad_periodic_machine(port);
 		ad_port_selection_logic(port);
@@ -2164,6 +2166,8 @@ void bond_3ad_state_machine_handler(struct work_struct *work)
 		// turn off the BEGIN bit, since we already handled it
 		if (port->sm_vars & AD_PORT_BEGIN)
 			port->sm_vars &= ~AD_PORT_BEGIN;
+
+		__release_state_machine_lock(port);
 	}
 
 re_arm:
@@ -2200,7 +2204,10 @@ static void bond_3ad_rx_indication(struct lacpdu *lacpdu, struct slave *slave, u
 		case AD_TYPE_LACPDU:
 			pr_debug("Received LACPDU on port %d\n",
 				 port->actor_port_number);
+			/* Protect against concurrent state machines */
+			__get_state_machine_lock(port);
 			ad_rx_machine(lacpdu, port);
+			__release_state_machine_lock(port);
 			break;
 
 		case AD_TYPE_MARKER:
@@ -2396,14 +2403,6 @@ int bond_3ad_xmit_xor(struct sk_buff *skb, struct net_device *dev)
 	struct ad_info ad_info;
 	int res = 1;
 
-	/* make sure that the slaves list will
-	 * not change during tx
-	 */
-	read_lock(&bond->lock);
-
-	if (!BOND_IS_OK(bond))
-		goto out;
-
 	if (bond_3ad_get_active_agg_info(bond, &ad_info)) {
 		pr_debug("%s: Error: bond_3ad_get_active_agg_info failed\n",
 			 dev->name);
@@ -2457,36 +2456,20 @@ out:
 		/* no suitable interface, frame not sent */
 		dev_kfree_skb(skb);
 	}
-	read_unlock(&bond->lock);
+
 	return NETDEV_TX_OK;
 }
 
-int bond_3ad_lacpdu_recv(struct sk_buff *skb, struct net_device *dev, struct packet_type* ptype, struct net_device *orig_dev)
+void bond_3ad_lacpdu_recv(struct sk_buff *skb, struct bonding *bond,
+			  struct slave *slave)
 {
-	struct bonding *bond = netdev_priv(dev);
-	struct slave *slave = NULL;
-	int ret = NET_RX_DROP;
-
-	if (!(dev->flags & IFF_MASTER))
-		goto out;
+	if (skb->protocol != PKT_TYPE_LACPDU)
+		return;
 
 	if (!pskb_may_pull(skb, sizeof(struct lacpdu)))
-		goto out;
+		return;
 
 	read_lock(&bond->lock);
-	slave = bond_get_slave_by_dev((struct bonding *)netdev_priv(dev),
-					orig_dev);
-	if (!slave)
-		goto out_unlock;
-
 	bond_3ad_rx_indication((struct lacpdu *) skb->data, slave, skb->len);
-
-	ret = NET_RX_SUCCESS;
-
-out_unlock:
 	read_unlock(&bond->lock);
-out:
-	dev_kfree_skb(skb);
-
-	return ret;
 }

@@ -101,7 +101,7 @@ void set_auxio(unsigned char bits_on, unsigned char bits_off)
 		break;
 	default:
 		panic("Can't set AUXIO register on this machine.");
-	};
+	}
 	spin_unlock_irqrestore(&auxio_lock, flags);
 }
 EXPORT_SYMBOL(set_auxio);
@@ -121,7 +121,7 @@ void __init auxio_power_probe(void)
 	node = prom_searchsiblings(node, "obio");
 	node = prom_getchild(node);
 	node = prom_searchsiblings(node, "power");
-	if (node == 0 || node == -1)
+	if (node == 0 || (s32)node == -1)
 		return;
 
 	/* Map the power control register. */

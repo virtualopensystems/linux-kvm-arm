@@ -26,11 +26,14 @@
  *  This file contains the control operations of vendor 1
  */
 
+#define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
+
 #include <linux/pci.h>
 #include <linux/file.h>
+#include <sound/control.h>
 #include "intel_sst.h"
 #include "intelmid_snd_control.h"
-
+#include "intelmid.h"
 
 enum _reg_v1 {
 	VOICEPORT1 = 0x180,
@@ -62,11 +65,12 @@ enum _reg_v1 {
 };
 
 int rev_id = 0x20;
+static bool jack_det_enabled;
 
 /****
  * fs_init_card - initialize the sound card
  *
- * This initilizes the audio paths to know values in case of this sound card
+ * This initializes the audio paths to know values in case of this sound card
  */
 static int fs_init_card(void)
 {
@@ -151,11 +155,11 @@ static int fs_power_up_pb(unsigned int port)
 	if (retval)
 		return retval;
 
-	pr_debug("sst: in fs power up pb\n");
+	pr_debug("in fs power up pb\n");
 	return fs_enable_audiodac(UNMUTE);
 }
 
-static int fs_power_down_pb(void)
+static int fs_power_down_pb(unsigned int device)
 {
 	struct sc_reg_access sc_access[] = {
 		{POWERCTRL1, 0x00, 0xC6},
@@ -173,7 +177,7 @@ static int fs_power_down_pb(void)
 	if (retval)
 		return retval;
 
-	pr_debug("sst: in fsl power down pb\n");
+	pr_debug("in fsl power down pb\n");
 	return fs_enable_audiodac(UNMUTE);
 }
 
@@ -193,7 +197,7 @@ static int fs_power_up_cp(unsigned int port)
 	return sst_sc_reg_access(sc_access, PMIC_READ_MODIFY, 2);
 }
 
-static int fs_power_down_cp(void)
+static int fs_power_down_cp(unsigned int device)
 {
 	struct sc_reg_access sc_access[] = {
 		{POWERCTRL2, 0x00, 0x03},
@@ -380,7 +384,7 @@ static int fs_set_pcm_audio_params(int sfreq, int word_size, int num_channel)
 		sst_sc_reg_access(sc_access, PMIC_READ_MODIFY, 2);
 
 	}
-	pr_debug("sst: sfreq:%d,Register value = %x\n", sfreq, config1);
+	pr_debug("sfreq:%d,Register value = %x\n", sfreq, config1);
 
 	if (word_size == 24) {
 		sc_access[0].reg_addr  = AUDIOPORT1;
@@ -438,18 +442,18 @@ static int fs_set_selected_input_dev(u8 value)
 
 	switch (value) {
 	case AMIC:
-		pr_debug("sst: Selecting amic not supported in mono cfg\n");
+		pr_debug("Selecting amic not supported in mono cfg\n");
 		return sst_sc_reg_access(sc_access_mic, PMIC_READ_MODIFY, 2);
 		break;
 
 	case HS_MIC:
-		pr_debug("sst: Selecting hsmic\n");
+		pr_debug("Selecting hsmic\n");
 		return sst_sc_reg_access(sc_access_hsmic,
 				PMIC_READ_MODIFY, 2);
 		break;
 
 	case DMIC:
-		pr_debug("sst: Selecting dmic\n");
+		pr_debug("Selecting dmic\n");
 		return sst_sc_reg_access(sc_access_dmic, PMIC_READ_MODIFY, 2);
 		break;
 
@@ -505,7 +509,7 @@ static int fs_set_mute(int dev_id, u8 value)
 		return retval;
 
 
-	pr_debug("sst: dev_id:0x%x value:0x%x\n", dev_id, value);
+	pr_debug("dev_id:0x%x value:0x%x\n", dev_id, value);
 	switch (dev_id) {
 	case PMIC_SND_DMIC_MUTE:
 		sc_access[0].reg_addr = MICCTRL;
@@ -606,7 +610,7 @@ static int fs_set_vol(int dev_id, int value)
 
 	switch (dev_id) {
 	case PMIC_SND_LEFT_PB_VOL:
-		pr_debug("sst: PMIC_SND_LEFT_PB_VOL:%d\n", value);
+		pr_debug("PMIC_SND_LEFT_PB_VOL:%d\n", value);
 		sc_access[0].value = sc_access[1].value = value;
 		sc_access[0].reg_addr = AUD16;
 		sc_access[1].reg_addr = AUD15;
@@ -616,7 +620,7 @@ static int fs_set_vol(int dev_id, int value)
 		break;
 
 	case PMIC_SND_RIGHT_PB_VOL:
-		pr_debug("sst: PMIC_SND_RIGHT_PB_VOL:%d\n", value);
+		pr_debug("PMIC_SND_RIGHT_PB_VOL:%d\n", value);
 		sc_access[0].value = sc_access[1].value = value;
 		sc_access[0].reg_addr = AUD17;
 		sc_access[1].reg_addr = AUD15;
@@ -629,7 +633,7 @@ static int fs_set_vol(int dev_id, int value)
 		reg_num = 2;
 		break;
 	case PMIC_SND_CAPTURE_VOL:
-		pr_debug("sst: PMIC_SND_CAPTURE_VOL:%d\n", value);
+		pr_debug("PMIC_SND_CAPTURE_VOL:%d\n", value);
 		sc_access[0].reg_addr = MICLICTRL1;
 		sc_access[1].reg_addr = MICLICTRL2;
 		sc_access[2].reg_addr = DMICCTRL1;
@@ -726,17 +730,17 @@ static int fs_get_vol(int dev_id, int *value)
 
 	switch (dev_id) {
 	case PMIC_SND_CAPTURE_VOL:
-		pr_debug("sst: PMIC_SND_CAPTURE_VOL\n");
+		pr_debug("PMIC_SND_CAPTURE_VOL\n");
 		sc_access.reg_addr = MICLICTRL1;
 		mask = (MASK5|MASK4|MASK3|MASK2|MASK1|MASK0);
 		break;
 	case PMIC_SND_LEFT_PB_VOL:
-		pr_debug("sst: PMIC_SND_LEFT_PB_VOL\n");
+		pr_debug("PMIC_SND_LEFT_PB_VOL\n");
 		sc_access.reg_addr = AUD16;
 		mask = (MASK5|MASK4|MASK3|MASK2|MASK1|MASK0);
 		break;
 	case PMIC_SND_RIGHT_PB_VOL:
-		pr_debug("sst: PMIC_SND_RT_PB_VOL\n");
+		pr_debug("PMIC_SND_RT_PB_VOL\n");
 		sc_access.reg_addr = AUD17;
 		mask = (MASK5|MASK4|MASK3|MASK2|MASK1|MASK0);
 		break;
@@ -745,10 +749,94 @@ static int fs_get_vol(int dev_id, int *value)
 	}
 
 	retval = sst_sc_reg_access(&sc_access, PMIC_READ, 1);
-	pr_debug("sst: value read = 0x%x\n", sc_access.value);
+	pr_debug("value read = 0x%x\n", sc_access.value);
 	*value = (int) (sc_access.value & mask);
-	pr_debug("sst: value returned = 0x%x\n", *value);
+	pr_debug("value returned = 0x%x\n", *value);
 	return retval;
+}
+
+static void fs_pmic_irq_enable(void *data)
+{
+	struct snd_intelmad *intelmaddata = data;
+	struct sc_reg_access sc_access[] = {
+				{0x187, 0x00, MASK7},
+				{0x188, 0x10, MASK4},
+				{0x18b, 0x10, MASK4},
+	};
+
+	struct sc_reg_access sc_access_write[] = {
+				{0x198, 0x00, 0x0},
+	};
+	pr_debug("Audio interrupt enable\n");
+	sst_sc_reg_access(sc_access, PMIC_READ_MODIFY, 3);
+	sst_sc_reg_access(sc_access_write, PMIC_WRITE, 1);
+
+	intelmaddata->jack[0].jack_status = 0;
+	/*intelmaddata->jack[1].jack_status = 0;*/
+
+	jack_det_enabled = true;
+	return;
+}
+
+static void fs_pmic_irq_cb(void *cb_data, u8 value)
+{
+	struct mad_jack *mjack = NULL;
+	struct snd_intelmad *intelmaddata = cb_data;
+	unsigned int present = 0, jack_event_flag = 0, buttonpressflag = 0;
+
+	mjack = &intelmaddata->jack[0];
+
+	if (value & 0x4) {
+		if (!jack_det_enabled)
+			fs_pmic_irq_enable(intelmaddata);
+
+		/* send headphone detect */
+		pr_debug(":MAD headphone %d\n", value & 0x4);
+		present = !(mjack->jack_status);
+		mjack->jack_status = present;
+		jack_event_flag = 1;
+		mjack->jack.type = SND_JACK_HEADPHONE;
+	}
+
+	if (value & 0x2) {
+		/* send short push */
+		pr_debug(":MAD short push %d\n", value & 0x2);
+		present = 1;
+		jack_event_flag = 1;
+		buttonpressflag = 1;
+		mjack->jack.type = MID_JACK_HS_SHORT_PRESS;
+	}
+
+	if (value & 0x1) {
+		/* send long push */
+		pr_debug(":MAD long push %d\n", value & 0x1);
+		present = 1;
+		jack_event_flag = 1;
+		buttonpressflag = 1;
+		mjack->jack.type = MID_JACK_HS_LONG_PRESS;
+	}
+
+	if (value & 0x8) {
+		if (!jack_det_enabled)
+			fs_pmic_irq_enable(intelmaddata);
+		/* send headset detect */
+		pr_debug(":MAD headset = %d\n", value & 0x8);
+		present = !(mjack->jack_status);
+		mjack->jack_status = present;
+		jack_event_flag = 1;
+		mjack->jack.type = SND_JACK_HEADSET;
+	}
+
+
+	if (jack_event_flag)
+		sst_mad_send_jack_report(&mjack->jack,
+						buttonpressflag, present);
+
+	return;
+}
+static int fs_jack_enable(void)
+{
+	return 0;
 }
 
 struct snd_pmic_ops snd_pmic_ops_fs = {
@@ -763,9 +851,16 @@ struct snd_pmic_ops snd_pmic_ops_fs = {
 	.set_pcm_voice_params = fs_set_pcm_voice_params,
 	.set_voice_port = fs_set_voice_port,
 	.set_audio_port = fs_set_audio_port,
-	.power_up_pmic_pb = fs_power_up_pb,
-	.power_up_pmic_cp = fs_power_up_cp,
-	.power_down_pmic_pb = fs_power_down_pb,
-	.power_down_pmic_cp = fs_power_down_cp,
-	.power_down_pmic = fs_power_down,
+	.power_up_pmic_pb =	fs_power_up_pb,
+	.power_up_pmic_cp =	fs_power_up_cp,
+	.power_down_pmic_pb =	fs_power_down_pb,
+	.power_down_pmic_cp =	fs_power_down_cp,
+	.power_down_pmic	=	fs_power_down,
+	.pmic_irq_cb	=	fs_pmic_irq_cb,
+	/*
+	 * Jack detection enabling
+	 * need be delayed till first IRQ happen.
+	 */
+	.pmic_irq_enable =	NULL,
+	.pmic_jack_enable = fs_jack_enable,
 };

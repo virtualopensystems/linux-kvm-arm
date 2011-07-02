@@ -1,6 +1,6 @@
 /******************************************************************************
  *
- * Copyright(c) 2003 - 2010 Intel Corporation. All rights reserved.
+ * Copyright(c) 2003 - 2011 Intel Corporation. All rights reserved.
  *
  * Portions of this file are derived from the ipw3945 project, as well
  * as portions of the ieee80211 subsystem header files.
@@ -144,7 +144,7 @@ static int iwl_send_static_wepkey_cmd(struct iwl_priv *priv,
 	size_t cmd_size  = sizeof(struct iwl_wep_cmd);
 	struct iwl_host_cmd cmd = {
 		.id = ctx->wep_key_cmd,
-		.data = wep_cmd,
+		.data = { wep_cmd, },
 		.flags = CMD_SYNC,
 	};
 
@@ -172,7 +172,7 @@ static int iwl_send_static_wepkey_cmd(struct iwl_priv *priv,
 
 	cmd_size += sizeof(struct iwl_wep_key) * WEP_KEYS_MAX;
 
-	cmd.len = cmd_size;
+	cmd.len[0] = cmd_size;
 
 	if (not_empty || send_if_empty)
 		return iwl_send_cmd(priv, &cmd);
@@ -474,7 +474,7 @@ int iwl_remove_dynamic_key(struct iwl_priv *priv,
 	memset(&priv->stations[sta_id].keyinfo, 0,
 					sizeof(struct iwl_hw_key));
 	memset(&priv->stations[sta_id].sta.key, 0,
-					sizeof(struct iwl4965_keyinfo));
+					sizeof(struct iwl_keyinfo));
 	priv->stations[sta_id].sta.key.key_flags =
 			STA_KEY_FLG_NO_ENC | STA_KEY_FLG_INVALID;
 	priv->stations[sta_id].sta.key.key_offset = WEP_INVALID_OFFSET;
@@ -684,7 +684,7 @@ int iwl_sta_rx_agg_stop(struct iwl_priv *priv, struct ieee80211_sta *sta,
 	return iwl_send_add_sta(priv, &sta_cmd, CMD_SYNC);
 }
 
-void iwl_sta_modify_ps_wake(struct iwl_priv *priv, int sta_id)
+static void iwl_sta_modify_ps_wake(struct iwl_priv *priv, int sta_id)
 {
 	unsigned long flags;
 
@@ -713,4 +713,34 @@ void iwl_sta_modify_sleep_tx_count(struct iwl_priv *priv, int sta_id, int cnt)
 	iwl_send_add_sta(priv, &priv->stations[sta_id].sta, CMD_ASYNC);
 	spin_unlock_irqrestore(&priv->sta_lock, flags);
 
+}
+
+void iwlagn_mac_sta_notify(struct ieee80211_hw *hw,
+			   struct ieee80211_vif *vif,
+			   enum sta_notify_cmd cmd,
+			   struct ieee80211_sta *sta)
+{
+	struct iwl_priv *priv = hw->priv;
+	struct iwl_station_priv *sta_priv = (void *)sta->drv_priv;
+	int sta_id;
+
+	switch (cmd) {
+	case STA_NOTIFY_SLEEP:
+		WARN_ON(!sta_priv->client);
+		sta_priv->asleep = true;
+		if (atomic_read(&sta_priv->pending_frames) > 0)
+			ieee80211_sta_block_awake(hw, sta, true);
+		break;
+	case STA_NOTIFY_AWAKE:
+		WARN_ON(!sta_priv->client);
+		if (!sta_priv->asleep)
+			break;
+		sta_priv->asleep = false;
+		sta_id = iwl_sta_id(sta);
+		if (sta_id != IWL_INVALID_STATION)
+			iwl_sta_modify_ps_wake(priv, sta_id);
+		break;
+	default:
+		break;
+	}
 }

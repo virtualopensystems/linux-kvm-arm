@@ -75,6 +75,8 @@
 #define I810_GMS_DISABLE	0x00000000
 #define I810_PGETBL_CTL		0x2020
 #define I810_PGETBL_ENABLED	0x00000001
+/* Note: PGETBL_CTL2 has a different offset on G33. */
+#define I965_PGETBL_CTL2	0x20c4
 #define I965_PGETBL_SIZE_MASK	0x0000000e
 #define I965_PGETBL_SIZE_512KB	(0 << 1)
 #define I965_PGETBL_SIZE_256KB	(1 << 1)
@@ -82,9 +84,17 @@
 #define I965_PGETBL_SIZE_1MB	(3 << 1)
 #define I965_PGETBL_SIZE_2MB	(4 << 1)
 #define I965_PGETBL_SIZE_1_5MB	(5 << 1)
-#define G33_PGETBL_SIZE_MASK    (3 << 8)
-#define G33_PGETBL_SIZE_1M      (1 << 8)
-#define G33_PGETBL_SIZE_2M      (2 << 8)
+#define G33_GMCH_SIZE_MASK	(3 << 8)
+#define G33_GMCH_SIZE_1M	(1 << 8)
+#define G33_GMCH_SIZE_2M	(2 << 8)
+#define G4x_GMCH_SIZE_MASK	(0xf << 8)
+#define G4x_GMCH_SIZE_1M	(0x1 << 8)
+#define G4x_GMCH_SIZE_2M	(0x3 << 8)
+#define G4x_GMCH_SIZE_VT_1M	(0x9 << 8)
+#define G4x_GMCH_SIZE_VT_1_5M	(0xa << 8)
+#define G4x_GMCH_SIZE_VT_2M	(0xc << 8)
+
+#define GFX_FLSH_CNTL		0x2170 /* 915+ */
 
 #define I810_DRAM_CTL		0x3000
 #define I810_DRAM_ROW_0		0x00000001
@@ -120,6 +130,7 @@
 #define INTEL_GMCH_GMS_STOLEN_352M	(0xd << 4)
 
 #define I915_IFPADDR    0x60
+#define I830_HIC        0x70
 
 /* Intel 965G registers */
 #define I965_MSAC 0x62
@@ -214,6 +225,14 @@
 #define PCI_DEVICE_ID_INTEL_SANDYBRIDGE_M_GT2_PLUS_IG	0x0126
 #define PCI_DEVICE_ID_INTEL_SANDYBRIDGE_S_HB		0x0108  /* Server */
 #define PCI_DEVICE_ID_INTEL_SANDYBRIDGE_S_IG		0x010A
+#define PCI_DEVICE_ID_INTEL_IVYBRIDGE_HB		0x0150  /* Desktop */
+#define PCI_DEVICE_ID_INTEL_IVYBRIDGE_GT1_IG		0x0152
+#define PCI_DEVICE_ID_INTEL_IVYBRIDGE_GT2_IG		0x0162
+#define PCI_DEVICE_ID_INTEL_IVYBRIDGE_M_HB		0x0154  /* Mobile */
+#define PCI_DEVICE_ID_INTEL_IVYBRIDGE_M_GT1_IG		0x0156
+#define PCI_DEVICE_ID_INTEL_IVYBRIDGE_M_GT2_IG		0x0166
+#define PCI_DEVICE_ID_INTEL_IVYBRIDGE_S_HB		0x0158  /* Server */
+#define PCI_DEVICE_ID_INTEL_IVYBRIDGE_S_GT1_IG		0x015A
 
 int intel_gmch_probe(struct pci_dev *pdev,
 			       struct agp_bridge_data *bridge);

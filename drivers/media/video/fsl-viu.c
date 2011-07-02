@@ -194,6 +194,8 @@ struct viu_dev {
 
 	/* decoder */
 	struct v4l2_subdev	*decoder;
+
+	v4l2_std_id		std;
 };
 
 struct viu_fh {
@@ -764,7 +766,7 @@ inline void viu_activate_overlay(struct viu_reg *viu_reg)
 	out_be32(&vr->picture_count, reg_val.picture_count);
 }
 
-static int viu_start_preview(struct viu_dev *dev, struct viu_fh *fh)
+static int viu_setup_preview(struct viu_dev *dev, struct viu_fh *fh)
 {
 	int bpp;
 
@@ -803,11 +805,6 @@ static int viu_start_preview(struct viu_dev *dev, struct viu_fh *fh)
 	/* setup the base address of the overlay buffer */
 	reg_val.field_base_addr = (u32)dev->ovbuf.base;
 
-	dev->ovenable = 1;
-	viu_activate_overlay(dev->vr);
-
-	/* start dma */
-	viu_start_dma(dev);
 	return 0;
 }
 
@@ -823,19 +820,39 @@ static int vidioc_s_fmt_overlay(struct file *file, void *priv,
 	if (err)
 		return err;
 
-	mutex_lock(&dev->lock);
 	fh->win = f->fmt.win;
 
 	spin_lock_irqsave(&dev->slock, flags);
-	viu_start_preview(dev, fh);
+	viu_setup_preview(dev, fh);
 	spin_unlock_irqrestore(&dev->slock, flags);
-	mutex_unlock(&dev->lock);
 	return 0;
 }
 
 static int vidioc_try_fmt_overlay(struct file *file, void *priv,
 					struct v4l2_format *f)
 {
+	return 0;
+}
+
+static int vidioc_overlay(struct file *file, void *priv, unsigned int on)
+{
+	struct viu_fh  *fh  = priv;
+	struct viu_dev *dev = (struct viu_dev *)fh->dev;
+	unsigned long  flags;
+
+	if (on) {
+		spin_lock_irqsave(&dev->slock, flags);
+		viu_activate_overlay(dev->vr);
+		dev->ovenable = 1;
+
+		/* start dma */
+		viu_start_dma(dev);
+		spin_unlock_irqrestore(&dev->slock, flags);
+	} else {
+		viu_stop_dma(dev);
+		dev->ovenable = 0;
+	}
+
 	return 0;
 }
 
@@ -909,11 +926,17 @@ static int vidioc_dqbuf(struct file *file, void *priv, struct v4l2_buffer *p)
 static int vidioc_streamon(struct file *file, void *priv, enum v4l2_buf_type i)
 {
 	struct viu_fh *fh = priv;
+	struct viu_dev *dev = fh->dev;
 
 	if (fh->type != V4L2_BUF_TYPE_VIDEO_CAPTURE)
 		return -EINVAL;
 	if (fh->type != i)
 		return -EINVAL;
+
+	if (dev->ovenable)
+		dev->ovenable = 0;
+
+	viu_start_dma(fh->dev);
 
 	return videobuf_streamon(&fh->vb_vidq);
 }
@@ -927,17 +950,36 @@ static int vidioc_streamoff(struct file *file, void *priv, enum v4l2_buf_type i)
 	if (fh->type != i)
 		return -EINVAL;
 
+	viu_stop_dma(fh->dev);
+
 	return videobuf_streamoff(&fh->vb_vidq);
 }
 
 #define decoder_call(viu, o, f, args...) \
 	v4l2_subdev_call(viu->decoder, o, f, ##args)
 
+static int vidioc_querystd(struct file *file, void *priv, v4l2_std_id *std_id)
+{
+	struct viu_fh *fh = priv;
+
+	decoder_call(fh->dev, video, querystd, std_id);
+	return 0;
+}
+
 static int vidioc_s_std(struct file *file, void *priv, v4l2_std_id *id)
 {
 	struct viu_fh *fh = priv;
 
+	fh->dev->std = *id;
 	decoder_call(fh->dev, core, s_std, *id);
+	return 0;
+}
+
+static int vidioc_g_std(struct file *file, void *priv, v4l2_std_id *std_id)
+{
+	struct viu_fh *fh = priv;
+
+	*std_id = fh->dev->std;
 	return 0;
 }
 
@@ -1288,7 +1330,8 @@ static int viu_open(struct file *file)
 	videobuf_queue_dma_contig_init(&fh->vb_vidq, &viu_video_qops,
 				       dev->dev, &fh->vbq_lock,
 				       fh->type, V4L2_FIELD_INTERLACED,
-				       sizeof(struct viu_buf), fh, NULL);
+				       sizeof(struct viu_buf), fh,
+				       &fh->dev->lock);
 	return 0;
 }
 
@@ -1331,6 +1374,7 @@ static int viu_release(struct file *file)
 
 	viu_stop_dma(dev);
 	videobuf_stop(&fh->vb_vidq);
+	videobuf_mmap_free(&fh->vb_vidq);
 
 	kfree(fh);
 
@@ -1377,7 +1421,7 @@ static struct v4l2_file_operations viu_fops = {
 	.release	= viu_release,
 	.read		= viu_read,
 	.poll		= viu_poll,
-	.ioctl		= video_ioctl2, /* V4L2 ioctl handler */
+	.unlocked_ioctl	= video_ioctl2, /* V4L2 ioctl handler */
 	.mmap		= viu_mmap,
 };
 
@@ -1391,13 +1435,16 @@ static const struct v4l2_ioctl_ops viu_ioctl_ops = {
 	.vidioc_g_fmt_vid_overlay = vidioc_g_fmt_overlay,
 	.vidioc_try_fmt_vid_overlay = vidioc_try_fmt_overlay,
 	.vidioc_s_fmt_vid_overlay = vidioc_s_fmt_overlay,
+	.vidioc_overlay	      = vidioc_overlay,
 	.vidioc_g_fbuf	      = vidioc_g_fbuf,
 	.vidioc_s_fbuf	      = vidioc_s_fbuf,
 	.vidioc_reqbufs       = vidioc_reqbufs,
 	.vidioc_querybuf      = vidioc_querybuf,
 	.vidioc_qbuf          = vidioc_qbuf,
 	.vidioc_dqbuf         = vidioc_dqbuf,
+	.vidioc_g_std         = vidioc_g_std,
 	.vidioc_s_std         = vidioc_s_std,
+	.vidioc_querystd      = vidioc_querystd,
 	.vidioc_enum_input    = vidioc_enum_input,
 	.vidioc_g_input       = vidioc_g_input,
 	.vidioc_s_input       = vidioc_s_input,
@@ -1419,8 +1466,7 @@ static struct video_device viu_template = {
 	.current_norm   = V4L2_STD_NTSC_M,
 };
 
-static int __devinit viu_of_probe(struct platform_device *op,
-				  const struct of_device_id *match)
+static int __devinit viu_of_probe(struct platform_device *op)
 {
 	struct viu_dev *viu_dev;
 	struct video_device *vdev;
@@ -1473,9 +1519,6 @@ static int __devinit viu_of_probe(struct platform_device *op,
 	INIT_LIST_HEAD(&viu_dev->vidq.active);
 	INIT_LIST_HEAD(&viu_dev->vidq.queued);
 
-	/* initialize locks */
-	mutex_init(&viu_dev->lock);
-
 	snprintf(viu_dev->v4l2_dev.name,
 		 sizeof(viu_dev->v4l2_dev.name), "%s", "VIU");
 	ret = v4l2_device_register(viu_dev->dev, &viu_dev->v4l2_dev);
@@ -1506,7 +1549,14 @@ static int __devinit viu_of_probe(struct platform_device *op,
 
 	viu_dev->vdev = vdev;
 
+	/* initialize locks */
+	mutex_init(&viu_dev->lock);
+	viu_dev->vdev->lock = &viu_dev->lock;
+	spin_lock_init(&viu_dev->slock);
+
 	video_set_drvdata(viu_dev->vdev, viu_dev);
+
+	mutex_lock(&viu_dev->lock);
 
 	ret = video_register_device(viu_dev->vdev, VFL_TYPE_GRABBER, -1);
 	if (ret < 0) {
@@ -1534,6 +1584,8 @@ static int __devinit viu_of_probe(struct platform_device *op,
 		goto err_irq;
 	}
 
+	mutex_unlock(&viu_dev->lock);
+
 	dev_info(&op->dev, "Freescale VIU Video Capture Board\n");
 	return ret;
 
@@ -1543,6 +1595,7 @@ err_irq:
 err_clk:
 	video_unregister_device(viu_dev->vdev);
 err_vdev:
+	mutex_unlock(&viu_dev->lock);
 	i2c_put_adapter(ad);
 	v4l2_device_unregister(&viu_dev->v4l2_dev);
 err:
@@ -1601,7 +1654,7 @@ static struct of_device_id mpc512x_viu_of_match[] = {
 };
 MODULE_DEVICE_TABLE(of, mpc512x_viu_of_match);
 
-static struct of_platform_driver viu_of_platform_driver = {
+static struct platform_driver viu_of_platform_driver = {
 	.probe = viu_of_probe,
 	.remove = __devexit_p(viu_of_remove),
 #ifdef CONFIG_PM
@@ -1617,12 +1670,12 @@ static struct of_platform_driver viu_of_platform_driver = {
 
 static int __init viu_init(void)
 {
-	return of_register_platform_driver(&viu_of_platform_driver);
+	return platform_driver_register(&viu_of_platform_driver);
 }
 
 static void __exit viu_exit(void)
 {
-	of_unregister_platform_driver(&viu_of_platform_driver);
+	platform_driver_unregister(&viu_of_platform_driver);
 }
 
 module_init(viu_init);

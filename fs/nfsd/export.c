@@ -1,4 +1,3 @@
-#define MSNFS	/* HACK HACK */
 /*
  * NFS exporting and validation.
  *
@@ -300,7 +299,6 @@ svc_expkey_update(struct svc_expkey *new, struct svc_expkey *old)
 
 #define	EXPORT_HASHBITS		8
 #define	EXPORT_HASHMAX		(1<< EXPORT_HASHBITS)
-#define	EXPORT_HASHMASK		(EXPORT_HASHMAX -1)
 
 static struct cache_head *export_table[EXPORT_HASHMAX];
 
@@ -1356,12 +1354,6 @@ exp_pseudoroot(struct svc_rqst *rqstp, struct svc_fh *fhp)
 	if (IS_ERR(exp))
 		return nfserrno(PTR_ERR(exp));
 	rv = fh_compose(fhp, exp, exp->ex_path.dentry, NULL);
-	if (rv)
-		goto out;
-	rv = check_nfsd_access(exp, rqstp);
-	if (rv)
-		fh_put(fhp);
-out:
 	exp_put(exp);
 	return rv;
 }
@@ -1444,9 +1436,6 @@ static struct flags {
 	{ NFSEXP_NOSUBTREECHECK, {"no_subtree_check", ""}},
 	{ NFSEXP_NOAUTHNLM, {"insecure_locks", ""}},
 	{ NFSEXP_V4ROOT, {"v4root", ""}},
-#ifdef MSNFS
-	{ NFSEXP_MSNFS, {"msnfs", ""}},
-#endif
 	{ 0, {"", ""}}
 };
 

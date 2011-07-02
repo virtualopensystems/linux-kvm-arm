@@ -104,12 +104,60 @@ static void carl9170_tx_accounting(struct ar9170 *ar, struct sk_buff *skb)
 	spin_unlock_bh(&ar->tx_stats_lock);
 }
 
+/* needs rcu_read_lock */
+static struct ieee80211_sta *__carl9170_get_tx_sta(struct ar9170 *ar,
+						   struct sk_buff *skb)
+{
+	struct _carl9170_tx_superframe *super = (void *) skb->data;
+	struct ieee80211_hdr *hdr = (void *) super->frame_data;
+	struct ieee80211_vif *vif;
+	unsigned int vif_id;
+
+	vif_id = (super->s.misc & CARL9170_TX_SUPER_MISC_VIF_ID) >>
+		 CARL9170_TX_SUPER_MISC_VIF_ID_S;
+
+	if (WARN_ON_ONCE(vif_id >= AR9170_MAX_VIRTUAL_MAC))
+		return NULL;
+
+	vif = rcu_dereference(ar->vif_priv[vif_id].vif);
+	if (unlikely(!vif))
+		return NULL;
+
+	/*
+	 * Normally we should use wrappers like ieee80211_get_DA to get
+	 * the correct peer ieee80211_sta.
+	 *
+	 * But there is a problem with indirect traffic (broadcasts, or
+	 * data which is designated for other stations) in station mode.
+	 * The frame will be directed to the AP for distribution and not
+	 * to the actual destination.
+	 */
+
+	return ieee80211_find_sta(vif, hdr->addr1);
+}
+
+static void carl9170_tx_ps_unblock(struct ar9170 *ar, struct sk_buff *skb)
+{
+	struct ieee80211_sta *sta;
+	struct carl9170_sta_info *sta_info;
+
+	rcu_read_lock();
+	sta = __carl9170_get_tx_sta(ar, skb);
+	if (unlikely(!sta))
+		goto out_rcu;
+
+	sta_info = (struct carl9170_sta_info *) sta->drv_priv;
+	if (atomic_dec_return(&sta_info->pending_frames) == 0)
+		ieee80211_sta_block_awake(ar->hw, sta, false);
+
+out_rcu:
+	rcu_read_unlock();
+}
+
 static void carl9170_tx_accounting_free(struct ar9170 *ar, struct sk_buff *skb)
 {
-	struct ieee80211_tx_info *txinfo;
 	int queue;
 
-	txinfo = IEEE80211_SKB_CB(skb);
 	queue = skb_get_queue_mapping(skb);
 
 	spin_lock_bh(&ar->tx_stats_lock);
@@ -135,6 +183,7 @@ static void carl9170_tx_accounting_free(struct ar9170 *ar, struct sk_buff *skb)
 	}
 
 	spin_unlock_bh(&ar->tx_stats_lock);
+
 	if (atomic_dec_and_test(&ar->tx_total_queued))
 		complete(&ar->tx_flush);
 }
@@ -242,9 +291,11 @@ static void carl9170_tx_release(struct kref *ref)
 			ar->tx_ampdu_schedule = true;
 
 		if (txinfo->flags & IEEE80211_TX_STAT_AMPDU) {
-			txinfo->status.ampdu_len = txinfo->pad[0];
-			txinfo->status.ampdu_ack_len = txinfo->pad[1];
-			txinfo->pad[0] = txinfo->pad[1] = 0;
+			struct _carl9170_tx_superframe *super;
+
+			super = (void *)skb->data;
+			txinfo->status.ampdu_len = super->s.rix;
+			txinfo->status.ampdu_ack_len = super->s.cnt;
 		} else if (txinfo->flags & IEEE80211_TX_STAT_ACK) {
 			/*
 			 * drop redundant tx_status reports:
@@ -327,43 +378,18 @@ static void carl9170_tx_status_process_ampdu(struct ar9170 *ar,
 {
 	struct _carl9170_tx_superframe *super = (void *) skb->data;
 	struct ieee80211_hdr *hdr = (void *) super->frame_data;
-	struct ieee80211_tx_info *tx_info;
-	struct carl9170_tx_info *ar_info;
-	struct carl9170_sta_info *sta_info;
 	struct ieee80211_sta *sta;
+	struct carl9170_sta_info *sta_info;
 	struct carl9170_sta_tid *tid_info;
-	struct ieee80211_vif *vif;
-	unsigned int vif_id;
 	u8 tid;
 
 	if (!(txinfo->flags & IEEE80211_TX_CTL_AMPDU) ||
-	    txinfo->flags & IEEE80211_TX_CTL_INJECTED)
-		return;
-
-	tx_info = IEEE80211_SKB_CB(skb);
-	ar_info = (void *) tx_info->rate_driver_data;
-
-	vif_id = (super->s.misc & CARL9170_TX_SUPER_MISC_VIF_ID) >>
-		 CARL9170_TX_SUPER_MISC_VIF_ID_S;
-
-	if (WARN_ON_ONCE(vif_id >= AR9170_MAX_VIRTUAL_MAC))
+	    txinfo->flags & IEEE80211_TX_CTL_INJECTED ||
+	   (!(super->f.mac_control & cpu_to_le16(AR9170_TX_MAC_AGGR))))
 		return;
 
 	rcu_read_lock();
-	vif = rcu_dereference(ar->vif_priv[vif_id].vif);
-	if (unlikely(!vif))
-		goto out_rcu;
-
-	/*
-	 * Normally we should use wrappers like ieee80211_get_DA to get
-	 * the correct peer ieee80211_sta.
-	 *
-	 * But there is a problem with indirect traffic (broadcasts, or
-	 * data which is designated for other stations) in station mode.
-	 * The frame will be directed to the AP for distribution and not
-	 * to the actual destination.
-	 */
-	sta = ieee80211_find_sta(vif, hdr->addr1);
+	sta = __carl9170_get_tx_sta(ar, skb);
 	if (unlikely(!sta))
 		goto out_rcu;
 
@@ -380,6 +406,7 @@ static void carl9170_tx_status_process_ampdu(struct ar9170 *ar,
 
 	if (sta_info->stats[tid].clear) {
 		sta_info->stats[tid].clear = false;
+		sta_info->stats[tid].req = false;
 		sta_info->stats[tid].ampdu_len = 0;
 		sta_info->stats[tid].ampdu_ack_len = 0;
 	}
@@ -388,10 +415,16 @@ static void carl9170_tx_status_process_ampdu(struct ar9170 *ar,
 	if (txinfo->status.rates[0].count == 1)
 		sta_info->stats[tid].ampdu_ack_len++;
 
+	if (!(txinfo->flags & IEEE80211_TX_STAT_ACK))
+		sta_info->stats[tid].req = true;
+
 	if (super->f.mac_control & cpu_to_le16(AR9170_TX_MAC_IMM_BA)) {
-		txinfo->pad[0] = sta_info->stats[tid].ampdu_len;
-		txinfo->pad[1] = sta_info->stats[tid].ampdu_ack_len;
+		super->s.rix = sta_info->stats[tid].ampdu_len;
+		super->s.cnt = sta_info->stats[tid].ampdu_ack_len;
 		txinfo->flags |= IEEE80211_TX_STAT_AMPDU;
+		if (sta_info->stats[tid].req)
+			txinfo->flags |= IEEE80211_TX_STAT_AMPDU_NO_BACK;
+
 		sta_info->stats[tid].clear = true;
 	}
 	spin_unlock_bh(&tid_info->lock);
@@ -417,6 +450,7 @@ void carl9170_tx_status(struct ar9170 *ar, struct sk_buff *skb,
 	if (txinfo->flags & IEEE80211_TX_CTL_AMPDU)
 		carl9170_tx_status_process_ampdu(ar, skb, txinfo);
 
+	carl9170_tx_ps_unblock(ar, skb);
 	carl9170_tx_put_skb(skb);
 }
 
@@ -524,6 +558,42 @@ next:
 	}
 }
 
+static void carl9170_tx_ampdu_timeout(struct ar9170 *ar)
+{
+	struct carl9170_sta_tid *iter;
+	struct sk_buff *skb;
+	struct ieee80211_tx_info *txinfo;
+	struct carl9170_tx_info *arinfo;
+	struct ieee80211_sta *sta;
+
+	rcu_read_lock();
+	list_for_each_entry_rcu(iter, &ar->tx_ampdu_list, list) {
+		if (iter->state < CARL9170_TID_STATE_IDLE)
+			continue;
+
+		spin_lock_bh(&iter->lock);
+		skb = skb_peek(&iter->queue);
+		if (!skb)
+			goto unlock;
+
+		txinfo = IEEE80211_SKB_CB(skb);
+		arinfo = (void *)txinfo->rate_driver_data;
+		if (time_is_after_jiffies(arinfo->timeout +
+		    msecs_to_jiffies(CARL9170_QUEUE_TIMEOUT)))
+			goto unlock;
+
+		sta = __carl9170_get_tx_sta(ar, skb);
+		if (WARN_ON(!sta))
+			goto unlock;
+
+		ieee80211_stop_tx_ba_session(sta, iter->tid);
+unlock:
+		spin_unlock_bh(&iter->lock);
+
+	}
+	rcu_read_unlock();
+}
+
 void carl9170_tx_janitor(struct work_struct *work)
 {
 	struct ar9170 *ar = container_of(work, struct ar9170,
@@ -534,6 +604,7 @@ void carl9170_tx_janitor(struct work_struct *work)
 	ar->tx_janitor_last_run = jiffies;
 
 	carl9170_check_queue_stop_timeout(ar);
+	carl9170_tx_ampdu_timeout(ar);
 
 	if (!atomic_read(&ar->tx_total_queued))
 		return;
@@ -547,7 +618,6 @@ static void __carl9170_tx_process_status(struct ar9170 *ar,
 {
 	struct sk_buff *skb;
 	struct ieee80211_tx_info *txinfo;
-	struct carl9170_tx_info *arinfo;
 	unsigned int r, t, q;
 	bool success = true;
 
@@ -563,7 +633,6 @@ static void __carl9170_tx_process_status(struct ar9170 *ar,
 	}
 
 	txinfo = IEEE80211_SKB_CB(skb);
-	arinfo = (void *) txinfo->rate_driver_data;
 
 	if (!(info & CARL9170_TX_STATUS_SUCCESS))
 		success = false;
@@ -805,6 +874,9 @@ static int carl9170_tx_prepare(struct ar9170 *ar, struct sk_buff *skb)
 	if (unlikely(info->flags & IEEE80211_TX_CTL_SEND_AFTER_DTIM))
 		txc->s.misc |= CARL9170_TX_SUPER_MISC_CAB;
 
+	if (unlikely(info->flags & IEEE80211_TX_CTL_ASSIGN_SEQ))
+		txc->s.misc |= CARL9170_TX_SUPER_MISC_ASSIGN_SEQ;
+
 	if (unlikely(ieee80211_is_probe_resp(hdr->frame_control)))
 		txc->s.misc |= CARL9170_TX_SUPER_MISC_FILL_IN_TSF;
 
@@ -842,10 +914,8 @@ static int carl9170_tx_prepare(struct ar9170 *ar, struct sk_buff *skb)
 		if (unlikely(!sta || !cvif))
 			goto err_out;
 
-		factor = min_t(unsigned int, 1u,
-			 info->control.sta->ht_cap.ampdu_factor);
-
-		density = info->control.sta->ht_cap.ampdu_density;
+		factor = min_t(unsigned int, 1u, sta->ht_cap.ampdu_factor);
+		density = sta->ht_cap.ampdu_density;
 
 		if (density) {
 			/*
@@ -1134,15 +1204,6 @@ static struct sk_buff *carl9170_tx_pick_skb(struct ar9170 *ar,
 	arinfo = (void *) info->rate_driver_data;
 
 	arinfo->timeout = jiffies;
-
-	/*
-	 * increase ref count to "2".
-	 * Ref counting is the easiest way to solve the race between
-	 * the the urb's completion routine: carl9170_tx_callback and
-	 * wlan tx status functions: carl9170_tx_status/janitor.
-	 */
-	carl9170_tx_get_skb(skb);
-
 	return skb;
 
 err_unlock:
@@ -1161,6 +1222,36 @@ void carl9170_tx_drop(struct ar9170 *ar, struct sk_buff *skb)
 	SET_VAL(CARL9170_TX_SUPER_MISC_QUEUE, q,
 		ar9170_qmap[carl9170_get_queue(ar, skb)]);
 	__carl9170_tx_process_status(ar, super->s.cookie, q);
+}
+
+static bool carl9170_tx_ps_drop(struct ar9170 *ar, struct sk_buff *skb)
+{
+	struct ieee80211_sta *sta;
+	struct carl9170_sta_info *sta_info;
+
+	rcu_read_lock();
+	sta = __carl9170_get_tx_sta(ar, skb);
+	if (!sta)
+		goto out_rcu;
+
+	sta_info = (void *) sta->drv_priv;
+	if (unlikely(sta_info->sleeping)) {
+		struct ieee80211_tx_info *tx_info;
+
+		rcu_read_unlock();
+
+		tx_info = IEEE80211_SKB_CB(skb);
+		if (tx_info->flags & IEEE80211_TX_CTL_AMPDU)
+			atomic_dec(&ar->tx_ampdu_upload);
+
+		tx_info->flags |= IEEE80211_TX_STAT_TX_FILTERED;
+		carl9170_tx_status(ar, skb, false);
+		return true;
+	}
+
+out_rcu:
+	rcu_read_unlock();
+	return false;
 }
 
 static void carl9170_tx(struct ar9170 *ar)
@@ -1182,6 +1273,9 @@ static void carl9170_tx(struct ar9170 *ar)
 			if (unlikely(!skb))
 				break;
 
+			if (unlikely(carl9170_tx_ps_drop(ar, skb)))
+				continue;
+
 			atomic_inc(&ar->tx_total_pending);
 
 			q = __carl9170_get_queue(ar, i);
@@ -1190,6 +1284,16 @@ static void carl9170_tx(struct ar9170 *ar)
 			 * TODO: Move into pick_skb or alloc_dev_space.
 			 */
 			skb_queue_tail(&ar->tx_status[q], skb);
+
+			/*
+			 * increase ref count to "2".
+			 * Ref counting is the easiest way to solve the
+			 * race between the urb's completion routine:
+			 *	carl9170_tx_callback
+			 * and wlan tx status functions:
+			 *	carl9170_tx_status/janitor.
+			 */
+			carl9170_tx_get_skb(skb);
 
 			carl9170_usb_tx(ar, skb);
 			schedule_garbagecollector = true;
@@ -1206,10 +1310,10 @@ static void carl9170_tx(struct ar9170 *ar)
 static bool carl9170_tx_ampdu_queue(struct ar9170 *ar,
 	struct ieee80211_sta *sta, struct sk_buff *skb)
 {
+	struct _carl9170_tx_superframe *super = (void *) skb->data;
 	struct carl9170_sta_info *sta_info;
 	struct carl9170_sta_tid *agg;
 	struct sk_buff *iter;
-	unsigned int max;
 	u16 tid, seq, qseq, off;
 	bool run = false;
 
@@ -1219,7 +1323,6 @@ static bool carl9170_tx_ampdu_queue(struct ar9170 *ar,
 
 	rcu_read_lock();
 	agg = rcu_dereference(sta_info->agg[tid]);
-	max = sta_info->ampdu_max_len;
 
 	if (!agg)
 		goto err_unlock_rcu;
@@ -1274,12 +1377,13 @@ err_unlock:
 
 err_unlock_rcu:
 	rcu_read_unlock();
+	super->f.mac_control &= ~cpu_to_le16(AR9170_TX_MAC_AGGR);
 	carl9170_tx_status(ar, skb, false);
 	ar->tx_dropped++;
 	return false;
 }
 
-int carl9170_op_tx(struct ieee80211_hw *hw, struct sk_buff *skb)
+void carl9170_op_tx(struct ieee80211_hw *hw, struct sk_buff *skb)
 {
 	struct ar9170 *ar = hw->priv;
 	struct ieee80211_tx_info *info;
@@ -1301,10 +1405,12 @@ int carl9170_op_tx(struct ieee80211_hw *hw, struct sk_buff *skb)
 	 * all ressouces which are associated with the frame.
 	 */
 
-	if (info->flags & IEEE80211_TX_CTL_AMPDU) {
-		if (WARN_ON_ONCE(!sta))
-			goto err_free;
+	if (sta) {
+		struct carl9170_sta_info *stai = (void *) sta->drv_priv;
+		atomic_inc(&stai->pending_frames);
+	}
 
+	if (info->flags & IEEE80211_TX_CTL_AMPDU) {
 		run = carl9170_tx_ampdu_queue(ar, sta, skb);
 		if (run)
 			carl9170_tx_ampdu(ar);
@@ -1316,12 +1422,11 @@ int carl9170_op_tx(struct ieee80211_hw *hw, struct sk_buff *skb)
 	}
 
 	carl9170_tx(ar);
-	return NETDEV_TX_OK;
+	return;
 
 err_free:
 	ar->tx_dropped++;
 	dev_kfree_skb_any(skb);
-	return NETDEV_TX_OK;
 }
 
 void carl9170_tx_scheduler(struct ar9170 *ar)

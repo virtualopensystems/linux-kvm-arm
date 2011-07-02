@@ -77,8 +77,8 @@ MODULE_PARM_DESC(debug, "activates debug info");
 /* TEA5757 pin mappings */
 static const int clk = 1, data = 2, wren = 4, mo_st = 8, power = 16;
 
-#define FREQ_LO		(50 * 16000)
-#define FREQ_HI		(150 * 16000)
+#define FREQ_LO		(87 * 16000)
+#define FREQ_HI		(108 * 16000)
 
 #define FREQ_IF         171200 /* 10.7*16000   */
 #define FREQ_STEP       200    /* 12.5*16      */
@@ -412,8 +412,7 @@ static int __devinit maxiradio_init_one(struct pci_dev *pdev, const struct pci_d
 		goto err_out_free_region;
 	}
 
-	v4l2_info(v4l2_dev, "version " DRIVER_VERSION
-			" time " __TIME__ "  " __DATE__ "\n");
+	v4l2_info(v4l2_dev, "version " DRIVER_VERSION "\n");
 
 	v4l2_info(v4l2_dev, "found Guillemot MAXI Radio device (io = 0x%x)\n",
 	       dev->io);

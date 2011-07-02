@@ -21,6 +21,7 @@
 #include <linux/mutex.h>
 #include <linux/gfp.h>
 #include <linux/compat.h>
+#include <linux/vmalloc.h>
 
 #include <asm/uaccess.h>
 
@@ -30,9 +31,14 @@ struct raw_device_data {
 };
 
 static struct class *raw_class;
-static struct raw_device_data raw_devices[MAX_RAW_MINORS];
+static struct raw_device_data *raw_devices;
 static DEFINE_MUTEX(raw_mutex);
 static const struct file_operations raw_ctl_fops; /* forward declaration */
+
+static int max_raw_minors = MAX_RAW_MINORS;
+
+module_param(max_raw_minors, int, 0);
+MODULE_PARM_DESC(max_raw_minors, "Maximum number of raw devices (1-65536)");
 
 /*
  * Open/close code for raw IO.
@@ -65,15 +71,12 @@ static int raw_open(struct inode *inode, struct file *filp)
 	if (!bdev)
 		goto out;
 	igrab(bdev->bd_inode);
-	err = blkdev_get(bdev, filp->f_mode);
+	err = blkdev_get(bdev, filp->f_mode | FMODE_EXCL, raw_open);
 	if (err)
 		goto out;
-	err = bd_claim(bdev, raw_open);
-	if (err)
-		goto out1;
 	err = set_blocksize(bdev, bdev_logical_block_size(bdev));
 	if (err)
-		goto out2;
+		goto out1;
 	filp->f_flags |= O_DIRECT;
 	filp->f_mapping = bdev->bd_inode->i_mapping;
 	if (++raw_devices[minor].inuse == 1)
@@ -83,10 +86,8 @@ static int raw_open(struct inode *inode, struct file *filp)
 	mutex_unlock(&raw_mutex);
 	return 0;
 
-out2:
-	bd_release(bdev);
 out1:
-	blkdev_put(bdev, filp->f_mode);
+	blkdev_put(bdev, filp->f_mode | FMODE_EXCL);
 out:
 	mutex_unlock(&raw_mutex);
 	return err;
@@ -110,8 +111,7 @@ static int raw_release(struct inode *inode, struct file *filp)
 	}
 	mutex_unlock(&raw_mutex);
 
-	bd_release(bdev);
-	blkdev_put(bdev, filp->f_mode);
+	blkdev_put(bdev, filp->f_mode | FMODE_EXCL);
 	return 0;
 }
 
@@ -131,7 +131,7 @@ static int bind_set(int number, u64 major, u64 minor)
 	struct raw_device_data *rawdev;
 	int err = 0;
 
-	if (number <= 0 || number >= MAX_RAW_MINORS)
+	if (number <= 0 || number >= max_raw_minors)
 		return -EINVAL;
 
 	if (MAJOR(dev) != major || MINOR(dev) != minor)
@@ -318,14 +318,27 @@ static int __init raw_init(void)
 	dev_t dev = MKDEV(RAW_MAJOR, 0);
 	int ret;
 
-	ret = register_chrdev_region(dev, MAX_RAW_MINORS, "raw");
+	if (max_raw_minors < 1 || max_raw_minors > 65536) {
+		printk(KERN_WARNING "raw: invalid max_raw_minors (must be"
+			" between 1 and 65536), using %d\n", MAX_RAW_MINORS);
+		max_raw_minors = MAX_RAW_MINORS;
+	}
+
+	raw_devices = vmalloc(sizeof(struct raw_device_data) * max_raw_minors);
+	if (!raw_devices) {
+		printk(KERN_ERR "Not enough memory for raw device structures\n");
+		ret = -ENOMEM;
+		goto error;
+	}
+	memset(raw_devices, 0, sizeof(struct raw_device_data) * max_raw_minors);
+
+	ret = register_chrdev_region(dev, max_raw_minors, "raw");
 	if (ret)
 		goto error;
 
 	cdev_init(&raw_cdev, &raw_fops);
-	ret = cdev_add(&raw_cdev, dev, MAX_RAW_MINORS);
+	ret = cdev_add(&raw_cdev, dev, max_raw_minors);
 	if (ret) {
-		kobject_put(&raw_cdev.kobj);
 		goto error_region;
 	}
 
@@ -342,8 +355,9 @@ static int __init raw_init(void)
 	return 0;
 
 error_region:
-	unregister_chrdev_region(dev, MAX_RAW_MINORS);
+	unregister_chrdev_region(dev, max_raw_minors);
 error:
+	vfree(raw_devices);
 	return ret;
 }
 
@@ -352,7 +366,7 @@ static void __exit raw_exit(void)
 	device_destroy(raw_class, MKDEV(RAW_MAJOR, 0));
 	class_destroy(raw_class);
 	cdev_del(&raw_cdev);
-	unregister_chrdev_region(MKDEV(RAW_MAJOR, 0), MAX_RAW_MINORS);
+	unregister_chrdev_region(MKDEV(RAW_MAJOR, 0), max_raw_minors);
 }
 
 module_init(raw_init);

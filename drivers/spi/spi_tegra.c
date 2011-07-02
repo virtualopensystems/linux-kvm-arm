@@ -513,7 +513,7 @@ static int __init spi_tegra_probe(struct platform_device *pdev)
 	}
 
 	tspi->clk = clk_get(&pdev->dev, NULL);
-	if (IS_ERR_OR_NULL(tspi->clk)) {
+	if (IS_ERR(tspi->clk)) {
 		dev_err(&pdev->dev, "can not get clock\n");
 		ret = PTR_ERR(tspi->clk);
 		goto err2;
@@ -578,6 +578,7 @@ static int __devexit spi_tegra_remove(struct platform_device *pdev)
 	master = dev_get_drvdata(&pdev->dev);
 	tspi = spi_master_get_devdata(master);
 
+	spi_unregister_master(master);
 	tegra_dma_free_channel(tspi->rx_dma);
 
 	dma_free_coherent(&pdev->dev, sizeof(u32) * BB_LEN,
@@ -586,7 +587,6 @@ static int __devexit spi_tegra_remove(struct platform_device *pdev)
 	clk_put(tspi->clk);
 	iounmap(tspi->base);
 
-	spi_master_put(master);
 	r = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	release_mem_region(r->start, (r->end - r->start) + 1);
 

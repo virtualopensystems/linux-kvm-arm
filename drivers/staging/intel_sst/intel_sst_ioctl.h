@@ -190,21 +190,15 @@ struct snd_prp_params {
 	__u32 reserved;	/* No pre-processing defined yet */
 };
 
-struct snd_params_block {
-	__u32 type;		/*Type of the parameter*/
-	__u32 size;		/*size of the parameters in the block*/
-	__u8 params[0];	/*Parameters of the algorithm*/
-};
-
 /* Pre and post processing params structure */
 struct snd_ppp_params {
-	enum sst_algo_types	algo_id;/* Post/Pre processing algorithm ID  */
+	__u8			algo_id;/* Post/Pre processing algorithm ID  */
 	__u8			str_id;	/*Only 5 bits used 0 - 31 are valid*/
 	__u8			enable;	/* 0= disable, 1= enable*/
 	__u8			reserved;
 	__u32			size;	/*Size of parameters for all blocks*/
-	struct snd_params_block	params[0];
-};
+	void			*params;
+} __attribute__ ((packed));
 
 struct snd_sst_postproc_info {
 	__u32 src_min;		/* Supported SRC Min sampling freq */
@@ -406,6 +400,13 @@ struct snd_sst_dbufs  {
 	struct snd_sst_buffs *obufs;
 };
 
+struct snd_sst_tuning_params {
+	__u8 type;
+	__u8 str_id;
+	__u8 size;
+	__u8 rsvd;
+	__aligned_u64 addr;
+} __attribute__ ((packed));
 /*IOCTL defined here */
 /*SST MMF IOCTLS only */
 #define SNDRV_SST_STREAM_SET_PARAMS _IOR('L', 0x00, \
@@ -431,5 +432,9 @@ struct snd_sst_dbufs  {
 #define SNDRV_SST_FW_INFO	_IOR('L', 0x20,  struct snd_sst_fw_info *)
 #define SNDRV_SST_SET_TARGET_DEVICE _IOW('L', 0x21, \
 					struct snd_sst_target_device *)
+/*DSP Ioctls on /dev/intel_sst_ctrl only*/
+#define SNDRV_SST_SET_ALGO	_IOW('L', 0x30,  struct snd_ppp_params *)
+#define SNDRV_SST_GET_ALGO	_IOWR('L', 0x31,  struct snd_ppp_params *)
+#define SNDRV_SST_TUNING_PARAMS	_IOW('L', 0x32,  struct snd_sst_tuning_params *)
 
 #endif /* __INTEL_SST_IOCTL_H__ */

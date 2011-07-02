@@ -10,7 +10,7 @@
  */
 
 #include <linux/platform_device.h>
-#include <linux/sysdev.h>
+#include <linux/syscore_ops.h>
 #include <linux/irq.h>
 #include <linux/gpio.h>
 
@@ -24,6 +24,7 @@
 #include <mach/pxa2xx-regs.h>
 #include <mach/audio.h>
 #include <mach/pxafb.h>
+#include <mach/smemc.h>
 
 #include <asm/hardware/it8152.h>
 
@@ -378,7 +379,7 @@ __setup("monitor=", cmx2xx_set_display);
 
 static void __init cmx2xx_init_display(void)
 {
-	set_pxa_fb_info(cmx2xx_display);
+	pxa_set_fb_info(NULL, cmx2xx_display);
 }
 #else
 static inline void cmx2xx_init_display(void) {}
@@ -387,14 +388,14 @@ static inline void cmx2xx_init_display(void) {}
 #ifdef CONFIG_PM
 static unsigned long sleep_save_msc[10];
 
-static int cmx2xx_suspend(struct sys_device *dev, pm_message_t state)
+static int cmx2xx_suspend(void)
 {
 	cmx2xx_pci_suspend();
 
 	/* save MSC registers */
-	sleep_save_msc[0] = MSC0;
-	sleep_save_msc[1] = MSC1;
-	sleep_save_msc[2] = MSC2;
+	sleep_save_msc[0] = __raw_readl(MSC0);
+	sleep_save_msc[1] = __raw_readl(MSC1);
+	sleep_save_msc[2] = __raw_readl(MSC2);
 
 	/* setup power saving mode registers */
 	PCFR = 0x0;
@@ -411,35 +412,26 @@ static int cmx2xx_suspend(struct sys_device *dev, pm_message_t state)
 	return 0;
 }
 
-static int cmx2xx_resume(struct sys_device *dev)
+static void cmx2xx_resume(void)
 {
 	cmx2xx_pci_resume();
 
 	/* restore MSC registers */
-	MSC0 = sleep_save_msc[0];
-	MSC1 = sleep_save_msc[1];
-	MSC2 = sleep_save_msc[2];
-
-	return 0;
+	__raw_writel(sleep_save_msc[0], MSC0);
+	__raw_writel(sleep_save_msc[1], MSC1);
+	__raw_writel(sleep_save_msc[2], MSC2);
 }
 
-static struct sysdev_class cmx2xx_pm_sysclass = {
-	.name = "pm",
+static struct syscore_ops cmx2xx_pm_syscore_ops = {
 	.resume = cmx2xx_resume,
 	.suspend = cmx2xx_suspend,
 };
 
-static struct sys_device cmx2xx_pm_device = {
-	.cls = &cmx2xx_pm_sysclass,
-};
-
 static int __init cmx2xx_pm_init(void)
 {
-	int error;
-	error = sysdev_class_register(&cmx2xx_pm_sysclass);
-	if (error == 0)
-		error = sysdev_register(&cmx2xx_pm_device);
-	return error;
+	register_syscore_ops(&cmx2xx_pm_syscore_ops);
+
+	return 0;
 }
 #else
 static int __init cmx2xx_pm_init(void) { return 0; }
@@ -498,7 +490,12 @@ static struct map_desc cmx2xx_io_desc[] __initdata = {
 
 static void __init cmx2xx_map_io(void)
 {
-	pxa_map_io();
+	if (cpu_is_pxa25x())
+		pxa25x_map_io();
+
+	if (cpu_is_pxa27x())
+		pxa27x_map_io();
+
 	iotable_init(cmx2xx_io_desc, ARRAY_SIZE(cmx2xx_io_desc));
 
 	it8152_base_address = CMX2XX_IT8152_VIRT;
@@ -506,7 +503,11 @@ static void __init cmx2xx_map_io(void)
 #else
 static void __init cmx2xx_map_io(void)
 {
-	pxa_map_io();
+	if (cpu_is_pxa25x())
+		pxa25x_map_io();
+
+	if (cpu_is_pxa27x())
+		pxa27x_map_io();
 }
 #endif
 

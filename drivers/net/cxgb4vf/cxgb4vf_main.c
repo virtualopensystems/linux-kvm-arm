@@ -280,9 +280,7 @@ static void name_msix_vecs(struct adapter *adapter)
 		const struct port_info *pi = netdev_priv(dev);
 		int qs, msi;
 
-		for (qs = 0, msi = MSIX_NIQFLINT;
-		     qs < pi->nqsets;
-		     qs++, msi++) {
+		for (qs = 0, msi = MSIX_IQFLINT; qs < pi->nqsets; qs++, msi++) {
 			snprintf(adapter->msix_info[msi].desc, namelen,
 				 "%s-%d", dev->name, qs);
 			adapter->msix_info[msi].desc[namelen] = 0;
@@ -309,7 +307,7 @@ static int request_msix_queue_irqs(struct adapter *adapter)
 	/*
 	 * Ethernet queues.
 	 */
-	msi = MSIX_NIQFLINT;
+	msi = MSIX_IQFLINT;
 	for_each_ethrxq(s, rxq) {
 		err = request_irq(adapter->msix_info[msi].vec,
 				  t4vf_sge_intr_msix, 0,
@@ -337,7 +335,7 @@ static void free_msix_queue_irqs(struct adapter *adapter)
 	int rxq, msi;
 
 	free_irq(adapter->msix_info[MSIX_FW].vec, &s->fw_evtq);
-	msi = MSIX_NIQFLINT;
+	msi = MSIX_IQFLINT;
 	for_each_ethrxq(s, rxq)
 		free_irq(adapter->msix_info[msi++].vec,
 			 &s->ethrxq[rxq].rspq);
@@ -527,7 +525,7 @@ static int setup_sge_queues(struct adapter *adapter)
 	 * brought up at which point lots of things get nailed down
 	 * permanently ...
 	 */
-	msix = MSIX_NIQFLINT;
+	msix = MSIX_IQFLINT;
 	for_each_port(adapter, pidx) {
 		struct net_device *dev = adapter->port[pidx];
 		struct port_info *pi = netdev_priv(dev);
@@ -751,13 +749,19 @@ static int cxgb4vf_open(struct net_device *dev)
 	netif_set_real_num_tx_queues(dev, pi->nqsets);
 	err = netif_set_real_num_rx_queues(dev, pi->nqsets);
 	if (err)
-		return err;
-	set_bit(pi->port_id, &adapter->open_device_map);
+		goto err_unwind;
 	err = link_start(dev);
 	if (err)
-		return err;
+		goto err_unwind;
+
 	netif_tx_start_all_queues(dev);
+	set_bit(pi->port_id, &adapter->open_device_map);
 	return 0;
+
+err_unwind:
+	if (adapter->open_device_map == 0)
+		adapter_down(adapter);
+	return err;
 }
 
 /*
@@ -766,13 +770,12 @@ static int cxgb4vf_open(struct net_device *dev)
  */
 static int cxgb4vf_stop(struct net_device *dev)
 {
-	int ret;
 	struct port_info *pi = netdev_priv(dev);
 	struct adapter *adapter = pi->adapter;
 
 	netif_tx_stop_all_queues(dev);
 	netif_carrier_off(dev);
-	ret = t4vf_enable_vi(adapter, pi->viid, false, false);
+	t4vf_enable_vi(adapter, pi->viid, false, false);
 	pi->link_cfg.link_ok = 0;
 
 	clear_bit(pi->port_id, &adapter->open_device_map);
@@ -1164,7 +1167,8 @@ static int cxgb4vf_get_settings(struct net_device *dev,
 
 	cmd->supported = pi->link_cfg.supported;
 	cmd->advertising = pi->link_cfg.advertising;
-	cmd->speed = netif_carrier_ok(dev) ? pi->link_cfg.speed : -1;
+	ethtool_cmd_speed_set(cmd,
+			      netif_carrier_ok(dev) ? pi->link_cfg.speed : -1);
 	cmd->duplex = DUPLEX_FULL;
 
 	cmd->port = (cmd->supported & SUPPORTED_TP) ? PORT_TP : PORT_FIBRE;
@@ -1323,37 +1327,22 @@ static void cxgb4vf_get_pauseparam(struct net_device *dev,
 }
 
 /*
- * Return whether RX Checksum Offloading is currently enabled for the device.
- */
-static u32 cxgb4vf_get_rx_csum(struct net_device *dev)
-{
-	struct port_info *pi = netdev_priv(dev);
-
-	return (pi->rx_offload & RX_CSO) != 0;
-}
-
-/*
- * Turn RX Checksum Offloading on or off for the device.
- */
-static int cxgb4vf_set_rx_csum(struct net_device *dev, u32 csum)
-{
-	struct port_info *pi = netdev_priv(dev);
-
-	if (csum)
-		pi->rx_offload |= RX_CSO;
-	else
-		pi->rx_offload &= ~RX_CSO;
-	return 0;
-}
-
-/*
  * Identify the port by blinking the port's LED.
  */
-static int cxgb4vf_phys_id(struct net_device *dev, u32 id)
+static int cxgb4vf_phys_id(struct net_device *dev,
+			   enum ethtool_phys_id_state state)
 {
+	unsigned int val;
 	struct port_info *pi = netdev_priv(dev);
 
-	return t4vf_identify_port(pi->adapter, pi->viid, 5);
+	if (state == ETHTOOL_ID_ACTIVE)
+		val = 0xffff;
+	else if (state == ETHTOOL_ID_INACTIVE)
+		val = 0;
+	else
+		return -EINVAL;
+
+	return t4vf_identify_port(pi->adapter, pi->viid, val);
 }
 
 /*
@@ -1365,6 +1354,8 @@ struct queue_port_stats {
 	u64 rx_csum;
 	u64 vlan_ex;
 	u64 vlan_ins;
+	u64 lro_pkts;
+	u64 lro_merged;
 };
 
 /*
@@ -1402,6 +1393,8 @@ static const char stats_strings[][ETH_GSTRING_LEN] = {
 	"RxCsumGood        ",
 	"VLANextractions   ",
 	"VLANinsertions    ",
+	"GROPackets        ",
+	"GROMerged         ",
 };
 
 /*
@@ -1451,6 +1444,8 @@ static void collect_sge_port_stats(const struct adapter *adapter,
 		stats->rx_csum += rxq->stats.rx_cso;
 		stats->vlan_ex += rxq->stats.vlan_ex;
 		stats->vlan_ins += txq->vlan_ins;
+		stats->lro_pkts += rxq->stats.lro_pkts;
+		stats->lro_merged += rxq->stats.lro_merged;
 	}
 }
 
@@ -1547,16 +1542,9 @@ static void cxgb4vf_get_wol(struct net_device *dev,
 }
 
 /*
- * Set TCP Segmentation Offloading feature capabilities.
+ * TCP Segmentation Offload flags which we support.
  */
-static int cxgb4vf_set_tso(struct net_device *dev, u32 tso)
-{
-	if (tso)
-		dev->features |= NETIF_F_TSO | NETIF_F_TSO6;
-	else
-		dev->features &= ~(NETIF_F_TSO | NETIF_F_TSO6);
-	return 0;
-}
+#define TSO_FLAGS (NETIF_F_TSO | NETIF_F_TSO6 | NETIF_F_TSO_ECN)
 
 static struct ethtool_ops cxgb4vf_ethtool_ops = {
 	.get_settings		= cxgb4vf_get_settings,
@@ -1568,19 +1556,14 @@ static struct ethtool_ops cxgb4vf_ethtool_ops = {
 	.get_coalesce		= cxgb4vf_get_coalesce,
 	.set_coalesce		= cxgb4vf_set_coalesce,
 	.get_pauseparam		= cxgb4vf_get_pauseparam,
-	.get_rx_csum		= cxgb4vf_get_rx_csum,
-	.set_rx_csum		= cxgb4vf_set_rx_csum,
-	.set_tx_csum		= ethtool_op_set_tx_ipv6_csum,
-	.set_sg			= ethtool_op_set_sg,
 	.get_link		= ethtool_op_get_link,
 	.get_strings		= cxgb4vf_get_strings,
-	.phys_id		= cxgb4vf_phys_id,
+	.set_phys_id		= cxgb4vf_phys_id,
 	.get_sset_count		= cxgb4vf_get_sset_count,
 	.get_ethtool_stats	= cxgb4vf_get_ethtool_stats,
 	.get_regs_len		= cxgb4vf_get_regs_len,
 	.get_regs		= cxgb4vf_get_regs,
 	.get_wol		= cxgb4vf_get_wol,
-	.set_tso		= cxgb4vf_set_tso,
 };
 
 /*
@@ -2026,7 +2009,7 @@ static int __devinit setup_debugfs(struct adapter *adapter)
 {
 	int i;
 
-	BUG_ON(adapter->debugfs_root == NULL);
+	BUG_ON(IS_ERR_OR_NULL(adapter->debugfs_root));
 
 	/*
 	 * Debugfs support is best effort.
@@ -2045,9 +2028,9 @@ static int __devinit setup_debugfs(struct adapter *adapter)
  * Tear down the /sys/kernel/debug/cxgb4vf sub-nodes created above.  We leave
  * it to our caller to tear down the directory (debugfs_root).
  */
-static void __devexit cleanup_debugfs(struct adapter *adapter)
+static void cleanup_debugfs(struct adapter *adapter)
 {
-	BUG_ON(adapter->debugfs_root == NULL);
+	BUG_ON(IS_ERR_OR_NULL(adapter->debugfs_root));
 
 	/*
 	 * Unlike our sister routine cleanup_proc(), we don't need to remove
@@ -2063,7 +2046,7 @@ static void __devexit cleanup_debugfs(struct adapter *adapter)
  * adapter parameters we're going to be using and initialize basic adapter
  * hardware support.
  */
-static int adap_init0(struct adapter *adapter)
+static int __devinit adap_init0(struct adapter *adapter)
 {
 	struct vf_resources *vfres = &adapter->params.vfres;
 	struct sge_params *sge_params = &adapter->params.sge;
@@ -2475,17 +2458,6 @@ static int __devinit cxgb4vf_pci_probe(struct pci_dev *pdev,
 	struct net_device *netdev;
 
 	/*
-	 * Vet our module parameters.
-	 */
-	if (msi != MSI_MSIX && msi != MSI_MSI) {
-		dev_err(&pdev->dev, "bad module parameter msi=%d; must be %d"
-			" (MSI-X or MSI) or %d (MSI)\n", msi, MSI_MSIX,
-			MSI_MSI);
-		err = -EINVAL;
-		goto err_out;
-	}
-
-	/*
 	 * Print our driver banner the first time we're called to initialize a
 	 * device.
 	 */
@@ -2493,7 +2465,6 @@ static int __devinit cxgb4vf_pci_probe(struct pci_dev *pdev,
 		printk(KERN_INFO "%s - version %s\n", DRV_DESC, DRV_VERSION);
 		version_printed = 1;
 	}
-
 
 	/*
 	 * Initialize generic PCI device state.
@@ -2627,19 +2598,19 @@ static int __devinit cxgb4vf_pci_probe(struct pci_dev *pdev,
 		 * it.
 		 */
 		pi->xact_addr_filt = -1;
-		pi->rx_offload = RX_CSO;
 		netif_carrier_off(netdev);
 		netdev->irq = pdev->irq;
 
-		netdev->features = (NETIF_F_SG | NETIF_F_TSO | NETIF_F_TSO6 |
-				    NETIF_F_IP_CSUM | NETIF_F_IPV6_CSUM |
-				    NETIF_F_HW_VLAN_TX | NETIF_F_HW_VLAN_RX |
-				    NETIF_F_GRO);
+		netdev->hw_features = NETIF_F_SG | TSO_FLAGS |
+			NETIF_F_IP_CSUM | NETIF_F_IPV6_CSUM |
+			NETIF_F_HW_VLAN_TX | NETIF_F_RXCSUM;
+		netdev->vlan_features = NETIF_F_SG | TSO_FLAGS |
+			NETIF_F_IP_CSUM | NETIF_F_IPV6_CSUM |
+			NETIF_F_HIGHDMA;
+		netdev->features = netdev->hw_features |
+			NETIF_F_HW_VLAN_RX;
 		if (pci_using_dac)
 			netdev->features |= NETIF_F_HIGHDMA;
-		netdev->vlan_features =
-			(netdev->features &
-			 ~(NETIF_F_HW_VLAN_TX | NETIF_F_HW_VLAN_RX));
 
 #ifdef HAVE_NET_DEVICE_OPS
 		netdev->netdev_ops = &cxgb4vf_netdev_ops;
@@ -2698,11 +2669,11 @@ static int __devinit cxgb4vf_pci_probe(struct pci_dev *pdev,
 	/*
 	 * Set up our debugfs entries.
 	 */
-	if (cxgb4vf_debugfs_root) {
+	if (!IS_ERR_OR_NULL(cxgb4vf_debugfs_root)) {
 		adapter->debugfs_root =
 			debugfs_create_dir(pci_name(pdev),
 					   cxgb4vf_debugfs_root);
-		if (adapter->debugfs_root == NULL)
+		if (IS_ERR_OR_NULL(adapter->debugfs_root))
 			dev_warn(&pdev->dev, "could not create debugfs"
 				 " directory");
 		else
@@ -2736,7 +2707,7 @@ static int __devinit cxgb4vf_pci_probe(struct pci_dev *pdev,
 	cfg_queues(adapter);
 
 	/*
-	 * Print a short notice on the existance and configuration of the new
+	 * Print a short notice on the existence and configuration of the new
 	 * VF network device ...
 	 */
 	for_each_port(adapter, pidx) {
@@ -2757,7 +2728,7 @@ static int __devinit cxgb4vf_pci_probe(struct pci_dev *pdev,
 	 */
 
 err_free_debugfs:
-	if (adapter->debugfs_root) {
+	if (!IS_ERR_OR_NULL(adapter->debugfs_root)) {
 		cleanup_debugfs(adapter);
 		debugfs_remove_recursive(adapter->debugfs_root);
 	}
@@ -2789,7 +2760,6 @@ err_release_regions:
 err_disable_device:
 	pci_disable_device(pdev);
 
-err_out:
 	return err;
 }
 
@@ -2827,7 +2797,7 @@ static void __devexit cxgb4vf_pci_remove(struct pci_dev *pdev)
 		/*
 		 * Tear down our debugfs entries.
 		 */
-		if (adapter->debugfs_root) {
+		if (!IS_ERR_OR_NULL(adapter->debugfs_root)) {
 			cleanup_debugfs(adapter);
 			debugfs_remove_recursive(adapter->debugfs_root);
 		}
@@ -2858,6 +2828,46 @@ static void __devexit cxgb4vf_pci_remove(struct pci_dev *pdev)
 	pci_disable_device(pdev);
 	pci_clear_master(pdev);
 	pci_release_regions(pdev);
+}
+
+/*
+ * "Shutdown" quiesce the device, stopping Ingress Packet and Interrupt
+ * delivery.
+ */
+static void __devexit cxgb4vf_pci_shutdown(struct pci_dev *pdev)
+{
+	struct adapter *adapter;
+	int pidx;
+
+	adapter = pci_get_drvdata(pdev);
+	if (!adapter)
+		return;
+
+	/*
+	 * Disable all Virtual Interfaces.  This will shut down the
+	 * delivery of all ingress packets into the chip for these
+	 * Virtual Interfaces.
+	 */
+	for_each_port(adapter, pidx) {
+		struct net_device *netdev;
+		struct port_info *pi;
+
+		if (!test_bit(pidx, &adapter->registered_device_map))
+			continue;
+
+		netdev = adapter->port[pidx];
+		if (!netdev)
+			continue;
+
+		pi = netdev_priv(netdev);
+		t4vf_enable_vi(adapter, pi->viid, false, false);
+	}
+
+	/*
+	 * Free up all Queues which will prevent further DMA and
+	 * Interrupts allowing various internal pathways to drain.
+	 */
+	t4vf_free_sge_resources(adapter);
 }
 
 /*
@@ -2893,6 +2903,7 @@ static struct pci_driver cxgb4vf_driver = {
 	.id_table	= cxgb4vf_pci_tbl,
 	.probe		= cxgb4vf_pci_probe,
 	.remove		= __devexit_p(cxgb4vf_pci_remove),
+	.shutdown	= __devexit_p(cxgb4vf_pci_shutdown),
 };
 
 /*
@@ -2902,14 +2913,25 @@ static int __init cxgb4vf_module_init(void)
 {
 	int ret;
 
+	/*
+	 * Vet our module parameters.
+	 */
+	if (msi != MSI_MSIX && msi != MSI_MSI) {
+		printk(KERN_WARNING KBUILD_MODNAME
+		       ": bad module parameter msi=%d; must be %d"
+		       " (MSI-X or MSI) or %d (MSI)\n",
+		       msi, MSI_MSIX, MSI_MSI);
+		return -EINVAL;
+	}
+
 	/* Debugfs support is optional, just warn if this fails */
 	cxgb4vf_debugfs_root = debugfs_create_dir(KBUILD_MODNAME, NULL);
-	if (!cxgb4vf_debugfs_root)
+	if (IS_ERR_OR_NULL(cxgb4vf_debugfs_root))
 		printk(KERN_WARNING KBUILD_MODNAME ": could not create"
 		       " debugfs entry, continuing\n");
 
 	ret = pci_register_driver(&cxgb4vf_driver);
-	if (ret < 0)
+	if (ret < 0 && !IS_ERR_OR_NULL(cxgb4vf_debugfs_root))
 		debugfs_remove(cxgb4vf_debugfs_root);
 	return ret;
 }

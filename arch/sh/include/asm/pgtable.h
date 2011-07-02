@@ -18,6 +18,7 @@
 #include <asm/pgtable-2level.h>
 #endif
 #include <asm/page.h>
+#include <asm/mmu.h>
 
 #ifndef __ASSEMBLY__
 #include <asm/addrspace.h>
@@ -134,6 +135,7 @@ typedef pte_t *pte_addr_t;
 extern void pgtable_cache_init(void);
 
 struct vm_area_struct;
+struct mm_struct;
 
 extern void __update_cache(struct vm_area_struct *vma,
 			   unsigned long address, pte_t pte);

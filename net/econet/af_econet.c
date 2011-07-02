@@ -265,13 +265,13 @@ static void ec_tx_done(struct sk_buff *skb, int result)
 static int econet_sendmsg(struct kiocb *iocb, struct socket *sock,
 			  struct msghdr *msg, size_t len)
 {
-	struct sock *sk = sock->sk;
 	struct sockaddr_ec *saddr=(struct sockaddr_ec *)msg->msg_name;
 	struct net_device *dev;
 	struct ec_addr addr;
 	int err;
 	unsigned char port, cb;
 #if defined(CONFIG_ECONET_AUNUDP) || defined(CONFIG_ECONET_NATIVE)
+	struct sock *sk = sock->sk;
 	struct sk_buff *skb;
 	struct ec_cb *eb;
 #endif
@@ -435,10 +435,10 @@ static int econet_sendmsg(struct kiocb *iocb, struct socket *sock,
 		udpdest.sin_addr.s_addr = htonl(network | addr.station);
 	}
 
+	memset(&ah, 0, sizeof(ah));
 	ah.port = port;
 	ah.cb = cb & 0x7f;
 	ah.code = 2;		/* magic */
-	ah.pad = 0;
 
 	/* tack our header on the front of the iovec */
 	size = sizeof(struct aunhdr);
@@ -488,10 +488,10 @@ static int econet_sendmsg(struct kiocb *iocb, struct socket *sock,
 
 error_free_buf:
 	vfree(userbuf);
+error:
 #else
 	err = -EPROTOTYPE;
 #endif
-	error:
 	mutex_unlock(&econet_mutex);
 
 	return err;
@@ -935,7 +935,6 @@ static void aun_data_available(struct sock *sk, int slen)
 	struct sk_buff *skb;
 	unsigned char *data;
 	struct aunhdr *ah;
-	struct iphdr *ip;
 	size_t len;
 
 	while ((skb = skb_recv_datagram(sk, 0, 1, &err)) == NULL) {
@@ -949,7 +948,6 @@ static void aun_data_available(struct sock *sk, int slen)
 	data = skb_transport_header(skb) + sizeof(struct udphdr);
 	ah = (struct aunhdr *)data;
 	len = skb->len - sizeof(struct udphdr);
-	ip = ip_hdr(skb);
 
 	switch (ah->code)
 	{
@@ -962,12 +960,6 @@ static void aun_data_available(struct sock *sk, int slen)
 	case 4:
 		aun_tx_ack(ah->handle, ECTYPE_TRANSMIT_NOT_LISTENING);
 		break;
-#if 0
-		/* This isn't quite right yet. */
-	case 5:
-		aun_send_response(ip->saddr, ah->handle, 6, ah->cb);
-		break;
-#endif
 	default:
 		printk(KERN_DEBUG "unknown AUN packet (type %d)\n", data[0]);
 	}

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2009 Atheros Communications Inc.
+ * Copyright (c) 2009-2011 Atheros Communications Inc.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -107,26 +107,23 @@ static u32 ath9k_get_extchanmode(struct ieee80211_channel *chan,
 /*
  * Update internal channel flags.
  */
-void ath9k_cmn_update_ichannel(struct ieee80211_hw *hw,
-			       struct ath9k_channel *ichan)
+void ath9k_cmn_update_ichannel(struct ath9k_channel *ichan,
+			       struct ieee80211_channel *chan,
+			       enum nl80211_channel_type channel_type)
 {
-	struct ieee80211_channel *chan = hw->conf.channel;
-	struct ieee80211_conf *conf = &hw->conf;
-
 	ichan->channel = chan->center_freq;
 	ichan->chan = chan;
 
 	if (chan->band == IEEE80211_BAND_2GHZ) {
 		ichan->chanmode = CHANNEL_G;
-		ichan->channelFlags = CHANNEL_2GHZ | CHANNEL_OFDM | CHANNEL_G;
+		ichan->channelFlags = CHANNEL_2GHZ | CHANNEL_OFDM;
 	} else {
 		ichan->chanmode = CHANNEL_A;
 		ichan->channelFlags = CHANNEL_5GHZ | CHANNEL_OFDM;
 	}
 
-	if (conf_is_ht(conf))
-		ichan->chanmode = ath9k_get_extchanmode(chan,
-							conf->channel_type);
+	if (channel_type != NL80211_CHAN_NO_HT)
+		ichan->chanmode = ath9k_get_extchanmode(chan, channel_type);
 }
 EXPORT_SYMBOL(ath9k_cmn_update_ichannel);
 
@@ -142,7 +139,7 @@ struct ath9k_channel *ath9k_cmn_get_curchannel(struct ieee80211_hw *hw,
 
 	chan_idx = curchan->hw_value;
 	channel = &ah->channels[chan_idx];
-	ath9k_cmn_update_ichannel(hw, channel);
+	ath9k_cmn_update_ichannel(channel, curchan, hw->conf.channel_type);
 
 	return channel;
 }
@@ -161,36 +158,16 @@ int ath9k_cmn_count_streams(unsigned int chainmask, int max)
 }
 EXPORT_SYMBOL(ath9k_cmn_count_streams);
 
-/*
- * Configures appropriate weight based on stomp type.
- */
-void ath9k_cmn_btcoex_bt_stomp(struct ath_common *common,
-				  enum ath_stomp_type stomp_type)
+void ath9k_cmn_update_txpow(struct ath_hw *ah, u16 cur_txpow,
+			    u16 new_txpow, u16 *txpower)
 {
-	struct ath_hw *ah = common->ah;
-
-	switch (stomp_type) {
-	case ATH_BTCOEX_STOMP_ALL:
-		ath9k_hw_btcoex_set_weight(ah, AR_BT_COEX_WGHT,
-					   AR_STOMP_ALL_WLAN_WGHT);
-		break;
-	case ATH_BTCOEX_STOMP_LOW:
-		ath9k_hw_btcoex_set_weight(ah, AR_BT_COEX_WGHT,
-					   AR_STOMP_LOW_WLAN_WGHT);
-		break;
-	case ATH_BTCOEX_STOMP_NONE:
-		ath9k_hw_btcoex_set_weight(ah, AR_BT_COEX_WGHT,
-					   AR_STOMP_NONE_WLAN_WGHT);
-		break;
-	default:
-		ath_print(common, ATH_DBG_BTCOEX,
-			  "Invalid Stomptype\n");
-		break;
+	if (cur_txpow != new_txpow) {
+		ath9k_hw_set_txpowerlimit(ah, new_txpow, false);
+		/* read back in case value is clamped */
+		*txpower = ath9k_hw_regulatory(ah)->power_limit;
 	}
-
-	ath9k_hw_btcoex_enable(ah);
 }
-EXPORT_SYMBOL(ath9k_cmn_btcoex_bt_stomp);
+EXPORT_SYMBOL(ath9k_cmn_update_txpow);
 
 static int __init ath9k_cmn_init(void)
 {

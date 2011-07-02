@@ -57,6 +57,9 @@
 #define IIO_DEV_ATTR_GYRO_Z_CALIBSCALE(_mode, _show, _store, _addr)		\
 	IIO_DEVICE_ATTR(gyro_z_calibscale, _mode, _show, _store, _addr)
 
+#define IIO_DEV_ATTR_GYRO_Z_QUADRATURE_CORRECTION(_show, _addr)		\
+	IIO_DEVICE_ATTR(gyro_z_quadrature_correction_raw, S_IRUGO, _show, NULL, _addr)
+
 #define IIO_DEV_ATTR_GYRO(_show, _addr)			\
 	IIO_DEVICE_ATTR(gyro_raw, S_IRUGO, _show, NULL, _addr)
 
@@ -71,3 +74,12 @@
 
 #define IIO_DEV_ATTR_ANGL(_show, _addr)                         \
 	IIO_DEVICE_ATTR(angl_raw, S_IRUGO, _show, NULL, _addr)
+
+#define IIO_DEV_ATTR_ANGL_X(_show, _addr)				\
+	IIO_DEVICE_ATTR(angl_x_raw, S_IRUGO, _show, NULL, _addr)
+
+#define IIO_DEV_ATTR_ANGL_Y(_show, _addr)				\
+	IIO_DEVICE_ATTR(angl_y_raw, S_IRUGO, _show, NULL, _addr)
+
+#define IIO_DEV_ATTR_ANGL_Z(_show, _addr)				\
+	IIO_DEVICE_ATTR(angl_z_raw, S_IRUGO, _show, NULL, _addr)

@@ -2,7 +2,7 @@
  *
  * GPL LICENSE SUMMARY
  *
- * Copyright(c) 2008 - 2010 Intel Corporation. All rights reserved.
+ * Copyright(c) 2008 - 2011 Intel Corporation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of version 2 of the GNU General Public License as
@@ -41,12 +41,8 @@
 #include "iwl-power.h"
 #include "iwl-sta.h"
 #include "iwl-helpers.h"
+#include "iwl-agn.h"
 
-
-MODULE_DESCRIPTION("iwl core");
-MODULE_VERSION(IWLWIFI_VERSION);
-MODULE_AUTHOR(DRV_COPYRIGHT " " DRV_AUTHOR);
-MODULE_LICENSE("GPL");
 
 /*
  * set bt_coex_active to true, uCode will do kill/defer
@@ -65,69 +61,12 @@ MODULE_LICENSE("GPL");
  * default: bt_coex_active = true (BT_COEX_ENABLE)
  */
 bool bt_coex_active = true;
-EXPORT_SYMBOL_GPL(bt_coex_active);
 module_param(bt_coex_active, bool, S_IRUGO);
 MODULE_PARM_DESC(bt_coex_active, "enable wifi/bluetooth co-exist");
 
 u32 iwl_debug_level;
-EXPORT_SYMBOL(iwl_debug_level);
 
 const u8 iwl_bcast_addr[ETH_ALEN] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
-EXPORT_SYMBOL(iwl_bcast_addr);
-
-
-/* This function both allocates and initializes hw and priv. */
-struct ieee80211_hw *iwl_alloc_all(struct iwl_cfg *cfg,
-		struct ieee80211_ops *hw_ops)
-{
-	struct iwl_priv *priv;
-
-	/* mac80211 allocates memory for this device instance, including
-	 *   space for this driver's private structure */
-	struct ieee80211_hw *hw =
-		ieee80211_alloc_hw(sizeof(struct iwl_priv), hw_ops);
-	if (hw == NULL) {
-		pr_err("%s: Can not allocate network device\n",
-		       cfg->name);
-		goto out;
-	}
-
-	priv = hw->priv;
-	priv->hw = hw;
-
-out:
-	return hw;
-}
-EXPORT_SYMBOL(iwl_alloc_all);
-
-/*
- * QoS  support
-*/
-static void iwl_update_qos(struct iwl_priv *priv, struct iwl_rxon_context *ctx)
-{
-	if (test_bit(STATUS_EXIT_PENDING, &priv->status))
-		return;
-
-	if (!ctx->is_active)
-		return;
-
-	ctx->qos_data.def_qos_parm.qos_flags = 0;
-
-	if (ctx->qos_data.qos_active)
-		ctx->qos_data.def_qos_parm.qos_flags |=
-			QOS_PARAM_FLG_UPDATE_EDCA_MSK;
-
-	if (ctx->ht.enabled)
-		ctx->qos_data.def_qos_parm.qos_flags |= QOS_PARAM_FLG_TGN_MSK;
-
-	IWL_DEBUG_QOS(priv, "send QoS cmd with Qos active=%d FLAGS=0x%X\n",
-		      ctx->qos_data.qos_active,
-		      ctx->qos_data.def_qos_parm.qos_flags);
-
-	iwl_send_cmd_pdu_async(priv, ctx->qos_cmd,
-			       sizeof(struct iwl_qosparam_cmd),
-			       &ctx->qos_data.def_qos_parm, NULL);
-}
 
 #define MAX_BIT_RATE_40_MHZ 150 /* Mbps */
 #define MAX_BIT_RATE_20_MHZ 72 /* Mbps */
@@ -156,7 +95,7 @@ static void iwlcore_init_ht_hw_capab(const struct iwl_priv *priv,
 		max_bit_rate = MAX_BIT_RATE_40_MHZ;
 	}
 
-	if (priv->cfg->mod_params->amsdu_size_8K)
+	if (iwlagn_mod_params.amsdu_size_8K)
 		ht_info->cap |= IEEE80211_HT_CAP_MAX_AMSDU;
 
 	ht_info->ampdu_factor = CFG_HT_RX_AMPDU_FACTOR_DEF;
@@ -197,6 +136,7 @@ int iwlcore_init_geos(struct iwl_priv *priv)
 	struct ieee80211_channel *geo_ch;
 	struct ieee80211_rate *rates;
 	int i = 0;
+	s8 max_tx_power = IWLAGN_TX_POWER_TARGET_POWER_MIN;
 
 	if (priv->bands[IEEE80211_BAND_2GHZ].n_bitrates ||
 	    priv->bands[IEEE80211_BAND_5GHZ].n_bitrates) {
@@ -248,15 +188,12 @@ int iwlcore_init_geos(struct iwl_priv *priv)
 		if (!is_channel_valid(ch))
 			continue;
 
-		if (is_channel_a_band(ch))
-			sband =  &priv->bands[IEEE80211_BAND_5GHZ];
-		else
-			sband =  &priv->bands[IEEE80211_BAND_2GHZ];
+		sband =  &priv->bands[ch->band];
 
 		geo_ch = &sband->channels[sband->n_channels++];
 
 		geo_ch->center_freq =
-				ieee80211_channel_to_frequency(ch->channel);
+			ieee80211_channel_to_frequency(ch->channel, ch->band);
 		geo_ch->max_power = ch->max_power_avg;
 		geo_ch->max_antenna_gain = 0xff;
 		geo_ch->hw_value = ch->channel;
@@ -273,8 +210,8 @@ int iwlcore_init_geos(struct iwl_priv *priv)
 
 			geo_ch->flags |= ch->ht40_extension_channel;
 
-			if (ch->max_power_avg > priv->tx_power_device_lmt)
-				priv->tx_power_device_lmt = ch->max_power_avg;
+			if (ch->max_power_avg > max_tx_power)
+				max_tx_power = ch->max_power_avg;
 		} else {
 			geo_ch->flags |= IEEE80211_CHAN_DISABLED;
 		}
@@ -286,6 +223,10 @@ int iwlcore_init_geos(struct iwl_priv *priv)
 				"restricted" : "valid",
 				 geo_ch->flags);
 	}
+
+	priv->tx_power_device_lmt = max_tx_power;
+	priv->tx_power_user_lmt = max_tx_power;
+	priv->tx_power_next = max_tx_power;
 
 	if ((priv->bands[IEEE80211_BAND_5GHZ].n_channels == 0) &&
 	     priv->cfg->sku & IWL_SKU_A) {
@@ -304,7 +245,6 @@ int iwlcore_init_geos(struct iwl_priv *priv)
 
 	return 0;
 }
-EXPORT_SYMBOL(iwlcore_init_geos);
 
 /*
  * iwlcore_free_geos - undo allocations in iwlcore_init_geos
@@ -315,41 +255,6 @@ void iwlcore_free_geos(struct iwl_priv *priv)
 	kfree(priv->ieee_rates);
 	clear_bit(STATUS_GEO_CONFIGURED, &priv->status);
 }
-EXPORT_SYMBOL(iwlcore_free_geos);
-
-/*
- *  iwlcore_tx_cmd_protection: Set rts/cts. 3945 and 4965 only share this
- *  function.
- */
-void iwlcore_tx_cmd_protection(struct iwl_priv *priv,
-			       struct ieee80211_tx_info *info,
-			       __le16 fc, __le32 *tx_flags)
-{
-	if (info->control.rates[0].flags & IEEE80211_TX_RC_USE_RTS_CTS) {
-		*tx_flags |= TX_CMD_FLG_RTS_MSK;
-		*tx_flags &= ~TX_CMD_FLG_CTS_MSK;
-		*tx_flags |= TX_CMD_FLG_FULL_TXOP_PROT_MSK;
-
-		if (!ieee80211_is_mgmt(fc))
-			return;
-
-		switch (fc & cpu_to_le16(IEEE80211_FCTL_STYPE)) {
-		case cpu_to_le16(IEEE80211_STYPE_AUTH):
-		case cpu_to_le16(IEEE80211_STYPE_DEAUTH):
-		case cpu_to_le16(IEEE80211_STYPE_ASSOC_REQ):
-		case cpu_to_le16(IEEE80211_STYPE_REASSOC_REQ):
-			*tx_flags &= ~TX_CMD_FLG_RTS_MSK;
-			*tx_flags |= TX_CMD_FLG_CTS_MSK;
-			break;
-		}
-	} else if (info->control.rates[0].flags & IEEE80211_TX_RC_USE_CTS_PROTECT) {
-		*tx_flags &= ~TX_CMD_FLG_RTS_MSK;
-		*tx_flags |= TX_CMD_FLG_CTS_MSK;
-		*tx_flags |= TX_CMD_FLG_FULL_TXOP_PROT_MSK;
-	}
-}
-EXPORT_SYMBOL(iwlcore_tx_cmd_protection);
-
 
 static bool iwl_is_channel_extension(struct iwl_priv *priv,
 				     enum ieee80211_band band,
@@ -394,7 +299,6 @@ bool iwl_is_ht40_tx_allowed(struct iwl_priv *priv,
 			le16_to_cpu(ctx->staging.channel),
 			ctx->ht.extension_chan_offset);
 }
-EXPORT_SYMBOL(iwl_is_ht40_tx_allowed);
 
 static u16 iwl_adjust_beacon_interval(u16 beacon_val, u16 max_beacon_val)
 {
@@ -495,7 +399,6 @@ int iwl_send_rxon_timing(struct iwl_priv *priv, struct iwl_rxon_context *ctx)
 	return iwl_send_cmd_pdu(priv, ctx->rxon_timing_cmd,
 				sizeof(ctx->timing), &ctx->timing);
 }
-EXPORT_SYMBOL(iwl_send_rxon_timing);
 
 void iwl_set_rxon_hwcrypto(struct iwl_priv *priv, struct iwl_rxon_context *ctx,
 			   int hw_decrypt)
@@ -508,80 +411,78 @@ void iwl_set_rxon_hwcrypto(struct iwl_priv *priv, struct iwl_rxon_context *ctx,
 		rxon->filter_flags |= RXON_FILTER_DIS_DECRYPT_MSK;
 
 }
-EXPORT_SYMBOL(iwl_set_rxon_hwcrypto);
 
 /* validate RXON structure is valid */
 int iwl_check_rxon_cmd(struct iwl_priv *priv, struct iwl_rxon_context *ctx)
 {
 	struct iwl_rxon_cmd *rxon = &ctx->staging;
-	bool error = false;
+	u32 errors = 0;
 
 	if (rxon->flags & RXON_FLG_BAND_24G_MSK) {
 		if (rxon->flags & RXON_FLG_TGJ_NARROW_BAND_MSK) {
 			IWL_WARN(priv, "check 2.4G: wrong narrow\n");
-			error = true;
+			errors |= BIT(0);
 		}
 		if (rxon->flags & RXON_FLG_RADAR_DETECT_MSK) {
 			IWL_WARN(priv, "check 2.4G: wrong radar\n");
-			error = true;
+			errors |= BIT(1);
 		}
 	} else {
 		if (!(rxon->flags & RXON_FLG_SHORT_SLOT_MSK)) {
 			IWL_WARN(priv, "check 5.2G: not short slot!\n");
-			error = true;
+			errors |= BIT(2);
 		}
 		if (rxon->flags & RXON_FLG_CCK_MSK) {
 			IWL_WARN(priv, "check 5.2G: CCK!\n");
-			error = true;
+			errors |= BIT(3);
 		}
 	}
 	if ((rxon->node_addr[0] | rxon->bssid_addr[0]) & 0x1) {
 		IWL_WARN(priv, "mac/bssid mcast!\n");
-		error = true;
+		errors |= BIT(4);
 	}
 
 	/* make sure basic rates 6Mbps and 1Mbps are supported */
 	if ((rxon->ofdm_basic_rates & IWL_RATE_6M_MASK) == 0 &&
 	    (rxon->cck_basic_rates & IWL_RATE_1M_MASK) == 0) {
 		IWL_WARN(priv, "neither 1 nor 6 are basic\n");
-		error = true;
+		errors |= BIT(5);
 	}
 
 	if (le16_to_cpu(rxon->assoc_id) > 2007) {
 		IWL_WARN(priv, "aid > 2007\n");
-		error = true;
+		errors |= BIT(6);
 	}
 
 	if ((rxon->flags & (RXON_FLG_CCK_MSK | RXON_FLG_SHORT_SLOT_MSK))
 			== (RXON_FLG_CCK_MSK | RXON_FLG_SHORT_SLOT_MSK)) {
 		IWL_WARN(priv, "CCK and short slot\n");
-		error = true;
+		errors |= BIT(7);
 	}
 
 	if ((rxon->flags & (RXON_FLG_CCK_MSK | RXON_FLG_AUTO_DETECT_MSK))
 			== (RXON_FLG_CCK_MSK | RXON_FLG_AUTO_DETECT_MSK)) {
 		IWL_WARN(priv, "CCK and auto detect");
-		error = true;
+		errors |= BIT(8);
 	}
 
 	if ((rxon->flags & (RXON_FLG_AUTO_DETECT_MSK |
 			    RXON_FLG_TGG_PROTECT_MSK)) ==
 			    RXON_FLG_TGG_PROTECT_MSK) {
 		IWL_WARN(priv, "TGg but no auto-detect\n");
-		error = true;
+		errors |= BIT(9);
 	}
 
-	if (error)
-		IWL_WARN(priv, "Tuning to channel %d\n",
-			    le16_to_cpu(rxon->channel));
-
-	if (error) {
-		IWL_ERR(priv, "Invalid RXON\n");
-		return -EINVAL;
+	if (rxon->channel == 0) {
+		IWL_WARN(priv, "zero channel is invalid\n");
+		errors |= BIT(10);
 	}
-	return 0;
+
+	WARN(errors, "Invalid RXON (%#x), channel %d",
+	     errors, le16_to_cpu(rxon->channel));
+
+	return errors ? -EINVAL : 0;
 }
-EXPORT_SYMBOL(iwl_check_rxon_cmd);
 
 /**
  * iwl_full_rxon_required - check if full RXON (vs RXON_ASSOC) cmd is needed
@@ -645,7 +546,6 @@ int iwl_full_rxon_required(struct iwl_priv *priv,
 
 	return 0;
 }
-EXPORT_SYMBOL(iwl_full_rxon_required);
 
 u8 iwl_rate_get_lowest_plcp(struct iwl_priv *priv,
 			    struct iwl_rxon_context *ctx)
@@ -659,7 +559,6 @@ u8 iwl_rate_get_lowest_plcp(struct iwl_priv *priv,
 	else
 		return IWL_RATE_6M_PLCP;
 }
-EXPORT_SYMBOL(iwl_rate_get_lowest_plcp);
 
 static void _iwl_set_rxon_ht(struct iwl_priv *priv,
 			     struct iwl_ht_config *ht_conf,
@@ -736,7 +635,6 @@ void iwl_set_rxon_ht(struct iwl_priv *priv, struct iwl_ht_config *ht_conf)
 	for_each_context(priv, ctx)
 		_iwl_set_rxon_ht(priv, ht_conf, ctx);
 }
-EXPORT_SYMBOL(iwl_set_rxon_ht);
 
 /* Return valid, unused, channel for a passive scan to reset the RF */
 u8 iwl_get_single_channel_number(struct iwl_priv *priv,
@@ -777,7 +675,6 @@ u8 iwl_get_single_channel_number(struct iwl_priv *priv,
 
 	return channel;
 }
-EXPORT_SYMBOL(iwl_get_single_channel_number);
 
 /**
  * iwl_set_rxon_channel - Set the band and channel values in staging RXON
@@ -808,7 +705,6 @@ int iwl_set_rxon_channel(struct iwl_priv *priv, struct ieee80211_channel *ch,
 
 	return 0;
 }
-EXPORT_SYMBOL(iwl_set_rxon_channel);
 
 void iwl_set_flags_for_band(struct iwl_priv *priv,
 			    struct iwl_rxon_context *ctx,
@@ -832,7 +728,6 @@ void iwl_set_flags_for_band(struct iwl_priv *priv,
 		ctx->staging.flags &= ~RXON_FLG_CCK_MSK;
 	}
 }
-EXPORT_SYMBOL(iwl_set_flags_for_band);
 
 /*
  * initialize rxon structure with default values from eeprom
@@ -904,7 +799,6 @@ void iwl_connection_init_rx_config(struct iwl_priv *priv,
 	ctx->staging.ofdm_ht_dual_stream_basic_rates = 0xff;
 	ctx->staging.ofdm_ht_triple_stream_basic_rates = 0xff;
 }
-EXPORT_SYMBOL(iwl_connection_init_rx_config);
 
 void iwl_set_rate(struct iwl_priv *priv)
 {
@@ -937,7 +831,6 @@ void iwl_set_rate(struct iwl_priv *priv)
 		   (IWL_OFDM_BASIC_RATES_MASK >> IWL_FIRST_OFDM_RATE) & 0xFF;
 	}
 }
-EXPORT_SYMBOL(iwl_set_rate);
 
 void iwl_chswitch_done(struct iwl_priv *priv, bool is_success)
 {
@@ -950,42 +843,9 @@ void iwl_chswitch_done(struct iwl_priv *priv, bool is_success)
 	if (test_bit(STATUS_EXIT_PENDING, &priv->status))
 		return;
 
-	if (priv->switch_rxon.switch_in_progress) {
+	if (test_and_clear_bit(STATUS_CHANNEL_SWITCH_PENDING, &priv->status))
 		ieee80211_chswitch_done(ctx->vif, is_success);
-		mutex_lock(&priv->mutex);
-		priv->switch_rxon.switch_in_progress = false;
-		mutex_unlock(&priv->mutex);
-	}
 }
-EXPORT_SYMBOL(iwl_chswitch_done);
-
-void iwl_rx_csa(struct iwl_priv *priv, struct iwl_rx_mem_buffer *rxb)
-{
-	struct iwl_rx_packet *pkt = rxb_addr(rxb);
-	struct iwl_csa_notification *csa = &(pkt->u.csa_notif);
-	/*
-	 * MULTI-FIXME
-	 * See iwl_mac_channel_switch.
-	 */
-	struct iwl_rxon_context *ctx = &priv->contexts[IWL_RXON_CTX_BSS];
-	struct iwl_rxon_cmd *rxon = (void *)&ctx->active;
-
-	if (priv->switch_rxon.switch_in_progress) {
-		if (!le32_to_cpu(csa->status) &&
-		    (csa->channel == priv->switch_rxon.channel)) {
-			rxon->channel = csa->channel;
-			ctx->staging.channel = csa->channel;
-			IWL_DEBUG_11H(priv, "CSA notif: channel %d\n",
-			      le16_to_cpu(csa->channel));
-			iwl_chswitch_done(priv, true);
-		} else {
-			IWL_ERR(priv, "CSA notif (fail) : channel %d\n",
-			      le16_to_cpu(csa->channel));
-			iwl_chswitch_done(priv, false);
-		}
-	}
-}
-EXPORT_SYMBOL(iwl_rx_csa);
 
 #ifdef CONFIG_IWLWIFI_DEBUG
 void iwl_print_rx_config_cmd(struct iwl_priv *priv,
@@ -1007,49 +867,109 @@ void iwl_print_rx_config_cmd(struct iwl_priv *priv,
 	IWL_DEBUG_RADIO(priv, "u8[6] bssid_addr: %pM\n", rxon->bssid_addr);
 	IWL_DEBUG_RADIO(priv, "u16 assoc_id: 0x%x\n", le16_to_cpu(rxon->assoc_id));
 }
-EXPORT_SYMBOL(iwl_print_rx_config_cmd);
 #endif
-/**
- * iwl_irq_handle_error - called for HW or SW error interrupt from card
- */
-void iwl_irq_handle_error(struct iwl_priv *priv)
+
+static void iwlagn_abort_notification_waits(struct iwl_priv *priv)
 {
+	unsigned long flags;
+	struct iwl_notification_wait *wait_entry;
+
+	spin_lock_irqsave(&priv->_agn.notif_wait_lock, flags);
+	list_for_each_entry(wait_entry, &priv->_agn.notif_waits, list)
+		wait_entry->aborted = true;
+	spin_unlock_irqrestore(&priv->_agn.notif_wait_lock, flags);
+
+	wake_up_all(&priv->_agn.notif_waitq);
+}
+
+void iwlagn_fw_error(struct iwl_priv *priv, bool ondemand)
+{
+	unsigned int reload_msec;
+	unsigned long reload_jiffies;
+
 	/* Set the FW error flag -- cleared on iwl_down */
 	set_bit(STATUS_FW_ERROR, &priv->status);
 
 	/* Cancel currently queued command. */
 	clear_bit(STATUS_HCMD_ACTIVE, &priv->status);
 
+	iwlagn_abort_notification_waits(priv);
+
+	/* Keep the restart process from trying to send host
+	 * commands by clearing the ready bit */
+	clear_bit(STATUS_READY, &priv->status);
+
+	wake_up_interruptible(&priv->wait_command_queue);
+
+	if (!ondemand) {
+		/*
+		 * If firmware keep reloading, then it indicate something
+		 * serious wrong and firmware having problem to recover
+		 * from it. Instead of keep trying which will fill the syslog
+		 * and hang the system, let's just stop it
+		 */
+		reload_jiffies = jiffies;
+		reload_msec = jiffies_to_msecs((long) reload_jiffies -
+					(long) priv->reload_jiffies);
+		priv->reload_jiffies = reload_jiffies;
+		if (reload_msec <= IWL_MIN_RELOAD_DURATION) {
+			priv->reload_count++;
+			if (priv->reload_count >= IWL_MAX_CONTINUE_RELOAD_CNT) {
+				IWL_ERR(priv, "BUG_ON, Stop restarting\n");
+				return;
+			}
+		} else
+			priv->reload_count = 0;
+	}
+
+	if (!test_bit(STATUS_EXIT_PENDING, &priv->status)) {
+		if (iwlagn_mod_params.restart_fw) {
+			IWL_DEBUG(priv, IWL_DL_FW_ERRORS,
+				  "Restarting adapter due to uCode error.\n");
+			queue_work(priv->workqueue, &priv->restart);
+		} else
+			IWL_DEBUG(priv, IWL_DL_FW_ERRORS,
+				  "Detected FW error, but not restarting\n");
+	}
+}
+
+/**
+ * iwl_irq_handle_error - called for HW or SW error interrupt from card
+ */
+void iwl_irq_handle_error(struct iwl_priv *priv)
+{
+	/* W/A for WiFi/WiMAX coex and WiMAX own the RF */
+	if (priv->cfg->internal_wimax_coex &&
+	    (!(iwl_read_prph(priv, APMG_CLK_CTRL_REG) &
+			APMS_CLK_VAL_MRB_FUNC_MODE) ||
+	     (iwl_read_prph(priv, APMG_PS_CTRL_REG) &
+			APMG_PS_CTRL_VAL_RESET_REQ))) {
+		/*
+		 * Keep the restart process from trying to send host
+		 * commands by clearing the ready bit.
+		 */
+		clear_bit(STATUS_READY, &priv->status);
+		clear_bit(STATUS_HCMD_ACTIVE, &priv->status);
+		wake_up_interruptible(&priv->wait_command_queue);
+		IWL_ERR(priv, "RF is used by WiMAX\n");
+		return;
+	}
+
 	IWL_ERR(priv, "Loaded firmware version: %s\n",
 		priv->hw->wiphy->fw_version);
 
-	priv->cfg->ops->lib->dump_nic_error_log(priv);
-	if (priv->cfg->ops->lib->dump_csr)
-		priv->cfg->ops->lib->dump_csr(priv);
-	if (priv->cfg->ops->lib->dump_fh)
-		priv->cfg->ops->lib->dump_fh(priv, NULL, false);
-	priv->cfg->ops->lib->dump_nic_event_log(priv, false, NULL, false);
+	iwl_dump_nic_error_log(priv);
+	iwl_dump_csr(priv);
+	iwl_dump_fh(priv, NULL, false);
+	iwl_dump_nic_event_log(priv, false, NULL, false);
 #ifdef CONFIG_IWLWIFI_DEBUG
 	if (iwl_get_debug_level(priv) & IWL_DL_FW_ERRORS)
 		iwl_print_rx_config_cmd(priv,
 					&priv->contexts[IWL_RXON_CTX_BSS]);
 #endif
 
-	wake_up_interruptible(&priv->wait_command_queue);
-
-	/* Keep the restart process from trying to send host
-	 * commands by clearing the INIT status bit */
-	clear_bit(STATUS_READY, &priv->status);
-
-	if (!test_bit(STATUS_EXIT_PENDING, &priv->status)) {
-		IWL_DEBUG(priv, IWL_DL_FW_ERRORS,
-			  "Restarting adapter due to uCode error.\n");
-
-		if (priv->cfg->mod_params->restart_fw)
-			queue_work(priv->workqueue, &priv->restart);
-	}
+	iwlagn_fw_error(priv, false);
 }
-EXPORT_SYMBOL(iwl_irq_handle_error);
 
 static int iwl_apm_stop_master(struct iwl_priv *priv)
 {
@@ -1072,6 +992,8 @@ void iwl_apm_stop(struct iwl_priv *priv)
 {
 	IWL_DEBUG_INFO(priv, "Stop card, put in low power state\n");
 
+	clear_bit(STATUS_DEVICE_ENABLED, &priv->status);
+
 	/* Stop device's DMA activity */
 	iwl_apm_stop_master(priv);
 
@@ -1086,7 +1008,6 @@ void iwl_apm_stop(struct iwl_priv *priv)
 	 */
 	iwl_clear_bit(priv, CSR_GP_CNTRL, CSR_GP_CNTRL_REG_FLAG_INIT_DONE);
 }
-EXPORT_SYMBOL(iwl_apm_stop);
 
 
 /*
@@ -1123,7 +1044,6 @@ int iwl_apm_init(struct iwl_priv *priv)
 	/*
 	 * Enable HAP INTA (interrupt from management bus) to
 	 * wake device's PCI Express link L1a -> L0s
-	 * NOTE:  This is no-op for 3945 (non-existant bit)
 	 */
 	iwl_set_bit(priv, CSR_HW_IF_CONFIG_REG,
 				    CSR_HW_IF_CONFIG_REG_BIT_HAP_WAKE_L1A);
@@ -1136,20 +1056,18 @@ int iwl_apm_init(struct iwl_priv *priv)
 	 * If not (unlikely), enable L0S, so there is at least some
 	 *    power savings, even without L1.
 	 */
-	if (priv->cfg->base_params->set_l0s) {
-		lctl = iwl_pcie_link_ctl(priv);
-		if ((lctl & PCI_CFG_LINK_CTRL_VAL_L1_EN) ==
-					PCI_CFG_LINK_CTRL_VAL_L1_EN) {
-			/* L1-ASPM enabled; disable(!) L0S  */
-			iwl_set_bit(priv, CSR_GIO_REG,
-					CSR_GIO_REG_VAL_L0S_ENABLED);
-			IWL_DEBUG_POWER(priv, "L1 Enabled; Disabling L0S\n");
-		} else {
-			/* L1-ASPM disabled; enable(!) L0S */
-			iwl_clear_bit(priv, CSR_GIO_REG,
-					CSR_GIO_REG_VAL_L0S_ENABLED);
-			IWL_DEBUG_POWER(priv, "L1 Disabled; Enabling L0S\n");
-		}
+	lctl = iwl_pcie_link_ctl(priv);
+	if ((lctl & PCI_CFG_LINK_CTRL_VAL_L1_EN) ==
+				PCI_CFG_LINK_CTRL_VAL_L1_EN) {
+		/* L1-ASPM enabled; disable(!) L0S  */
+		iwl_set_bit(priv, CSR_GIO_REG,
+				CSR_GIO_REG_VAL_L0S_ENABLED);
+		IWL_DEBUG_POWER(priv, "L1 Enabled; Disabling L0S\n");
+	} else {
+		/* L1-ASPM disabled; enable(!) L0S */
+		iwl_clear_bit(priv, CSR_GIO_REG,
+				CSR_GIO_REG_VAL_L0S_ENABLED);
+		IWL_DEBUG_POWER(priv, "L1 Disabled; Enabling L0S\n");
 	}
 
 	/* Configure analog phase-lock-loop before activating to D0A */
@@ -1177,37 +1095,40 @@ int iwl_apm_init(struct iwl_priv *priv)
 	}
 
 	/*
-	 * Enable DMA and BSM (if used) clocks, wait for them to stabilize.
-	 * BSM (Boostrap State Machine) is only in 3945 and 4965;
-	 * later devices (i.e. 5000 and later) have non-volatile SRAM,
-	 * and don't need BSM to restore data after power-saving sleep.
+	 * Enable DMA clock and wait for it to stabilize.
 	 *
 	 * Write to "CLK_EN_REG"; "1" bits enable clocks, while "0" bits
 	 * do not disable clocks.  This preserves any hardware bits already
 	 * set by default in "CLK_CTRL_REG" after reset.
 	 */
-	if (priv->cfg->base_params->use_bsm)
-		iwl_write_prph(priv, APMG_CLK_EN_REG,
-			APMG_CLK_VAL_DMA_CLK_RQT | APMG_CLK_VAL_BSM_CLK_RQT);
-	else
-		iwl_write_prph(priv, APMG_CLK_EN_REG,
-			APMG_CLK_VAL_DMA_CLK_RQT);
+	iwl_write_prph(priv, APMG_CLK_EN_REG, APMG_CLK_VAL_DMA_CLK_RQT);
 	udelay(20);
 
 	/* Disable L1-Active */
 	iwl_set_bits_prph(priv, APMG_PCIDEV_STT_REG,
 			  APMG_PCIDEV_STT_VAL_L1_ACT_DIS);
 
+	set_bit(STATUS_DEVICE_ENABLED, &priv->status);
+
 out:
 	return ret;
 }
-EXPORT_SYMBOL(iwl_apm_init);
 
 
 int iwl_set_tx_power(struct iwl_priv *priv, s8 tx_power, bool force)
 {
-	int ret = 0;
-	s8 prev_tx_power = priv->tx_power_user_lmt;
+	int ret;
+	s8 prev_tx_power;
+	bool defer;
+	struct iwl_rxon_context *ctx = &priv->contexts[IWL_RXON_CTX_BSS];
+
+	lockdep_assert_held(&priv->mutex);
+
+	if (priv->tx_power_user_lmt == tx_power && !force)
+		return 0;
+
+	if (!priv->cfg->ops->lib->send_tx_power)
+		return -EOPNOTSUPP;
 
 	if (tx_power < IWLAGN_TX_POWER_TARGET_POWER_MIN) {
 		IWL_WARN(priv,
@@ -1224,93 +1145,33 @@ int iwl_set_tx_power(struct iwl_priv *priv, s8 tx_power, bool force)
 		return -EINVAL;
 	}
 
-	if (priv->tx_power_user_lmt != tx_power)
-		force = true;
+	if (!iwl_is_ready_rf(priv))
+		return -EIO;
 
-	/* if nic is not up don't send command */
-	if (iwl_is_ready_rf(priv)) {
-		priv->tx_power_user_lmt = tx_power;
-		if (force && priv->cfg->ops->lib->send_tx_power)
-			ret = priv->cfg->ops->lib->send_tx_power(priv);
-		else if (!priv->cfg->ops->lib->send_tx_power)
-			ret = -EOPNOTSUPP;
-		/*
-		 * if fail to set tx_power, restore the orig. tx power
-		 */
-		if (ret)
-			priv->tx_power_user_lmt = prev_tx_power;
+	/* scan complete and commit_rxon use tx_power_next value,
+	 * it always need to be updated for newest request */
+	priv->tx_power_next = tx_power;
+
+	/* do not set tx power when scanning or channel changing */
+	defer = test_bit(STATUS_SCANNING, &priv->status) ||
+		memcmp(&ctx->active, &ctx->staging, sizeof(ctx->staging));
+	if (defer && !force) {
+		IWL_DEBUG_INFO(priv, "Deferring tx power set\n");
+		return 0;
 	}
 
-	/*
-	 * Even this is an async host command, the command
-	 * will always report success from uCode
-	 * So once driver can placing the command into the queue
-	 * successfully, driver can use priv->tx_power_user_lmt
-	 * to reflect the current tx power
-	 */
+	prev_tx_power = priv->tx_power_user_lmt;
+	priv->tx_power_user_lmt = tx_power;
+
+	ret = priv->cfg->ops->lib->send_tx_power(priv);
+
+	/* if fail to set tx_power, restore the orig. tx power */
+	if (ret) {
+		priv->tx_power_user_lmt = prev_tx_power;
+		priv->tx_power_next = prev_tx_power;
+	}
 	return ret;
 }
-EXPORT_SYMBOL(iwl_set_tx_power);
-
-irqreturn_t iwl_isr_legacy(int irq, void *data)
-{
-	struct iwl_priv *priv = data;
-	u32 inta, inta_mask;
-	u32 inta_fh;
-	unsigned long flags;
-	if (!priv)
-		return IRQ_NONE;
-
-	spin_lock_irqsave(&priv->lock, flags);
-
-	/* Disable (but don't clear!) interrupts here to avoid
-	 *    back-to-back ISRs and sporadic interrupts from our NIC.
-	 * If we have something to service, the tasklet will re-enable ints.
-	 * If we *don't* have something, we'll re-enable before leaving here. */
-	inta_mask = iwl_read32(priv, CSR_INT_MASK);  /* just for debug */
-	iwl_write32(priv, CSR_INT_MASK, 0x00000000);
-
-	/* Discover which interrupts are active/pending */
-	inta = iwl_read32(priv, CSR_INT);
-	inta_fh = iwl_read32(priv, CSR_FH_INT_STATUS);
-
-	/* Ignore interrupt if there's nothing in NIC to service.
-	 * This may be due to IRQ shared with another device,
-	 * or due to sporadic interrupts thrown from our NIC. */
-	if (!inta && !inta_fh) {
-		IWL_DEBUG_ISR(priv, "Ignore interrupt, inta == 0, inta_fh == 0\n");
-		goto none;
-	}
-
-	if ((inta == 0xFFFFFFFF) || ((inta & 0xFFFFFFF0) == 0xa5a5a5a0)) {
-		/* Hardware disappeared. It might have already raised
-		 * an interrupt */
-		IWL_WARN(priv, "HARDWARE GONE?? INTA == 0x%08x\n", inta);
-		goto unplugged;
-	}
-
-	IWL_DEBUG_ISR(priv, "ISR inta 0x%08x, enabled 0x%08x, fh 0x%08x\n",
-		      inta, inta_mask, inta_fh);
-
-	inta &= ~CSR_INT_BIT_SCD;
-
-	/* iwl_irq_tasklet() will service interrupts and re-enable them */
-	if (likely(inta || inta_fh))
-		tasklet_schedule(&priv->irq_tasklet);
-
- unplugged:
-	spin_unlock_irqrestore(&priv->lock, flags);
-	return IRQ_HANDLED;
-
- none:
-	/* re-enable interrupts here since we don't have anything to service. */
-	/* only Re-enable if diabled by irq */
-	if (test_bit(STATUS_INT_ENABLED, &priv->status))
-		iwl_enable_interrupts(priv);
-	spin_unlock_irqrestore(&priv->lock, flags);
-	return IRQ_NONE;
-}
-EXPORT_SYMBOL(iwl_isr_legacy);
 
 void iwl_send_bt_config(struct iwl_priv *priv)
 {
@@ -1326,6 +1187,7 @@ void iwl_send_bt_config(struct iwl_priv *priv)
 	else
 		bt_cmd.flags = BT_COEX_ENABLE;
 
+	priv->bt_enable_flag = bt_cmd.flags;
 	IWL_DEBUG_INFO(priv, "BT coex %s\n",
 		(bt_cmd.flags == BT_COEX_DISABLE) ? "disable" : "active");
 
@@ -1333,7 +1195,6 @@ void iwl_send_bt_config(struct iwl_priv *priv)
 			     sizeof(struct iwl_bt_cmd), &bt_cmd))
 		IWL_ERR(priv, "failed to send BT Coex Config\n");
 }
-EXPORT_SYMBOL(iwl_send_bt_config);
 
 int iwl_send_statistics_request(struct iwl_priv *priv, u8 flags, bool clear)
 {
@@ -1351,46 +1212,6 @@ int iwl_send_statistics_request(struct iwl_priv *priv, u8 flags, bool clear)
 					sizeof(struct iwl_statistics_cmd),
 					&statistics_cmd);
 }
-EXPORT_SYMBOL(iwl_send_statistics_request);
-
-void iwl_rx_pm_sleep_notif(struct iwl_priv *priv,
-			   struct iwl_rx_mem_buffer *rxb)
-{
-#ifdef CONFIG_IWLWIFI_DEBUG
-	struct iwl_rx_packet *pkt = rxb_addr(rxb);
-	struct iwl_sleep_notification *sleep = &(pkt->u.sleep_notif);
-	IWL_DEBUG_RX(priv, "sleep mode: %d, src: %d\n",
-		     sleep->pm_sleep_mode, sleep->pm_wakeup_src);
-#endif
-}
-EXPORT_SYMBOL(iwl_rx_pm_sleep_notif);
-
-void iwl_rx_pm_debug_statistics_notif(struct iwl_priv *priv,
-				      struct iwl_rx_mem_buffer *rxb)
-{
-	struct iwl_rx_packet *pkt = rxb_addr(rxb);
-	u32 len = le32_to_cpu(pkt->len_n_flags) & FH_RSCSR_FRAME_SIZE_MSK;
-	IWL_DEBUG_RADIO(priv, "Dumping %d bytes of unhandled "
-			"notification for %s:\n", len,
-			get_cmd_string(pkt->hdr.cmd));
-	iwl_print_hex_dump(priv, IWL_DL_RADIO, pkt->u.raw, len);
-}
-EXPORT_SYMBOL(iwl_rx_pm_debug_statistics_notif);
-
-void iwl_rx_reply_error(struct iwl_priv *priv,
-			struct iwl_rx_mem_buffer *rxb)
-{
-	struct iwl_rx_packet *pkt = rxb_addr(rxb);
-
-	IWL_ERR(priv, "Error Reply type 0x%08X cmd %s (0x%02X) "
-		"seq 0x%04X ser 0x%08X\n",
-		le32_to_cpu(pkt->u.err_resp.error_type),
-		get_cmd_string(pkt->u.err_resp.cmd_id),
-		pkt->u.err_resp.cmd_id,
-		le16_to_cpu(pkt->u.err_resp.bad_cmd_seq_num),
-		le32_to_cpu(pkt->u.err_resp.error_info));
-}
-EXPORT_SYMBOL(iwl_rx_reply_error);
 
 void iwl_clear_isr_stats(struct iwl_priv *priv)
 {
@@ -1442,7 +1263,6 @@ int iwl_mac_conf_tx(struct ieee80211_hw *hw, u16 queue,
 	IWL_DEBUG_MAC80211(priv, "leave\n");
 	return 0;
 }
-EXPORT_SYMBOL(iwl_mac_conf_tx);
 
 int iwl_mac_tx_last_beacon(struct ieee80211_hw *hw)
 {
@@ -1450,314 +1270,9 @@ int iwl_mac_tx_last_beacon(struct ieee80211_hw *hw)
 
 	return priv->ibss_manager == IWL_IBSS_MANAGER;
 }
-EXPORT_SYMBOL_GPL(iwl_mac_tx_last_beacon);
 
-static void iwl_ht_conf(struct iwl_priv *priv,
-			struct ieee80211_vif *vif)
+static int iwl_set_mode(struct iwl_priv *priv, struct iwl_rxon_context *ctx)
 {
-	struct iwl_ht_config *ht_conf = &priv->current_ht_config;
-	struct ieee80211_sta *sta;
-	struct ieee80211_bss_conf *bss_conf = &vif->bss_conf;
-	struct iwl_rxon_context *ctx = iwl_rxon_ctx_from_vif(vif);
-
-	IWL_DEBUG_MAC80211(priv, "enter:\n");
-
-	if (!ctx->ht.enabled)
-		return;
-
-	ctx->ht.protection =
-		bss_conf->ht_operation_mode & IEEE80211_HT_OP_MODE_PROTECTION;
-	ctx->ht.non_gf_sta_present =
-		!!(bss_conf->ht_operation_mode & IEEE80211_HT_OP_MODE_NON_GF_STA_PRSNT);
-
-	ht_conf->single_chain_sufficient = false;
-
-	switch (vif->type) {
-	case NL80211_IFTYPE_STATION:
-		rcu_read_lock();
-		sta = ieee80211_find_sta(vif, bss_conf->bssid);
-		if (sta) {
-			struct ieee80211_sta_ht_cap *ht_cap = &sta->ht_cap;
-			int maxstreams;
-
-			maxstreams = (ht_cap->mcs.tx_params &
-				      IEEE80211_HT_MCS_TX_MAX_STREAMS_MASK)
-					>> IEEE80211_HT_MCS_TX_MAX_STREAMS_SHIFT;
-			maxstreams += 1;
-
-			if ((ht_cap->mcs.rx_mask[1] == 0) &&
-			    (ht_cap->mcs.rx_mask[2] == 0))
-				ht_conf->single_chain_sufficient = true;
-			if (maxstreams <= 1)
-				ht_conf->single_chain_sufficient = true;
-		} else {
-			/*
-			 * If at all, this can only happen through a race
-			 * when the AP disconnects us while we're still
-			 * setting up the connection, in that case mac80211
-			 * will soon tell us about that.
-			 */
-			ht_conf->single_chain_sufficient = true;
-		}
-		rcu_read_unlock();
-		break;
-	case NL80211_IFTYPE_ADHOC:
-		ht_conf->single_chain_sufficient = true;
-		break;
-	default:
-		break;
-	}
-
-	IWL_DEBUG_MAC80211(priv, "leave\n");
-}
-
-static inline void iwl_set_no_assoc(struct iwl_priv *priv,
-				    struct ieee80211_vif *vif)
-{
-	struct iwl_rxon_context *ctx = iwl_rxon_ctx_from_vif(vif);
-
-	iwl_led_disassociate(priv);
-	/*
-	 * inform the ucode that there is no longer an
-	 * association and that no more packets should be
-	 * sent
-	 */
-	ctx->staging.filter_flags &= ~RXON_FILTER_ASSOC_MSK;
-	ctx->staging.assoc_id = 0;
-	iwlcore_commit_rxon(priv, ctx);
-}
-
-static void iwlcore_beacon_update(struct ieee80211_hw *hw,
-				  struct ieee80211_vif *vif)
-{
-	struct iwl_priv *priv = hw->priv;
-	unsigned long flags;
-	__le64 timestamp;
-	struct sk_buff *skb = ieee80211_beacon_get(hw, vif);
-
-	if (!skb)
-		return;
-
-	IWL_DEBUG_ASSOC(priv, "enter\n");
-
-	lockdep_assert_held(&priv->mutex);
-
-	if (!priv->beacon_ctx) {
-		IWL_ERR(priv, "update beacon but no beacon context!\n");
-		dev_kfree_skb(skb);
-		return;
-	}
-
-	spin_lock_irqsave(&priv->lock, flags);
-
-	if (priv->beacon_skb)
-		dev_kfree_skb(priv->beacon_skb);
-
-	priv->beacon_skb = skb;
-
-	timestamp = ((struct ieee80211_mgmt *)skb->data)->u.beacon.timestamp;
-	priv->timestamp = le64_to_cpu(timestamp);
-
-	IWL_DEBUG_ASSOC(priv, "leave\n");
-
-	spin_unlock_irqrestore(&priv->lock, flags);
-
-	if (!iwl_is_ready_rf(priv)) {
-		IWL_DEBUG_MAC80211(priv, "leave - RF not ready\n");
-		return;
-	}
-
-	priv->cfg->ops->lib->post_associate(priv, priv->beacon_ctx->vif);
-}
-
-void iwl_bss_info_changed(struct ieee80211_hw *hw,
-			  struct ieee80211_vif *vif,
-			  struct ieee80211_bss_conf *bss_conf,
-			  u32 changes)
-{
-	struct iwl_priv *priv = hw->priv;
-	struct iwl_rxon_context *ctx = iwl_rxon_ctx_from_vif(vif);
-	int ret;
-
-	IWL_DEBUG_MAC80211(priv, "changes = 0x%X\n", changes);
-
-	if (!iwl_is_alive(priv))
-		return;
-
-	mutex_lock(&priv->mutex);
-
-	if (changes & BSS_CHANGED_QOS) {
-		unsigned long flags;
-
-		spin_lock_irqsave(&priv->lock, flags);
-		ctx->qos_data.qos_active = bss_conf->qos;
-		iwl_update_qos(priv, ctx);
-		spin_unlock_irqrestore(&priv->lock, flags);
-	}
-
-	if (changes & BSS_CHANGED_BEACON_ENABLED) {
-		/*
-		 * the add_interface code must make sure we only ever
-		 * have a single interface that could be beaconing at
-		 * any time.
-		 */
-		if (vif->bss_conf.enable_beacon)
-			priv->beacon_ctx = ctx;
-		else
-			priv->beacon_ctx = NULL;
-	}
-
-	if (changes & BSS_CHANGED_BEACON && vif->type == NL80211_IFTYPE_AP) {
-		dev_kfree_skb(priv->beacon_skb);
-		priv->beacon_skb = ieee80211_beacon_get(hw, vif);
-	}
-
-	if (changes & BSS_CHANGED_BEACON_INT && vif->type == NL80211_IFTYPE_AP)
-		iwl_send_rxon_timing(priv, ctx);
-
-	if (changes & BSS_CHANGED_BSSID) {
-		IWL_DEBUG_MAC80211(priv, "BSSID %pM\n", bss_conf->bssid);
-
-		/*
-		 * If there is currently a HW scan going on in the
-		 * background then we need to cancel it else the RXON
-		 * below/in post_associate will fail.
-		 */
-		if (iwl_scan_cancel_timeout(priv, 100)) {
-			IWL_WARN(priv, "Aborted scan still in progress after 100ms\n");
-			IWL_DEBUG_MAC80211(priv, "leaving - scan abort failed.\n");
-			mutex_unlock(&priv->mutex);
-			return;
-		}
-
-		/* mac80211 only sets assoc when in STATION mode */
-		if (vif->type == NL80211_IFTYPE_ADHOC || bss_conf->assoc) {
-			memcpy(ctx->staging.bssid_addr,
-			       bss_conf->bssid, ETH_ALEN);
-
-			/* currently needed in a few places */
-			memcpy(priv->bssid, bss_conf->bssid, ETH_ALEN);
-		} else {
-			ctx->staging.filter_flags &=
-				~RXON_FILTER_ASSOC_MSK;
-		}
-
-	}
-
-	/*
-	 * This needs to be after setting the BSSID in case
-	 * mac80211 decides to do both changes at once because
-	 * it will invoke post_associate.
-	 */
-	if (vif->type == NL80211_IFTYPE_ADHOC && changes & BSS_CHANGED_BEACON)
-		iwlcore_beacon_update(hw, vif);
-
-	if (changes & BSS_CHANGED_ERP_PREAMBLE) {
-		IWL_DEBUG_MAC80211(priv, "ERP_PREAMBLE %d\n",
-				   bss_conf->use_short_preamble);
-		if (bss_conf->use_short_preamble)
-			ctx->staging.flags |= RXON_FLG_SHORT_PREAMBLE_MSK;
-		else
-			ctx->staging.flags &= ~RXON_FLG_SHORT_PREAMBLE_MSK;
-	}
-
-	if (changes & BSS_CHANGED_ERP_CTS_PROT) {
-		IWL_DEBUG_MAC80211(priv, "ERP_CTS %d\n", bss_conf->use_cts_prot);
-		if (bss_conf->use_cts_prot && (priv->band != IEEE80211_BAND_5GHZ))
-			ctx->staging.flags |= RXON_FLG_TGG_PROTECT_MSK;
-		else
-			ctx->staging.flags &= ~RXON_FLG_TGG_PROTECT_MSK;
-		if (bss_conf->use_cts_prot)
-			ctx->staging.flags |= RXON_FLG_SELF_CTS_EN;
-		else
-			ctx->staging.flags &= ~RXON_FLG_SELF_CTS_EN;
-	}
-
-	if (changes & BSS_CHANGED_BASIC_RATES) {
-		/* XXX use this information
-		 *
-		 * To do that, remove code from iwl_set_rate() and put something
-		 * like this here:
-		 *
-		if (A-band)
-			ctx->staging.ofdm_basic_rates =
-				bss_conf->basic_rates;
-		else
-			ctx->staging.ofdm_basic_rates =
-				bss_conf->basic_rates >> 4;
-			ctx->staging.cck_basic_rates =
-				bss_conf->basic_rates & 0xF;
-		 */
-	}
-
-	if (changes & BSS_CHANGED_HT) {
-		iwl_ht_conf(priv, vif);
-
-		if (priv->cfg->ops->hcmd->set_rxon_chain)
-			priv->cfg->ops->hcmd->set_rxon_chain(priv, ctx);
-	}
-
-	if (changes & BSS_CHANGED_ASSOC) {
-		IWL_DEBUG_MAC80211(priv, "ASSOC %d\n", bss_conf->assoc);
-		if (bss_conf->assoc) {
-			priv->timestamp = bss_conf->timestamp;
-
-			iwl_led_associate(priv);
-
-			if (!iwl_is_rfkill(priv))
-				priv->cfg->ops->lib->post_associate(priv, vif);
-		} else
-			iwl_set_no_assoc(priv, vif);
-	}
-
-	if (changes && iwl_is_associated_ctx(ctx) && bss_conf->aid) {
-		IWL_DEBUG_MAC80211(priv, "Changes (%#x) while associated\n",
-				   changes);
-		ret = iwl_send_rxon_assoc(priv, ctx);
-		if (!ret) {
-			/* Sync active_rxon with latest change. */
-			memcpy((void *)&ctx->active,
-				&ctx->staging,
-				sizeof(struct iwl_rxon_cmd));
-		}
-	}
-
-	if (changes & BSS_CHANGED_BEACON_ENABLED) {
-		if (vif->bss_conf.enable_beacon) {
-			memcpy(ctx->staging.bssid_addr,
-			       bss_conf->bssid, ETH_ALEN);
-			memcpy(priv->bssid, bss_conf->bssid, ETH_ALEN);
-			iwl_led_associate(priv);
-			iwlcore_config_ap(priv, vif);
-		} else
-			iwl_set_no_assoc(priv, vif);
-	}
-
-	if (changes & BSS_CHANGED_IBSS) {
-		ret = priv->cfg->ops->lib->manage_ibss_station(priv, vif,
-							bss_conf->ibss_joined);
-		if (ret)
-			IWL_ERR(priv, "failed to %s IBSS station %pM\n",
-				bss_conf->ibss_joined ? "add" : "remove",
-				bss_conf->bssid);
-	}
-
-	if (changes & BSS_CHANGED_IDLE &&
-	    priv->cfg->ops->hcmd->set_pan_params) {
-		if (priv->cfg->ops->hcmd->set_pan_params(priv))
-			IWL_ERR(priv, "failed to update PAN params\n");
-	}
-
-	mutex_unlock(&priv->mutex);
-
-	IWL_DEBUG_MAC80211(priv, "leave\n");
-}
-EXPORT_SYMBOL(iwl_bss_info_changed);
-
-static int iwl_set_mode(struct iwl_priv *priv, struct ieee80211_vif *vif)
-{
-	struct iwl_rxon_context *ctx = iwl_rxon_ctx_from_vif(vif);
-
 	iwl_connection_init_rx_config(priv, ctx);
 
 	if (priv->cfg->ops->hcmd->set_rxon_chain)
@@ -1766,15 +1281,53 @@ static int iwl_set_mode(struct iwl_priv *priv, struct ieee80211_vif *vif)
 	return iwlcore_commit_rxon(priv, ctx);
 }
 
+static int iwl_setup_interface(struct iwl_priv *priv,
+			       struct iwl_rxon_context *ctx)
+{
+	struct ieee80211_vif *vif = ctx->vif;
+	int err;
+
+	lockdep_assert_held(&priv->mutex);
+
+	/*
+	 * This variable will be correct only when there's just
+	 * a single context, but all code using it is for hardware
+	 * that supports only one context.
+	 */
+	priv->iw_mode = vif->type;
+
+	ctx->is_active = true;
+
+	err = iwl_set_mode(priv, ctx);
+	if (err) {
+		if (!ctx->always_active)
+			ctx->is_active = false;
+		return err;
+	}
+
+	if (priv->cfg->bt_params && priv->cfg->bt_params->advanced_bt_coexist &&
+	    vif->type == NL80211_IFTYPE_ADHOC) {
+		/*
+		 * pretend to have high BT traffic as long as we
+		 * are operating in IBSS mode, as this will cause
+		 * the rate scaling etc. to behave as intended.
+		 */
+		priv->bt_traffic_load = IWL_BT_COEX_TRAFFIC_LOAD_HIGH;
+	}
+
+	return 0;
+}
+
 int iwl_mac_add_interface(struct ieee80211_hw *hw, struct ieee80211_vif *vif)
 {
 	struct iwl_priv *priv = hw->priv;
 	struct iwl_vif_priv *vif_priv = (void *)vif->drv_priv;
 	struct iwl_rxon_context *tmp, *ctx = NULL;
-	int err = 0;
+	int err;
+	enum nl80211_iftype viftype = ieee80211_vif_type_p2p(vif);
 
 	IWL_DEBUG_MAC80211(priv, "enter: type %d, addr %pM\n",
-			   vif->type, vif->addr);
+			   viftype, vif->addr);
 
 	mutex_lock(&priv->mutex);
 
@@ -1798,7 +1351,7 @@ int iwl_mac_add_interface(struct ieee80211_hw *hw, struct ieee80211_vif *vif)
 			continue;
 		}
 
-		if (!(possible_modes & BIT(vif->type)))
+		if (!(possible_modes & BIT(viftype)))
 			continue;
 
 		/* have maybe usable context w/o interface */
@@ -1813,36 +1366,11 @@ int iwl_mac_add_interface(struct ieee80211_hw *hw, struct ieee80211_vif *vif)
 
 	vif_priv->ctx = ctx;
 	ctx->vif = vif;
-	/*
-	 * This variable will be correct only when there's just
-	 * a single context, but all code using it is for hardware
-	 * that supports only one context.
-	 */
-	priv->iw_mode = vif->type;
 
-	ctx->is_active = true;
+	err = iwl_setup_interface(priv, ctx);
+	if (!err)
+		goto out;
 
-	err = iwl_set_mode(priv, vif);
-	if (err) {
-		if (!ctx->always_active)
-			ctx->is_active = false;
-		goto out_err;
-	}
-
-	if (priv->cfg->bt_params &&
-	    priv->cfg->bt_params->advanced_bt_coexist &&
-	    vif->type == NL80211_IFTYPE_ADHOC) {
-		/*
-		 * pretend to have high BT traffic as long as we
-		 * are operating in IBSS mode, as this will cause
-		 * the rate scaling etc. to behave as intended.
-		 */
-		priv->bt_traffic_load = IWL_BT_COEX_TRAFFIC_LOAD_HIGH;
-	}
-
-	goto out;
-
- out_err:
 	ctx->vif = NULL;
 	priv->iw_mode = NL80211_IFTYPE_STATION;
  out:
@@ -1851,7 +1379,36 @@ int iwl_mac_add_interface(struct ieee80211_hw *hw, struct ieee80211_vif *vif)
 	IWL_DEBUG_MAC80211(priv, "leave\n");
 	return err;
 }
-EXPORT_SYMBOL(iwl_mac_add_interface);
+
+static void iwl_teardown_interface(struct iwl_priv *priv,
+				   struct ieee80211_vif *vif,
+				   bool mode_change)
+{
+	struct iwl_rxon_context *ctx = iwl_rxon_ctx_from_vif(vif);
+
+	lockdep_assert_held(&priv->mutex);
+
+	if (priv->scan_vif == vif) {
+		iwl_scan_cancel_timeout(priv, 200);
+		iwl_force_scan_end(priv);
+	}
+
+	if (!mode_change) {
+		iwl_set_mode(priv, ctx);
+		if (!ctx->always_active)
+			ctx->is_active = false;
+	}
+
+	/*
+	 * When removing the IBSS interface, overwrite the
+	 * BT traffic load with the stored one from the last
+	 * notification, if any. If this is a device that
+	 * doesn't implement this, this has no effect since
+	 * both values are the same and zero.
+	 */
+	if (vif->type == NL80211_IFTYPE_ADHOC)
+		priv->bt_traffic_load = priv->last_bt_traffic_load;
+}
 
 void iwl_mac_remove_interface(struct ieee80211_hw *hw,
 			      struct ieee80211_vif *vif)
@@ -1866,228 +1423,13 @@ void iwl_mac_remove_interface(struct ieee80211_hw *hw,
 	WARN_ON(ctx->vif != vif);
 	ctx->vif = NULL;
 
-	if (priv->scan_vif == vif) {
-		iwl_scan_cancel_timeout(priv, 200);
-		iwl_force_scan_end(priv);
-	}
-	iwl_set_mode(priv, vif);
+	iwl_teardown_interface(priv, vif, false);
 
-	if (!ctx->always_active)
-		ctx->is_active = false;
-
-	/*
-	 * When removing the IBSS interface, overwrite the
-	 * BT traffic load with the stored one from the last
-	 * notification, if any. If this is a device that
-	 * doesn't implement this, this has no effect since
-	 * both values are the same and zero.
-	 */
-	if (vif->type == NL80211_IFTYPE_ADHOC)
-		priv->bt_traffic_load = priv->notif_bt_traffic_load;
-
-	memset(priv->bssid, 0, ETH_ALEN);
 	mutex_unlock(&priv->mutex);
 
 	IWL_DEBUG_MAC80211(priv, "leave\n");
 
 }
-EXPORT_SYMBOL(iwl_mac_remove_interface);
-
-/**
- * iwl_mac_config - mac80211 config callback
- */
-int iwl_mac_config(struct ieee80211_hw *hw, u32 changed)
-{
-	struct iwl_priv *priv = hw->priv;
-	const struct iwl_channel_info *ch_info;
-	struct ieee80211_conf *conf = &hw->conf;
-	struct ieee80211_channel *channel = conf->channel;
-	struct iwl_ht_config *ht_conf = &priv->current_ht_config;
-	struct iwl_rxon_context *ctx;
-	unsigned long flags = 0;
-	int ret = 0;
-	u16 ch;
-	int scan_active = 0;
-
-	mutex_lock(&priv->mutex);
-
-	IWL_DEBUG_MAC80211(priv, "enter to channel %d changed 0x%X\n",
-					channel->hw_value, changed);
-
-	if (unlikely(!priv->cfg->mod_params->disable_hw_scan &&
-			test_bit(STATUS_SCANNING, &priv->status))) {
-		scan_active = 1;
-		IWL_DEBUG_MAC80211(priv, "leave - scanning\n");
-	}
-
-	if (changed & (IEEE80211_CONF_CHANGE_SMPS |
-		       IEEE80211_CONF_CHANGE_CHANNEL)) {
-		/* mac80211 uses static for non-HT which is what we want */
-		priv->current_ht_config.smps = conf->smps_mode;
-
-		/*
-		 * Recalculate chain counts.
-		 *
-		 * If monitor mode is enabled then mac80211 will
-		 * set up the SM PS mode to OFF if an HT channel is
-		 * configured.
-		 */
-		if (priv->cfg->ops->hcmd->set_rxon_chain)
-			for_each_context(priv, ctx)
-				priv->cfg->ops->hcmd->set_rxon_chain(priv, ctx);
-	}
-
-	/* during scanning mac80211 will delay channel setting until
-	 * scan finish with changed = 0
-	 */
-	if (!changed || (changed & IEEE80211_CONF_CHANGE_CHANNEL)) {
-		if (scan_active)
-			goto set_ch_out;
-
-		ch = channel->hw_value;
-		ch_info = iwl_get_channel_info(priv, channel->band, ch);
-		if (!is_channel_valid(ch_info)) {
-			IWL_DEBUG_MAC80211(priv, "leave - invalid channel\n");
-			ret = -EINVAL;
-			goto set_ch_out;
-		}
-
-		spin_lock_irqsave(&priv->lock, flags);
-
-		for_each_context(priv, ctx) {
-			/* Configure HT40 channels */
-			ctx->ht.enabled = conf_is_ht(conf);
-			if (ctx->ht.enabled) {
-				if (conf_is_ht40_minus(conf)) {
-					ctx->ht.extension_chan_offset =
-						IEEE80211_HT_PARAM_CHA_SEC_BELOW;
-					ctx->ht.is_40mhz = true;
-				} else if (conf_is_ht40_plus(conf)) {
-					ctx->ht.extension_chan_offset =
-						IEEE80211_HT_PARAM_CHA_SEC_ABOVE;
-					ctx->ht.is_40mhz = true;
-				} else {
-					ctx->ht.extension_chan_offset =
-						IEEE80211_HT_PARAM_CHA_SEC_NONE;
-					ctx->ht.is_40mhz = false;
-				}
-			} else
-				ctx->ht.is_40mhz = false;
-
-			/*
-			 * Default to no protection. Protection mode will
-			 * later be set from BSS config in iwl_ht_conf
-			 */
-			ctx->ht.protection = IEEE80211_HT_OP_MODE_PROTECTION_NONE;
-
-			/* if we are switching from ht to 2.4 clear flags
-			 * from any ht related info since 2.4 does not
-			 * support ht */
-			if ((le16_to_cpu(ctx->staging.channel) != ch))
-				ctx->staging.flags = 0;
-
-			iwl_set_rxon_channel(priv, channel, ctx);
-			iwl_set_rxon_ht(priv, ht_conf);
-
-			iwl_set_flags_for_band(priv, ctx, channel->band,
-					       ctx->vif);
-		}
-
-		spin_unlock_irqrestore(&priv->lock, flags);
-
-		if (priv->cfg->ops->lib->update_bcast_stations)
-			ret = priv->cfg->ops->lib->update_bcast_stations(priv);
-
- set_ch_out:
-		/* The list of supported rates and rate mask can be different
-		 * for each band; since the band may have changed, reset
-		 * the rate mask to what mac80211 lists */
-		iwl_set_rate(priv);
-	}
-
-	if (changed & (IEEE80211_CONF_CHANGE_PS |
-			IEEE80211_CONF_CHANGE_IDLE)) {
-		ret = iwl_power_update_mode(priv, false);
-		if (ret)
-			IWL_DEBUG_MAC80211(priv, "Error setting sleep level\n");
-	}
-
-	if (changed & IEEE80211_CONF_CHANGE_POWER) {
-		IWL_DEBUG_MAC80211(priv, "TX Power old=%d new=%d\n",
-			priv->tx_power_user_lmt, conf->power_level);
-
-		iwl_set_tx_power(priv, conf->power_level, false);
-	}
-
-	if (!iwl_is_ready(priv)) {
-		IWL_DEBUG_MAC80211(priv, "leave - not ready\n");
-		goto out;
-	}
-
-	if (scan_active)
-		goto out;
-
-	for_each_context(priv, ctx) {
-		if (memcmp(&ctx->active, &ctx->staging, sizeof(ctx->staging)))
-			iwlcore_commit_rxon(priv, ctx);
-		else
-			IWL_DEBUG_INFO(priv,
-				"Not re-sending same RXON configuration.\n");
-	}
-
-out:
-	IWL_DEBUG_MAC80211(priv, "leave\n");
-	mutex_unlock(&priv->mutex);
-	return ret;
-}
-EXPORT_SYMBOL(iwl_mac_config);
-
-void iwl_mac_reset_tsf(struct ieee80211_hw *hw)
-{
-	struct iwl_priv *priv = hw->priv;
-	unsigned long flags;
-	/* IBSS can only be the IWL_RXON_CTX_BSS context */
-	struct iwl_rxon_context *ctx = &priv->contexts[IWL_RXON_CTX_BSS];
-
-	mutex_lock(&priv->mutex);
-	IWL_DEBUG_MAC80211(priv, "enter\n");
-
-	spin_lock_irqsave(&priv->lock, flags);
-	memset(&priv->current_ht_config, 0, sizeof(struct iwl_ht_config));
-	spin_unlock_irqrestore(&priv->lock, flags);
-
-	spin_lock_irqsave(&priv->lock, flags);
-
-	/* new association get rid of ibss beacon skb */
-	if (priv->beacon_skb)
-		dev_kfree_skb(priv->beacon_skb);
-
-	priv->beacon_skb = NULL;
-
-	priv->timestamp = 0;
-
-	spin_unlock_irqrestore(&priv->lock, flags);
-
-	iwl_scan_cancel_timeout(priv, 100);
-	if (!iwl_is_ready_rf(priv)) {
-		IWL_DEBUG_MAC80211(priv, "leave - not ready\n");
-		mutex_unlock(&priv->mutex);
-		return;
-	}
-
-	/* we are restarting association process
-	 * clear RXON_FILTER_ASSOC_MSK bit
-	 */
-	ctx->staging.filter_flags &= ~RXON_FILTER_ASSOC_MSK;
-	iwlcore_commit_rxon(priv, ctx);
-
-	iwl_set_rate(priv);
-
-	mutex_unlock(&priv->mutex);
-
-	IWL_DEBUG_MAC80211(priv, "leave\n");
-}
-EXPORT_SYMBOL(iwl_mac_reset_tsf);
 
 int iwl_alloc_txq_mem(struct iwl_priv *priv)
 {
@@ -2102,14 +1444,12 @@ int iwl_alloc_txq_mem(struct iwl_priv *priv)
 	}
 	return 0;
 }
-EXPORT_SYMBOL(iwl_alloc_txq_mem);
 
 void iwl_free_txq_mem(struct iwl_priv *priv)
 {
 	kfree(priv->txq);
 	priv->txq = NULL;
 }
-EXPORT_SYMBOL(iwl_free_txq_mem);
 
 #ifdef CONFIG_IWLWIFI_DEBUGFS
 
@@ -2148,7 +1488,6 @@ int iwl_alloc_traffic_mem(struct iwl_priv *priv)
 	iwl_reset_traffic_log(priv);
 	return 0;
 }
-EXPORT_SYMBOL(iwl_alloc_traffic_mem);
 
 void iwl_free_traffic_mem(struct iwl_priv *priv)
 {
@@ -2158,7 +1497,6 @@ void iwl_free_traffic_mem(struct iwl_priv *priv)
 	kfree(priv->rx_traffic);
 	priv->rx_traffic = NULL;
 }
-EXPORT_SYMBOL(iwl_free_traffic_mem);
 
 void iwl_dbg_log_tx_data_frame(struct iwl_priv *priv,
 		      u16 length, struct ieee80211_hdr *header)
@@ -2183,7 +1521,6 @@ void iwl_dbg_log_tx_data_frame(struct iwl_priv *priv,
 			(priv->tx_traffic_idx + 1) % IWL_TRAFFIC_ENTRIES;
 	}
 }
-EXPORT_SYMBOL(iwl_dbg_log_tx_data_frame);
 
 void iwl_dbg_log_rx_data_frame(struct iwl_priv *priv,
 		      u16 length, struct ieee80211_hdr *header)
@@ -2208,7 +1545,6 @@ void iwl_dbg_log_rx_data_frame(struct iwl_priv *priv,
 			(priv->rx_traffic_idx + 1) % IWL_TRAFFIC_ENTRIES;
 	}
 }
-EXPORT_SYMBOL(iwl_dbg_log_rx_data_frame);
 
 const char *get_mgmt_string(int cmd)
 {
@@ -2252,7 +1588,6 @@ void iwl_clear_traffic_stats(struct iwl_priv *priv)
 {
 	memset(&priv->tx_stats, 0, sizeof(struct traffic_stats));
 	memset(&priv->rx_stats, 0, sizeof(struct traffic_stats));
-	priv->led_tpt = 0;
 }
 
 /*
@@ -2345,9 +1680,7 @@ void iwl_update_stats(struct iwl_priv *priv, bool is_tx, __le16 fc, u16 len)
 		stats->data_cnt++;
 		stats->data_bytes += len;
 	}
-	iwl_leds_background(priv);
 }
-EXPORT_SYMBOL(iwl_update_stats);
 #endif
 
 static void iwl_force_rf_reset(struct iwl_priv *priv)
@@ -2411,95 +1744,148 @@ int iwl_force_reset(struct iwl_priv *priv, int mode, bool external)
 		 * detect failure), then fw_restart module parameter
 		 * need to be check before performing firmware reload
 		 */
-		if (!external && !priv->cfg->mod_params->restart_fw) {
+		if (!external && !iwlagn_mod_params.restart_fw) {
 			IWL_DEBUG_INFO(priv, "Cancel firmware reload based on "
 				       "module parameter setting\n");
 			break;
 		}
 		IWL_ERR(priv, "On demand firmware reload\n");
-		/* Set the FW error flag -- cleared on iwl_down */
-		set_bit(STATUS_FW_ERROR, &priv->status);
-		wake_up_interruptible(&priv->wait_command_queue);
-		/*
-		 * Keep the restart process from trying to send host
-		 * commands by clearing the INIT status bit
-		 */
-		clear_bit(STATUS_READY, &priv->status);
-		queue_work(priv->workqueue, &priv->restart);
+		iwlagn_fw_error(priv, true);
 		break;
 	}
 	return 0;
 }
 
-/**
- * iwl_bg_monitor_recover - Timer callback to check for stuck queue and recover
- *
- * During normal condition (no queue is stuck), the timer is continually set to
- * execute every monitor_recover_period milliseconds after the last timer
- * expired.  When the queue read_ptr is at the same place, the timer is
- * shorten to 100mSecs.  This is
- *      1) to reduce the chance that the read_ptr may wrap around (not stuck)
- *      2) to detect the stuck queues quicker before the station and AP can
- *      disassociate each other.
- *
- * This function monitors all the tx queues and recover from it if any
- * of the queues are stuck.
- * 1. It first check the cmd queue for stuck conditions.  If it is stuck,
- *      it will recover by resetting the firmware and return.
- * 2. Then, it checks for station association.  If it associates it will check
- *      other queues.  If any queue is stuck, it will recover by resetting
- *      the firmware.
- * Note: It the number of times the queue read_ptr to be at the same place to
- *      be MAX_REPEAT+1 in order to consider to be stuck.
- */
+int iwl_mac_change_interface(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
+			     enum nl80211_iftype newtype, bool newp2p)
+{
+	struct iwl_priv *priv = hw->priv;
+	struct iwl_rxon_context *ctx = iwl_rxon_ctx_from_vif(vif);
+	struct iwl_rxon_context *bss_ctx = &priv->contexts[IWL_RXON_CTX_BSS];
+	struct iwl_rxon_context *tmp;
+	u32 interface_modes;
+	int err;
+
+	newtype = ieee80211_iftype_p2p(newtype, newp2p);
+
+	mutex_lock(&priv->mutex);
+
+	if (!ctx->vif || !iwl_is_ready_rf(priv)) {
+		/*
+		 * Huh? But wait ... this can maybe happen when
+		 * we're in the middle of a firmware restart!
+		 */
+		err = -EBUSY;
+		goto out;
+	}
+
+	interface_modes = ctx->interface_modes | ctx->exclusive_interface_modes;
+
+	if (!(interface_modes & BIT(newtype))) {
+		err = -EBUSY;
+		goto out;
+	}
+
+	/*
+	 * Refuse a change that should be done by moving from the PAN
+	 * context to the BSS context instead, if the BSS context is
+	 * available and can support the new interface type.
+	 */
+	if (ctx->ctxid == IWL_RXON_CTX_PAN && !bss_ctx->vif &&
+	    (bss_ctx->interface_modes & BIT(newtype) ||
+	     bss_ctx->exclusive_interface_modes & BIT(newtype))) {
+		BUILD_BUG_ON(NUM_IWL_RXON_CTX != 2);
+		err = -EBUSY;
+		goto out;
+	}
+
+	if (ctx->exclusive_interface_modes & BIT(newtype)) {
+		for_each_context(priv, tmp) {
+			if (ctx == tmp)
+				continue;
+
+			if (!tmp->vif)
+				continue;
+
+			/*
+			 * The current mode switch would be exclusive, but
+			 * another context is active ... refuse the switch.
+			 */
+			err = -EBUSY;
+			goto out;
+		}
+	}
+
+	/* success */
+	iwl_teardown_interface(priv, vif, true);
+	vif->type = newtype;
+	vif->p2p = newp2p;
+	err = iwl_setup_interface(priv, ctx);
+	WARN_ON(err);
+	/*
+	 * We've switched internally, but submitting to the
+	 * device may have failed for some reason. Mask this
+	 * error, because otherwise mac80211 will not switch
+	 * (and set the interface type back) and we'll be
+	 * out of sync with it.
+	 */
+	err = 0;
+
+ out:
+	mutex_unlock(&priv->mutex);
+	return err;
+}
+
 /*
- * The maximum number of times the read pointer of the tx queue at the
- * same place without considering to be stuck.
+ * On every watchdog tick we check (latest) time stamp. If it does not
+ * change during timeout period and queue is not empty we reset firmware.
  */
-#define MAX_REPEAT      (2)
 static int iwl_check_stuck_queue(struct iwl_priv *priv, int cnt)
 {
-	struct iwl_tx_queue *txq;
-	struct iwl_queue *q;
+	struct iwl_tx_queue *txq = &priv->txq[cnt];
+	struct iwl_queue *q = &txq->q;
+	unsigned long timeout;
+	int ret;
 
-	txq = &priv->txq[cnt];
-	q = &txq->q;
-	/* queue is empty, skip */
-	if (q->read_ptr == q->write_ptr)
+	if (q->read_ptr == q->write_ptr) {
+		txq->time_stamp = jiffies;
 		return 0;
-
-	if (q->read_ptr == q->last_read_ptr) {
-		/* a queue has not been read from last time */
-		if (q->repeat_same_read_ptr > MAX_REPEAT) {
-			IWL_ERR(priv,
-				"queue %d stuck %d time. Fw reload.\n",
-				q->id, q->repeat_same_read_ptr);
-			q->repeat_same_read_ptr = 0;
-			iwl_force_reset(priv, IWL_FW_RESET, false);
-		} else {
-			q->repeat_same_read_ptr++;
-			IWL_DEBUG_RADIO(priv,
-					"queue %d, not read %d time\n",
-					q->id,
-					q->repeat_same_read_ptr);
-			mod_timer(&priv->monitor_recover,
-				jiffies + msecs_to_jiffies(
-				IWL_ONE_HUNDRED_MSECS));
-			return 1;
-		}
-	} else {
-		q->last_read_ptr = q->read_ptr;
-		q->repeat_same_read_ptr = 0;
 	}
+
+	timeout = txq->time_stamp +
+		  msecs_to_jiffies(priv->cfg->base_params->wd_timeout);
+
+	if (time_after(jiffies, timeout)) {
+		IWL_ERR(priv, "Queue %d stuck for %u ms.\n",
+				q->id, priv->cfg->base_params->wd_timeout);
+		ret = iwl_force_reset(priv, IWL_FW_RESET, false);
+		return (ret == -EAGAIN) ? 0 : 1;
+	}
+
 	return 0;
 }
 
-void iwl_bg_monitor_recover(unsigned long data)
+/*
+ * Making watchdog tick be a quarter of timeout assure we will
+ * discover the queue hung between timeout and 1.25*timeout
+ */
+#define IWL_WD_TICK(timeout) ((timeout) / 4)
+
+/*
+ * Watchdog timer callback, we check each tx queue for stuck, if if hung
+ * we reset the firmware. If everything is fine just rearm the timer.
+ */
+void iwl_bg_watchdog(unsigned long data)
 {
 	struct iwl_priv *priv = (struct iwl_priv *)data;
 	int cnt;
+	unsigned long timeout;
 
 	if (test_bit(STATUS_EXIT_PENDING, &priv->status))
+		return;
+
+	timeout = priv->cfg->base_params->wd_timeout;
+	if (timeout == 0)
 		return;
 
 	/* monitor and check for stuck cmd queue */
@@ -2516,17 +1902,21 @@ void iwl_bg_monitor_recover(unsigned long data)
 				return;
 		}
 	}
-	if (priv->cfg->base_params->monitor_recover_period) {
-		/*
-		 * Reschedule the timer to occur in
-		 * priv->cfg->base_params->monitor_recover_period
-		 */
-		mod_timer(&priv->monitor_recover, jiffies + msecs_to_jiffies(
-			  priv->cfg->base_params->monitor_recover_period));
-	}
-}
-EXPORT_SYMBOL(iwl_bg_monitor_recover);
 
+	mod_timer(&priv->watchdog, jiffies +
+		  msecs_to_jiffies(IWL_WD_TICK(timeout)));
+}
+
+void iwl_setup_watchdog(struct iwl_priv *priv)
+{
+	unsigned int timeout = priv->cfg->base_params->wd_timeout;
+
+	if (timeout)
+		mod_timer(&priv->watchdog,
+			  jiffies + msecs_to_jiffies(IWL_WD_TICK(timeout)));
+	else
+		del_timer(&priv->watchdog);
+}
 
 /*
  * extended beacon time format
@@ -2552,7 +1942,6 @@ u32 iwl_usecs_to_beacons(struct iwl_priv *priv, u32 usec, u32 beacon_interval)
 
 	return (quot << priv->hw_params.beacon_time_tsf_bits) + rem;
 }
-EXPORT_SYMBOL(iwl_usecs_to_beacons);
 
 /* base is usually what we get from ucode with each received frame,
  * the same as HW timer counter counting down
@@ -2580,12 +1969,12 @@ __le32 iwl_add_beacon_time(struct iwl_priv *priv, u32 base,
 
 	return cpu_to_le32(res);
 }
-EXPORT_SYMBOL(iwl_add_beacon_time);
 
 #ifdef CONFIG_PM
 
-int iwl_pci_suspend(struct pci_dev *pdev, pm_message_t state)
+int iwl_pci_suspend(struct device *device)
 {
+	struct pci_dev *pdev = to_pci_dev(device);
 	struct iwl_priv *priv = pci_get_drvdata(pdev);
 
 	/*
@@ -2597,18 +1986,13 @@ int iwl_pci_suspend(struct pci_dev *pdev, pm_message_t state)
 	 */
 	iwl_apm_stop(priv);
 
-	pci_save_state(pdev);
-	pci_disable_device(pdev);
-	pci_set_power_state(pdev, PCI_D3hot);
-
 	return 0;
 }
-EXPORT_SYMBOL(iwl_pci_suspend);
 
-int iwl_pci_resume(struct pci_dev *pdev)
+int iwl_pci_resume(struct device *device)
 {
+	struct pci_dev *pdev = to_pci_dev(device);
 	struct iwl_priv *priv = pci_get_drvdata(pdev);
-	int ret;
 	bool hw_rfkill = false;
 
 	/*
@@ -2617,11 +2001,6 @@ int iwl_pci_resume(struct pci_dev *pdev)
 	 */
 	pci_write_config_byte(pdev, PCI_CFG_RETRY_TIMEOUT, 0x00);
 
-	pci_set_power_state(pdev, PCI_D0);
-	ret = pci_enable_device(pdev);
-	if (ret)
-		return ret;
-	pci_restore_state(pdev);
 	iwl_enable_interrupts(priv);
 
 	if (!(iwl_read32(priv, CSR_GP_CNTRL) &
@@ -2637,6 +2016,14 @@ int iwl_pci_resume(struct pci_dev *pdev)
 
 	return 0;
 }
-EXPORT_SYMBOL(iwl_pci_resume);
+
+const struct dev_pm_ops iwl_pm_ops = {
+	.suspend = iwl_pci_suspend,
+	.resume = iwl_pci_resume,
+	.freeze = iwl_pci_suspend,
+	.thaw = iwl_pci_resume,
+	.poweroff = iwl_pci_suspend,
+	.restore = iwl_pci_resume,
+};
 
 #endif /* CONFIG_PM */

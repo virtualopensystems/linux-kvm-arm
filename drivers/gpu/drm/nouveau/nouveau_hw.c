@@ -900,6 +900,7 @@ nv_save_state_ext(struct drm_device *dev, int head,
 	}
 	/* NV11 and NV20 don't have this, they stop at 0x52. */
 	if (nv_gf4_disp_arch(dev)) {
+		rd_cio_state(dev, head, regp, NV_CIO_CRE_42);
 		rd_cio_state(dev, head, regp, NV_CIO_CRE_53);
 		rd_cio_state(dev, head, regp, NV_CIO_CRE_54);
 
@@ -953,7 +954,7 @@ nv_load_state_ext(struct drm_device *dev, int head,
 			NVWriteCRTC(dev, head, NV_PCRTC_850, regp->crtc_850);
 
 			reg900 = NVReadRAMDAC(dev, head, NV_PRAMDAC_900);
-			if (regp->crtc_cfg == NV_PCRTC_CONFIG_START_ADDRESS_HSYNC)
+			if (regp->crtc_cfg == NV10_PCRTC_CONFIG_START_ADDRESS_HSYNC)
 				NVWriteRAMDAC(dev, head, NV_PRAMDAC_900, reg900 | 0x10000);
 			else
 				NVWriteRAMDAC(dev, head, NV_PRAMDAC_900, reg900 & ~0x10000);
@@ -999,10 +1000,11 @@ nv_load_state_ext(struct drm_device *dev, int head,
 		if (dev_priv->card_type == NV_10) {
 			/* Not waiting for vertical retrace before modifying
 			   CRE_53/CRE_54 causes lockups. */
-			nouveau_wait_until(dev, 650000000, NV_PRMCIO_INP0__COLOR, 0x8, 0x8);
-			nouveau_wait_until(dev, 650000000, NV_PRMCIO_INP0__COLOR, 0x8, 0x0);
+			nouveau_wait_eq(dev, 650000000, NV_PRMCIO_INP0__COLOR, 0x8, 0x8);
+			nouveau_wait_eq(dev, 650000000, NV_PRMCIO_INP0__COLOR, 0x8, 0x0);
 		}
 
+		wr_cio_state(dev, head, regp, NV_CIO_CRE_42);
 		wr_cio_state(dev, head, regp, NV_CIO_CRE_53);
 		wr_cio_state(dev, head, regp, NV_CIO_CRE_54);
 
@@ -1017,8 +1019,9 @@ nv_load_state_ext(struct drm_device *dev, int head,
 
 	NVWriteCRTC(dev, head, NV_PCRTC_START, regp->fb_start);
 
-	/* Setting 1 on this value gives you interrupts for every vblank period. */
-	NVWriteCRTC(dev, head, NV_PCRTC_INTR_EN_0, 0);
+	/* Enable vblank interrupts. */
+	NVWriteCRTC(dev, head, NV_PCRTC_INTR_EN_0,
+		    (dev->vblank_enabled[head] ? 1 : 0));
 	NVWriteCRTC(dev, head, NV_PCRTC_INTR_0, NV_PCRTC_INTR_0_VBLANK);
 }
 

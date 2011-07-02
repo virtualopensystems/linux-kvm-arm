@@ -40,9 +40,10 @@
 
 /* MAS registers bit definitions */
 
-#define MAS0_TLBSEL(x)		((x << 28) & 0x30000000)
-#define MAS0_ESEL(x)		((x << 16) & 0x0FFF0000)
+#define MAS0_TLBSEL(x)		(((x) << 28) & 0x30000000)
+#define MAS0_ESEL(x)		(((x) << 16) & 0x0FFF0000)
 #define MAS0_NV(x)		((x) & 0x00000FFF)
+#define MAS0_ESEL_MASK		0x0FFF0000
 #define MAS0_HES		0x00004000
 #define MAS0_WQ_ALLWAYS		0x00000000
 #define MAS0_WQ_COND		0x00001000
@@ -50,12 +51,12 @@
 
 #define MAS1_VALID		0x80000000
 #define MAS1_IPROT		0x40000000
-#define MAS1_TID(x)		((x << 16) & 0x3FFF0000)
+#define MAS1_TID(x)		(((x) << 16) & 0x3FFF0000)
 #define MAS1_IND		0x00002000
 #define MAS1_TS			0x00001000
 #define MAS1_TSIZE_MASK		0x00000f80
 #define MAS1_TSIZE_SHIFT	7
-#define MAS1_TSIZE(x)		((x << MAS1_TSIZE_SHIFT) & MAS1_TSIZE_MASK)
+#define MAS1_TSIZE(x)		(((x) << MAS1_TSIZE_SHIFT) & MAS1_TSIZE_MASK)
 
 #define MAS2_EPN		0xFFFFF000
 #define MAS2_X0			0x00000040
@@ -136,6 +137,21 @@
 #define MMUCSR0_TLB1PS	0x00007800	/* TLB1 Page Size */
 #define MMUCSR0_TLB2PS	0x00078000	/* TLB2 Page Size */
 #define MMUCSR0_TLB3PS	0x00780000	/* TLB3 Page Size */
+
+/* MMUCFG bits */
+#define MMUCFG_MAVN_NASK	0x00000003
+#define MMUCFG_MAVN_V1_0	0x00000000
+#define MMUCFG_MAVN_V2_0	0x00000001
+#define MMUCFG_NTLB_MASK	0x0000000c
+#define MMUCFG_NTLB_SHIFT	2
+#define MMUCFG_PIDSIZE_MASK	0x000007c0
+#define MMUCFG_PIDSIZE_SHIFT	6
+#define MMUCFG_TWC		0x00008000
+#define MMUCFG_LRAT		0x00010000
+#define MMUCFG_RASIZE_MASK	0x00fe0000
+#define MMUCFG_RASIZE_SHIFT	17
+#define MMUCFG_LPIDSIZE_MASK	0x0f000000
+#define MMUCFG_LPIDSIZE_SHIFT	24
 
 /* TLBnCFG encoding */
 #define TLBnCFG_N_ENTRY		0x00000fff	/* number of entries */
@@ -228,6 +244,10 @@ extern struct mmu_psize_def mmu_psize_defs[MMU_PAGE_COUNT];
 
 extern int mmu_linear_psize;
 extern int mmu_vmemmap_psize;
+
+#ifdef CONFIG_PPC64
+extern unsigned long linear_map_top;
+#endif
 
 #endif /* !__ASSEMBLY__ */
 

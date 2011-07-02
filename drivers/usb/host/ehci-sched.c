@@ -471,8 +471,10 @@ static int enable_periodic (struct ehci_hcd *ehci)
 	 */
 	status = handshake_on_error_set_halt(ehci, &ehci->regs->status,
 					     STS_PSS, 0, 9 * 125);
-	if (status)
+	if (status) {
+		usb_hc_died(ehci_to_hcd(ehci));
 		return status;
+	}
 
 	cmd = ehci_readl(ehci, &ehci->regs->command) | CMD_PSE;
 	ehci_writel(ehci, cmd, &ehci->regs->command);
@@ -510,8 +512,10 @@ static int disable_periodic (struct ehci_hcd *ehci)
 	 */
 	status = handshake_on_error_set_halt(ehci, &ehci->regs->status,
 					     STS_PSS, STS_PSS, 9 * 125);
-	if (status)
+	if (status) {
+		usb_hc_died(ehci_to_hcd(ehci));
 		return status;
+	}
 
 	cmd = ehci_readl(ehci, &ehci->regs->command) & ~CMD_PSE;
 	ehci_writel(ehci, cmd, &ehci->regs->command);
@@ -1048,8 +1052,6 @@ iso_stream_put(struct ehci_hcd *ehci, struct ehci_iso_stream *stream)
 	 * not like a QH -- no persistent state (toggle, halt)
 	 */
 	if (stream->refcount == 1) {
-		int		is_in;
-
 		// BUG_ON (!list_empty(&stream->td_list));
 
 		while (!list_empty (&stream->free_list)) {
@@ -1076,7 +1078,6 @@ iso_stream_put(struct ehci_hcd *ehci, struct ehci_iso_stream *stream)
 			}
 		}
 
-		is_in = (stream->bEndpointAddress & USB_DIR_IN) ? 0x10 : 0;
 		stream->bEndpointAddress &= 0x0f;
 		if (stream->ep)
 			stream->ep->hcpriv = NULL;
@@ -1616,6 +1617,12 @@ itd_link_urb (
 			urb->interval,
 			next_uframe >> 3, next_uframe & 0x7);
 	}
+
+	if (ehci_to_hcd(ehci)->self.bandwidth_isoc_reqs == 0) {
+		if (ehci->amd_pll_fix == 1)
+			usb_amd_quirk_pll_disable();
+	}
+
 	ehci_to_hcd(ehci)->self.bandwidth_isoc_reqs++;
 
 	/* fill iTDs uframe by uframe */
@@ -1739,6 +1746,11 @@ itd_complete (
 	urb = NULL;
 	(void) disable_periodic(ehci);
 	ehci_to_hcd(ehci)->self.bandwidth_isoc_reqs--;
+
+	if (ehci_to_hcd(ehci)->self.bandwidth_isoc_reqs == 0) {
+		if (ehci->amd_pll_fix == 1)
+			usb_amd_quirk_pll_enable();
+	}
 
 	if (unlikely(list_is_singular(&stream->td_list))) {
 		ehci_to_hcd(ehci)->self.bandwidth_allocated
@@ -2025,6 +2037,12 @@ sitd_link_urb (
 			(next_uframe >> 3) & (ehci->periodic_size - 1),
 			stream->interval, hc32_to_cpu(ehci, stream->splits));
 	}
+
+	if (ehci_to_hcd(ehci)->self.bandwidth_isoc_reqs == 0) {
+		if (ehci->amd_pll_fix == 1)
+			usb_amd_quirk_pll_disable();
+	}
+
 	ehci_to_hcd(ehci)->self.bandwidth_isoc_reqs++;
 
 	/* fill sITDs frame by frame */
@@ -2124,6 +2142,11 @@ sitd_complete (
 	urb = NULL;
 	(void) disable_periodic(ehci);
 	ehci_to_hcd(ehci)->self.bandwidth_isoc_reqs--;
+
+	if (ehci_to_hcd(ehci)->self.bandwidth_isoc_reqs == 0) {
+		if (ehci->amd_pll_fix == 1)
+			usb_amd_quirk_pll_enable();
+	}
 
 	if (list_is_singular(&stream->td_list)) {
 		ehci_to_hcd(ehci)->self.bandwidth_allocated
@@ -2268,6 +2291,7 @@ scan_periodic (struct ehci_hcd *ehci)
 	}
 	clock &= mod - 1;
 	clock_frame = clock >> 3;
+	++ehci->periodic_stamp;
 
 	for (;;) {
 		union ehci_shadow	q, *q_p;
@@ -2296,10 +2320,14 @@ restart:
 				temp.qh = qh_get (q.qh);
 				type = Q_NEXT_TYPE(ehci, q.qh->hw->hw_next);
 				q = q.qh->qh_next;
-				modified = qh_completions (ehci, temp.qh);
-				if (unlikely(list_empty(&temp.qh->qtd_list) ||
-						temp.qh->needs_rescan))
-					intr_deschedule (ehci, temp.qh);
+				if (temp.qh->stamp != ehci->periodic_stamp) {
+					modified = qh_completions(ehci, temp.qh);
+					if (!modified)
+						temp.qh->stamp = ehci->periodic_stamp;
+					if (unlikely(list_empty(&temp.qh->qtd_list) ||
+							temp.qh->needs_rescan))
+						intr_deschedule(ehci, temp.qh);
+				}
 				qh_put (temp.qh);
 				break;
 			case Q_TYPE_FSTN:
@@ -2441,6 +2469,7 @@ restart:
 			if (ehci->clock_frame != clock_frame) {
 				free_cached_lists(ehci);
 				ehci->clock_frame = clock_frame;
+				++ehci->periodic_stamp;
 			}
 		} else {
 			now_uframe++;

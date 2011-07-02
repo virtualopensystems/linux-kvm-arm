@@ -33,6 +33,7 @@
 #include <linux/usb/ulpi.h>
 #include <linux/usb/ch9.h>
 #include <linux/usb/gadget.h>
+#include <linux/power/isp1704_charger.h>
 
 /* Vendor specific Power Control register */
 #define ISP1704_PWR_CTRL		0x3d
@@ -59,9 +60,71 @@ struct isp1704_charger {
 	struct notifier_block	nb;
 	struct work_struct	work;
 
-	char			model[7];
+	/* properties */
+	char			model[8];
 	unsigned		present:1;
+	unsigned		online:1;
+	unsigned		current_max;
+
+	/* temp storage variables */
+	unsigned long		event;
+	unsigned		max_power;
 };
+
+/*
+ * Disable/enable the power from the isp1704 if a function for it
+ * has been provided with platform data.
+ */
+static void isp1704_charger_set_power(struct isp1704_charger *isp, bool on)
+{
+	struct isp1704_charger_data	*board = isp->dev->platform_data;
+
+	if (board->set_power)
+		board->set_power(on);
+}
+
+/*
+ * Determine is the charging port DCP (dedicated charger) or CDP (Host/HUB
+ * chargers).
+ *
+ * REVISIT: The method is defined in Battery Charging Specification and is
+ * applicable to any ULPI transceiver. Nothing isp170x specific here.
+ */
+static inline int isp1704_charger_type(struct isp1704_charger *isp)
+{
+	u8 reg;
+	u8 func_ctrl;
+	u8 otg_ctrl;
+	int type = POWER_SUPPLY_TYPE_USB_DCP;
+
+	func_ctrl = otg_io_read(isp->otg, ULPI_FUNC_CTRL);
+	otg_ctrl = otg_io_read(isp->otg, ULPI_OTG_CTRL);
+
+	/* disable pulldowns */
+	reg = ULPI_OTG_CTRL_DM_PULLDOWN | ULPI_OTG_CTRL_DP_PULLDOWN;
+	otg_io_write(isp->otg, ULPI_CLR(ULPI_OTG_CTRL), reg);
+
+	/* full speed */
+	otg_io_write(isp->otg, ULPI_CLR(ULPI_FUNC_CTRL),
+			ULPI_FUNC_CTRL_XCVRSEL_MASK);
+	otg_io_write(isp->otg, ULPI_SET(ULPI_FUNC_CTRL),
+			ULPI_FUNC_CTRL_FULL_SPEED);
+
+	/* Enable strong pull-up on DP (1.5K) and reset */
+	reg = ULPI_FUNC_CTRL_TERMSELECT | ULPI_FUNC_CTRL_RESET;
+	otg_io_write(isp->otg, ULPI_SET(ULPI_FUNC_CTRL), reg);
+	usleep_range(1000, 2000);
+
+	reg = otg_io_read(isp->otg, ULPI_DEBUG);
+	if ((reg & 3) != 3)
+		type = POWER_SUPPLY_TYPE_USB_CDP;
+
+	/* recover original state */
+	otg_io_write(isp->otg, ULPI_FUNC_CTRL, func_ctrl);
+	otg_io_write(isp->otg, ULPI_OTG_CTRL, otg_ctrl);
+
+	return type;
+}
 
 /*
  * ISP1704 detects PS/2 adapters as charger. To make sure the detected charger
@@ -127,16 +190,19 @@ static inline int isp1704_charger_verify(struct isp1704_charger *isp)
 static inline int isp1704_charger_detect(struct isp1704_charger *isp)
 {
 	unsigned long	timeout;
-	u8		r;
+	u8		pwr_ctrl;
 	int		ret = 0;
+
+	pwr_ctrl = otg_io_read(isp->otg, ISP1704_PWR_CTRL);
 
 	/* set SW control bit in PWR_CTRL register */
 	otg_io_write(isp->otg, ISP1704_PWR_CTRL,
 			ISP1704_PWR_CTRL_SWCTRL);
 
 	/* enable manual charger detection */
-	r = (ISP1704_PWR_CTRL_SWCTRL | ISP1704_PWR_CTRL_DPVSRC_EN);
-	otg_io_write(isp->otg, ULPI_SET(ISP1704_PWR_CTRL), r);
+	otg_io_write(isp->otg, ULPI_SET(ISP1704_PWR_CTRL),
+			ISP1704_PWR_CTRL_SWCTRL
+			| ISP1704_PWR_CTRL_DPVSRC_EN);
 	usleep_range(1000, 2000);
 
 	timeout = jiffies + msecs_to_jiffies(300);
@@ -147,7 +213,10 @@ static inline int isp1704_charger_detect(struct isp1704_charger *isp)
 			ret = isp1704_charger_verify(isp);
 			break;
 		}
-	} while (!time_after(jiffies, timeout));
+	} while (!time_after(jiffies, timeout) && isp->online);
+
+	/* recover original state */
+	otg_io_write(isp->otg, ISP1704_PWR_CTRL, pwr_ctrl);
 
 	return ret;
 }
@@ -155,52 +224,97 @@ static inline int isp1704_charger_detect(struct isp1704_charger *isp)
 static void isp1704_charger_work(struct work_struct *data)
 {
 	int			detect;
+	unsigned long		event;
+	unsigned		power;
 	struct isp1704_charger	*isp =
 		container_of(data, struct isp1704_charger, work);
+	static DEFINE_MUTEX(lock);
 
-	/*
-	 * FIXME Only supporting dedicated chargers even though isp1704 can
-	 * detect HUB and HOST chargers. If the device has already been
-	 * enumerated, the detection will break the connection.
-	 */
-	if (isp->otg->state != OTG_STATE_B_IDLE)
-		return;
+	event = isp->event;
+	power = isp->max_power;
 
-	/* disable data pullups */
-	if (isp->otg->gadget)
-		usb_gadget_disconnect(isp->otg->gadget);
+	mutex_lock(&lock);
 
-	/* detect charger */
-	detect = isp1704_charger_detect(isp);
-	if (detect) {
-		isp->present = detect;
-		power_supply_changed(&isp->psy);
+	if (event != USB_EVENT_NONE)
+		isp1704_charger_set_power(isp, 1);
+
+	switch (event) {
+	case USB_EVENT_VBUS:
+		isp->online = true;
+
+		/* detect charger */
+		detect = isp1704_charger_detect(isp);
+
+		if (detect) {
+			isp->present = detect;
+			isp->psy.type = isp1704_charger_type(isp);
+		}
+
+		switch (isp->psy.type) {
+		case POWER_SUPPLY_TYPE_USB_DCP:
+			isp->current_max = 1800;
+			break;
+		case POWER_SUPPLY_TYPE_USB_CDP:
+			/*
+			 * Only 500mA here or high speed chirp
+			 * handshaking may break
+			 */
+			isp->current_max = 500;
+			/* FALLTHROUGH */
+		case POWER_SUPPLY_TYPE_USB:
+		default:
+			/* enable data pullups */
+			if (isp->otg->gadget)
+				usb_gadget_connect(isp->otg->gadget);
+		}
+		break;
+	case USB_EVENT_NONE:
+		isp->online = false;
+		isp->current_max = 0;
+		isp->present = 0;
+		isp->current_max = 0;
+		isp->psy.type = POWER_SUPPLY_TYPE_USB;
+
+		/*
+		 * Disable data pullups. We need to prevent the controller from
+		 * enumerating.
+		 *
+		 * FIXME: This is here to allow charger detection with Host/HUB
+		 * chargers. The pullups may be enabled elsewhere, so this can
+		 * not be the final solution.
+		 */
+		if (isp->otg->gadget)
+			usb_gadget_disconnect(isp->otg->gadget);
+
+		isp1704_charger_set_power(isp, 0);
+		break;
+	case USB_EVENT_ENUMERATED:
+		if (isp->present)
+			isp->current_max = 1800;
+		else
+			isp->current_max = power;
+		break;
+	default:
+		goto out;
 	}
 
-	/* enable data pullups */
-	if (isp->otg->gadget)
-		usb_gadget_connect(isp->otg->gadget);
+	power_supply_changed(&isp->psy);
+out:
+	mutex_unlock(&lock);
 }
 
 static int isp1704_notifier_call(struct notifier_block *nb,
-		unsigned long event, void *unused)
+		unsigned long event, void *power)
 {
 	struct isp1704_charger *isp =
 		container_of(nb, struct isp1704_charger, nb);
 
-	switch (event) {
-	case USB_EVENT_VBUS:
-		schedule_work(&isp->work);
-		break;
-	case USB_EVENT_NONE:
-		if (isp->present) {
-			isp->present = 0;
-			power_supply_changed(&isp->psy);
-		}
-		break;
-	default:
-		return NOTIFY_DONE;
-	}
+	isp->event = event;
+
+	if (power)
+		isp->max_power = *((unsigned *)power);
+
+	schedule_work(&isp->work);
 
 	return NOTIFY_OK;
 }
@@ -216,6 +330,12 @@ static int isp1704_charger_get_property(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_PRESENT:
 		val->intval = isp->present;
 		break;
+	case POWER_SUPPLY_PROP_ONLINE:
+		val->intval = isp->online;
+		break;
+	case POWER_SUPPLY_PROP_CURRENT_MAX:
+		val->intval = isp->current_max;
+		break;
 	case POWER_SUPPLY_PROP_MODEL_NAME:
 		val->strval = isp->model;
 		break;
@@ -230,6 +350,8 @@ static int isp1704_charger_get_property(struct power_supply *psy,
 
 static enum power_supply_property power_props[] = {
 	POWER_SUPPLY_PROP_PRESENT,
+	POWER_SUPPLY_PROP_ONLINE,
+	POWER_SUPPLY_PROP_CURRENT_MAX,
 	POWER_SUPPLY_PROP_MODEL_NAME,
 	POWER_SUPPLY_PROP_MANUFACTURER,
 };
@@ -287,12 +409,14 @@ static int __devinit isp1704_charger_probe(struct platform_device *pdev)
 	if (!isp->otg)
 		goto fail0;
 
+	isp->dev = &pdev->dev;
+	platform_set_drvdata(pdev, isp);
+
+	isp1704_charger_set_power(isp, 1);
+
 	ret = isp1704_test_ulpi(isp);
 	if (ret < 0)
 		goto fail1;
-
-	isp->dev = &pdev->dev;
-	platform_set_drvdata(pdev, isp);
 
 	isp->psy.name		= "isp1704";
 	isp->psy.type		= POWER_SUPPLY_TYPE_USB;
@@ -318,6 +442,24 @@ static int __devinit isp1704_charger_probe(struct platform_device *pdev)
 
 	dev_info(isp->dev, "registered with product id %s\n", isp->model);
 
+	/*
+	 * Taking over the D+ pullup.
+	 *
+	 * FIXME: The device will be disconnected if it was already
+	 * enumerated. The charger driver should be always loaded before any
+	 * gadget is loaded.
+	 */
+	if (isp->otg->gadget)
+		usb_gadget_disconnect(isp->otg->gadget);
+
+	/* Detect charger if VBUS is valid (the cable was already plugged). */
+	ret = otg_io_read(isp->otg, ULPI_USB_INT_STS);
+	isp1704_charger_set_power(isp, 0);
+	if ((ret & ULPI_INT_VBUS_VALID) && !isp->otg->default_a) {
+		isp->event = USB_EVENT_VBUS;
+		schedule_work(&isp->work);
+	}
+
 	return 0;
 fail2:
 	power_supply_unregister(&isp->psy);
@@ -338,6 +480,7 @@ static int __devexit isp1704_charger_remove(struct platform_device *pdev)
 	otg_unregister_notifier(isp->otg, &isp->nb);
 	power_supply_unregister(&isp->psy);
 	otg_put_transceiver(isp->otg);
+	isp1704_charger_set_power(isp, 0);
 	kfree(isp);
 
 	return 0;

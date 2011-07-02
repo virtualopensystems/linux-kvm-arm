@@ -312,23 +312,6 @@ out_fail:
 	return -EINVAL;
 }
 
-static int hdmi_eld_valid(struct hda_codec *codec, hda_nid_t nid)
-{
-	int eldv;
-	int present;
-
-	present = snd_hda_pin_sense(codec, nid);
-	eldv    = (present & AC_PINSENSE_ELDV);
-	present = (present & AC_PINSENSE_PRESENCE);
-
-#ifdef CONFIG_SND_DEBUG_VERBOSE
-	printk(KERN_INFO "HDMI: sink_present = %d, eld_valid = %d\n",
-			!!present, !!eldv);
-#endif
-
-	return eldv && present;
-}
-
 int snd_hdmi_get_eld_size(struct hda_codec *codec, hda_nid_t nid)
 {
 	return snd_hda_codec_read(codec, nid, 0, AC_VERB_GET_HDMI_DIP_SIZE,
@@ -343,7 +326,7 @@ int snd_hdmi_get_eld(struct hdmi_eld *eld,
 	int size;
 	unsigned char *buf;
 
-	if (!hdmi_eld_valid(codec, nid))
+	if (!eld->eld_valid)
 		return -ENOENT;
 
 	size = snd_hdmi_get_eld_size(codec, nid);
@@ -381,7 +364,7 @@ static void hdmi_show_short_audio_desc(struct cea_sad *a)
 	snd_print_pcm_rates(a->rates, buf, sizeof(buf));
 
 	if (a->format == AUDIO_CODING_TYPE_LPCM)
-		snd_print_pcm_bits(a->sample_bits, buf2 + 8, sizeof(buf2 - 8));
+		snd_print_pcm_bits(a->sample_bits, buf2 + 8, sizeof(buf2) - 8);
 	else if (a->max_bitrate)
 		snprintf(buf2, sizeof(buf2),
 				", max bitrate = %d", a->max_bitrate);
@@ -477,6 +460,8 @@ static void hdmi_print_eld_info(struct snd_info_entry *entry,
 
 	snd_iprintf(buffer, "monitor_present\t\t%d\n", e->monitor_present);
 	snd_iprintf(buffer, "eld_valid\t\t%d\n", e->eld_valid);
+	if (!e->eld_valid)
+		return;
 	snd_iprintf(buffer, "monitor_name\t\t%s\n", e->monitor_name);
 	snd_iprintf(buffer, "connection_type\t\t%s\n",
 				eld_connection_type_names[e->conn_type]);

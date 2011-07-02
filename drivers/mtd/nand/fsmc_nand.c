@@ -31,6 +31,7 @@
 #include <linux/io.h>
 #include <linux/slab.h>
 #include <linux/mtd/fsmc.h>
+#include <linux/amba/bus.h>
 #include <mtd/mtd-abi.h>
 
 static struct nand_ecclayout fsmc_ecc1_layout = {
@@ -121,19 +122,32 @@ static struct fsmc_eccplace fsmc_ecc4_sp_place = {
 
 /*
  * Default partition tables to be used if the partition information not
- * provided through platform data
- */
-#define PARTITION(n, off, sz)	{.name = n, .offset = off, .size = sz}
-
-/*
+ * provided through platform data.
+ *
  * Default partition layout for small page(= 512 bytes) devices
  * Size for "Root file system" is updated in driver based on actual device size
  */
 static struct mtd_partition partition_info_16KB_blk[] = {
-	PARTITION("X-loader", 0, 4 * 0x4000),
-	PARTITION("U-Boot", 0x10000, 20 * 0x4000),
-	PARTITION("Kernel", 0x60000, 256 * 0x4000),
-	PARTITION("Root File System", 0x460000, 0),
+	{
+		.name = "X-loader",
+		.offset = 0,
+		.size = 4*0x4000,
+	},
+	{
+		.name = "U-Boot",
+		.offset = 0x10000,
+		.size = 20*0x4000,
+	},
+	{
+		.name = "Kernel",
+		.offset = 0x60000,
+		.size = 256*0x4000,
+	},
+	{
+		.name = "Root File System",
+		.offset = 0x460000,
+		.size = 0,
+	},
 };
 
 /*
@@ -141,10 +155,26 @@ static struct mtd_partition partition_info_16KB_blk[] = {
  * Size for "Root file system" is updated in driver based on actual device size
  */
 static struct mtd_partition partition_info_128KB_blk[] = {
-	PARTITION("X-loader", 0, 4 * 0x20000),
-	PARTITION("U-Boot", 0x80000, 12 * 0x20000),
-	PARTITION("Kernel", 0x200000, 48 * 0x20000),
-	PARTITION("Root File System", 0x800000, 0),
+	{
+		.name = "X-loader",
+		.offset = 0,
+		.size = 4*0x20000,
+	},
+	{
+		.name = "U-Boot",
+		.offset = 0x80000,
+		.size = 12*0x20000,
+	},
+	{
+		.name = "Kernel",
+		.offset = 0x200000,
+		.size = 48*0x20000,
+	},
+	{
+		.name = "Root File System",
+		.offset = 0x800000,
+		.size = 0,
+	},
 };
 
 #ifdef CONFIG_MTD_CMDLINE_PARTS
@@ -152,8 +182,9 @@ const char *part_probes[] = { "cmdlinepart", NULL };
 #endif
 
 /**
- * struct fsmc_nand_data - atructure for FSMC NAND device state
+ * struct fsmc_nand_data - structure for FSMC NAND device state
  *
+ * @pid:		Part ID on the AMBA PrimeCell format
  * @mtd:		MTD info for a NAND flash.
  * @nand:		Chip related info for a NAND flash.
  * @partitions:		Partition info for a NAND Flash.
@@ -169,6 +200,7 @@ const char *part_probes[] = { "cmdlinepart", NULL };
  * @regs_va:		FSMC regs base address.
  */
 struct fsmc_nand_data {
+	u32			pid;
 	struct mtd_info		mtd;
 	struct nand_chip	nand;
 	struct mtd_partition	*partitions;
@@ -300,7 +332,7 @@ static void fsmc_enable_hwecc(struct mtd_info *mtd, int mode)
 
 /*
  * fsmc_read_hwecc_ecc4 - Hardware ECC calculator for ecc4 option supported by
- * FSMC. ECC is 13 bytes for 512 bytes of data (supports error correction upto
+ * FSMC. ECC is 13 bytes for 512 bytes of data (supports error correction up to
  * max of 8-bits)
  */
 static int fsmc_read_hwecc_ecc4(struct mtd_info *mtd, const uint8_t *data,
@@ -346,7 +378,7 @@ static int fsmc_read_hwecc_ecc4(struct mtd_info *mtd, const uint8_t *data,
 
 /*
  * fsmc_read_hwecc_ecc1 - Hardware ECC calculator for ecc1 option supported by
- * FSMC. ECC is 3 bytes for 512 bytes of data (supports error correction upto
+ * FSMC. ECC is 3 bytes for 512 bytes of data (supports error correction up to
  * max of 1-bit)
  */
 static int fsmc_read_hwecc_ecc1(struct mtd_info *mtd, const uint8_t *data,
@@ -373,10 +405,10 @@ static int fsmc_read_hwecc_ecc1(struct mtd_info *mtd, const uint8_t *data,
  * @buf:	buffer to store read data
  * @page:	page number to read
  *
- * This routine is needed for fsmc verison 8 as reading from NAND chip has to be
+ * This routine is needed for fsmc version 8 as reading from NAND chip has to be
  * performed in a strict sequence as follows:
  * data(512 byte) -> ecc(13 byte)
- * After this read, fsmc hardware generates and reports error data bits(upto a
+ * After this read, fsmc hardware generates and reports error data bits(up to a
  * max of 8 bits)
  */
 static int fsmc_read_page_hwecc(struct mtd_info *mtd, struct nand_chip *chip,
@@ -508,7 +540,9 @@ static int __init fsmc_nand_probe(struct platform_device *pdev)
 	struct nand_chip *nand;
 	struct fsmc_regs *regs;
 	struct resource *res;
-	int nr_parts, ret = 0;
+	int ret = 0;
+	u32 pid;
+	int i;
 
 	if (!pdata) {
 		dev_err(&pdev->dev, "platform data is NULL\n");
@@ -598,6 +632,18 @@ static int __init fsmc_nand_probe(struct platform_device *pdev)
 	if (ret)
 		goto err_probe1;
 
+	/*
+	 * This device ID is actually a common AMBA ID as used on the
+	 * AMBA PrimeCell bus. However it is not a PrimeCell.
+	 */
+	for (pid = 0, i = 0; i < 4; i++)
+		pid |= (readl(host->regs_va + resource_size(res) - 0x20 + 4 * i) & 255) << (i * 8);
+	host->pid = pid;
+	dev_info(&pdev->dev, "FSMC device partno %03x, manufacturer %02x, "
+		 "revision %02x, config %02x\n",
+		 AMBA_PART_BITS(pid), AMBA_MANF_BITS(pid),
+		 AMBA_REV_BITS(pid), AMBA_CONFIG_BITS(pid));
+
 	host->bank = pdata->bank;
 	host->select_chip = pdata->select_bank;
 	regs = host->regs_va;
@@ -625,7 +671,7 @@ static int __init fsmc_nand_probe(struct platform_device *pdev)
 
 	fsmc_nand_setup(regs, host->bank, nand->options & NAND_BUSWIDTH_16);
 
-	if (get_fsmc_version(host->regs_va) == FSMC_VER8) {
+	if (AMBA_REV_BITS(host->pid) >= 8) {
 		nand->ecc.read_page = fsmc_read_page_hwecc;
 		nand->ecc.calculate = fsmc_read_hwecc_ecc4;
 		nand->ecc.correct = fsmc_correct_data;
@@ -637,7 +683,7 @@ static int __init fsmc_nand_probe(struct platform_device *pdev)
 	}
 
 	/*
-	 * Scan to find existance of the device
+	 * Scan to find existence of the device
 	 */
 	if (nand_scan_ident(&host->mtd, 1, NULL)) {
 		ret = -ENXIO;
@@ -645,7 +691,7 @@ static int __init fsmc_nand_probe(struct platform_device *pdev)
 		goto err_probe;
 	}
 
-	if (get_fsmc_version(host->regs_va) == FSMC_VER8) {
+	if (AMBA_REV_BITS(host->pid) >= 8) {
 		if (host->mtd.writesize == 512) {
 			nand->ecc.layout = &fsmc_ecc4_sp_layout;
 			host->ecc_place = &fsmc_ecc4_sp_place;
@@ -670,17 +716,14 @@ static int __init fsmc_nand_probe(struct platform_device *pdev)
 	 * platform data,
 	 * default partition information present in driver.
 	 */
-#ifdef CONFIG_MTD_PARTITIONS
 #ifdef CONFIG_MTD_CMDLINE_PARTS
 	/*
 	 * Check if partition info passed via command line
 	 */
 	host->mtd.name = "nand";
-	nr_parts = parse_mtd_partitions(&host->mtd, part_probes,
+	host->nr_partitions = parse_mtd_partitions(&host->mtd, part_probes,
 			&host->partitions, 0);
-	if (nr_parts > 0) {
-		host->nr_partitions = nr_parts;
-	} else {
+	if (host->nr_partitions <= 0) {
 #endif
 		/*
 		 * Check if partition info passed via command line
@@ -730,19 +773,10 @@ static int __init fsmc_nand_probe(struct platform_device *pdev)
 	}
 #endif
 
-	if (host->partitions) {
-		ret = add_mtd_partitions(&host->mtd, host->partitions,
-				host->nr_partitions);
-		if (ret)
-			goto err_probe;
-	}
-#else
-	dev_info(&pdev->dev, "Registering %s as whole device\n", mtd->name);
-	if (!add_mtd_device(mtd)) {
-		ret = -ENXIO;
+	ret = mtd_device_register(&host->mtd, host->partitions,
+				  host->nr_partitions);
+	if (ret)
 		goto err_probe;
-	}
-#endif
 
 	platform_set_drvdata(pdev, host);
 	dev_info(&pdev->dev, "FSMC NAND driver registration successful\n");
@@ -788,11 +822,7 @@ static int fsmc_nand_remove(struct platform_device *pdev)
 	platform_set_drvdata(pdev, NULL);
 
 	if (host) {
-#ifdef CONFIG_MTD_PARTITIONS
-		del_mtd_partitions(&host->mtd);
-#else
-		del_mtd_device(&host->mtd);
-#endif
+		mtd_device_unregister(&host->mtd);
 		clk_disable(host->clk);
 		clk_put(host->clk);
 

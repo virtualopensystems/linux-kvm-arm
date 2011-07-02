@@ -28,7 +28,6 @@
 #include "cifsproto.h"
 #include "cifs_debug.h"
 #include "cifs_fs_sb.h"
-#include "md5.h"
 
 #define CIFS_MF_SYMLINK_LEN_OFFSET (4+1)
 #define CIFS_MF_SYMLINK_MD5_OFFSET (CIFS_MF_SYMLINK_LEN_OFFSET+(4+1))
@@ -47,6 +46,45 @@
 	md5_hash[12], md5_hash[13], md5_hash[14], md5_hash[15]
 
 static int
+symlink_hash(unsigned int link_len, const char *link_str, u8 *md5_hash)
+{
+	int rc;
+	unsigned int size;
+	struct crypto_shash *md5;
+	struct sdesc *sdescmd5;
+
+	md5 = crypto_alloc_shash("md5", 0, 0);
+	if (IS_ERR(md5)) {
+		rc = PTR_ERR(md5);
+		cERROR(1, "%s: Crypto md5 allocation error %d\n", __func__, rc);
+		return rc;
+	}
+	size = sizeof(struct shash_desc) + crypto_shash_descsize(md5);
+	sdescmd5 = kmalloc(size, GFP_KERNEL);
+	if (!sdescmd5) {
+		rc = -ENOMEM;
+		cERROR(1, "%s: Memory allocation failure\n", __func__);
+		goto symlink_hash_err;
+	}
+	sdescmd5->shash.tfm = md5;
+	sdescmd5->shash.flags = 0x0;
+
+	rc = crypto_shash_init(&sdescmd5->shash);
+	if (rc) {
+		cERROR(1, "%s: Could not init md5 shash\n", __func__);
+		goto symlink_hash_err;
+	}
+	crypto_shash_update(&sdescmd5->shash, link_str, link_len);
+	rc = crypto_shash_final(&sdescmd5->shash, md5_hash);
+
+symlink_hash_err:
+	crypto_free_shash(md5);
+	kfree(sdescmd5);
+
+	return rc;
+}
+
+static int
 CIFSParseMFSymlink(const u8 *buf,
 		   unsigned int buf_len,
 		   unsigned int *_link_len,
@@ -56,7 +94,6 @@ CIFSParseMFSymlink(const u8 *buf,
 	unsigned int link_len;
 	const char *md5_str1;
 	const char *link_str;
-	struct MD5Context md5_ctx;
 	u8 md5_hash[16];
 	char md5_str2[34];
 
@@ -70,9 +107,11 @@ CIFSParseMFSymlink(const u8 *buf,
 	if (rc != 1)
 		return -EINVAL;
 
-	cifs_MD5_init(&md5_ctx);
-	cifs_MD5_update(&md5_ctx, (const u8 *)link_str, link_len);
-	cifs_MD5_final(md5_hash, &md5_ctx);
+	rc = symlink_hash(link_len, link_str, md5_hash);
+	if (rc) {
+		cFYI(1, "%s: MD5 hash failure: %d\n", __func__, rc);
+		return rc;
+	}
 
 	snprintf(md5_str2, sizeof(md5_str2),
 		 CIFS_MF_SYMLINK_MD5_FORMAT,
@@ -94,9 +133,9 @@ CIFSParseMFSymlink(const u8 *buf,
 static int
 CIFSFormatMFSymlink(u8 *buf, unsigned int buf_len, const char *link_str)
 {
+	int rc;
 	unsigned int link_len;
 	unsigned int ofs;
-	struct MD5Context md5_ctx;
 	u8 md5_hash[16];
 
 	if (buf_len != CIFS_MF_SYMLINK_FILE_SIZE)
@@ -107,9 +146,11 @@ CIFSFormatMFSymlink(u8 *buf, unsigned int buf_len, const char *link_str)
 	if (link_len > CIFS_MF_SYMLINK_LINK_MAXLEN)
 		return -ENAMETOOLONG;
 
-	cifs_MD5_init(&md5_ctx);
-	cifs_MD5_update(&md5_ctx, (const u8 *)link_str, link_len);
-	cifs_MD5_final(md5_hash, &md5_ctx);
+	rc = symlink_hash(link_len, link_str, md5_hash);
+	if (rc) {
+		cFYI(1, "%s: MD5 hash failure: %d\n", __func__, rc);
+		return rc;
+	}
 
 	snprintf(buf, buf_len,
 		 CIFS_MF_SYMLINK_LEN_FORMAT CIFS_MF_SYMLINK_MD5_FORMAT,
@@ -134,7 +175,7 @@ CIFSFormatMFSymlink(u8 *buf, unsigned int buf_len, const char *link_str)
 }
 
 static int
-CIFSCreateMFSymLink(const int xid, struct cifsTconInfo *tcon,
+CIFSCreateMFSymLink(const int xid, struct cifs_tcon *tcon,
 		    const char *fromName, const char *toName,
 		    const struct nls_table *nls_codepage, int remap)
 {
@@ -143,6 +184,7 @@ CIFSCreateMFSymLink(const int xid, struct cifsTconInfo *tcon,
 	__u16 netfid = 0;
 	u8 *buf;
 	unsigned int bytes_written = 0;
+	struct cifs_io_parms io_parms;
 
 	buf = kmalloc(CIFS_MF_SYMLINK_FILE_SIZE, GFP_KERNEL);
 	if (!buf)
@@ -162,10 +204,13 @@ CIFSCreateMFSymLink(const int xid, struct cifsTconInfo *tcon,
 		return rc;
 	}
 
-	rc = CIFSSMBWrite(xid, tcon, netfid,
-			  CIFS_MF_SYMLINK_FILE_SIZE /* length */,
-			  0 /* offset */,
-			  &bytes_written, buf, NULL, 0);
+	io_parms.netfid = netfid;
+	io_parms.pid = current->tgid;
+	io_parms.tcon = tcon;
+	io_parms.offset = 0;
+	io_parms.length = CIFS_MF_SYMLINK_FILE_SIZE;
+
+	rc = CIFSSMBWrite(xid, &io_parms, &bytes_written, buf, NULL, 0);
 	CIFSSMBClose(xid, tcon, netfid);
 	kfree(buf);
 	if (rc != 0)
@@ -178,7 +223,7 @@ CIFSCreateMFSymLink(const int xid, struct cifsTconInfo *tcon,
 }
 
 static int
-CIFSQueryMFSymLink(const int xid, struct cifsTconInfo *tcon,
+CIFSQueryMFSymLink(const int xid, struct cifs_tcon *tcon,
 		   const unsigned char *searchName, char **symlinkinfo,
 		   const struct nls_table *nls_codepage, int remap)
 {
@@ -190,6 +235,7 @@ CIFSQueryMFSymLink(const int xid, struct cifsTconInfo *tcon,
 	unsigned int bytes_read = 0;
 	int buf_type = CIFS_NO_BUFFER;
 	unsigned int link_len = 0;
+	struct cifs_io_parms io_parms;
 	FILE_ALL_INFO file_info;
 
 	rc = CIFSSMBOpen(xid, tcon, searchName, FILE_OPEN, GENERIC_READ,
@@ -198,7 +244,7 @@ CIFSQueryMFSymLink(const int xid, struct cifsTconInfo *tcon,
 	if (rc != 0)
 		return rc;
 
-	if (file_info.EndOfFile != CIFS_MF_SYMLINK_FILE_SIZE) {
+	if (file_info.EndOfFile != cpu_to_le64(CIFS_MF_SYMLINK_FILE_SIZE)) {
 		CIFSSMBClose(xid, tcon, netfid);
 		/* it's not a symlink */
 		return -EINVAL;
@@ -208,11 +254,13 @@ CIFSQueryMFSymLink(const int xid, struct cifsTconInfo *tcon,
 	if (!buf)
 		return -ENOMEM;
 	pbuf = buf;
+	io_parms.netfid = netfid;
+	io_parms.pid = current->tgid;
+	io_parms.tcon = tcon;
+	io_parms.offset = 0;
+	io_parms.length = CIFS_MF_SYMLINK_FILE_SIZE;
 
-	rc = CIFSSMBRead(xid, tcon, netfid,
-			 CIFS_MF_SYMLINK_FILE_SIZE /* length */,
-			 0 /* offset */,
-			 &bytes_read, &pbuf, &buf_type);
+	rc = CIFSSMBRead(xid, &io_parms, &bytes_read, &pbuf, &buf_type);
 	CIFSSMBClose(xid, tcon, netfid);
 	if (rc != 0) {
 		kfree(buf);
@@ -250,7 +298,8 @@ CIFSCheckMFSymlink(struct cifs_fattr *fattr,
 	int oplock = 0;
 	__u16 netfid = 0;
 	struct tcon_link *tlink;
-	struct cifsTconInfo *pTcon;
+	struct cifs_tcon *pTcon;
+	struct cifs_io_parms io_parms;
 	u8 *buf;
 	char *pbuf;
 	unsigned int bytes_read = 0;
@@ -275,7 +324,7 @@ CIFSCheckMFSymlink(struct cifs_fattr *fattr,
 	if (rc != 0)
 		goto out;
 
-	if (file_info.EndOfFile != CIFS_MF_SYMLINK_FILE_SIZE) {
+	if (file_info.EndOfFile != cpu_to_le64(CIFS_MF_SYMLINK_FILE_SIZE)) {
 		CIFSSMBClose(xid, pTcon, netfid);
 		/* it's not a symlink */
 		goto out;
@@ -287,11 +336,13 @@ CIFSCheckMFSymlink(struct cifs_fattr *fattr,
 		goto out;
 	}
 	pbuf = buf;
+	io_parms.netfid = netfid;
+	io_parms.pid = current->tgid;
+	io_parms.tcon = pTcon;
+	io_parms.offset = 0;
+	io_parms.length = CIFS_MF_SYMLINK_FILE_SIZE;
 
-	rc = CIFSSMBRead(xid, pTcon, netfid,
-			 CIFS_MF_SYMLINK_FILE_SIZE /* length */,
-			 0 /* offset */,
-			 &bytes_read, &pbuf, &buf_type);
+	rc = CIFSSMBRead(xid, &io_parms, &bytes_read, &pbuf, &buf_type);
 	CIFSSMBClose(xid, pTcon, netfid);
 	if (rc != 0) {
 		kfree(buf);
@@ -329,7 +380,7 @@ cifs_hardlink(struct dentry *old_file, struct inode *inode,
 	char *toName = NULL;
 	struct cifs_sb_info *cifs_sb = CIFS_SB(inode->i_sb);
 	struct tcon_link *tlink;
-	struct cifsTconInfo *pTcon;
+	struct cifs_tcon *pTcon;
 	struct cifsInodeInfo *cifsInode;
 
 	tlink = cifs_sb_tlink(cifs_sb);
@@ -404,7 +455,7 @@ cifs_follow_link(struct dentry *direntry, struct nameidata *nd)
 	char *target_path = NULL;
 	struct cifs_sb_info *cifs_sb = CIFS_SB(inode->i_sb);
 	struct tcon_link *tlink = NULL;
-	struct cifsTconInfo *tcon;
+	struct cifs_tcon *tcon;
 
 	xid = GetXid();
 
@@ -477,7 +528,7 @@ cifs_symlink(struct inode *inode, struct dentry *direntry, const char *symname)
 	int xid;
 	struct cifs_sb_info *cifs_sb = CIFS_SB(inode->i_sb);
 	struct tcon_link *tlink;
-	struct cifsTconInfo *pTcon;
+	struct cifs_tcon *pTcon;
 	char *full_path = NULL;
 	struct inode *newinode = NULL;
 
@@ -524,10 +575,6 @@ cifs_symlink(struct inode *inode, struct dentry *direntry, const char *symname)
 			cFYI(1, "Create symlink ok, getinodeinfo fail rc = %d",
 			      rc);
 		} else {
-			if (pTcon->nocase)
-				direntry->d_op = &cifs_ci_dentry_ops;
-			else
-				direntry->d_op = &cifs_dentry_ops;
 			d_instantiate(direntry, newinode);
 		}
 	}

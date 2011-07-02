@@ -31,6 +31,8 @@
 #include <linux/mtd/partitions.h>
 #include <linux/err.h>
 
+#include "mtdcore.h"
+
 /* Our partition linked list */
 static LIST_HEAD(mtd_partitions);
 static DEFINE_MUTEX(mtd_partitions_mutex);
@@ -120,8 +122,25 @@ static int part_read_oob(struct mtd_info *mtd, loff_t from,
 		return -EINVAL;
 	if (ops->datbuf && from + ops->len > mtd->size)
 		return -EINVAL;
-	res = part->master->read_oob(part->master, from + part->offset, ops);
 
+	/*
+	 * If OOB is also requested, make sure that we do not read past the end
+	 * of this partition.
+	 */
+	if (ops->oobbuf) {
+		size_t len, pages;
+
+		if (ops->mode == MTD_OOB_AUTO)
+			len = mtd->oobavail;
+		else
+			len = mtd->oobsize;
+		pages = mtd_div_by_ws(mtd->size, mtd);
+		pages -= mtd_div_by_ws(from, mtd);
+		if (ops->ooboffs + ops->ooblen > pages * len)
+			return -EINVAL;
+	}
+
+	res = part->master->read_oob(part->master, from + part->offset, ops);
 	if (unlikely(res)) {
 		if (res == -EUCLEAN)
 			mtd->ecc_stats.corrected++;
@@ -359,7 +378,6 @@ int del_mtd_partitions(struct mtd_info *master)
 
 	return err;
 }
-EXPORT_SYMBOL(del_mtd_partitions);
 
 static struct mtd_part *allocate_partition(struct mtd_info *master,
 			const struct mtd_partition *part, int partno,
@@ -384,6 +402,7 @@ static struct mtd_part *allocate_partition(struct mtd_info *master,
 	slave->mtd.flags = master->flags & ~part->mask_flags;
 	slave->mtd.size = part->size;
 	slave->mtd.writesize = master->writesize;
+	slave->mtd.writebufsize = master->writebufsize;
 	slave->mtd.oobsize = master->oobsize;
 	slave->mtd.oobavail = master->oobavail;
 	slave->mtd.subpage_sft = master->subpage_sft;
@@ -653,7 +672,6 @@ int add_mtd_partitions(struct mtd_info *master,
 
 	return 0;
 }
-EXPORT_SYMBOL(add_mtd_partitions);
 
 static DEFINE_SPINLOCK(part_parser_lock);
 static LIST_HEAD(part_parsers);
@@ -704,11 +722,8 @@ int parse_mtd_partitions(struct mtd_info *master, const char **types,
 		parser = get_partition_parser(*types);
 		if (!parser && !request_module("%s", *types))
 				parser = get_partition_parser(*types);
-		if (!parser) {
-			printk(KERN_NOTICE "%s partition parsing not available\n",
-			       *types);
+		if (!parser)
 			continue;
-		}
 		ret = (*parser->parse_fn)(master, pparts, origin);
 		if (ret > 0) {
 			printk(KERN_NOTICE "%d %s partitions found on MTD device %s\n",
@@ -720,19 +735,19 @@ int parse_mtd_partitions(struct mtd_info *master, const char **types,
 }
 EXPORT_SYMBOL_GPL(parse_mtd_partitions);
 
-int mtd_is_master(struct mtd_info *mtd)
+int mtd_is_partition(struct mtd_info *mtd)
 {
 	struct mtd_part *part;
-	int nopart = 0;
+	int ispart = 0;
 
 	mutex_lock(&mtd_partitions_mutex);
 	list_for_each_entry(part, &mtd_partitions, list)
 		if (&part->mtd == mtd) {
-			nopart = 1;
+			ispart = 1;
 			break;
 		}
 	mutex_unlock(&mtd_partitions_mutex);
 
-	return nopart;
+	return ispart;
 }
-EXPORT_SYMBOL_GPL(mtd_is_master);
+EXPORT_SYMBOL_GPL(mtd_is_partition);

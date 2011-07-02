@@ -116,7 +116,7 @@ MODULE_LICENSE("GPL");
 #define RX_RING_LEN_BITS		(RX_LOG_RING_SIZE << 5)
 #define	RX_RING_MOD_MASK		(RX_RING_SIZE - 1)
 
-#define TX_TIMEOUT	20
+#define TX_TIMEOUT	(HZ/5)
 
 /* The LANCE Rx and Tx ring descriptors. */
 struct lance_rx_head {
@@ -554,7 +554,7 @@ static unsigned long __init lance_probe1( struct net_device *dev,
 		memaddr == (unsigned short *)0xffe00000) {
 		/* PAMs card and Riebl on ST use level 5 autovector */
 		if (request_irq(IRQ_AUTO_5, lance_interrupt, IRQ_TYPE_PRIO,
-		            "PAM/Riebl-ST Ethernet", dev)) {
+		            "PAM,Riebl-ST Ethernet", dev)) {
 			printk( "Lance: request for irq %d failed\n", IRQ_AUTO_5 );
 			return 0;
 		}

@@ -37,6 +37,8 @@
 #include "nouveau_connector.h"
 #include "nouveau_hw.h"
 
+static void nouveau_connector_hotplug(void *, int);
+
 static struct nouveau_encoder *
 find_encoder_by_type(struct drm_connector *connector, int type)
 {
@@ -94,22 +96,34 @@ nouveau_connector_bpp(struct drm_connector *connector)
 }
 
 static void
-nouveau_connector_destroy(struct drm_connector *drm_connector)
+nouveau_connector_destroy(struct drm_connector *connector)
 {
-	struct nouveau_connector *nv_connector =
-		nouveau_connector(drm_connector);
+	struct nouveau_connector *nv_connector = nouveau_connector(connector);
+	struct drm_nouveau_private *dev_priv;
+	struct nouveau_gpio_engine *pgpio;
 	struct drm_device *dev;
 
 	if (!nv_connector)
 		return;
 
 	dev = nv_connector->base.dev;
+	dev_priv = dev->dev_private;
 	NV_DEBUG_KMS(dev, "\n");
 
+	pgpio = &dev_priv->engine.gpio;
+	if (pgpio->irq_unregister) {
+		pgpio->irq_unregister(dev, nv_connector->dcb->gpio_tag,
+				      nouveau_connector_hotplug, connector);
+	}
+
+	if (connector->connector_type == DRM_MODE_CONNECTOR_LVDS ||
+	    connector->connector_type == DRM_MODE_CONNECTOR_eDP)
+		nouveau_backlight_exit(connector);
+
 	kfree(nv_connector->edid);
-	drm_sysfs_connector_remove(drm_connector);
-	drm_connector_cleanup(drm_connector);
-	kfree(drm_connector);
+	drm_sysfs_connector_remove(connector);
+	drm_connector_cleanup(connector);
+	kfree(connector);
 }
 
 static struct nouveau_i2c_chan *
@@ -428,7 +442,7 @@ nouveau_connector_set_property(struct drm_connector *connector,
 		}
 
 		/* LVDS always needs gpu scaling */
-		if (nv_connector->dcb->type == DCB_CONNECTOR_LVDS &&
+		if (connector->connector_type == DRM_MODE_CONNECTOR_LVDS &&
 		    value == DRM_MODE_SCALE_NONE)
 			return -EINVAL;
 
@@ -497,6 +511,7 @@ nouveau_connector_native_mode(struct drm_connector *connector)
 	int high_w = 0, high_h = 0, high_v = 0;
 
 	list_for_each_entry(mode, &nv_connector->base.probed_modes, head) {
+		mode->vrefresh = drm_mode_vrefresh(mode);
 		if (helper->mode_valid(connector, mode) != MODE_OK ||
 		    (mode->flags & DRM_MODE_FLAG_INTERLACE))
 			continue;
@@ -635,6 +650,7 @@ nouveau_connector_get_modes(struct drm_connector *connector)
 		ret = get_slave_funcs(encoder)->get_modes(encoder, connector);
 
 	if (nv_connector->dcb->type == DCB_CONNECTOR_LVDS ||
+	    nv_connector->dcb->type == DCB_CONNECTOR_LVDS_SPWG ||
 	    nv_connector->dcb->type == DCB_CONNECTOR_eDP)
 		ret += nouveau_connector_scaler_modes_add(connector);
 
@@ -760,6 +776,7 @@ nouveau_connector_create(struct drm_device *dev, int index)
 {
 	const struct drm_connector_funcs *funcs = &nouveau_connector_funcs;
 	struct drm_nouveau_private *dev_priv = dev->dev_private;
+	struct nouveau_gpio_engine *pgpio = &dev_priv->engine.gpio;
 	struct nouveau_connector *nv_connector = NULL;
 	struct dcb_connector_table_entry *dcb = NULL;
 	struct drm_connector *connector;
@@ -794,6 +811,7 @@ nouveau_connector_create(struct drm_device *dev, int index)
 		type = DRM_MODE_CONNECTOR_HDMIA;
 		break;
 	case DCB_CONNECTOR_LVDS:
+	case DCB_CONNECTOR_LVDS_SPWG:
 		type = DRM_MODE_CONNECTOR_LVDS;
 		funcs = &nouveau_connector_funcs_lvds;
 		break;
@@ -822,7 +840,7 @@ nouveau_connector_create(struct drm_device *dev, int index)
 	drm_connector_helper_add(connector, &nouveau_connector_helper_funcs);
 
 	/* Check if we need dithering enabled */
-	if (dcb->type == DCB_CONNECTOR_LVDS) {
+	if (connector->connector_type == DRM_MODE_CONNECTOR_LVDS) {
 		bool dummy, is_24bit = false;
 
 		ret = nouveau_bios_parse_lvds_table(dev, 0, &dummy, &is_24bit);
@@ -867,7 +885,7 @@ nouveau_connector_create(struct drm_device *dev, int index)
 				nv_connector->use_dithering ?
 				DRM_MODE_DITHERING_ON : DRM_MODE_DITHERING_OFF);
 
-		if (dcb->type != DCB_CONNECTOR_LVDS) {
+		if (connector->connector_type != DRM_MODE_CONNECTOR_LVDS) {
 			if (dev_priv->card_type >= NV_50)
 				connector->polled = DRM_CONNECTOR_POLL_HPD;
 			else
@@ -876,7 +894,17 @@ nouveau_connector_create(struct drm_device *dev, int index)
 		break;
 	}
 
+	if (pgpio->irq_register) {
+		pgpio->irq_register(dev, nv_connector->dcb->gpio_tag,
+				    nouveau_connector_hotplug, connector);
+	}
+
 	drm_sysfs_connector_add(connector);
+
+	if (connector->connector_type == DRM_MODE_CONNECTOR_LVDS ||
+	    connector->connector_type == DRM_MODE_CONNECTOR_eDP)
+		nouveau_backlight_init(connector);
+
 	dcb->drm = connector;
 	return dcb->drm;
 
@@ -885,4 +913,30 @@ fail:
 	kfree(connector);
 	return ERR_PTR(ret);
 
+}
+
+static void
+nouveau_connector_hotplug(void *data, int plugged)
+{
+	struct drm_connector *connector = data;
+	struct drm_device *dev = connector->dev;
+
+	NV_INFO(dev, "%splugged %s\n", plugged ? "" : "un",
+		drm_get_connector_name(connector));
+
+	if (connector->encoder && connector->encoder->crtc &&
+	    connector->encoder->crtc->enabled) {
+		struct nouveau_encoder *nv_encoder = nouveau_encoder(connector->encoder);
+		struct drm_encoder_helper_funcs *helper =
+			connector->encoder->helper_private;
+
+		if (nv_encoder->dcb->type == OUTPUT_DP) {
+			if (plugged)
+				helper->dpms(connector->encoder, DRM_MODE_DPMS_ON);
+			else
+				helper->dpms(connector->encoder, DRM_MODE_DPMS_OFF);
+		}
+	}
+
+	drm_helper_hpd_irq_event(dev);
 }

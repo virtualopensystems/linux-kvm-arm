@@ -5,7 +5,7 @@
  *
  * GPL LICENSE SUMMARY
  *
- * Copyright(c) 2008 - 2010 Intel Corporation. All rights reserved.
+ * Copyright(c) 2008 - 2011 Intel Corporation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of version 2 of the GNU General Public License as
@@ -30,7 +30,7 @@
  *
  * BSD LICENSE
  *
- * Copyright(c) 2005 - 2010 Intel Corporation. All rights reserved.
+ * Copyright(c) 2005 - 2011 Intel Corporation. All rights reserved.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -87,14 +87,14 @@ int iwl_send_calib_results(struct iwl_priv *priv)
 
 	struct iwl_host_cmd hcmd = {
 		.id = REPLY_PHY_CALIBRATION_CMD,
-		.flags = CMD_SIZE_HUGE,
 	};
 
 	for (i = 0; i < IWL_CALIB_MAX; i++) {
 		if ((BIT(i) & priv->hw_params.calib_init_cfg) &&
 		    priv->calib_results[i].buf) {
-			hcmd.len = priv->calib_results[i].buf_len;
-			hcmd.data = priv->calib_results[i].buf;
+			hcmd.len[0] = priv->calib_results[i].buf_len;
+			hcmd.data[0] = priv->calib_results[i].buf;
+			hcmd.dataflags[0] = IWL_HCMD_DFL_NOCOPY;
 			ret = iwl_send_cmd_sync(priv, &hcmd);
 			if (ret) {
 				IWL_ERR(priv, "Error %d iteration %d\n",
@@ -456,9 +456,9 @@ static int iwl_sensitivity_write(struct iwl_priv *priv)
 	struct iwl_sensitivity_data *data = NULL;
 	struct iwl_host_cmd cmd_out = {
 		.id = SENSITIVITY_CMD,
-		.len = sizeof(struct iwl_sensitivity_cmd),
+		.len = { sizeof(struct iwl_sensitivity_cmd), },
 		.flags = CMD_ASYNC,
-		.data = &cmd,
+		.data = { &cmd, },
 	};
 
 	data = &(priv->sensitivity_data);
@@ -491,9 +491,9 @@ static int iwl_enhance_sensitivity_write(struct iwl_priv *priv)
 	struct iwl_sensitivity_data *data = NULL;
 	struct iwl_host_cmd cmd_out = {
 		.id = SENSITIVITY_CMD,
-		.len = sizeof(struct iwl_enhance_sensitivity_cmd),
+		.len = { sizeof(struct iwl_enhance_sensitivity_cmd), },
 		.flags = CMD_ASYNC,
-		.data = &cmd,
+		.data = { &cmd, },
 	};
 
 	data = &(priv->sensitivity_data);
@@ -605,7 +605,7 @@ void iwl_init_sensitivity(struct iwl_priv *priv)
 	IWL_DEBUG_CALIB(priv, "<<return 0x%X\n", ret);
 }
 
-void iwl_sensitivity_calibration(struct iwl_priv *priv, void *resp)
+void iwl_sensitivity_calibration(struct iwl_priv *priv)
 {
 	u32 rx_enable_time;
 	u32 fa_cck;
@@ -631,17 +631,9 @@ void iwl_sensitivity_calibration(struct iwl_priv *priv, void *resp)
 	}
 
 	spin_lock_irqsave(&priv->lock, flags);
-	if (priv->cfg->bt_params &&
-	    priv->cfg->bt_params->bt_statistics) {
-		rx_info = &(((struct iwl_bt_notif_statistics *)resp)->
-			      rx.general.common);
-		ofdm = &(((struct iwl_bt_notif_statistics *)resp)->rx.ofdm);
-		cck = &(((struct iwl_bt_notif_statistics *)resp)->rx.cck);
-	} else {
-		rx_info = &(((struct iwl_notif_statistics *)resp)->rx.general);
-		ofdm = &(((struct iwl_notif_statistics *)resp)->rx.ofdm);
-		cck = &(((struct iwl_notif_statistics *)resp)->rx.cck);
-	}
+	rx_info = &priv->statistics.rx_non_phy;
+	ofdm = &priv->statistics.rx_ofdm;
+	cck = &priv->statistics.rx_cck;
 	if (rx_info->interference_data_flag != INTERFERENCE_DATA_AVAILABLE) {
 		IWL_DEBUG_CALIB(priv, "<< invalid data.\n");
 		spin_unlock_irqrestore(&priv->lock, flags);
@@ -732,143 +724,20 @@ static inline u8 find_first_chain(u8 mask)
 	return CHAIN_C;
 }
 
-/*
- * Accumulate 20 beacons of signal and noise statistics for each of
- *   3 receivers/antennas/rx-chains, then figure out:
- * 1)  Which antennas are connected.
- * 2)  Differential rx gain settings to balance the 3 receivers.
+/**
+ * Run disconnected antenna algorithm to find out which antennas are
+ * disconnected.
  */
-void iwl_chain_noise_calibration(struct iwl_priv *priv, void *stat_resp)
+static void iwl_find_disconn_antenna(struct iwl_priv *priv, u32* average_sig,
+				     struct iwl_chain_noise_data *data)
 {
-	struct iwl_chain_noise_data *data = NULL;
-
-	u32 chain_noise_a;
-	u32 chain_noise_b;
-	u32 chain_noise_c;
-	u32 chain_sig_a;
-	u32 chain_sig_b;
-	u32 chain_sig_c;
-	u32 average_sig[NUM_RX_CHAINS] = {INITIALIZATION_VALUE};
-	u32 average_noise[NUM_RX_CHAINS] = {INITIALIZATION_VALUE};
+	u32 active_chains = 0;
 	u32 max_average_sig;
 	u16 max_average_sig_antenna_i;
-	u32 min_average_noise = MIN_AVERAGE_NOISE_MAX_VALUE;
-	u16 min_average_noise_antenna_i = INITIALIZATION_VALUE;
-	u16 i = 0;
-	u16 rxon_chnum = INITIALIZATION_VALUE;
-	u16 stat_chnum = INITIALIZATION_VALUE;
-	u8 rxon_band24;
-	u8 stat_band24;
-	u32 active_chains = 0;
 	u8 num_tx_chains;
-	unsigned long flags;
-	struct statistics_rx_non_phy *rx_info;
 	u8 first_chain;
-	/*
-	 * MULTI-FIXME:
-	 * When we support multiple interfaces on different channels,
-	 * this must be modified/fixed.
-	 */
-	struct iwl_rxon_context *ctx = &priv->contexts[IWL_RXON_CTX_BSS];
+	u16 i = 0;
 
-	if (priv->disable_chain_noise_cal)
-		return;
-
-	data = &(priv->chain_noise_data);
-
-	/*
-	 * Accumulate just the first "chain_noise_num_beacons" after
-	 * the first association, then we're done forever.
-	 */
-	if (data->state != IWL_CHAIN_NOISE_ACCUMULATE) {
-		if (data->state == IWL_CHAIN_NOISE_ALIVE)
-			IWL_DEBUG_CALIB(priv, "Wait for noise calib reset\n");
-		return;
-	}
-
-	spin_lock_irqsave(&priv->lock, flags);
-	if (priv->cfg->bt_params &&
-	    priv->cfg->bt_params->bt_statistics) {
-		rx_info = &(((struct iwl_bt_notif_statistics *)stat_resp)->
-			      rx.general.common);
-	} else {
-		rx_info = &(((struct iwl_notif_statistics *)stat_resp)->
-			      rx.general);
-	}
-	if (rx_info->interference_data_flag != INTERFERENCE_DATA_AVAILABLE) {
-		IWL_DEBUG_CALIB(priv, " << Interference data unavailable\n");
-		spin_unlock_irqrestore(&priv->lock, flags);
-		return;
-	}
-
-	rxon_band24 = !!(ctx->staging.flags & RXON_FLG_BAND_24G_MSK);
-	rxon_chnum = le16_to_cpu(ctx->staging.channel);
-	if (priv->cfg->bt_params &&
-	    priv->cfg->bt_params->bt_statistics) {
-		stat_band24 = !!(((struct iwl_bt_notif_statistics *)
-				 stat_resp)->flag &
-				 STATISTICS_REPLY_FLG_BAND_24G_MSK);
-		stat_chnum = le32_to_cpu(((struct iwl_bt_notif_statistics *)
-					 stat_resp)->flag) >> 16;
-	} else {
-		stat_band24 = !!(((struct iwl_notif_statistics *)
-				 stat_resp)->flag &
-				 STATISTICS_REPLY_FLG_BAND_24G_MSK);
-		stat_chnum = le32_to_cpu(((struct iwl_notif_statistics *)
-					 stat_resp)->flag) >> 16;
-	}
-
-	/* Make sure we accumulate data for just the associated channel
-	 *   (even if scanning). */
-	if ((rxon_chnum != stat_chnum) || (rxon_band24 != stat_band24)) {
-		IWL_DEBUG_CALIB(priv, "Stats not from chan=%d, band24=%d\n",
-				rxon_chnum, rxon_band24);
-		spin_unlock_irqrestore(&priv->lock, flags);
-		return;
-	}
-
-	/*
-	 *  Accumulate beacon statistics values across
-	 * "chain_noise_num_beacons"
-	 */
-	chain_noise_a = le32_to_cpu(rx_info->beacon_silence_rssi_a) &
-				IN_BAND_FILTER;
-	chain_noise_b = le32_to_cpu(rx_info->beacon_silence_rssi_b) &
-				IN_BAND_FILTER;
-	chain_noise_c = le32_to_cpu(rx_info->beacon_silence_rssi_c) &
-				IN_BAND_FILTER;
-
-	chain_sig_a = le32_to_cpu(rx_info->beacon_rssi_a) & IN_BAND_FILTER;
-	chain_sig_b = le32_to_cpu(rx_info->beacon_rssi_b) & IN_BAND_FILTER;
-	chain_sig_c = le32_to_cpu(rx_info->beacon_rssi_c) & IN_BAND_FILTER;
-
-	spin_unlock_irqrestore(&priv->lock, flags);
-
-	data->beacon_count++;
-
-	data->chain_noise_a = (chain_noise_a + data->chain_noise_a);
-	data->chain_noise_b = (chain_noise_b + data->chain_noise_b);
-	data->chain_noise_c = (chain_noise_c + data->chain_noise_c);
-
-	data->chain_signal_a = (chain_sig_a + data->chain_signal_a);
-	data->chain_signal_b = (chain_sig_b + data->chain_signal_b);
-	data->chain_signal_c = (chain_sig_c + data->chain_signal_c);
-
-	IWL_DEBUG_CALIB(priv, "chan=%d, band24=%d, beacon=%d\n",
-			rxon_chnum, rxon_band24, data->beacon_count);
-	IWL_DEBUG_CALIB(priv, "chain_sig: a %d b %d c %d\n",
-			chain_sig_a, chain_sig_b, chain_sig_c);
-	IWL_DEBUG_CALIB(priv, "chain_noise: a %d b %d c %d\n",
-			chain_noise_a, chain_noise_b, chain_noise_c);
-
-	/* If this is the "chain_noise_num_beacons", determine:
-	 * 1)  Disconnected antennas (using signal strengths)
-	 * 2)  Differential gain (using silence noise) to balance receivers */
-	if (data->beacon_count !=
-		priv->cfg->base_params->chain_noise_num_beacons)
-		return;
-
-	/* Analyze signal for disconnected antenna */
 	average_sig[0] = data->chain_signal_a /
 			 priv->cfg->base_params->chain_noise_num_beacons;
 	average_sig[1] = data->chain_signal_b /
@@ -924,13 +793,7 @@ void iwl_chain_noise_calibration(struct iwl_priv *priv, void *stat_resp)
 	 * To be safe, simply mask out any chains that we know
 	 * are not on the device.
 	 */
-	if (priv->cfg->bt_params &&
-	    priv->cfg->bt_params->advanced_bt_coexist &&
-	    priv->bt_full_concurrent) {
-		/* operated as 1x1 in full concurrency mode */
-		active_chains &= first_antenna(priv->hw_params.valid_rx_ant);
-	} else
-		active_chains &= priv->hw_params.valid_rx_ant;
+	active_chains &= priv->hw_params.valid_rx_ant;
 
 	num_tx_chains = 0;
 	for (i = 0; i < NUM_RX_CHAINS; i++) {
@@ -954,7 +817,8 @@ void iwl_chain_noise_calibration(struct iwl_priv *priv, void *stat_resp)
 				find_first_chain(priv->cfg->valid_tx_ant);
 			data->disconn_array[first_chain] = 0;
 			active_chains |= BIT(first_chain);
-			IWL_DEBUG_CALIB(priv, "All Tx chains are disconnected W/A - declare %d as connected\n",
+			IWL_DEBUG_CALIB(priv,
+					"All Tx chains are disconnected W/A - declare %d as connected\n",
 					first_chain);
 			break;
 		}
@@ -968,9 +832,139 @@ void iwl_chain_noise_calibration(struct iwl_priv *priv, void *stat_resp)
 				active_chains, priv->hw_params.valid_rx_ant);
 
 	/* Save for use within RXON, TX, SCAN commands, etc. */
-	priv->chain_noise_data.active_chains = active_chains;
+	data->active_chains = active_chains;
 	IWL_DEBUG_CALIB(priv, "active_chains (bitwise) = 0x%x\n",
 			active_chains);
+}
+
+
+/*
+ * Accumulate 16 beacons of signal and noise statistics for each of
+ *   3 receivers/antennas/rx-chains, then figure out:
+ * 1)  Which antennas are connected.
+ * 2)  Differential rx gain settings to balance the 3 receivers.
+ */
+void iwl_chain_noise_calibration(struct iwl_priv *priv)
+{
+	struct iwl_chain_noise_data *data = NULL;
+
+	u32 chain_noise_a;
+	u32 chain_noise_b;
+	u32 chain_noise_c;
+	u32 chain_sig_a;
+	u32 chain_sig_b;
+	u32 chain_sig_c;
+	u32 average_sig[NUM_RX_CHAINS] = {INITIALIZATION_VALUE};
+	u32 average_noise[NUM_RX_CHAINS] = {INITIALIZATION_VALUE};
+	u32 min_average_noise = MIN_AVERAGE_NOISE_MAX_VALUE;
+	u16 min_average_noise_antenna_i = INITIALIZATION_VALUE;
+	u16 i = 0;
+	u16 rxon_chnum = INITIALIZATION_VALUE;
+	u16 stat_chnum = INITIALIZATION_VALUE;
+	u8 rxon_band24;
+	u8 stat_band24;
+	unsigned long flags;
+	struct statistics_rx_non_phy *rx_info;
+
+	/*
+	 * MULTI-FIXME:
+	 * When we support multiple interfaces on different channels,
+	 * this must be modified/fixed.
+	 */
+	struct iwl_rxon_context *ctx = &priv->contexts[IWL_RXON_CTX_BSS];
+
+	if (priv->disable_chain_noise_cal)
+		return;
+
+	data = &(priv->chain_noise_data);
+
+	/*
+	 * Accumulate just the first "chain_noise_num_beacons" after
+	 * the first association, then we're done forever.
+	 */
+	if (data->state != IWL_CHAIN_NOISE_ACCUMULATE) {
+		if (data->state == IWL_CHAIN_NOISE_ALIVE)
+			IWL_DEBUG_CALIB(priv, "Wait for noise calib reset\n");
+		return;
+	}
+
+	spin_lock_irqsave(&priv->lock, flags);
+
+	rx_info = &priv->statistics.rx_non_phy;
+
+	if (rx_info->interference_data_flag != INTERFERENCE_DATA_AVAILABLE) {
+		IWL_DEBUG_CALIB(priv, " << Interference data unavailable\n");
+		spin_unlock_irqrestore(&priv->lock, flags);
+		return;
+	}
+
+	rxon_band24 = !!(ctx->staging.flags & RXON_FLG_BAND_24G_MSK);
+	rxon_chnum = le16_to_cpu(ctx->staging.channel);
+	stat_band24 =
+		!!(priv->statistics.flag & STATISTICS_REPLY_FLG_BAND_24G_MSK);
+	stat_chnum = le32_to_cpu(priv->statistics.flag) >> 16;
+
+	/* Make sure we accumulate data for just the associated channel
+	 *   (even if scanning). */
+	if ((rxon_chnum != stat_chnum) || (rxon_band24 != stat_band24)) {
+		IWL_DEBUG_CALIB(priv, "Stats not from chan=%d, band24=%d\n",
+				rxon_chnum, rxon_band24);
+		spin_unlock_irqrestore(&priv->lock, flags);
+		return;
+	}
+
+	/*
+	 *  Accumulate beacon statistics values across
+	 * "chain_noise_num_beacons"
+	 */
+	chain_noise_a = le32_to_cpu(rx_info->beacon_silence_rssi_a) &
+				IN_BAND_FILTER;
+	chain_noise_b = le32_to_cpu(rx_info->beacon_silence_rssi_b) &
+				IN_BAND_FILTER;
+	chain_noise_c = le32_to_cpu(rx_info->beacon_silence_rssi_c) &
+				IN_BAND_FILTER;
+
+	chain_sig_a = le32_to_cpu(rx_info->beacon_rssi_a) & IN_BAND_FILTER;
+	chain_sig_b = le32_to_cpu(rx_info->beacon_rssi_b) & IN_BAND_FILTER;
+	chain_sig_c = le32_to_cpu(rx_info->beacon_rssi_c) & IN_BAND_FILTER;
+
+	spin_unlock_irqrestore(&priv->lock, flags);
+
+	data->beacon_count++;
+
+	data->chain_noise_a = (chain_noise_a + data->chain_noise_a);
+	data->chain_noise_b = (chain_noise_b + data->chain_noise_b);
+	data->chain_noise_c = (chain_noise_c + data->chain_noise_c);
+
+	data->chain_signal_a = (chain_sig_a + data->chain_signal_a);
+	data->chain_signal_b = (chain_sig_b + data->chain_signal_b);
+	data->chain_signal_c = (chain_sig_c + data->chain_signal_c);
+
+	IWL_DEBUG_CALIB(priv, "chan=%d, band24=%d, beacon=%d\n",
+			rxon_chnum, rxon_band24, data->beacon_count);
+	IWL_DEBUG_CALIB(priv, "chain_sig: a %d b %d c %d\n",
+			chain_sig_a, chain_sig_b, chain_sig_c);
+	IWL_DEBUG_CALIB(priv, "chain_noise: a %d b %d c %d\n",
+			chain_noise_a, chain_noise_b, chain_noise_c);
+
+	/* If this is the "chain_noise_num_beacons", determine:
+	 * 1)  Disconnected antennas (using signal strengths)
+	 * 2)  Differential gain (using silence noise) to balance receivers */
+	if (data->beacon_count !=
+		priv->cfg->base_params->chain_noise_num_beacons)
+		return;
+
+	/* Analyze signal for disconnected antenna */
+	if (priv->cfg->bt_params &&
+	    priv->cfg->bt_params->advanced_bt_coexist) {
+		/* Disable disconnected antenna algorithm for advanced
+		   bt coex, assuming valid antennas are connected */
+		data->active_chains = priv->hw_params.valid_rx_ant;
+		for (i = 0; i < NUM_RX_CHAINS; i++)
+			if (!(data->active_chains & (1<<i)))
+				data->disconn_array[i] = 1;
+	} else
+		iwl_find_disconn_antenna(priv, average_sig, data);
 
 	/* Analyze noise for rx balance */
 	average_noise[0] = data->chain_noise_a /

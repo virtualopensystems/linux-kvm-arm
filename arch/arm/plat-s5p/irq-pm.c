@@ -16,7 +16,6 @@
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/interrupt.h>
-#include <linux/sysdev.h>
 
 #include <plat/cpu.h>
 #include <plat/irqs.h>
@@ -37,14 +36,14 @@
 unsigned long s3c_irqwake_intallow	= 0x00000006L;
 unsigned long s3c_irqwake_eintallow	= 0xffffffffL;
 
-int s3c_irq_wake(unsigned int irqno, unsigned int state)
+int s3c_irq_wake(struct irq_data *data, unsigned int state)
 {
 	unsigned long irqbit;
 
-	switch (irqno) {
+	switch (data->irq) {
 	case IRQ_RTC_TIC:
 	case IRQ_RTC_ALARM:
-		irqbit = 1 << (irqno + 1 - IRQ_RTC_ALARM);
+		irqbit = 1 << (data->irq + 1 - IRQ_RTC_ALARM);
 		if (!state)
 			s3c_irqwake_intmask |= irqbit;
 		else
@@ -77,17 +76,15 @@ static struct sleep_save eint_save[] = {
 	SAVE_ITEM(S5P_EINT_MASK(3)),
 };
 
-int s3c24xx_irq_suspend(struct sys_device *dev, pm_message_t state)
+int s3c24xx_irq_suspend(void)
 {
 	s3c_pm_do_save(eint_save, ARRAY_SIZE(eint_save));
 
 	return 0;
 }
 
-int s3c24xx_irq_resume(struct sys_device *dev)
+void s3c24xx_irq_resume(void)
 {
 	s3c_pm_do_restore(eint_save, ARRAY_SIZE(eint_save));
-
-	return 0;
 }
 

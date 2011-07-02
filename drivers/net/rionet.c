@@ -162,8 +162,8 @@ static int rionet_queue_tx_msg(struct sk_buff *skb, struct net_device *ndev,
 	rnet->tx_slot &= (RIONET_TX_RING_SIZE - 1);
 
 	if (netif_msg_tx_queued(rnet))
-		printk(KERN_INFO "%s: queued skb %8.8x len %8.8x\n", DRV_NAME,
-		       (u32) skb, skb->len);
+		printk(KERN_INFO "%s: queued skb len %8.8x\n", DRV_NAME,
+		       skb->len);
 
 	return 0;
 }
@@ -382,7 +382,7 @@ static void rionet_remove(struct rio_dev *rdev)
 	struct rionet_peer *peer, *tmp;
 
 	free_pages((unsigned long)rionet_active, rdev->net->hport->sys_size ?
-					__ilog2(sizeof(void *)) + 4 : 0);
+					__fls(sizeof(void *)) + 4 : 0);
 	unregister_netdev(ndev);
 	free_netdev(ndev);
 
@@ -450,7 +450,7 @@ static int rionet_setup_netdev(struct rio_mport *mport)
 	}
 
 	rionet_active = (struct rio_dev **)__get_free_pages(GFP_KERNEL,
-			mport->sys_size ? __ilog2(sizeof(void *)) + 4 : 0);
+			mport->sys_size ? __fls(sizeof(void *)) + 4 : 0);
 	if (!rionet_active) {
 		rc = -ENOMEM;
 		goto out;
@@ -571,5 +571,5 @@ static void __exit rionet_exit(void)
 	rio_unregister_driver(&rionet_driver);
 }
 
-module_init(rionet_init);
+late_initcall(rionet_init);
 module_exit(rionet_exit);

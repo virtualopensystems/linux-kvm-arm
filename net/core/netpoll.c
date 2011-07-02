@@ -35,7 +35,6 @@
 
 #define MAX_UDP_CHUNK 1460
 #define MAX_SKBS 32
-#define MAX_QUEUE_DEPTH (MAX_SKBS / 2)
 
 static struct sk_buff_head skb_pool;
 
@@ -76,8 +75,7 @@ static void queue_process(struct work_struct *work)
 
 		local_irq_save(flags);
 		__netif_tx_lock(txq, smp_processor_id());
-		if (netif_tx_queue_stopped(txq) ||
-		    netif_tx_queue_frozen(txq) ||
+		if (netif_tx_queue_frozen_or_stopped(txq) ||
 		    ops->ndo_start_xmit(skb, dev) != NETDEV_TX_OK) {
 			skb_queue_head(&npinfo->txq, skb);
 			__netif_tx_unlock(txq);
@@ -194,6 +192,17 @@ void netpoll_poll_dev(struct net_device *dev)
 	ops->ndo_poll_controller(dev);
 
 	poll_napi(dev);
+
+	if (dev->priv_flags & IFF_SLAVE) {
+		if (dev->npinfo) {
+			struct net_device *bond_dev = dev->master;
+			struct sk_buff *skb;
+			while ((skb = skb_dequeue(&dev->npinfo->arp_tx))) {
+				skb->dev = bond_dev;
+				skb_queue_tail(&bond_dev->npinfo->arp_tx, skb);
+			}
+		}
+	}
 
 	service_arp_queue(dev->npinfo);
 
@@ -315,9 +324,7 @@ void netpoll_send_skb_on_dev(struct netpoll *np, struct sk_buff *skb,
 		     tries > 0; --tries) {
 			if (__netif_tx_trylock(txq)) {
 				if (!netif_tx_queue_stopped(txq)) {
-					dev->priv_flags |= IFF_IN_NETPOLL;
 					status = ops->ndo_start_xmit(skb, dev);
-					dev->priv_flags &= ~IFF_IN_NETPOLL;
 					if (status == NETDEV_TX_OK)
 						txq_trans_update(txq);
 				}
@@ -532,7 +539,7 @@ int __netpoll_rx(struct sk_buff *skb)
 {
 	int proto, len, ulen;
 	int hits = 0;
-	struct iphdr *iph;
+	const struct iphdr *iph;
 	struct udphdr *uh;
 	struct netpoll_info *npinfo = skb->dev->npinfo;
 	struct netpoll *np, *tmp;
@@ -691,32 +698,8 @@ int netpoll_parse_options(struct netpoll *np, char *opt)
 
 	if (*cur != 0) {
 		/* MAC address */
-		if ((delim = strchr(cur, ':')) == NULL)
+		if (!mac_pton(cur, np->remote_mac))
 			goto parse_failed;
-		*delim = 0;
-		np->remote_mac[0] = simple_strtol(cur, NULL, 16);
-		cur = delim + 1;
-		if ((delim = strchr(cur, ':')) == NULL)
-			goto parse_failed;
-		*delim = 0;
-		np->remote_mac[1] = simple_strtol(cur, NULL, 16);
-		cur = delim + 1;
-		if ((delim = strchr(cur, ':')) == NULL)
-			goto parse_failed;
-		*delim = 0;
-		np->remote_mac[2] = simple_strtol(cur, NULL, 16);
-		cur = delim + 1;
-		if ((delim = strchr(cur, ':')) == NULL)
-			goto parse_failed;
-		*delim = 0;
-		np->remote_mac[3] = simple_strtol(cur, NULL, 16);
-		cur = delim + 1;
-		if ((delim = strchr(cur, ':')) == NULL)
-			goto parse_failed;
-		*delim = 0;
-		np->remote_mac[4] = simple_strtol(cur, NULL, 16);
-		cur = delim + 1;
-		np->remote_mac[5] = simple_strtol(cur, NULL, 16);
 	}
 
 	netpoll_print_options(np);
@@ -807,6 +790,13 @@ int netpoll_setup(struct netpoll *np)
 		printk(KERN_ERR "%s: %s doesn't exist, aborting.\n",
 		       np->name, np->dev_name);
 		return -ENODEV;
+	}
+
+	if (ndev->master) {
+		printk(KERN_ERR "%s: %s is a slave device, aborting.\n",
+		       np->name, np->dev_name);
+		err = -EBUSY;
+		goto put;
 	}
 
 	if (!netif_running(ndev)) {
@@ -925,7 +915,7 @@ void __netpoll_cleanup(struct netpoll *np)
 
 		skb_queue_purge(&npinfo->arp_tx);
 		skb_queue_purge(&npinfo->txq);
-		cancel_rearming_delayed_work(&npinfo->tx_work);
+		cancel_delayed_work_sync(&npinfo->tx_work);
 
 		/* clean after last, unfinished work */
 		__skb_queue_purge(&npinfo->txq);

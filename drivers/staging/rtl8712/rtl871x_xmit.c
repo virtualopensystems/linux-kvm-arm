@@ -372,7 +372,7 @@ static sint xmitframe_addmic(struct _adapter *padapter,
 					   0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
 					   0x0, 0x0};
 			datalen = pattrib->pktlen - pattrib->hdrlen;
-			pframe = pxmitframe->buf_addr + TXDESC_OFFSET;;
+			pframe = pxmitframe->buf_addr + TXDESC_OFFSET;
 			if (bmcst) {
 				if (!memcmp(psecuritypriv->XGrptxmickey
 				   [psecuritypriv->XGrpKeyid].skey,
@@ -996,8 +996,7 @@ static void free_hwxmits(struct _adapter *padapter)
 {
 	struct xmit_priv *pxmitpriv = &padapter->xmitpriv;
 
-	if (pxmitpriv->hwxmits)
-		kfree((u8 *)pxmitpriv->hwxmits);
+	kfree(pxmitpriv->hwxmits);
 }
 
 static void init_hwxmits(struct hw_xmit *phwxmit, sint entry)

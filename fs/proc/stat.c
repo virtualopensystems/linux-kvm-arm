@@ -126,7 +126,7 @@ static int show_stat(struct seq_file *p, void *v)
 
 	for (i = 0; i < NR_SOFTIRQS; i++)
 		seq_printf(p, " %u", per_softirq_sums[i]);
-	seq_printf(p, "\n");
+	seq_putc(p, '\n');
 
 	return 0;
 }
@@ -138,9 +138,9 @@ static int stat_open(struct inode *inode, struct file *file)
 	struct seq_file *m;
 	int res;
 
-	/* don't ask for more than the kmalloc() max size, currently 128 KB */
-	if (size > 128 * 1024)
-		size = 128 * 1024;
+	/* don't ask for more than the kmalloc() max size */
+	if (size > KMALLOC_MAX_SIZE)
+		size = KMALLOC_MAX_SIZE;
 	buf = kmalloc(size, GFP_KERNEL);
 	if (!buf)
 		return -ENOMEM;

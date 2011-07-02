@@ -20,6 +20,7 @@
 
 #include "pch_gbe.h"
 #include "pch_gbe_api.h"
+#include <linux/prefetch.h>
 
 #define DRV_VERSION     "1.00"
 const char pch_driver_version[] = DRV_VERSION;
@@ -29,9 +30,14 @@ const char pch_driver_version[] = DRV_VERSION;
 #define PCH_GBE_SHORT_PKT		64
 #define DSC_INIT16			0xC000
 #define PCH_GBE_DMA_ALIGN		0
+#define PCH_GBE_DMA_PADDING		2
 #define PCH_GBE_WATCHDOG_PERIOD		(1 * HZ)	/* watchdog time */
 #define PCH_GBE_COPYBREAK_DEFAULT	256
 #define PCH_GBE_PCI_BAR			1
+
+/* Macros for ML7223 */
+#define PCI_VENDOR_ID_ROHM			0x10db
+#define PCI_DEVICE_ID_ROHM_ML7223_GBE		0x8013
 
 #define PCH_GBE_TX_WEIGHT         64
 #define PCH_GBE_RX_WEIGHT         64
@@ -42,8 +48,7 @@ const char pch_driver_version[] = DRV_VERSION;
 
 #define PCH_GBE_MAC_RGMII_CTRL_SETTING ( \
 	PCH_GBE_CHIP_TYPE_INTERNAL | \
-	PCH_GBE_RGMII_MODE_RGMII   | \
-	PCH_GBE_CRS_SEL              \
+	PCH_GBE_RGMII_MODE_RGMII     \
 	)
 
 /* Ethertype field values */
@@ -88,6 +93,12 @@ static unsigned int copybreak __read_mostly = PCH_GBE_COPYBREAK_DEFAULT;
 static int pch_gbe_mdio_read(struct net_device *netdev, int addr, int reg);
 static void pch_gbe_mdio_write(struct net_device *netdev, int addr, int reg,
 			       int data);
+
+inline void pch_gbe_mac_load_mac_addr(struct pch_gbe_hw *hw)
+{
+	iowrite32(0x01, &hw->reg->MAC_ADDR_LOAD);
+}
+
 /**
  * pch_gbe_mac_read_mac_addr - Read MAC address
  * @hw:	            Pointer to the HW structure
@@ -519,7 +530,9 @@ static void pch_gbe_reset_task(struct work_struct *work)
 	struct pch_gbe_adapter *adapter;
 	adapter = container_of(work, struct pch_gbe_adapter, reset_task);
 
+	rtnl_lock();
 	pch_gbe_reinit_locked(adapter);
+	rtnl_unlock();
 }
 
 /**
@@ -528,14 +541,8 @@ static void pch_gbe_reset_task(struct work_struct *work)
  */
 void pch_gbe_reinit_locked(struct pch_gbe_adapter *adapter)
 {
-	struct net_device *netdev = adapter->netdev;
-
-	rtnl_lock();
-	if (netif_running(netdev)) {
-		pch_gbe_down(adapter);
-		pch_gbe_up(adapter);
-	}
-	rtnl_unlock();
+	pch_gbe_down(adapter);
+	pch_gbe_up(adapter);
 }
 
 /**
@@ -653,6 +660,7 @@ static void pch_gbe_configure_tx(struct pch_gbe_adapter *adapter)
  */
 static void pch_gbe_setup_rctl(struct pch_gbe_adapter *adapter)
 {
+	struct net_device *netdev = adapter->netdev;
 	struct pch_gbe_hw *hw = &adapter->hw;
 	u32 rx_mode, tcpip;
 
@@ -663,7 +671,7 @@ static void pch_gbe_setup_rctl(struct pch_gbe_adapter *adapter)
 
 	tcpip = ioread32(&hw->reg->TCPIP_ACC);
 
-	if (adapter->rx_csum) {
+	if (netdev->features & NETIF_F_RXCSUM) {
 		tcpip &= ~PCH_GBE_RX_TCPIPACC_OFF;
 		tcpip |= PCH_GBE_RX_TCPIPACC_EN;
 	} else {
@@ -884,12 +892,12 @@ static void pch_gbe_watchdog(unsigned long data)
 	struct pch_gbe_adapter *adapter = (struct pch_gbe_adapter *)data;
 	struct net_device *netdev = adapter->netdev;
 	struct pch_gbe_hw *hw = &adapter->hw;
-	struct ethtool_cmd cmd;
 
 	pr_debug("right now = %ld\n", jiffies);
 
 	pch_gbe_update_stats(adapter);
 	if ((mii_link_ok(&adapter->mii)) && (!netif_carrier_ok(netdev))) {
+		struct ethtool_cmd cmd = { .cmd = ETHTOOL_GSET };
 		netdev->tx_queue_len = adapter->tx_queue_len;
 		/* mii library handles link maintenance tasks */
 		if (mii_ethtool_gset(&adapter->mii, &cmd)) {
@@ -899,7 +907,7 @@ static void pch_gbe_watchdog(unsigned long data)
 						PCH_GBE_WATCHDOG_PERIOD));
 			return;
 		}
-		hw->mac.link_speed = cmd.speed;
+		hw->mac.link_speed = ethtool_cmd_speed(&cmd);
 		hw->mac.link_duplex = cmd.duplex;
 		/* Set the RGMII control. */
 		pch_gbe_set_rgmii_ctrl(adapter, hw->mac.link_speed,
@@ -909,7 +917,7 @@ static void pch_gbe_watchdog(unsigned long data)
 				 hw->mac.link_duplex);
 		netdev_dbg(netdev,
 			   "Link is Up %d Mbps %s-Duplex\n",
-			   cmd.speed,
+			   hw->mac.link_speed,
 			   cmd.duplex == DUPLEX_FULL ? "Full" : "Half");
 		netif_carrier_on(netdev);
 		netif_wake_queue(netdev);
@@ -947,7 +955,7 @@ static void pch_gbe_tx_queue(struct pch_gbe_adapter *adapter,
 	frame_ctrl = 0;
 	if (unlikely(skb->len < PCH_GBE_SHORT_PKT))
 		frame_ctrl |= PCH_GBE_TXD_CTRL_APAD;
-	if (unlikely(!adapter->tx_csum))
+	if (skb->ip_summed == CHECKSUM_NONE)
 		frame_ctrl |= PCH_GBE_TXD_CTRL_TCPIP_ACC_OFF;
 
 	/* Performs checksum processing */
@@ -955,7 +963,7 @@ static void pch_gbe_tx_queue(struct pch_gbe_adapter *adapter,
 	 * It is because the hardware accelerator does not support a checksum,
 	 * when the received data size is less than 64 bytes.
 	 */
-	if ((skb->len < PCH_GBE_SHORT_PKT) && (adapter->tx_csum)) {
+	if (skb->len < PCH_GBE_SHORT_PKT && skb->ip_summed != CHECKSUM_NONE) {
 		frame_ctrl |= PCH_GBE_TXD_CTRL_APAD |
 			      PCH_GBE_TXD_CTRL_TCPIP_ACC_OFF;
 		if (skb->protocol == htons(ETH_P_IP)) {
@@ -1008,7 +1016,7 @@ static void pch_gbe_tx_queue(struct pch_gbe_adapter *adapter,
 	tmp_skb->len = skb->len;
 	memcpy(&tmp_skb->data[ETH_HLEN + 2], &skb->data[ETH_HLEN],
 	       (skb->len - ETH_HLEN));
-	/*-- Set Buffer infomation --*/
+	/*-- Set Buffer information --*/
 	buffer_info->length = tmp_skb->len;
 	buffer_info->dma = dma_map_single(&adapter->pdev->dev, tmp_skb->data,
 					  buffer_info->length,
@@ -1369,16 +1377,13 @@ pch_gbe_clean_rx(struct pch_gbe_adapter *adapter,
 	struct pch_gbe_buffer *buffer_info;
 	struct pch_gbe_rx_desc *rx_desc;
 	u32 length;
-	unsigned char tmp_packet[ETH_HLEN];
 	unsigned int i;
 	unsigned int cleaned_count = 0;
 	bool cleaned = false;
-	struct sk_buff *skb;
+	struct sk_buff *skb, *new_skb;
 	u8 dma_status;
 	u16 gbec_status;
 	u32 tcp_ip_status;
-	u8 skb_copy_flag = 0;
-	u8 skb_padding_flag = 0;
 
 	i = rx_ring->next_to_clean;
 
@@ -1422,55 +1427,70 @@ pch_gbe_clean_rx(struct pch_gbe_adapter *adapter,
 			pr_err("Receive CRC Error\n");
 		} else {
 			/* get receive length */
-			/* length convert[-3], padding[-2] */
-			length = (rx_desc->rx_words_eob) - 3 - 2;
+			/* length convert[-3] */
+			length = (rx_desc->rx_words_eob) - 3;
 
 			/* Decide the data conversion method */
-			if (!adapter->rx_csum) {
+			if (!(netdev->features & NETIF_F_RXCSUM)) {
 				/* [Header:14][payload] */
-				skb_padding_flag = 0;
-				skb_copy_flag = 1;
-			} else {
-				/* [Header:14][padding:2][payload] */
-				skb_padding_flag = 1;
-				if (length < copybreak)
-					skb_copy_flag = 1;
-				else
-					skb_copy_flag = 0;
-			}
-
-			/* Data conversion */
-			if (skb_copy_flag) {	/* recycle  skb */
-				struct sk_buff *new_skb;
-				new_skb =
-				    netdev_alloc_skb(netdev,
-						     length + NET_IP_ALIGN);
-				if (new_skb) {
-					if (!skb_padding_flag) {
-						skb_reserve(new_skb,
-								NET_IP_ALIGN);
+				if (NET_IP_ALIGN) {
+					/* Because alignment differs,
+					 * the new_skb is newly allocated,
+					 * and data is copied to new_skb.*/
+					new_skb = netdev_alloc_skb(netdev,
+							 length + NET_IP_ALIGN);
+					if (!new_skb) {
+						/* dorrop error */
+						pr_err("New skb allocation "
+							"Error\n");
+						goto dorrop;
 					}
+					skb_reserve(new_skb, NET_IP_ALIGN);
 					memcpy(new_skb->data, skb->data,
-						length);
-					/* save the skb
-					 * in buffer_info as good */
+					       length);
 					skb = new_skb;
-				} else if (!skb_padding_flag) {
-					/* dorrop error */
-					pr_err("New skb allocation Error\n");
-					goto dorrop;
+				} else {
+					/* DMA buffer is used as SKB as it is.*/
+					buffer_info->skb = NULL;
 				}
 			} else {
-				buffer_info->skb = NULL;
+				/* [Header:14][padding:2][payload] */
+				/* The length includes padding length */
+				length = length - PCH_GBE_DMA_PADDING;
+				if ((length < copybreak) ||
+				    (NET_IP_ALIGN != PCH_GBE_DMA_PADDING)) {
+					/* Because alignment differs,
+					 * the new_skb is newly allocated,
+					 * and data is copied to new_skb.
+					 * Padding data is deleted
+					 * at the time of a copy.*/
+					new_skb = netdev_alloc_skb(netdev,
+							 length + NET_IP_ALIGN);
+					if (!new_skb) {
+						/* dorrop error */
+						pr_err("New skb allocation "
+							"Error\n");
+						goto dorrop;
+					}
+					skb_reserve(new_skb, NET_IP_ALIGN);
+					memcpy(new_skb->data, skb->data,
+					       ETH_HLEN);
+					memcpy(&new_skb->data[ETH_HLEN],
+					       &skb->data[ETH_HLEN +
+					       PCH_GBE_DMA_PADDING],
+					       length - ETH_HLEN);
+					skb = new_skb;
+				} else {
+					/* Padding data is deleted
+					 * by moving header data.*/
+					memmove(&skb->data[PCH_GBE_DMA_PADDING],
+						&skb->data[0], ETH_HLEN);
+					skb_reserve(skb, NET_IP_ALIGN);
+					buffer_info->skb = NULL;
+				}
 			}
-			if (skb_padding_flag) {
-				memcpy(&tmp_packet[0], &skb->data[0], ETH_HLEN);
-				memcpy(&skb->data[NET_IP_ALIGN], &tmp_packet[0],
-					ETH_HLEN);
-				skb_reserve(skb, NET_IP_ALIGN);
-
-			}
-
+			/* The length includes FCS length */
+			length = length - ETH_FCS_LEN;
 			/* update status of driver */
 			adapter->stats.rx_bytes += length;
 			adapter->stats.rx_packets++;
@@ -1479,12 +1499,11 @@ pch_gbe_clean_rx(struct pch_gbe_adapter *adapter,
 			/* Write meta date of skb */
 			skb_put(skb, length);
 			skb->protocol = eth_type_trans(skb, netdev);
-			if ((tcp_ip_status & PCH_GBE_RXD_ACC_STAT_TCPIPOK) ==
-			    PCH_GBE_RXD_ACC_STAT_TCPIPOK) {
-				skb->ip_summed = CHECKSUM_UNNECESSARY;
-			} else {
+			if (tcp_ip_status & PCH_GBE_RXD_ACC_STAT_TCPIPOK)
 				skb->ip_summed = CHECKSUM_NONE;
-			}
+			else
+				skb->ip_summed = CHECKSUM_UNNECESSARY;
+
 			napi_gro_receive(&adapter->napi, skb);
 			(*work_done)++;
 			pr_debug("Receive skb->ip_summed: %d length: %d\n",
@@ -1523,12 +1542,11 @@ int pch_gbe_setup_tx_resources(struct pch_gbe_adapter *adapter,
 	int desNo;
 
 	size = (int)sizeof(struct pch_gbe_buffer) * tx_ring->count;
-	tx_ring->buffer_info = vmalloc(size);
+	tx_ring->buffer_info = vzalloc(size);
 	if (!tx_ring->buffer_info) {
-		pr_err("Unable to allocate memory for the buffer infomation\n");
+		pr_err("Unable to allocate memory for the buffer information\n");
 		return -ENOMEM;
 	}
-	memset(tx_ring->buffer_info, 0, size);
 
 	tx_ring->size = tx_ring->count * (int)sizeof(struct pch_gbe_tx_desc);
 
@@ -1573,12 +1591,11 @@ int pch_gbe_setup_rx_resources(struct pch_gbe_adapter *adapter,
 	int desNo;
 
 	size = (int)sizeof(struct pch_gbe_buffer) * rx_ring->count;
-	rx_ring->buffer_info = vmalloc(size);
+	rx_ring->buffer_info = vzalloc(size);
 	if (!rx_ring->buffer_info) {
 		pr_err("Unable to allocate memory for the receive descriptor ring\n");
 		return -ENOMEM;
 	}
-	memset(rx_ring->buffer_info, 0, size);
 	rx_ring->size = rx_ring->count * (int)sizeof(struct pch_gbe_rx_desc);
 	rx_ring->desc =	dma_alloc_coherent(&pdev->dev, rx_ring->size,
 					   &rx_ring->dma, GFP_KERNEL);
@@ -2017,6 +2034,29 @@ static int pch_gbe_change_mtu(struct net_device *netdev, int new_mtu)
 }
 
 /**
+ * pch_gbe_set_features - Reset device after features changed
+ * @netdev:   Network interface device structure
+ * @features:  New features
+ * Returns
+ *	0:		HW state updated successfully
+ */
+static int pch_gbe_set_features(struct net_device *netdev, u32 features)
+{
+	struct pch_gbe_adapter *adapter = netdev_priv(netdev);
+	u32 changed = features ^ netdev->features;
+
+	if (!(changed & NETIF_F_RXCSUM))
+		return 0;
+
+	if (netif_running(netdev))
+		pch_gbe_reinit_locked(adapter);
+	else
+		pch_gbe_reset(adapter);
+
+	return 0;
+}
+
+/**
  * pch_gbe_ioctl - Controls register through a MII interface
  * @netdev:   Network interface device structure
  * @ifr:      Pointer to ifr structure
@@ -2116,6 +2156,7 @@ static const struct net_device_ops pch_gbe_netdev_ops = {
 	.ndo_set_mac_address = pch_gbe_set_mac,
 	.ndo_tx_timeout = pch_gbe_tx_timeout,
 	.ndo_change_mtu = pch_gbe_change_mtu,
+	.ndo_set_features = pch_gbe_set_features,
 	.ndo_do_ioctl = pch_gbe_ioctl,
 	.ndo_set_multicast_list = &pch_gbe_set_multi,
 #ifdef CONFIG_NET_POLL_CONTROLLER
@@ -2249,7 +2290,7 @@ static void pch_gbe_remove(struct pci_dev *pdev)
 	struct net_device *netdev = pci_get_drvdata(pdev);
 	struct pch_gbe_adapter *adapter = netdev_priv(netdev);
 
-	flush_scheduled_work();
+	cancel_work_sync(&adapter->reset_task);
 	unregister_netdev(netdev);
 
 	pch_gbe_hal_phy_hw_reset(&adapter->hw);
@@ -2321,9 +2362,12 @@ static int pch_gbe_probe(struct pci_dev *pdev,
 	netdev->watchdog_timeo = PCH_GBE_WATCHDOG_PERIOD;
 	netif_napi_add(netdev, &adapter->napi,
 		       pch_gbe_napi_poll, PCH_GBE_RX_WEIGHT);
-	netdev->features = NETIF_F_HW_CSUM | NETIF_F_GRO;
+	netdev->hw_features = NETIF_F_RXCSUM |
+		NETIF_F_IP_CSUM | NETIF_F_IPV6_CSUM;
+	netdev->features = netdev->hw_features;
 	pch_gbe_set_ethtool_ops(netdev);
 
+	pch_gbe_mac_load_mac_addr(&adapter->hw);
 	pch_gbe_mac_reset_hw(&adapter->hw);
 
 	/* setup the private structure */
@@ -2358,11 +2402,6 @@ static int pch_gbe_probe(struct pci_dev *pdev,
 	INIT_WORK(&adapter->reset_task, pch_gbe_reset_task);
 
 	pch_gbe_check_options(adapter);
-
-	if (adapter->tx_csum)
-		netdev->features |= NETIF_F_HW_CSUM;
-	else
-		netdev->features &= ~NETIF_F_HW_CSUM;
 
 	/* initialize the wol settings based on the eeprom settings */
 	adapter->wake_up_evt = PCH_GBE_WL_INIT_SETTING;
@@ -2406,6 +2445,13 @@ static DEFINE_PCI_DEVICE_TABLE(pch_gbe_pcidev_id) = {
 	 .class = (PCI_CLASS_NETWORK_ETHERNET << 8),
 	 .class_mask = (0xFFFF00)
 	 },
+	{.vendor = PCI_VENDOR_ID_ROHM,
+	 .device = PCI_DEVICE_ID_ROHM_ML7223_GBE,
+	 .subvendor = PCI_ANY_ID,
+	 .subdevice = PCI_ANY_ID,
+	 .class = (PCI_CLASS_NETWORK_ETHERNET << 8),
+	 .class_mask = (0xFFFF00)
+	 },
 	/* required last entry */
 	{0}
 };
@@ -2427,12 +2473,12 @@ static struct pci_error_handlers pch_gbe_err_handler = {
 	.resume = pch_gbe_io_resume
 };
 
-static struct pci_driver pch_gbe_pcidev = {
+static struct pci_driver pch_gbe_driver = {
 	.name = KBUILD_MODNAME,
 	.id_table = pch_gbe_pcidev_id,
 	.probe = pch_gbe_probe,
 	.remove = pch_gbe_remove,
-#ifdef CONFIG_PM_OPS
+#ifdef CONFIG_PM
 	.driver.pm = &pch_gbe_pm_ops,
 #endif
 	.shutdown = pch_gbe_shutdown,
@@ -2444,7 +2490,7 @@ static int __init pch_gbe_init_module(void)
 {
 	int ret;
 
-	ret = pci_register_driver(&pch_gbe_pcidev);
+	ret = pci_register_driver(&pch_gbe_driver);
 	if (copybreak != PCH_GBE_COPYBREAK_DEFAULT) {
 		if (copybreak == 0) {
 			pr_info("copybreak disabled\n");
@@ -2458,7 +2504,7 @@ static int __init pch_gbe_init_module(void)
 
 static void __exit pch_gbe_exit_module(void)
 {
-	pci_unregister_driver(&pch_gbe_pcidev);
+	pci_unregister_driver(&pch_gbe_driver);
 }
 
 module_init(pch_gbe_init_module);

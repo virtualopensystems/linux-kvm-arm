@@ -19,12 +19,12 @@
 #include <asm/uaccess.h>
 
 #include <linux/coda.h>
-#include <linux/coda_linux.h>
-#include <linux/coda_fs_i.h>
 #include <linux/coda_psdev.h>
 
+#include "coda_linux.h"
+
 /* pioctl ops */
-static int coda_ioctl_permission(struct inode *inode, int mask);
+static int coda_ioctl_permission(struct inode *inode, int mask, unsigned int flags);
 static long coda_pioctl(struct file *filp, unsigned int cmd,
 			unsigned long user_data);
 
@@ -41,7 +41,7 @@ const struct file_operations coda_ioctl_operations = {
 };
 
 /* the coda pioctl inode ops */
-static int coda_ioctl_permission(struct inode *inode, int mask)
+static int coda_ioctl_permission(struct inode *inode, int mask, unsigned int flags)
 {
 	return (mask & MAY_EXEC) ? -EACCES : 0;
 }

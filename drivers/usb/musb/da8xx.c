@@ -29,6 +29,8 @@
 #include <linux/init.h>
 #include <linux/clk.h>
 #include <linux/io.h>
+#include <linux/platform_device.h>
+#include <linux/dma-mapping.h>
 
 #include <mach/da8xx.h>
 #include <mach/usb.h>
@@ -77,6 +79,12 @@
 #define DA8XX_MENTOR_CORE_OFFSET 0x400
 
 #define CFGCHIP2	IO_ADDRESS(DA8XX_SYSCFG0_BASE + DA8XX_CFGCHIP2_REG)
+
+struct da8xx_glue {
+	struct device		*dev;
+	struct platform_device	*musb;
+	struct clk		*clk;
+};
 
 /*
  * REVISIT (PM): we should be able to keep the PHY in low power mode most
@@ -131,9 +139,9 @@ static inline void phy_off(void)
  */
 
 /**
- * musb_platform_enable - enable interrupts
+ * da8xx_musb_enable - enable interrupts
  */
-void musb_platform_enable(struct musb *musb)
+static void da8xx_musb_enable(struct musb *musb)
 {
 	void __iomem *reg_base = musb->ctrl_base;
 	u32 mask;
@@ -151,9 +159,9 @@ void musb_platform_enable(struct musb *musb)
 }
 
 /**
- * musb_platform_disable - disable HDRC and flush interrupts
+ * da8xx_musb_disable - disable HDRC and flush interrupts
  */
-void musb_platform_disable(struct musb *musb)
+static void da8xx_musb_disable(struct musb *musb)
 {
 	void __iomem *reg_base = musb->ctrl_base;
 
@@ -170,7 +178,7 @@ void musb_platform_disable(struct musb *musb)
 #define portstate(stmt)
 #endif
 
-static void da8xx_set_vbus(struct musb *musb, int is_on)
+static void da8xx_musb_set_vbus(struct musb *musb, int is_on)
 {
 	WARN_ON(is_on && is_peripheral_active(musb));
 }
@@ -191,7 +199,8 @@ static void otg_timer(unsigned long _musb)
 	 * status change events (from the transceiver) otherwise.
 	 */
 	devctl = musb_readb(mregs, MUSB_DEVCTL);
-	DBG(7, "Poll devctl %02x (%s)\n", devctl, otg_state_string(musb));
+	dev_dbg(musb->controller, "Poll devctl %02x (%s)\n", devctl,
+		otg_state_string(musb->xceiv->state));
 
 	spin_lock_irqsave(&musb->lock, flags);
 	switch (musb->xceiv->state) {
@@ -252,7 +261,7 @@ static void otg_timer(unsigned long _musb)
 	spin_unlock_irqrestore(&musb->lock, flags);
 }
 
-void musb_platform_try_idle(struct musb *musb, unsigned long timeout)
+static void da8xx_musb_try_idle(struct musb *musb, unsigned long timeout)
 {
 	static unsigned long last_timer;
 
@@ -265,24 +274,26 @@ void musb_platform_try_idle(struct musb *musb, unsigned long timeout)
 	/* Never idle if active, or when VBUS timeout is not set as host */
 	if (musb->is_active || (musb->a_wait_bcon == 0 &&
 				musb->xceiv->state == OTG_STATE_A_WAIT_BCON)) {
-		DBG(4, "%s active, deleting timer\n", otg_state_string(musb));
+		dev_dbg(musb->controller, "%s active, deleting timer\n",
+			otg_state_string(musb->xceiv->state));
 		del_timer(&otg_workaround);
 		last_timer = jiffies;
 		return;
 	}
 
 	if (time_after(last_timer, timeout) && timer_pending(&otg_workaround)) {
-		DBG(4, "Longer idle timer already pending, ignoring...\n");
+		dev_dbg(musb->controller, "Longer idle timer already pending, ignoring...\n");
 		return;
 	}
 	last_timer = timeout;
 
-	DBG(4, "%s inactive, starting idle timer for %u ms\n",
-	    otg_state_string(musb), jiffies_to_msecs(timeout - jiffies));
+	dev_dbg(musb->controller, "%s inactive, starting idle timer for %u ms\n",
+		otg_state_string(musb->xceiv->state),
+		jiffies_to_msecs(timeout - jiffies));
 	mod_timer(&otg_workaround, timeout);
 }
 
-static irqreturn_t da8xx_interrupt(int irq, void *hci)
+static irqreturn_t da8xx_musb_interrupt(int irq, void *hci)
 {
 	struct musb		*musb = hci;
 	void __iomem		*reg_base = musb->ctrl_base;
@@ -303,7 +314,7 @@ static irqreturn_t da8xx_interrupt(int irq, void *hci)
 		goto eoi;
 
 	musb_writel(reg_base, DA8XX_USB_INTR_SRC_CLEAR_REG, status);
-	DBG(4, "USB IRQ %08x\n", status);
+	dev_dbg(musb->controller, "USB IRQ %08x\n", status);
 
 	musb->int_rx = (status & DA8XX_INTR_RX_MASK) >> DA8XX_INTR_RX_SHIFT;
 	musb->int_tx = (status & DA8XX_INTR_TX_MASK) >> DA8XX_INTR_TX_SHIFT;
@@ -355,9 +366,9 @@ static irqreturn_t da8xx_interrupt(int irq, void *hci)
 			portstate(musb->port1_status &= ~USB_PORT_STAT_POWER);
 		}
 
-		DBG(2, "VBUS %s (%s)%s, devctl %02x\n",
+		dev_dbg(musb->controller, "VBUS %s (%s)%s, devctl %02x\n",
 				drvvbus ? "on" : "off",
-				otg_state_string(musb),
+				otg_state_string(musb->xceiv->state),
 				err ? " ERROR" : "",
 				devctl);
 		ret = IRQ_HANDLED;
@@ -380,7 +391,7 @@ static irqreturn_t da8xx_interrupt(int irq, void *hci)
 	return ret;
 }
 
-int musb_platform_set_mode(struct musb *musb, u8 musb_mode)
+static int da8xx_musb_set_mode(struct musb *musb, u8 musb_mode)
 {
 	u32 cfgchip2 = __raw_readl(CFGCHIP2);
 
@@ -402,21 +413,19 @@ int musb_platform_set_mode(struct musb *musb, u8 musb_mode)
 		break;
 #endif
 	default:
-		DBG(2, "Trying to set unsupported mode %u\n", musb_mode);
+		dev_dbg(musb->controller, "Trying to set unsupported mode %u\n", musb_mode);
 	}
 
 	__raw_writel(cfgchip2, CFGCHIP2);
 	return 0;
 }
 
-int __init musb_platform_init(struct musb *musb, void *board_data)
+static int da8xx_musb_init(struct musb *musb)
 {
 	void __iomem *reg_base = musb->ctrl_base;
 	u32 rev;
 
 	musb->mregs += DA8XX_MENTOR_CORE_OFFSET;
-
-	clk_enable(musb->clock);
 
 	/* Returns zero if e.g. not clocked */
 	rev = musb_readl(reg_base, DA8XX_USB_REVISION_REG);
@@ -431,8 +440,6 @@ int __init musb_platform_init(struct musb *musb, void *board_data)
 	if (is_host_enabled(musb))
 		setup_timer(&otg_workaround, otg_timer, (unsigned long)musb);
 
-	musb->board_set_vbus = da8xx_set_vbus;
-
 	/* Reset the controller */
 	musb_writel(reg_base, DA8XX_USB_CTRL_REG, DA8XX_SOFT_RESET_MASK);
 
@@ -446,14 +453,13 @@ int __init musb_platform_init(struct musb *musb, void *board_data)
 		 rev, __raw_readl(CFGCHIP2),
 		 musb_readb(reg_base, DA8XX_USB_CTRL_REG));
 
-	musb->isr = da8xx_interrupt;
+	musb->isr = da8xx_musb_interrupt;
 	return 0;
 fail:
-	clk_disable(musb->clock);
 	return -ENODEV;
 }
 
-int musb_platform_exit(struct musb *musb)
+static int da8xx_musb_exit(struct musb *musb)
 {
 	if (is_host_enabled(musb))
 		del_timer_sync(&otg_workaround);
@@ -463,7 +469,140 @@ int musb_platform_exit(struct musb *musb)
 	otg_put_transceiver(musb->xceiv);
 	usb_nop_xceiv_unregister();
 
-	clk_disable(musb->clock);
+	return 0;
+}
+
+static const struct musb_platform_ops da8xx_ops = {
+	.init		= da8xx_musb_init,
+	.exit		= da8xx_musb_exit,
+
+	.enable		= da8xx_musb_enable,
+	.disable	= da8xx_musb_disable,
+
+	.set_mode	= da8xx_musb_set_mode,
+	.try_idle	= da8xx_musb_try_idle,
+
+	.set_vbus	= da8xx_musb_set_vbus,
+};
+
+static u64 da8xx_dmamask = DMA_BIT_MASK(32);
+
+static int __init da8xx_probe(struct platform_device *pdev)
+{
+	struct musb_hdrc_platform_data	*pdata = pdev->dev.platform_data;
+	struct platform_device		*musb;
+	struct da8xx_glue		*glue;
+
+	struct clk			*clk;
+
+	int				ret = -ENOMEM;
+
+	glue = kzalloc(sizeof(*glue), GFP_KERNEL);
+	if (!glue) {
+		dev_err(&pdev->dev, "failed to allocate glue context\n");
+		goto err0;
+	}
+
+	musb = platform_device_alloc("musb-hdrc", -1);
+	if (!musb) {
+		dev_err(&pdev->dev, "failed to allocate musb device\n");
+		goto err1;
+	}
+
+	clk = clk_get(&pdev->dev, "usb20");
+	if (IS_ERR(clk)) {
+		dev_err(&pdev->dev, "failed to get clock\n");
+		ret = PTR_ERR(clk);
+		goto err2;
+	}
+
+	ret = clk_enable(clk);
+	if (ret) {
+		dev_err(&pdev->dev, "failed to enable clock\n");
+		goto err3;
+	}
+
+	musb->dev.parent		= &pdev->dev;
+	musb->dev.dma_mask		= &da8xx_dmamask;
+	musb->dev.coherent_dma_mask	= da8xx_dmamask;
+
+	glue->dev			= &pdev->dev;
+	glue->musb			= musb;
+	glue->clk			= clk;
+
+	pdata->platform_ops		= &da8xx_ops;
+
+	platform_set_drvdata(pdev, glue);
+
+	ret = platform_device_add_resources(musb, pdev->resource,
+			pdev->num_resources);
+	if (ret) {
+		dev_err(&pdev->dev, "failed to add resources\n");
+		goto err4;
+	}
+
+	ret = platform_device_add_data(musb, pdata, sizeof(*pdata));
+	if (ret) {
+		dev_err(&pdev->dev, "failed to add platform_data\n");
+		goto err4;
+	}
+
+	ret = platform_device_add(musb);
+	if (ret) {
+		dev_err(&pdev->dev, "failed to register musb device\n");
+		goto err4;
+	}
+
+	return 0;
+
+err4:
+	clk_disable(clk);
+
+err3:
+	clk_put(clk);
+
+err2:
+	platform_device_put(musb);
+
+err1:
+	kfree(glue);
+
+err0:
+	return ret;
+}
+
+static int __exit da8xx_remove(struct platform_device *pdev)
+{
+	struct da8xx_glue		*glue = platform_get_drvdata(pdev);
+
+	platform_device_del(glue->musb);
+	platform_device_put(glue->musb);
+	clk_disable(glue->clk);
+	clk_put(glue->clk);
+	kfree(glue);
 
 	return 0;
 }
+
+static struct platform_driver da8xx_driver = {
+	.remove		= __exit_p(da8xx_remove),
+	.driver		= {
+		.name	= "musb-da8xx",
+	},
+};
+
+MODULE_DESCRIPTION("DA8xx/OMAP-L1x MUSB Glue Layer");
+MODULE_AUTHOR("Sergei Shtylyov <sshtylyov@ru.mvista.com>");
+MODULE_LICENSE("GPL v2");
+
+static int __init da8xx_init(void)
+{
+	return platform_driver_probe(&da8xx_driver, da8xx_probe);
+}
+subsys_initcall(da8xx_init);
+
+static void __exit da8xx_exit(void)
+{
+	platform_driver_unregister(&da8xx_driver);
+}
+module_exit(da8xx_exit);

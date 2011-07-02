@@ -35,12 +35,6 @@
 })
 
 /*
- * This variable should be used with the
- * usb_driver structure initialization.
- */
-#define USB_DEVICE_DATA(__ops)	.driver_info = (kernel_ulong_t)(__ops)
-
-/*
  * For USB vendor requests we need to pass a timeout
  * time in ms, for this we use the REGISTER_TIMEOUT,
  * however when loading firmware a higher value is
@@ -345,6 +339,23 @@ int rt2x00usb_regbusy_read(struct rt2x00_dev *rt2x00dev,
 			   const struct rt2x00_field32 field,
 			   u32 *reg);
 
+/**
+ * rt2x00usb_register_read_async - Asynchronously read 32bit register word
+ * @rt2x00dev: Device pointer, see &struct rt2x00_dev.
+ * @offset: Register offset
+ * @callback: Functon to call when read completes.
+ *
+ * Submit a control URB to read a 32bit register. This safe to
+ * be called from atomic context.  The callback will be called
+ * when the URB completes. Otherwise the function is similar
+ * to rt2x00usb_register_read().
+ * When the callback function returns false, the memory will be cleaned up,
+ * when it returns true, the urb will be fired again.
+ */
+void rt2x00usb_register_read_async(struct rt2x00_dev *rt2x00dev,
+				   const unsigned int offset,
+				   bool (*callback)(struct rt2x00_dev*, int, u32));
+
 /*
  * Radio handlers
  */
@@ -378,29 +389,31 @@ struct queue_entry_priv_usb_bcn {
 };
 
 /**
- * rt2x00usb_kick_tx_queue - Kick data queue
+ * rt2x00usb_kick_queue - Kick data queue
  * @queue: Data queue to kick
  *
  * This will walk through all entries of the queue and push all pending
  * frames to the hardware as a single burst.
  */
-void rt2x00usb_kick_tx_queue(struct data_queue *queue);
+void rt2x00usb_kick_queue(struct data_queue *queue);
 
 /**
- * rt2x00usb_kill_tx_queue - Kill data queue
- * @queue: Data queue to kill
+ * rt2x00usb_flush_queue - Flush data queue
+ * @queue: Data queue to stop
+ * @drop: True to drop all pending frames.
  *
- * This will walk through all entries of the queue and kill all
- * previously kicked frames before they can be send.
+ * This will walk through all entries of the queue and will optionally
+ * kill all URB's which were send to the device, or at least wait until
+ * they have been returned from the device..
  */
-void rt2x00usb_kill_tx_queue(struct data_queue *queue);
+void rt2x00usb_flush_queue(struct data_queue *queue, bool drop);
 
 /**
  * rt2x00usb_watchdog - Watchdog for USB communication
  * @rt2x00dev: Pointer to &struct rt2x00_dev
  *
  * Check the health of the USB communication and determine
- * if timeouts have occured. If this is the case, this function
+ * if timeouts have occurred. If this is the case, this function
  * will reset all communication to restore functionality again.
  */
 void rt2x00usb_watchdog(struct rt2x00_dev *rt2x00dev);
@@ -416,7 +429,7 @@ void rt2x00usb_uninitialize(struct rt2x00_dev *rt2x00dev);
  * USB driver handlers.
  */
 int rt2x00usb_probe(struct usb_interface *usb_intf,
-		    const struct usb_device_id *id);
+		    const struct rt2x00_ops *ops);
 void rt2x00usb_disconnect(struct usb_interface *usb_intf);
 #ifdef CONFIG_PM
 int rt2x00usb_suspend(struct usb_interface *usb_intf, pm_message_t state);

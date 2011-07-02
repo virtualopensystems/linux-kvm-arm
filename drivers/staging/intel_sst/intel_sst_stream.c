@@ -26,9 +26,12 @@
  *  This file contains the stream operations of SST driver
  */
 
+#define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
+
 #include <linux/pci.h>
 #include <linux/firmware.h>
 #include <linux/sched.h>
+#include <linux/delay.h>
 #include "intel_sst_ioctl.h"
 #include "intel_sst.h"
 #include "intel_sst_fw_ipc.h"
@@ -45,8 +48,8 @@
  */
 int sst_check_device_type(u32 device, u32 num_chan, u32 *pcm_slot)
 {
-	if (device >= MAX_NUM_STREAMS) {
-		pr_debug("sst: device type invalid %d\n", device);
+	if (device >= MAX_NUM_STREAMS_MFLD) {
+		pr_debug("device type invalid %d\n", device);
 		return -EINVAL;
 	}
 	if (sst_drv_ctx->streams[device].status == STREAM_UN_INIT) {
@@ -70,16 +73,18 @@ int sst_check_device_type(u32 device, u32 num_chan, u32 *pcm_slot)
 			*pcm_slot = 0x07;
 		else if (device == SND_SST_DEVICE_CAPTURE && num_chan == 4)
 			*pcm_slot = 0x0F;
+		else if (device == SND_SST_DEVICE_CAPTURE && num_chan > 4)
+			*pcm_slot = 0x1F;
 		else {
-			pr_debug("sst: No condition satisfied.. ret err\n");
+			pr_debug("No condition satisfied.. ret err\n");
 			return -EINVAL;
 		}
 	} else {
-		pr_debug("sst: this stream state is not uni-init, is %d\n",
+		pr_debug("this stream state is not uni-init, is %d\n",
 				sst_drv_ctx->streams[device].status);
 		return -EBADRQC;
 	}
-	pr_debug("sst: returning slot %x\n", *pcm_slot);
+	pr_debug("returning slot %x\n", *pcm_slot);
 	return 0;
 }
 /**
@@ -96,7 +101,7 @@ static unsigned int get_mrst_stream_id(void)
 		if (sst_drv_ctx->streams[i].status == STREAM_UN_INIT)
 			return i;
 	}
-	pr_debug("sst: Didnt find empty stream for mrst\n");
+	pr_debug("Didn't find empty stream for mrst\n");
 	return -EBUSY;
 }
 
@@ -305,7 +310,7 @@ int sst_pause_stream(int str_id)
 		if (str_info->prev == STREAM_UN_INIT)
 			return -EBADRQC;
 		if (str_info->ctrl_blk.on == true) {
-			pr_err("SST ERR: control path is in use\n ");
+			pr_err("SST ERR: control path is in use\n");
 			return -EINVAL;
 		}
 		if (sst_create_short_msg(&msg))
@@ -333,7 +338,7 @@ int sst_pause_stream(int str_id)
 		}
 	} else {
 		retval = -EBADRQC;
-		pr_err("SST ERR:BADQRC for stream\n ");
+		pr_err("SST ERR: BADQRC for stream\n");
 	}
 
 	return retval;
@@ -468,7 +473,7 @@ int sst_drop_stream(int str_id)
 		}
 	} else {
 		retval = -EBADRQC;
-		pr_err("SST ERR:BADQRC for stream\n");
+		pr_err("SST ERR: BADQRC for stream\n");
 	}
 	return retval;
 }
@@ -517,10 +522,6 @@ int sst_drain_stream(int str_id)
 	str_info->data_blk.on = true;
 	retval = sst_wait_interruptible(sst_drv_ctx, &str_info->data_blk);
 	str_info->need_draining = false;
-	if (retval == -SST_ERR_INVALID_STREAM_ID) {
-		retval = -EINVAL;
-		sst_clean_stream(str_info);
-	}
 	return retval;
 }
 
@@ -561,6 +562,12 @@ int sst_free_stream(int str_id)
 			str_info->data_blk.ret_code = 0;
 			wake_up(&sst_drv_ctx->wait_queue);
 		}
+		str_info->data_blk.on = true;
+		str_info->data_blk.condition = false;
+		retval = sst_wait_interruptible_timeout(sst_drv_ctx,
+				&str_info->ctrl_blk, SST_BLOCK_TIMEOUT);
+		pr_debug("wait for free returned %d\n", retval);
+		msleep(100);
 		mutex_lock(&sst_drv_ctx->stream_lock);
 		sst_clean_stream(str_info);
 		mutex_unlock(&sst_drv_ctx->stream_lock);

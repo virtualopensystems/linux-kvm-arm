@@ -33,7 +33,7 @@
 #include <media/videobuf-vmalloc.h>
 #include <media/v4l2-device.h>
 #include <media/ir-kbd-i2c.h>
-#include <media/ir-core.h>
+#include <media/rc-core.h>
 #if defined(CONFIG_VIDEO_EM28XX_DVB) || defined(CONFIG_VIDEO_EM28XX_DVB_MODULE)
 #include <media/videobuf-dvb.h>
 #endif
@@ -97,7 +97,7 @@
 #define EM2881_BOARD_PINNACLE_HYBRID_PRO	  53
 #define EM2882_BOARD_KWORLD_VS_DVBT		  54
 #define EM2882_BOARD_TERRATEC_HYBRID_XS		  55
-#define EM2882_BOARD_PINNACLE_HYBRID_PRO	  56
+#define EM2882_BOARD_PINNACLE_HYBRID_PRO_330E	  56
 #define EM2883_BOARD_KWORLD_HYBRID_330U                  57
 #define EM2820_BOARD_COMPRO_VIDEOMATE_FORYOU	  58
 #define EM2883_BOARD_HAUPPAUGE_WINTV_HVR_850	  60
@@ -117,6 +117,9 @@
 #define EM2800_BOARD_VC211A			  74
 #define EM2882_BOARD_DIKOM_DK300		  75
 #define EM2870_BOARD_KWORLD_A340		  76
+#define EM2874_LEADERSHIP_ISDBT			  77
+#define EM28174_BOARD_PCTV_290E                   78
+
 
 /* Limits minimum and default number of buffers */
 #define EM28XX_MIN_BUF 4

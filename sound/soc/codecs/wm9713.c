@@ -26,7 +26,6 @@
 #include <sound/pcm_params.h>
 #include <sound/tlv.h>
 #include <sound/soc.h>
-#include <sound/soc-dapm.h>
 
 #include "wm9713.h"
 
@@ -488,7 +487,7 @@ SND_SOC_DAPM_INPUT("MIC2B"),
 SND_SOC_DAPM_VMID("VMID"),
 };
 
-static const struct snd_soc_dapm_route audio_map[] = {
+static const struct snd_soc_dapm_route wm9713_audio_map[] = {
 	/* left HP mixer */
 	{"Left HP Mixer", "Beep Playback Switch",    "PCBEEP"},
 	{"Left HP Mixer", "Voice Playback Switch",   "Voice DAC"},
@@ -644,16 +643,6 @@ static const struct snd_soc_dapm_route audio_map[] = {
 	{"Capture Mono Mux", "Left", "Left Capture Source"},
 	{"Capture Mono Mux", "Right", "Right Capture Source"},
 };
-
-static int wm9713_add_widgets(struct snd_soc_codec *codec)
-{
-	snd_soc_dapm_new_controls(codec, wm9713_dapm_widgets,
-				  ARRAY_SIZE(wm9713_dapm_widgets));
-
-	snd_soc_dapm_add_routes(codec, audio_map, ARRAY_SIZE(audio_map));
-
-	return 0;
-}
 
 static unsigned int ac97_read(struct snd_soc_codec *codec,
 	unsigned int reg)
@@ -1147,7 +1136,7 @@ static int wm9713_set_bias_level(struct snd_soc_codec *codec,
 		ac97_write(codec, AC97_POWERDOWN, 0xffff);
 		break;
 	}
-	codec->bias_level = level;
+	codec->dapm.bias_level = level;
 	return 0;
 }
 
@@ -1230,7 +1219,6 @@ static int wm9713_soc_probe(struct snd_soc_codec *codec)
 
 	snd_soc_add_controls(codec, wm9713_snd_ac97_controls,
 				ARRAY_SIZE(wm9713_snd_ac97_controls));
-	wm9713_add_widgets(codec);
 
 	return 0;
 
@@ -1261,6 +1249,10 @@ static struct snd_soc_codec_driver soc_codec_dev_wm9713 = {
 	.reg_word_size = sizeof(u16),
 	.reg_cache_step = 2,
 	.reg_cache_default = wm9713_reg,
+	.dapm_widgets = wm9713_dapm_widgets,
+	.num_dapm_widgets = ARRAY_SIZE(wm9713_dapm_widgets),
+	.dapm_routes = wm9713_audio_map,
+	.num_dapm_routes = ARRAY_SIZE(wm9713_audio_map),
 };
 
 static __devinit int wm9713_probe(struct platform_device *pdev)

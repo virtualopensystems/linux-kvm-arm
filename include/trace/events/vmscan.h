@@ -6,6 +6,8 @@
 
 #include <linux/types.h>
 #include <linux/tracepoint.h>
+#include <linux/mm.h>
+#include <linux/memcontrol.h>
 #include "gfpflags.h"
 
 #define RECLAIM_WB_ANON		0x0001u
@@ -25,13 +27,13 @@
 
 #define trace_reclaim_flags(page, sync) ( \
 	(page_is_file_cache(page) ? RECLAIM_WB_FILE : RECLAIM_WB_ANON) | \
-	(sync == LUMPY_MODE_SYNC ? RECLAIM_WB_SYNC : RECLAIM_WB_ASYNC)   \
+	(sync & RECLAIM_MODE_SYNC ? RECLAIM_WB_SYNC : RECLAIM_WB_ASYNC)   \
 	)
 
 #define trace_shrink_flags(file, sync) ( \
-	(sync == LUMPY_MODE_SYNC ? RECLAIM_WB_MIXED : \
+	(sync & RECLAIM_MODE_SYNC ? RECLAIM_WB_MIXED : \
 			(file ? RECLAIM_WB_FILE : RECLAIM_WB_ANON)) |  \
-	(sync == LUMPY_MODE_SYNC ? RECLAIM_WB_SYNC : RECLAIM_WB_ASYNC) \
+	(sync & RECLAIM_MODE_SYNC ? RECLAIM_WB_SYNC : RECLAIM_WB_ASYNC) \
 	)
 
 TRACE_EVENT(mm_vmscan_kswapd_sleep,
@@ -310,6 +312,87 @@ TRACE_EVENT(mm_vmscan_lru_shrink_inactive,
 		show_reclaim_flags(__entry->reclaim_flags))
 );
 
+TRACE_EVENT(replace_swap_token,
+	TP_PROTO(struct mm_struct *old_mm,
+		 struct mm_struct *new_mm),
+
+	TP_ARGS(old_mm, new_mm),
+
+	TP_STRUCT__entry(
+		__field(struct mm_struct*,	old_mm)
+		__field(unsigned int,		old_prio)
+		__field(struct mm_struct*,	new_mm)
+		__field(unsigned int,		new_prio)
+	),
+
+	TP_fast_assign(
+		__entry->old_mm   = old_mm;
+		__entry->old_prio = old_mm ? old_mm->token_priority : 0;
+		__entry->new_mm   = new_mm;
+		__entry->new_prio = new_mm->token_priority;
+	),
+
+	TP_printk("old_token_mm=%p old_prio=%u new_token_mm=%p new_prio=%u",
+		  __entry->old_mm, __entry->old_prio,
+		  __entry->new_mm, __entry->new_prio)
+);
+
+DECLARE_EVENT_CLASS(put_swap_token_template,
+	TP_PROTO(struct mm_struct *swap_token_mm),
+
+	TP_ARGS(swap_token_mm),
+
+	TP_STRUCT__entry(
+		__field(struct mm_struct*, swap_token_mm)
+	),
+
+	TP_fast_assign(
+		__entry->swap_token_mm = swap_token_mm;
+	),
+
+	TP_printk("token_mm=%p", __entry->swap_token_mm)
+);
+
+DEFINE_EVENT(put_swap_token_template, put_swap_token,
+	TP_PROTO(struct mm_struct *swap_token_mm),
+	TP_ARGS(swap_token_mm)
+);
+
+DEFINE_EVENT_CONDITION(put_swap_token_template, disable_swap_token,
+	TP_PROTO(struct mm_struct *swap_token_mm),
+	TP_ARGS(swap_token_mm),
+	TP_CONDITION(swap_token_mm != NULL)
+);
+
+TRACE_EVENT_CONDITION(update_swap_token_priority,
+	TP_PROTO(struct mm_struct *mm,
+		 unsigned int old_prio,
+		 struct mm_struct *swap_token_mm),
+
+	TP_ARGS(mm, old_prio, swap_token_mm),
+
+	TP_CONDITION(mm->token_priority != old_prio),
+
+	TP_STRUCT__entry(
+		__field(struct mm_struct*, mm)
+		__field(unsigned int, old_prio)
+		__field(unsigned int, new_prio)
+		__field(struct mm_struct*, swap_token_mm)
+		__field(unsigned int, swap_token_prio)
+	),
+
+	TP_fast_assign(
+		__entry->mm		= mm;
+		__entry->old_prio	= old_prio;
+		__entry->new_prio	= mm->token_priority;
+		__entry->swap_token_mm	= swap_token_mm;
+		__entry->swap_token_prio = swap_token_mm ? swap_token_mm->token_priority : 0;
+	),
+
+	TP_printk("mm=%p old_prio=%u new_prio=%u swap_token_mm=%p token_prio=%u",
+		  __entry->mm, __entry->old_prio, __entry->new_prio,
+		  __entry->swap_token_mm, __entry->swap_token_prio)
+);
 
 #endif /* _TRACE_VMSCAN_H */
 

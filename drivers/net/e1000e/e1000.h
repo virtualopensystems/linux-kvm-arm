@@ -1,7 +1,7 @@
 /*******************************************************************************
 
   Intel PRO/1000 Linux driver
-  Copyright(c) 1999 - 2010 Intel Corporation.
+  Copyright(c) 1999 - 2011 Intel Corporation.
 
   This program is free software; you can redistribute it and/or modify it
   under the terms and conditions of the GNU General Public License,
@@ -31,6 +31,7 @@
 #ifndef _E1000_H_
 #define _E1000_H_
 
+#include <linux/bitops.h>
 #include <linux/types.h>
 #include <linux/timer.h>
 #include <linux/workqueue.h>
@@ -38,6 +39,8 @@
 #include <linux/netdevice.h>
 #include <linux/pci.h>
 #include <linux/pci-aspm.h>
+#include <linux/crc32.h>
+#include <linux/if_vlan.h>
 
 #include "hw.h"
 
@@ -279,7 +282,7 @@ struct e1000_adapter {
 
 	const struct e1000_info *ei;
 
-	struct vlan_group *vlgrp;
+	unsigned long active_vlans[BITS_TO_LONGS(VLAN_N_VID)];
 	u32 bd_number;
 	u32 rx_buffer_len;
 	u16 mng_vlan_id;
@@ -363,6 +366,7 @@ struct e1000_adapter {
 	/* structs defined in e1000_hw.h */
 	struct e1000_hw hw;
 
+	spinlock_t stats64_lock;
 	struct e1000_hw_stats stats;
 	struct e1000_phy_info phy_info;
 	struct e1000_phy_stats phy_stats;
@@ -387,13 +391,10 @@ struct e1000_adapter {
 
 	bool fc_autoneg;
 
-	unsigned long led_status;
-
 	unsigned int flags;
 	unsigned int flags2;
 	struct work_struct downshift_task;
 	struct work_struct update_phy_task;
-	struct work_struct led_blink_task;
 	struct work_struct print_hang_task;
 
 	bool idle_check;
@@ -454,6 +455,7 @@ struct e1000_info {
 #define FLAG2_HAS_PHY_STATS               (1 << 4)
 #define FLAG2_HAS_EEE                     (1 << 5)
 #define FLAG2_DMA_BURST                   (1 << 6)
+#define FLAG2_DISABLE_ASPM_L0S            (1 << 7)
 #define FLAG2_DISABLE_AIM                 (1 << 8)
 #define FLAG2_CHECK_PHY_HANG              (1 << 9)
 
@@ -492,10 +494,13 @@ extern int e1000e_setup_rx_resources(struct e1000_adapter *adapter);
 extern int e1000e_setup_tx_resources(struct e1000_adapter *adapter);
 extern void e1000e_free_rx_resources(struct e1000_adapter *adapter);
 extern void e1000e_free_tx_resources(struct e1000_adapter *adapter);
-extern void e1000e_update_stats(struct e1000_adapter *adapter);
+extern struct rtnl_link_stats64 *e1000e_get_stats64(struct net_device *netdev,
+                                                    struct rtnl_link_stats64
+                                                    *stats);
 extern void e1000e_set_interrupt_capability(struct e1000_adapter *adapter);
 extern void e1000e_reset_interrupt_capability(struct e1000_adapter *adapter);
-extern void e1000e_disable_aspm(struct pci_dev *pdev, u16 state);
+extern void e1000e_get_hw_control(struct e1000_adapter *adapter);
+extern void e1000e_release_hw_control(struct e1000_adapter *adapter);
 
 extern unsigned int copybreak;
 
@@ -513,7 +518,8 @@ extern struct e1000_info e1000_pch_info;
 extern struct e1000_info e1000_pch2_info;
 extern struct e1000_info e1000_es2_info;
 
-extern s32 e1000e_read_pba_num(struct e1000_hw *hw, u32 *pba_num);
+extern s32 e1000_read_pba_string_generic(struct e1000_hw *hw, u8 *pba_num,
+					 u32 pba_num_size);
 
 extern s32  e1000e_commit_phy(struct e1000_hw *hw);
 
@@ -565,7 +571,7 @@ extern s32 e1000e_valid_led_default(struct e1000_hw *hw, u16 *data);
 extern void e1000e_config_collision_dist(struct e1000_hw *hw);
 extern s32 e1000e_config_fc_after_link_up(struct e1000_hw *hw);
 extern s32 e1000e_force_mac_fc(struct e1000_hw *hw);
-extern s32 e1000e_blink_led(struct e1000_hw *hw);
+extern s32 e1000e_blink_led_generic(struct e1000_hw *hw);
 extern void e1000_write_vfta_generic(struct e1000_hw *hw, u32 offset, u32 value);
 extern s32 e1000_check_alt_mac_addr_generic(struct e1000_hw *hw);
 extern void e1000e_reset_adaptive(struct e1000_hw *hw);

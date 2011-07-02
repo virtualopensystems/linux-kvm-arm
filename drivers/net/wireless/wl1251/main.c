@@ -52,14 +52,14 @@ void wl1251_disable_interrupts(struct wl1251 *wl)
 	wl->if_ops->disable_irq(wl);
 }
 
-static void wl1251_power_off(struct wl1251 *wl)
+static int wl1251_power_off(struct wl1251 *wl)
 {
-	wl->set_power(false);
+	return wl->if_ops->power(wl, false);
 }
 
-static void wl1251_power_on(struct wl1251 *wl)
+static int wl1251_power_on(struct wl1251 *wl)
 {
-	wl->set_power(true);
+	return wl->if_ops->power(wl, true);
 }
 
 static int wl1251_fetch_firmware(struct wl1251 *wl)
@@ -152,9 +152,12 @@ static void wl1251_fw_wakeup(struct wl1251 *wl)
 
 static int wl1251_chip_wakeup(struct wl1251 *wl)
 {
-	int ret = 0;
+	int ret;
 
-	wl1251_power_on(wl);
+	ret = wl1251_power_on(wl);
+	if (ret < 0)
+		return ret;
+
 	msleep(WL1251_POWER_ON_SLEEP);
 	wl->if_ops->reset(wl);
 
@@ -372,7 +375,7 @@ out:
 	mutex_unlock(&wl->mutex);
 }
 
-static int wl1251_op_tx(struct ieee80211_hw *hw, struct sk_buff *skb)
+static void wl1251_op_tx(struct ieee80211_hw *hw, struct sk_buff *skb)
 {
 	struct wl1251 *wl = hw->priv;
 	unsigned long flags;
@@ -398,8 +401,6 @@ static int wl1251_op_tx(struct ieee80211_hw *hw, struct sk_buff *skb)
 		wl->tx_queue_stopped = true;
 		spin_unlock_irqrestore(&wl->wl_lock, flags);
 	}
-
-	return NETDEV_TX_OK;
 }
 
 static int wl1251_op_start(struct ieee80211_hw *hw)
@@ -496,9 +497,10 @@ static void wl1251_op_stop(struct ieee80211_hw *hw)
 	wl->rx_last_id = 0;
 	wl->next_tx_complete = 0;
 	wl->elp = false;
-	wl->psm = 0;
+	wl->station_mode = STATION_ACTIVE_MODE;
 	wl->tx_queue_stopped = false;
 	wl->power_level = WL1251_DEFAULT_POWER_LEVEL;
+	wl->rssi_thold = 0;
 	wl->channel = WL1251_DEFAULT_CHANNEL;
 
 	wl1251_debugfs_reset(wl);
@@ -630,8 +632,24 @@ static int wl1251_op_config(struct ieee80211_hw *hw, u32 changed)
 
 		wl->psm_requested = false;
 
-		if (wl->psm) {
+		if (wl->station_mode != STATION_ACTIVE_MODE) {
 			ret = wl1251_ps_set_mode(wl, STATION_ACTIVE_MODE);
+			if (ret < 0)
+				goto out_sleep;
+		}
+	}
+
+	if (changed & IEEE80211_CONF_CHANGE_IDLE) {
+		if (conf->flags & IEEE80211_CONF_IDLE) {
+			ret = wl1251_ps_set_mode(wl, STATION_IDLE);
+			if (ret < 0)
+				goto out_sleep;
+		} else {
+			ret = wl1251_ps_set_mode(wl, STATION_ACTIVE_MODE);
+			if (ret < 0)
+				goto out_sleep;
+			ret = wl1251_join(wl, wl->bss_type, wl->channel,
+					  wl->beacon_int, wl->dtim_period);
 			if (ret < 0)
 				goto out_sleep;
 		}
@@ -956,6 +974,16 @@ static void wl1251_op_bss_info_changed(struct ieee80211_hw *hw,
 	if (ret < 0)
 		goto out;
 
+	if (changed & BSS_CHANGED_CQM) {
+		ret = wl1251_acx_low_rssi(wl, bss_conf->cqm_rssi_thold,
+					  WL1251_DEFAULT_LOW_RSSI_WEIGHT,
+					  WL1251_DEFAULT_LOW_RSSI_DEPTH,
+					  WL1251_ACX_LOW_RSSI_TYPE_EDGE);
+		if (ret < 0)
+			goto out;
+		wl->rssi_thold = bss_conf->cqm_rssi_thold;
+	}
+
 	if (changed & BSS_CHANGED_BSSID) {
 		memcpy(wl->bssid, bss_conf->bssid, ETH_ALEN);
 
@@ -1036,6 +1064,9 @@ static void wl1251_op_bss_info_changed(struct ieee80211_hw *hw,
 
 	if (changed & BSS_CHANGED_BEACON) {
 		beacon = ieee80211_beacon_get(hw, vif);
+		if (!beacon)
+			goto out_sleep;
+
 		ret = wl1251_cmd_template_set(wl, CMD_BEACON, beacon->data,
 					      beacon->len);
 
@@ -1307,9 +1338,11 @@ int wl1251_init_ieee80211(struct wl1251 *wl)
 	wl->hw->flags = IEEE80211_HW_SIGNAL_DBM |
 		IEEE80211_HW_SUPPORTS_PS |
 		IEEE80211_HW_BEACON_FILTER |
-		IEEE80211_HW_SUPPORTS_UAPSD;
+		IEEE80211_HW_SUPPORTS_UAPSD |
+		IEEE80211_HW_SUPPORTS_CQM_RSSI;
 
-	wl->hw->wiphy->interface_modes = BIT(NL80211_IFTYPE_STATION);
+	wl->hw->wiphy->interface_modes = BIT(NL80211_IFTYPE_STATION) |
+					 BIT(NL80211_IFTYPE_ADHOC);
 	wl->hw->wiphy->max_scan_ssids = 1;
 	wl->hw->wiphy->bands[IEEE80211_BAND_2GHZ] = &wl1251_band_2ghz;
 
@@ -1367,10 +1400,11 @@ struct ieee80211_hw *wl1251_alloc_hw(void)
 	wl->rx_config = WL1251_DEFAULT_RX_CONFIG;
 	wl->rx_filter = WL1251_DEFAULT_RX_FILTER;
 	wl->elp = false;
-	wl->psm = 0;
+	wl->station_mode = STATION_ACTIVE_MODE;
 	wl->psm_requested = false;
 	wl->tx_queue_stopped = false;
 	wl->power_level = WL1251_DEFAULT_POWER_LEVEL;
+	wl->rssi_thold = 0;
 	wl->beacon_int = WL1251_DEFAULT_BEACON_INT;
 	wl->dtim_period = WL1251_DEFAULT_DTIM_PERIOD;
 	wl->vif = NULL;

@@ -15,6 +15,7 @@
  */
 #include <linux/types.h>
 #include <linux/sched.h>	/* request_irq() */
+#include <linux/netdevice.h>
 #include <bcmdefs.h>
 #include <bcmutils.h>
 #include <sdio.h>		/* SDIO Specs */
@@ -25,6 +26,9 @@
 #include <linux/mmc/card.h>
 #include <linux/mmc/sdio_func.h>
 #include <linux/mmc/sdio_ids.h>
+
+#include "dngl_stats.h"
+#include "dhd.h"
 
 #if !defined(SDIO_VENDOR_ID_BROADCOM)
 #define SDIO_VENDOR_ID_BROADCOM		0x02d0
@@ -150,11 +154,11 @@ int sdioh_sdmmc_osinit(sdioh_info_t *sd)
 	sdos = kmalloc(sizeof(struct sdos_info), GFP_ATOMIC);
 	sd->sdos_info = (void *)sdos;
 	if (sdos == NULL)
-		return BCME_NOMEM;
+		return -ENOMEM;
 
 	sdos->sd = sd;
 	spin_lock_init(&sdos->lock);
-	return BCME_OK;
+	return 0;
 }
 
 void sdioh_sdmmc_osfree(sdioh_info_t *sd)
@@ -211,7 +215,7 @@ int sdio_function_init(void)
 	if (!gInstance)
 		return -ENOMEM;
 
-	bzero(&sdmmc_dev, sizeof(sdmmc_dev));
+	memset(&sdmmc_dev, 0, sizeof(sdmmc_dev));
 	error = sdio_register_driver(&bcmsdh_sdmmc_driver);
 
 	return error;

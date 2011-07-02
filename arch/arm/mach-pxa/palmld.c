@@ -24,7 +24,6 @@
 #include <linux/gpio.h>
 #include <linux/wm97xx.h>
 #include <linux/power_supply.h>
-#include <linux/sysdev.h>
 #include <linux/mtd/mtd.h>
 #include <linux/mtd/partitions.h>
 #include <linux/mtd/physmap.h>
@@ -313,7 +312,7 @@ static struct map_desc palmld_io_desc[] __initdata = {
 
 static void __init palmld_map_io(void)
 {
-	pxa_map_io();
+	pxa27x_map_io();
 	iotable_init(palmld_io_desc, ARRAY_SIZE(palmld_io_desc));
 }
 

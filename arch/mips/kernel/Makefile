@@ -52,6 +52,7 @@ obj-$(CONFIG_CPU_TX39XX)	+= r2300_fpu.o r2300_switch.o
 obj-$(CONFIG_CPU_TX49XX)	+= r4k_fpu.o r4k_switch.o
 obj-$(CONFIG_CPU_VR41XX)	+= r4k_fpu.o r4k_switch.o
 obj-$(CONFIG_CPU_CAVIUM_OCTEON)	+= octeon_switch.o
+obj-$(CONFIG_CPU_XLR)		+= r4k_fpu.o r4k_switch.o
 
 obj-$(CONFIG_SMP)		+= smp.o
 obj-$(CONFIG_SMP_UP)		+= smp-up.o
@@ -95,6 +96,7 @@ obj-$(CONFIG_GPIO_TXX9)		+= gpio_txx9.o
 obj-$(CONFIG_KEXEC)		+= machine_kexec.o relocate_kernel.o
 obj-$(CONFIG_EARLY_PRINTK)	+= early_printk.o
 obj-$(CONFIG_SPINLOCK_TEST)	+= spinlock_test.o
+obj-$(CONFIG_MIPS_MACHINE)	+= mips_machine.o
 
 obj-$(CONFIG_OF)		+= prom.o
 
@@ -105,5 +107,7 @@ obj-$(CONFIG_HAVE_STD_PC_SERIAL_PORT)	+= 8250-platform.o
 obj-$(CONFIG_MIPS_CPUFREQ)	+= cpufreq/
 
 obj-$(CONFIG_HW_PERF_EVENTS)	+= perf_event.o
+
+obj-$(CONFIG_JUMP_LABEL)	+= jump_label.o
 
 CPPFLAGS_vmlinux.lds		:= $(KBUILD_CFLAGS)

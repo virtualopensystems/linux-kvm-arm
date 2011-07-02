@@ -248,7 +248,7 @@ search_help[] = N_(
 "Only relevant lines are shown.\n"
 "\n\n"
 "Search examples:\n"
-"Examples: USB   = > find all symbols containing USB\n"
+"Examples: USB  => find all symbols containing USB\n"
 "          ^USB => find all symbols starting with USB\n"
 "          USB$ => find all symbols ending with USB\n"
 "\n");
@@ -373,18 +373,18 @@ static void print_function_line(void)
 	const int skip = 1;
 
 	for (i = 0; i < function_keys_num; i++) {
-		wattrset(main_window, attributes[FUNCTION_HIGHLIGHT]);
+		(void) wattrset(main_window, attributes[FUNCTION_HIGHLIGHT]);
 		mvwprintw(main_window, LINES-3, offset,
 				"%s",
 				function_keys[i].key_str);
-		wattrset(main_window, attributes[FUNCTION_TEXT]);
+		(void) wattrset(main_window, attributes[FUNCTION_TEXT]);
 		offset += strlen(function_keys[i].key_str);
 		mvwprintw(main_window, LINES-3,
 				offset, "%s",
 				function_keys[i].func);
 		offset += strlen(function_keys[i].func) + skip;
 	}
-	wattrset(main_window, attributes[NORMAL]);
+	(void) wattrset(main_window, attributes[NORMAL]);
 }
 
 /* help */
@@ -953,16 +953,16 @@ static void show_menu(const char *prompt, const char *instructions,
 	current_instructions = instructions;
 
 	clear();
-	wattrset(main_window, attributes[NORMAL]);
+	(void) wattrset(main_window, attributes[NORMAL]);
 	print_in_middle(stdscr, 1, 0, COLS,
 			menu_backtitle,
 			attributes[MAIN_HEADING]);
 
-	wattrset(main_window, attributes[MAIN_MENU_BOX]);
+	(void) wattrset(main_window, attributes[MAIN_MENU_BOX]);
 	box(main_window, 0, 0);
-	wattrset(main_window, attributes[MAIN_MENU_HEADING]);
+	(void) wattrset(main_window, attributes[MAIN_MENU_HEADING]);
 	mvwprintw(main_window, 0, 3, " %s ", prompt);
-	wattrset(main_window, attributes[NORMAL]);
+	(void) wattrset(main_window, attributes[NORMAL]);
 
 	set_menu_items(curses_menu, curses_menu_items);
 
@@ -1266,9 +1266,13 @@ static void conf_choice(struct menu *menu)
 			if (child->sym == sym_get_choice_value(menu->sym))
 				item_make(child, ':', "<X> %s",
 						_(menu_get_prompt(child)));
-			else
+			else if (child->sym)
 				item_make(child, ':', "    %s",
 						_(menu_get_prompt(child)));
+			else
+				item_make(child, ':', "*** %s ***",
+						_(menu_get_prompt(child)));
+
 			if (child->sym == active){
 				last_top_row = top_row(curses_menu);
 				selected_index = i;
@@ -1334,7 +1338,7 @@ static void conf_choice(struct menu *menu)
 			break;
 
 		child = item_data();
-		if (!child || !menu_is_visible(child))
+		if (!child || !menu_is_visible(child) || !child->sym)
 			continue;
 		switch (res) {
 		case ' ':

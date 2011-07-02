@@ -41,7 +41,7 @@
 #include <linux/slab.h>
 
 #include <net/sock.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #include <asm/unaligned.h>
 
 #include <net/bluetooth/bluetooth.h>
@@ -51,10 +51,10 @@
 
 #define VERSION "1.11"
 
-static int disable_cfc = 0;
+static int disable_cfc;
+static int l2cap_ertm;
 static int channel_mtu = -1;
 static unsigned int l2cap_mtu = RFCOMM_MAX_L2CAP_MTU;
-static int l2cap_ertm = 0;
 
 static struct task_struct *rfcomm_thread;
 
@@ -232,6 +232,8 @@ static int rfcomm_l2sock_create(struct socket **sock)
 static inline int rfcomm_check_security(struct rfcomm_dlc *d)
 {
 	struct sock *sk = d->session->sock->sk;
+	struct l2cap_conn *conn = l2cap_pi(sk)->chan->conn;
+
 	__u8 auth_type;
 
 	switch (d->sec_level) {
@@ -246,8 +248,7 @@ static inline int rfcomm_check_security(struct rfcomm_dlc *d)
 		break;
 	}
 
-	return hci_conn_security(l2cap_pi(sk)->conn->hcon, d->sec_level,
-								auth_type);
+	return hci_conn_security(conn->hcon, d->sec_level, auth_type);
 }
 
 static void rfcomm_session_timeout(unsigned long arg)
@@ -710,10 +711,10 @@ static struct rfcomm_session *rfcomm_session_create(bdaddr_t *src,
 	/* Set L2CAP options */
 	sk = sock->sk;
 	lock_sock(sk);
-	l2cap_pi(sk)->imtu = l2cap_mtu;
-	l2cap_pi(sk)->sec_level = sec_level;
+	l2cap_pi(sk)->chan->imtu = l2cap_mtu;
+	l2cap_pi(sk)->chan->sec_level = sec_level;
 	if (l2cap_ertm)
-		l2cap_pi(sk)->mode = L2CAP_MODE_ERTM;
+		l2cap_pi(sk)->chan->mode = L2CAP_MODE_ERTM;
 	release_sock(sk);
 
 	s = rfcomm_session_add(sock, BT_BOUND);
@@ -1164,7 +1165,8 @@ static int rfcomm_recv_ua(struct rfcomm_session *s, u8 dlci)
 			 * initiator rfcomm_process_rx already calls
 			 * rfcomm_session_put() */
 			if (s->sock->sk->sk_state != BT_CLOSED)
-				rfcomm_session_put(s);
+				if (list_empty(&s->dlcs))
+					rfcomm_session_put(s);
 			break;
 		}
 	}
@@ -1240,6 +1242,7 @@ static int rfcomm_recv_disc(struct rfcomm_session *s, u8 dlci)
 void rfcomm_dlc_accept(struct rfcomm_dlc *d)
 {
 	struct sock *sk = d->session->sock->sk;
+	struct l2cap_conn *conn = l2cap_pi(sk)->chan->conn;
 
 	BT_DBG("dlc %p", d);
 
@@ -1253,7 +1256,7 @@ void rfcomm_dlc_accept(struct rfcomm_dlc *d)
 	rfcomm_dlc_unlock(d);
 
 	if (d->role_switch)
-		hci_conn_switch_role(l2cap_pi(sk)->conn->hcon, 0x00);
+		hci_conn_switch_role(conn->hcon, 0x00);
 
 	rfcomm_send_msc(d->session, 1, d->dlci, d->v24_sig);
 }
@@ -1889,7 +1892,8 @@ static inline void rfcomm_accept_connection(struct rfcomm_session *s)
 
 		/* We should adjust MTU on incoming sessions.
 		 * L2CAP MTU minus UIH header and FCS. */
-		s->mtu = min(l2cap_pi(nsock->sk)->omtu, l2cap_pi(nsock->sk)->imtu) - 5;
+		s->mtu = min(l2cap_pi(nsock->sk)->chan->omtu,
+				l2cap_pi(nsock->sk)->chan->imtu) - 5;
 
 		rfcomm_schedule();
 	} else
@@ -1902,13 +1906,13 @@ static inline void rfcomm_check_connection(struct rfcomm_session *s)
 
 	BT_DBG("%p state %ld", s, s->state);
 
-	switch(sk->sk_state) {
+	switch (sk->sk_state) {
 	case BT_CONNECTED:
 		s->state = BT_CONNECT;
 
 		/* We can adjust MTU on outgoing sessions.
 		 * L2CAP MTU minus UIH header and FCS. */
-		s->mtu = min(l2cap_pi(sk)->omtu, l2cap_pi(sk)->imtu) - 5;
+		s->mtu = min(l2cap_pi(sk)->chan->omtu, l2cap_pi(sk)->chan->imtu) - 5;
 
 		rfcomm_send_sabm(s, 0);
 		break;
@@ -1991,7 +1995,7 @@ static int rfcomm_add_listener(bdaddr_t *ba)
 	/* Set L2CAP options */
 	sk = sock->sk;
 	lock_sock(sk);
-	l2cap_pi(sk)->imtu = l2cap_mtu;
+	l2cap_pi(sk)->chan->imtu = l2cap_mtu;
 	release_sock(sk);
 
 	/* Start listening on the socket */
@@ -2092,7 +2096,7 @@ static void rfcomm_security_cfm(struct hci_conn *conn, u8 status, u8 encrypt)
 		if (!test_and_clear_bit(RFCOMM_AUTH_PENDING, &d->flags))
 			continue;
 
-		if (!status)
+		if (!status && hci_conn_check_secure(conn, d->sec_level))
 			set_bit(RFCOMM_AUTH_ACCEPT, &d->flags);
 		else
 			set_bit(RFCOMM_AUTH_REJECT, &d->flags);
@@ -2152,8 +2156,6 @@ static struct dentry *rfcomm_dlc_debugfs;
 static int __init rfcomm_init(void)
 {
 	int err;
-
-	l2cap_load();
 
 	hci_register_cb(&rfcomm_cb);
 

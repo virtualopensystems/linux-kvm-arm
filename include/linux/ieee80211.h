@@ -122,6 +122,7 @@
 
 /* U-APSD queue for WMM IEs sent by AP */
 #define IEEE80211_WMM_IE_AP_QOSINFO_UAPSD	(1<<7)
+#define IEEE80211_WMM_IE_AP_QOSINFO_PARAM_SET_CNT_MASK	0x0f
 
 /* U-APSD queues for WMM IEs sent by STA */
 #define IEEE80211_WMM_IE_STA_QOSINFO_AC_VO	(1<<0)
@@ -535,7 +536,6 @@ struct ieee80211s_hdr {
 	__le32 seqnum;
 	u8 eaddr1[6];
 	u8 eaddr2[6];
-	u8 eaddr3[6];
 } __attribute__ ((packed));
 
 /* Mesh flags */
@@ -884,6 +884,15 @@ struct ieee80211_ht_cap {
 #define IEEE80211_HT_CAP_40MHZ_INTOLERANT	0x4000
 #define IEEE80211_HT_CAP_LSIG_TXOP_PROT		0x8000
 
+/* 802.11n HT extended capabilities masks (for extended_ht_cap_info) */
+#define IEEE80211_HT_EXT_CAP_PCO		0x0001
+#define IEEE80211_HT_EXT_CAP_PCO_TIME		0x0006
+#define		IEEE80211_HT_EXT_CAP_PCO_TIME_SHIFT	1
+#define IEEE80211_HT_EXT_CAP_MCS_FB		0x0300
+#define		IEEE80211_HT_EXT_CAP_MCS_FB_SHIFT	8
+#define IEEE80211_HT_EXT_CAP_HTC_SUP		0x0400
+#define IEEE80211_HT_EXT_CAP_RD_RESPONDER	0x0800
+
 /* 802.11n HT capability AMPDU settings (for ampdu_params_info) */
 #define IEEE80211_HT_AMPDU_PARM_FACTOR		0x03
 #define IEEE80211_HT_AMPDU_PARM_DENSITY		0x1C
@@ -959,7 +968,7 @@ struct ieee80211_ht_info {
 /* block-ack parameters */
 #define IEEE80211_ADDBA_PARAM_POLICY_MASK 0x0002
 #define IEEE80211_ADDBA_PARAM_TID_MASK 0x003C
-#define IEEE80211_ADDBA_PARAM_BUF_SIZE_MASK 0xFFA0
+#define IEEE80211_ADDBA_PARAM_BUF_SIZE_MASK 0xFFC0
 #define IEEE80211_DELBA_PARAM_TID_MASK 0xF000
 #define IEEE80211_DELBA_PARAM_INITIATOR_MASK 0x0800
 
@@ -993,6 +1002,15 @@ struct ieee80211_ht_info {
 
 #define WLAN_CAPABILITY_ESS		(1<<0)
 #define WLAN_CAPABILITY_IBSS		(1<<1)
+
+/*
+ * A mesh STA sets the ESS and IBSS capability bits to zero.
+ * however, this holds true for p2p probe responses (in the p2p_find
+ * phase) as well.
+ */
+#define WLAN_CAPABILITY_IS_STA_BSS(cap)	\
+	(!((cap) & (WLAN_CAPABILITY_ESS | WLAN_CAPABILITY_IBSS)))
+
 #define WLAN_CAPABILITY_CF_POLLABLE	(1<<2)
 #define WLAN_CAPABILITY_CF_POLL_REQUEST	(1<<3)
 #define WLAN_CAPABILITY_PRIVACY		(1<<4)
@@ -1223,6 +1241,9 @@ enum ieee80211_eid {
 	WLAN_EID_BSS_AC_ACCESS_DELAY = 68,
 	WLAN_EID_RRM_ENABLED_CAPABILITIES = 70,
 	WLAN_EID_MULTIPLE_BSSID = 71,
+	WLAN_EID_BSS_COEX_2040 = 72,
+	WLAN_EID_OVERLAP_BSS_SCAN_PARAM = 74,
+	WLAN_EID_EXT_CAPABILITY = 127,
 
 	WLAN_EID_MOBILITY_DOMAIN = 54,
 	WLAN_EID_FAST_BSS_TRANSITION = 55,
@@ -1249,9 +1270,8 @@ enum ieee80211_category {
 	WLAN_CATEGORY_MULTIHOP_ACTION = 14,
 	WLAN_CATEGORY_SELF_PROTECTED = 15,
 	WLAN_CATEGORY_WMM = 17,
-	/* TODO: remove MESH_PLINK and MESH_PATH_SEL after */
-	/*       mesh is updated to current 802.11s draft  */
-	WLAN_CATEGORY_MESH_PLINK = 30,
+	/* TODO: remove MESH_PATH_SEL after mesh is updated
+	 * to current 802.11s draft  */
 	WLAN_CATEGORY_MESH_PATH_SEL = 32,
 	WLAN_CATEGORY_VENDOR_SPECIFIC_PROTECTED = 126,
 	WLAN_CATEGORY_VENDOR_SPECIFIC = 127,
@@ -1287,6 +1307,31 @@ enum ieee80211_key_len {
 	WLAN_KEY_LEN_AES_CMAC = 16,
 };
 
+/**
+ * enum - mesh path selection protocol identifier
+ *
+ * @IEEE80211_PATH_PROTOCOL_HWMP: the default path selection protocol
+ * @IEEE80211_PATH_PROTOCOL_VENDOR: a vendor specific protocol that will
+ * be specified in a vendor specific information element
+ */
+enum {
+	IEEE80211_PATH_PROTOCOL_HWMP = 0,
+	IEEE80211_PATH_PROTOCOL_VENDOR = 255,
+};
+
+/**
+ * enum - mesh path selection metric identifier
+ *
+ * @IEEE80211_PATH_METRIC_AIRTIME: the default path selection metric
+ * @IEEE80211_PATH_METRIC_VENDOR: a vendor specific metric that will be
+ * specified in a vendor specific information element
+ */
+enum {
+	IEEE80211_PATH_METRIC_AIRTIME = 0,
+	IEEE80211_PATH_METRIC_VENDOR = 255,
+};
+
+
 /*
  * IEEE 802.11-2007 7.3.2.9 Country information element
  *
@@ -1296,6 +1341,9 @@ enum ieee80211_key_len {
 
 /* Although the spec says 8 I'm seeing 6 in practice */
 #define IEEE80211_COUNTRY_IE_MIN_LEN	6
+
+/* The Country String field of the element shall be 3 octets in length */
+#define IEEE80211_COUNTRY_STRING_LEN	3
 
 /*
  * For regulatory extension stuff see IEEE 802.11-2007
@@ -1476,6 +1524,7 @@ static inline bool ieee80211_is_robust_mgmt_frame(struct ieee80211_hdr *hdr)
 		category = ((u8 *) hdr) + 24;
 		return *category != WLAN_CATEGORY_PUBLIC &&
 			*category != WLAN_CATEGORY_HT &&
+			*category != WLAN_CATEGORY_SELF_PROTECTED &&
 			*category != WLAN_CATEGORY_VENDOR_SPECIFIC;
 	}
 

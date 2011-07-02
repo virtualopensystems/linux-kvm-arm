@@ -10,9 +10,10 @@
  */
 
 /****************** INCLUDE FILES SECTION ***********************************/
-#include "sysdef.h"
 #include "phy_calibration.h"
-#include "wbhal_f.h"
+#include "wbhal.h"
+#include "wb35reg_f.h"
+#include "core.h"
 
 
 /****************** DEBUG CONSTANT AND MACRO SECTION ************************/
@@ -26,10 +27,10 @@
 #define DEG2RAD(X)      0.017453 * (X)
 
 static const s32 Angles[] = {
-    FIXED(DEG2RAD(45.0)),     FIXED(DEG2RAD(26.565)),   FIXED(DEG2RAD(14.0362)),
-    FIXED(DEG2RAD(7.12502)),  FIXED(DEG2RAD(3.57633)),  FIXED(DEG2RAD(1.78991)),
-    FIXED(DEG2RAD(0.895174)), FIXED(DEG2RAD(0.447614)), FIXED(DEG2RAD(0.223811)),
-    FIXED(DEG2RAD(0.111906)), FIXED(DEG2RAD(0.055953)), FIXED(DEG2RAD(0.027977))
+	FIXED(DEG2RAD(45.0)),     FIXED(DEG2RAD(26.565)),   FIXED(DEG2RAD(14.0362)),
+	FIXED(DEG2RAD(7.12502)),  FIXED(DEG2RAD(3.57633)),  FIXED(DEG2RAD(1.78991)),
+	FIXED(DEG2RAD(0.895174)), FIXED(DEG2RAD(0.447614)), FIXED(DEG2RAD(0.223811)),
+	FIXED(DEG2RAD(0.111906)), FIXED(DEG2RAD(0.055953)), FIXED(DEG2RAD(0.027977))
 };
 
 /****************** LOCAL FUNCTION DECLARATION SECTION **********************/

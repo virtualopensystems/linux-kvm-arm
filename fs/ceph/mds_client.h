@@ -35,6 +35,7 @@ struct ceph_cap;
  */
 struct ceph_mds_reply_info_in {
 	struct ceph_mds_reply_inode *in;
+	struct ceph_dir_layout dir_layout;
 	u32 symlink_len;
 	char *symlink;
 	u32 xattr_len;
@@ -165,7 +166,6 @@ struct ceph_mds_request {
 	struct ceph_mds_client *r_mdsc;
 
 	int r_op;                    /* mds op code */
-	int r_mds;
 
 	/* operation on what? */
 	struct inode *r_inode;              /* arg1 */
@@ -278,6 +278,7 @@ struct ceph_mds_client {
 
 	u64               cap_flush_seq;
 	struct list_head  cap_dirty;        /* inodes with dirty caps */
+	struct list_head  cap_dirty_migrating; /* ...that are migration... */
 	int               num_cap_flushing; /* # caps we are flushing */
 	spinlock_t        cap_dirty_lock;   /* protects above items */
 	wait_queue_head_t cap_flushing_wq;

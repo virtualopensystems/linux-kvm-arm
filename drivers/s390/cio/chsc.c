@@ -326,6 +326,36 @@ static void chsc_process_sei_res_acc(struct chsc_sei_area *sei_area)
 	s390_process_res_acc(&link);
 }
 
+static void chsc_process_sei_chp_avail(struct chsc_sei_area *sei_area)
+{
+	struct channel_path *chp;
+	struct chp_id chpid;
+	u8 *data;
+	int num;
+
+	CIO_CRW_EVENT(4, "chsc: channel path availability information\n");
+	if (sei_area->rs != 0)
+		return;
+	data = sei_area->ccdf;
+	chp_id_init(&chpid);
+	for (num = 0; num <= __MAX_CHPID; num++) {
+		if (!chp_test_bit(data, num))
+			continue;
+		chpid.id = num;
+
+		CIO_CRW_EVENT(4, "Update information for channel path "
+			      "%x.%02x\n", chpid.cssid, chpid.id);
+		chp = chpid_to_chp(chpid);
+		if (!chp) {
+			chp_new(chpid);
+			continue;
+		}
+		mutex_lock(&chp->lock);
+		chsc_determine_base_channel_path_desc(chpid, &chp->desc);
+		mutex_unlock(&chp->lock);
+	}
+}
+
 struct chp_config_data {
 	u8 map[32];
 	u8 op;
@@ -376,8 +406,11 @@ static void chsc_process_sei(struct chsc_sei_area *sei_area)
 	case 1: /* link incident*/
 		chsc_process_sei_link_incident(sei_area);
 		break;
-	case 2: /* i/o resource accessibiliy */
+	case 2: /* i/o resource accessibility */
 		chsc_process_sei_res_acc(sei_area);
+		break;
+	case 7: /* channel-path-availability information */
+		chsc_process_sei_chp_avail(sei_area);
 		break;
 	case 8: /* channel-path-configuration notification */
 		chsc_process_sei_chp_config(sei_area);
@@ -692,6 +725,25 @@ int chsc_determine_base_channel_path_desc(struct chp_id chpid,
 	memcpy(desc, &chsc_resp->data, sizeof(*desc));
 out:
 	spin_unlock_irqrestore(&chsc_page_lock, flags);
+	return ret;
+}
+
+int chsc_determine_fmt1_channel_path_desc(struct chp_id chpid,
+					  struct channel_path_desc_fmt1 *desc)
+{
+	struct chsc_response_struct *chsc_resp;
+	struct chsc_scpd *scpd_area;
+	int ret;
+
+	spin_lock_irq(&chsc_page_lock);
+	scpd_area = chsc_page;
+	ret = chsc_determine_channel_path_desc(chpid, 0, 0, 1, 0, scpd_area);
+	if (ret)
+		goto out;
+	chsc_resp = (void *)&scpd_area->response;
+	memcpy(desc, &chsc_resp->data, sizeof(*desc));
+out:
+	spin_unlock_irq(&chsc_page_lock);
 	return ret;
 }
 

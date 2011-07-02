@@ -29,11 +29,12 @@
 #include "op_x86_model.h"
 #include "op_counter.h"
 
-#define NUM_COUNTERS 4
+#define NUM_COUNTERS		4
+#define NUM_COUNTERS_F15H	6
 #ifdef CONFIG_OPROFILE_EVENT_MULTIPLEX
-#define NUM_VIRT_COUNTERS 32
+#define NUM_VIRT_COUNTERS	32
 #else
-#define NUM_VIRT_COUNTERS NUM_COUNTERS
+#define NUM_VIRT_COUNTERS	0
 #endif
 
 #define OP_EVENT_MASK			0x0FFF
@@ -41,7 +42,8 @@
 
 #define MSR_AMD_EVENTSEL_RESERVED	((0xFFFFFCF0ULL<<32)|(1ULL<<21))
 
-static unsigned long reset_value[NUM_VIRT_COUNTERS];
+static int num_counters;
+static unsigned long reset_value[OP_MAX_COUNTER];
 
 #define IBS_FETCH_SIZE			6
 #define IBS_OP_SIZE			12
@@ -314,16 +316,23 @@ static void op_amd_stop_ibs(void)
 		wrmsrl(MSR_AMD64_IBSOPCTL, 0);
 }
 
-static inline int eilvt_is_available(int offset)
+static inline int get_eilvt(int offset)
 {
-	/* check if we may assign a vector */
 	return !setup_APIC_eilvt(offset, 0, APIC_EILVT_MSG_NMI, 1);
+}
+
+static inline int put_eilvt(int offset)
+{
+	return !setup_APIC_eilvt(offset, 0, 0, 1);
 }
 
 static inline int ibs_eilvt_valid(void)
 {
 	int offset;
 	u64 val;
+	int valid = 0;
+
+	preempt_disable();
 
 	rdmsrl(MSR_AMD64_IBSCTL, val);
 	offset = val & IBSCTL_LVT_OFFSET_MASK;
@@ -331,16 +340,20 @@ static inline int ibs_eilvt_valid(void)
 	if (!(val & IBSCTL_LVT_OFFSET_VALID)) {
 		pr_err(FW_BUG "cpu %d, invalid IBS interrupt offset %d (MSR%08X=0x%016llx)\n",
 		       smp_processor_id(), offset, MSR_AMD64_IBSCTL, val);
-		return 0;
+		goto out;
 	}
 
-	if (!eilvt_is_available(offset)) {
+	if (!get_eilvt(offset)) {
 		pr_err(FW_BUG "cpu %d, IBS interrupt offset %d not available (MSR%08X=0x%016llx)\n",
 		       smp_processor_id(), offset, MSR_AMD64_IBSCTL, val);
-		return 0;
+		goto out;
 	}
 
-	return 1;
+	valid = 1;
+out:
+	preempt_enable();
+
+	return valid;
 }
 
 static inline int get_ibs_offset(void)
@@ -387,7 +400,7 @@ static void op_mux_switch_ctrl(struct op_x86_model_spec const *model,
 	int i;
 
 	/* enable active counters */
-	for (i = 0; i < NUM_COUNTERS; ++i) {
+	for (i = 0; i < num_counters; ++i) {
 		int virt = op_x86_phys_to_virt(i);
 		if (!reset_value[virt])
 			continue;
@@ -406,7 +419,7 @@ static void op_amd_shutdown(struct op_msrs const * const msrs)
 {
 	int i;
 
-	for (i = 0; i < NUM_COUNTERS; ++i) {
+	for (i = 0; i < num_counters; ++i) {
 		if (!msrs->counters[i].addr)
 			continue;
 		release_perfctr_nmi(MSR_K7_PERFCTR0 + i);
@@ -418,7 +431,7 @@ static int op_amd_fill_in_addresses(struct op_msrs * const msrs)
 {
 	int i;
 
-	for (i = 0; i < NUM_COUNTERS; i++) {
+	for (i = 0; i < num_counters; i++) {
 		if (!reserve_perfctr_nmi(MSR_K7_PERFCTR0 + i))
 			goto fail;
 		if (!reserve_evntsel_nmi(MSR_K7_EVNTSEL0 + i)) {
@@ -426,8 +439,13 @@ static int op_amd_fill_in_addresses(struct op_msrs * const msrs)
 			goto fail;
 		}
 		/* both registers must be reserved */
-		msrs->counters[i].addr = MSR_K7_PERFCTR0 + i;
-		msrs->controls[i].addr = MSR_K7_EVNTSEL0 + i;
+		if (num_counters == NUM_COUNTERS_F15H) {
+			msrs->counters[i].addr = MSR_F15H_PERF_CTR + (i << 1);
+			msrs->controls[i].addr = MSR_F15H_PERF_CTL + (i << 1);
+		} else {
+			msrs->controls[i].addr = MSR_K7_EVNTSEL0 + i;
+			msrs->counters[i].addr = MSR_K7_PERFCTR0 + i;
+		}
 		continue;
 	fail:
 		if (!counter_config[i].enabled)
@@ -447,7 +465,7 @@ static void op_amd_setup_ctrs(struct op_x86_model_spec const *model,
 	int i;
 
 	/* setup reset_value */
-	for (i = 0; i < NUM_VIRT_COUNTERS; ++i) {
+	for (i = 0; i < OP_MAX_COUNTER; ++i) {
 		if (counter_config[i].enabled
 		    && msrs->counters[op_x86_virt_to_phys(i)].addr)
 			reset_value[i] = counter_config[i].count;
@@ -456,7 +474,7 @@ static void op_amd_setup_ctrs(struct op_x86_model_spec const *model,
 	}
 
 	/* clear all counters */
-	for (i = 0; i < NUM_COUNTERS; ++i) {
+	for (i = 0; i < num_counters; ++i) {
 		if (!msrs->controls[i].addr)
 			continue;
 		rdmsrl(msrs->controls[i].addr, val);
@@ -472,7 +490,7 @@ static void op_amd_setup_ctrs(struct op_x86_model_spec const *model,
 	}
 
 	/* enable active counters */
-	for (i = 0; i < NUM_COUNTERS; ++i) {
+	for (i = 0; i < num_counters; ++i) {
 		int virt = op_x86_phys_to_virt(i);
 		if (!reset_value[virt])
 			continue;
@@ -503,7 +521,7 @@ static int op_amd_check_ctrs(struct pt_regs * const regs,
 	u64 val;
 	int i;
 
-	for (i = 0; i < NUM_COUNTERS; ++i) {
+	for (i = 0; i < num_counters; ++i) {
 		int virt = op_x86_phys_to_virt(i);
 		if (!reset_value[virt])
 			continue;
@@ -526,7 +544,7 @@ static void op_amd_start(struct op_msrs const * const msrs)
 	u64 val;
 	int i;
 
-	for (i = 0; i < NUM_COUNTERS; ++i) {
+	for (i = 0; i < num_counters; ++i) {
 		if (!reset_value[op_x86_phys_to_virt(i)])
 			continue;
 		rdmsrl(msrs->controls[i].addr, val);
@@ -546,7 +564,7 @@ static void op_amd_stop(struct op_msrs const * const msrs)
 	 * Subtle: stop on all counters to avoid race with setting our
 	 * pm callback
 	 */
-	for (i = 0; i < NUM_COUNTERS; ++i) {
+	for (i = 0; i < num_counters; ++i) {
 		if (!reset_value[op_x86_phys_to_virt(i)])
 			continue;
 		rdmsrl(msrs->controls[i].addr, val);
@@ -591,68 +609,76 @@ static int setup_ibs_ctl(int ibs_eilvt_off)
 	return 0;
 }
 
+/*
+ * This runs only on the current cpu. We try to find an LVT offset and
+ * setup the local APIC. For this we must disable preemption. On
+ * success we initialize all nodes with this offset. This updates then
+ * the offset in the IBS_CTL per-node msr. The per-core APIC setup of
+ * the IBS interrupt vector is called from op_amd_setup_ctrs()/op_-
+ * amd_cpu_shutdown() using the new offset.
+ */
 static int force_ibs_eilvt_setup(void)
 {
-	int i;
+	int offset;
 	int ret;
 
-	/* find the next free available EILVT entry */
-	for (i = 1; i < 4; i++) {
-		if (!eilvt_is_available(i))
-			continue;
-		ret = setup_ibs_ctl(i);
-		if (ret)
-			return ret;
-		return 0;
+	preempt_disable();
+	/* find the next free available EILVT entry, skip offset 0 */
+	for (offset = 1; offset < APIC_EILVT_NR_MAX; offset++) {
+		if (get_eilvt(offset))
+			break;
+	}
+	preempt_enable();
+
+	if (offset == APIC_EILVT_NR_MAX) {
+		printk(KERN_DEBUG "No EILVT entry available\n");
+		return -EBUSY;
 	}
 
-	printk(KERN_DEBUG "No EILVT entry available\n");
-
-	return -EBUSY;
-}
-
-static int __init_ibs_nmi(void)
-{
-	int ret;
-
-	if (ibs_eilvt_valid())
-		return 0;
-
-	ret = force_ibs_eilvt_setup();
+	ret = setup_ibs_ctl(offset);
 	if (ret)
-		return ret;
+		goto out;
 
-	if (!ibs_eilvt_valid())
-		return -EFAULT;
+	if (!ibs_eilvt_valid()) {
+		ret = -EFAULT;
+		goto out;
+	}
 
+	pr_err(FW_BUG "using offset %d for IBS interrupts\n", offset);
 	pr_err(FW_BUG "workaround enabled for IBS LVT offset\n");
 
 	return 0;
+out:
+	preempt_disable();
+	put_eilvt(offset);
+	preempt_enable();
+	return ret;
 }
 
 /*
  * check and reserve APIC extended interrupt LVT offset for IBS if
  * available
- *
- * init_ibs() preforms implicitly cpu-local operations, so pin this
- * thread to its current CPU
  */
 
 static void init_ibs(void)
 {
-	preempt_disable();
-
 	ibs_caps = get_ibs_caps();
+
 	if (!ibs_caps)
+		return;
+
+	if (ibs_eilvt_valid())
 		goto out;
 
-	if (__init_ibs_nmi() < 0)
-		ibs_caps = 0;
-	else
-		printk(KERN_INFO "oprofile: AMD IBS detected (0x%08x)\n", ibs_caps);
+	if (!force_ibs_eilvt_setup())
+		goto out;
+
+	/* Failed to setup ibs */
+	ibs_caps = 0;
+	return;
 
 out:
-	preempt_enable();
+	printk(KERN_INFO "oprofile: AMD IBS detected (0x%08x)\n", ibs_caps);
 }
 
 static int (*create_arch_files)(struct super_block *sb, struct dentry *root);
@@ -706,18 +732,29 @@ static int setup_ibs_files(struct super_block *sb, struct dentry *root)
 	return 0;
 }
 
+struct op_x86_model_spec op_amd_spec;
+
 static int op_amd_init(struct oprofile_operations *ops)
 {
 	init_ibs();
 	create_arch_files = ops->create_files;
 	ops->create_files = setup_ibs_files;
+
+	if (boot_cpu_data.x86 == 0x15) {
+		num_counters = NUM_COUNTERS_F15H;
+	} else {
+		num_counters = NUM_COUNTERS;
+	}
+
+	op_amd_spec.num_counters = num_counters;
+	op_amd_spec.num_controls = num_counters;
+	op_amd_spec.num_virt_counters = max(num_counters, NUM_VIRT_COUNTERS);
+
 	return 0;
 }
 
 struct op_x86_model_spec op_amd_spec = {
-	.num_counters		= NUM_COUNTERS,
-	.num_controls		= NUM_COUNTERS,
-	.num_virt_counters	= NUM_VIRT_COUNTERS,
+	/* num_counters/num_controls filled in at runtime */
 	.reserved		= MSR_AMD_EVENTSEL_RESERVED,
 	.event_mask		= OP_EVENT_MASK,
 	.init			= op_amd_init,

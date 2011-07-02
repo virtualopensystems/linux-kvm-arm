@@ -1173,7 +1173,8 @@ static int sc92031_ethtool_get_settings(struct net_device *dev,
 	if (phy_ctrl & PhyCtrlAne)
 		cmd->advertising |= ADVERTISED_Autoneg;
 
-	cmd->speed = (output_status & 0x2) ? SPEED_100 : SPEED_10;
+	ethtool_cmd_speed_set(cmd,
+			      (output_status & 0x2) ? SPEED_100 : SPEED_10);
 	cmd->duplex = (output_status & 0x4) ? DUPLEX_FULL : DUPLEX_HALF;
 	cmd->port = PORT_MII;
 	cmd->phy_address = phy_address;
@@ -1188,10 +1189,11 @@ static int sc92031_ethtool_set_settings(struct net_device *dev,
 {
 	struct sc92031_priv *priv = netdev_priv(dev);
 	void __iomem *port_base = priv->port_base;
+	u32 speed = ethtool_cmd_speed(cmd);
 	u32 phy_ctrl;
 	u32 old_phy_ctrl;
 
-	if (!(cmd->speed == SPEED_10 || cmd->speed == SPEED_100))
+	if (!(speed == SPEED_10 || speed == SPEED_100))
 		return -EINVAL;
 	if (!(cmd->duplex == DUPLEX_HALF || cmd->duplex == DUPLEX_FULL))
 		return -EINVAL;
@@ -1229,7 +1231,7 @@ static int sc92031_ethtool_set_settings(struct net_device *dev,
 		// FIXME: Whole branch guessed
 		phy_ctrl = 0;
 
-		if (cmd->speed == SPEED_10)
+		if (speed == SPEED_10)
 			phy_ctrl |= PhyCtrlSpd10;
 		else /* cmd->speed == SPEED_100 */
 			phy_ctrl |= PhyCtrlSpd100;
@@ -1449,7 +1451,8 @@ static int __devinit sc92031_probe(struct pci_dev *pdev,
 	dev->irq = pdev->irq;
 
 	/* faked with skb_copy_and_csum_dev */
-	dev->features = NETIF_F_SG | NETIF_F_HW_CSUM | NETIF_F_HIGHDMA;
+	dev->features = NETIF_F_SG | NETIF_F_HIGHDMA |
+		NETIF_F_IP_CSUM | NETIF_F_IPV6_CSUM;
 
 	dev->netdev_ops		= &sc92031_netdev_ops;
 	dev->watchdog_timeo	= TX_TIMEOUT;

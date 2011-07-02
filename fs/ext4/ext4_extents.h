@@ -119,17 +119,13 @@ struct ext4_ext_path {
  * structure for external API
  */
 
-#define EXT4_EXT_CACHE_NO	0
-#define EXT4_EXT_CACHE_GAP	1
-#define EXT4_EXT_CACHE_EXTENT	2
-
 /*
  * to be called by ext4_ext_walk_space()
  * negative retcode - error
  * positive retcode - signal for ext4_ext_walk_space(), see below
  * callback must return valid extent (passed or newly created)
  */
-typedef int (*ext_prepare_callback)(struct inode *, struct ext4_ext_path *,
+typedef int (*ext_prepare_callback)(struct inode *, ext4_lblk_t,
 					struct ext4_ext_cache *,
 					struct ext4_extent *, void *);
 
@@ -137,8 +133,11 @@ typedef int (*ext_prepare_callback)(struct inode *, struct ext4_ext_path *,
 #define EXT_BREAK      1
 #define EXT_REPEAT     2
 
-/* Maximum logical block in a file; ext4_extent's ee_block is __le32 */
-#define EXT_MAX_BLOCK	0xffffffff
+/*
+ * Maximum number of logical blocks in a file; ext4_extent's ee_block is
+ * __le32.
+ */
+#define EXT_MAX_BLOCKS	0xffffffff
 
 /*
  * EXT_INIT_MAX_LEN is the maximum number of blocks we can have in an
@@ -197,7 +196,7 @@ static inline unsigned short ext_depth(struct inode *inode)
 static inline void
 ext4_ext_invalidate_cache(struct inode *inode)
 {
-	EXT4_I(inode)->i_cached_extent.ec_type = EXT4_EXT_CACHE_NO;
+	EXT4_I(inode)->i_cached_extent.ec_len = 0;
 }
 
 static inline void ext4_ext_mark_uninitialized(struct ext4_extent *ext)
@@ -278,7 +277,7 @@ static inline void ext4_idx_store_pblock(struct ext4_extent_idx *ix,
 }
 
 extern int ext4_ext_calc_metadata_amount(struct inode *inode,
-					 sector_t lblocks);
+					 ext4_lblk_t lblocks);
 extern int ext4_extent_tree_init(handle_t *, struct inode *);
 extern int ext4_ext_calc_credits_for_single_extent(struct inode *inode,
 						   int num,

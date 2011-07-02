@@ -109,10 +109,10 @@ static int timbgpio_to_irq(struct gpio_chip *gpio, unsigned offset)
 /*
  * GPIO IRQ
  */
-static void timbgpio_irq_disable(unsigned irq)
+static void timbgpio_irq_disable(struct irq_data *d)
 {
-	struct timbgpio *tgpio = get_irq_chip_data(irq);
-	int offset = irq - tgpio->irq_base;
+	struct timbgpio *tgpio = irq_data_get_irq_chip_data(d);
+	int offset = d->irq - tgpio->irq_base;
 	unsigned long flags;
 
 	spin_lock_irqsave(&tgpio->lock, flags);
@@ -121,10 +121,10 @@ static void timbgpio_irq_disable(unsigned irq)
 	spin_unlock_irqrestore(&tgpio->lock, flags);
 }
 
-static void timbgpio_irq_enable(unsigned irq)
+static void timbgpio_irq_enable(struct irq_data *d)
 {
-	struct timbgpio *tgpio = get_irq_chip_data(irq);
-	int offset = irq - tgpio->irq_base;
+	struct timbgpio *tgpio = irq_data_get_irq_chip_data(d);
+	int offset = d->irq - tgpio->irq_base;
 	unsigned long flags;
 
 	spin_lock_irqsave(&tgpio->lock, flags);
@@ -133,10 +133,10 @@ static void timbgpio_irq_enable(unsigned irq)
 	spin_unlock_irqrestore(&tgpio->lock, flags);
 }
 
-static int timbgpio_irq_type(unsigned irq, unsigned trigger)
+static int timbgpio_irq_type(struct irq_data *d, unsigned trigger)
 {
-	struct timbgpio *tgpio = get_irq_chip_data(irq);
-	int offset = irq - tgpio->irq_base;
+	struct timbgpio *tgpio = irq_data_get_irq_chip_data(d);
+	int offset = d->irq - tgpio->irq_base;
 	unsigned long flags;
 	u32 lvr, flr, bflr = 0;
 	u32 ver;
@@ -195,11 +195,11 @@ out:
 
 static void timbgpio_irq(unsigned int irq, struct irq_desc *desc)
 {
-	struct timbgpio *tgpio = get_irq_data(irq);
+	struct timbgpio *tgpio = irq_get_handler_data(irq);
 	unsigned long ipr;
 	int offset;
 
-	desc->chip->ack(irq);
+	desc->irq_data.chip->irq_ack(irq_get_irq_data(irq));
 	ipr = ioread32(tgpio->membase + TGPIO_IPR);
 	iowrite32(ipr, tgpio->membase + TGPIO_ICR);
 
@@ -217,9 +217,9 @@ static void timbgpio_irq(unsigned int irq, struct irq_desc *desc)
 
 static struct irq_chip timbgpio_irqchip = {
 	.name		= "GPIO",
-	.enable		= timbgpio_irq_enable,
-	.disable	= timbgpio_irq_disable,
-	.set_type	= timbgpio_irq_type,
+	.irq_enable	= timbgpio_irq_enable,
+	.irq_disable	= timbgpio_irq_disable,
+	.irq_set_type	= timbgpio_irq_type,
 };
 
 static int __devinit timbgpio_probe(struct platform_device *pdev)
@@ -291,16 +291,16 @@ static int __devinit timbgpio_probe(struct platform_device *pdev)
 		return 0;
 
 	for (i = 0; i < pdata->nr_pins; i++) {
-		set_irq_chip_and_handler_name(tgpio->irq_base + i,
+		irq_set_chip_and_handler_name(tgpio->irq_base + i,
 			&timbgpio_irqchip, handle_simple_irq, "mux");
-		set_irq_chip_data(tgpio->irq_base + i, tgpio);
+		irq_set_chip_data(tgpio->irq_base + i, tgpio);
 #ifdef CONFIG_ARM
 		set_irq_flags(tgpio->irq_base + i, IRQF_VALID | IRQF_PROBE);
 #endif
 	}
 
-	set_irq_data(irq, tgpio);
-	set_irq_chained_handler(irq, timbgpio_irq);
+	irq_set_handler_data(irq, tgpio);
+	irq_set_chained_handler(irq, timbgpio_irq);
 
 	return 0;
 
@@ -327,12 +327,12 @@ static int __devexit timbgpio_remove(struct platform_device *pdev)
 	if (irq >= 0 && tgpio->irq_base > 0) {
 		int i;
 		for (i = 0; i < pdata->nr_pins; i++) {
-			set_irq_chip(tgpio->irq_base + i, NULL);
-			set_irq_chip_data(tgpio->irq_base + i, NULL);
+			irq_set_chip(tgpio->irq_base + i, NULL);
+			irq_set_chip_data(tgpio->irq_base + i, NULL);
 		}
 
-		set_irq_handler(irq, NULL);
-		set_irq_data(irq, NULL);
+		irq_set_handler(irq, NULL);
+		irq_set_handler_data(irq, NULL);
 	}
 
 	err = gpiochip_remove(&tgpio->gpio);

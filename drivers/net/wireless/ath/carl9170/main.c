@@ -428,6 +428,7 @@ static void carl9170_cancel_worker(struct ar9170 *ar)
 	cancel_delayed_work_sync(&ar->led_work);
 #endif /* CONFIG_CARL9170_LEDS */
 	cancel_work_sync(&ar->ps_work);
+	cancel_work_sync(&ar->ping_work);
 	cancel_work_sync(&ar->ampdu_work);
 }
 
@@ -531,6 +532,21 @@ void carl9170_restart(struct ar9170 *ar, const enum carl9170_restart_reasons r)
 	 * So, don't put any code which access the ar9170 struct
 	 * without proper protection.
 	 */
+}
+
+static void carl9170_ping_work(struct work_struct *work)
+{
+	struct ar9170 *ar = container_of(work, struct ar9170, ping_work);
+	int err;
+
+	if (!IS_STARTED(ar))
+		return;
+
+	mutex_lock(&ar->mutex);
+	err = carl9170_echo_test(ar, 0xdeadbeef);
+	if (err)
+		carl9170_restart(ar, CARL9170_RR_UNRESPONSIVE_DEVICE);
+	mutex_unlock(&ar->mutex);
 }
 
 static int carl9170_init_interface(struct ar9170 *ar,
@@ -642,6 +658,13 @@ init:
 		rcu_read_unlock();
 		err = carl9170_mod_virtual_mac(ar, vif_id, vif->addr);
 
+		if (err)
+			goto unlock;
+	}
+
+	if (ar->fw.tx_seq_table) {
+		err = carl9170_write_reg(ar, ar->fw.tx_seq_table + vif_id * 4,
+					 0);
 		if (err)
 			goto unlock;
 	}
@@ -860,7 +883,7 @@ static void carl9170_op_configure_filter(struct ieee80211_hw *hw,
 	 * then checking the error flags, later.
 	 */
 
-	if (changed_flags & FIF_ALLMULTI && *new_flags & FIF_ALLMULTI)
+	if (*new_flags & FIF_ALLMULTI)
 		multicast = ~0ULL;
 
 	if (multicast != ar->cur_mc_hash)
@@ -1170,6 +1193,8 @@ static int carl9170_op_sta_add(struct ieee80211_hw *hw,
 	struct carl9170_sta_info *sta_info = (void *) sta->drv_priv;
 	unsigned int i;
 
+	atomic_set(&sta_info->pending_frames, 0);
+
 	if (sta->ht_cap.ht_supported) {
 		if (sta->ht_cap.ampdu_density > 6) {
 			/*
@@ -1263,7 +1288,7 @@ static int carl9170_op_ampdu_action(struct ieee80211_hw *hw,
 				    struct ieee80211_vif *vif,
 				    enum ieee80211_ampdu_mlme_action action,
 				    struct ieee80211_sta *sta,
-				    u16 tid, u16 *ssn)
+				    u16 tid, u16 *ssn, u8 buf_size)
 {
 	struct ar9170 *ar = hw->priv;
 	struct carl9170_sta_info *sta_info = (void *) sta->drv_priv;
@@ -1332,6 +1357,7 @@ static int carl9170_op_ampdu_action(struct ieee80211_hw *hw,
 		tid_info = rcu_dereference(sta_info->agg[tid]);
 
 		sta_info->stats[tid].clear = true;
+		sta_info->stats[tid].req = false;
 
 		if (tid_info) {
 			bitmap_zero(tid_info->bitmap, CARL9170_BAW_SIZE);
@@ -1443,99 +1469,17 @@ static void carl9170_op_sta_notify(struct ieee80211_hw *hw,
 				   enum sta_notify_cmd cmd,
 				   struct ieee80211_sta *sta)
 {
-	struct ar9170 *ar = hw->priv;
 	struct carl9170_sta_info *sta_info = (void *) sta->drv_priv;
-	struct sk_buff *skb, *tmp;
-	struct sk_buff_head free;
-	int i;
 
 	switch (cmd) {
 	case STA_NOTIFY_SLEEP:
-		/*
-		 * Since the peer is no longer listening, we have to return
-		 * as many SKBs as possible back to the mac80211 stack.
-		 * It will deal with the retry procedure, once the peer
-		 * has become available again.
-		 *
-		 * NB: Ideally, the driver should return the all frames in
-		 * the correct, ascending order. However, I think that this
-		 * functionality should be implemented in the stack and not
-		 * here...
-		 */
-
-		__skb_queue_head_init(&free);
-
-		if (sta->ht_cap.ht_supported) {
-			rcu_read_lock();
-			for (i = 0; i < CARL9170_NUM_TID; i++) {
-				struct carl9170_sta_tid *tid_info;
-
-				tid_info = rcu_dereference(sta_info->agg[i]);
-
-				if (!tid_info)
-					continue;
-
-				spin_lock_bh(&ar->tx_ampdu_list_lock);
-				if (tid_info->state >
-				    CARL9170_TID_STATE_SUSPEND)
-					tid_info->state =
-						CARL9170_TID_STATE_SUSPEND;
-				spin_unlock_bh(&ar->tx_ampdu_list_lock);
-
-				spin_lock_bh(&tid_info->lock);
-				while ((skb = __skb_dequeue(&tid_info->queue)))
-					__skb_queue_tail(&free, skb);
-				spin_unlock_bh(&tid_info->lock);
-			}
-			rcu_read_unlock();
-		}
-
-		for (i = 0; i < ar->hw->queues; i++) {
-			spin_lock_bh(&ar->tx_pending[i].lock);
-			skb_queue_walk_safe(&ar->tx_pending[i], skb, tmp) {
-				struct _carl9170_tx_superframe *super;
-				struct ieee80211_hdr *hdr;
-				struct ieee80211_tx_info *info;
-
-				super = (void *) skb->data;
-				hdr = (void *) super->frame_data;
-
-				if (compare_ether_addr(hdr->addr1, sta->addr))
-					continue;
-
-				__skb_unlink(skb, &ar->tx_pending[i]);
-
-				info = IEEE80211_SKB_CB(skb);
-				if (info->flags & IEEE80211_TX_CTL_AMPDU)
-					atomic_dec(&ar->tx_ampdu_upload);
-
-				carl9170_tx_status(ar, skb, false);
-			}
-			spin_unlock_bh(&ar->tx_pending[i].lock);
-		}
-
-		while ((skb = __skb_dequeue(&free)))
-			carl9170_tx_status(ar, skb, false);
-
+		sta_info->sleeping = true;
+		if (atomic_read(&sta_info->pending_frames))
+			ieee80211_sta_block_awake(hw, sta, true);
 		break;
 
 	case STA_NOTIFY_AWAKE:
-		if (!sta->ht_cap.ht_supported)
-			return;
-
-		rcu_read_lock();
-		for (i = 0; i < CARL9170_NUM_TID; i++) {
-			struct carl9170_sta_tid *tid_info;
-
-			tid_info = rcu_dereference(sta_info->agg[i]);
-
-			if (!tid_info)
-				continue;
-
-			if ((tid_info->state == CARL9170_TID_STATE_SUSPEND))
-				tid_info->state = CARL9170_TID_STATE_IDLE;
-		}
-		rcu_read_unlock();
+		sta_info->sleeping = false;
 		break;
 	}
 }
@@ -1614,6 +1558,7 @@ void *carl9170_alloc(size_t priv_size)
 		skb_queue_head_init(&ar->tx_pending[i]);
 	}
 	INIT_WORK(&ar->ps_work, carl9170_ps_work);
+	INIT_WORK(&ar->ping_work, carl9170_ping_work);
 	INIT_WORK(&ar->restart_work, carl9170_restart_work);
 	INIT_WORK(&ar->ampdu_work, carl9170_ampdu_work);
 	INIT_DELAYED_WORK(&ar->tx_janitor, carl9170_tx_janitor);
@@ -1625,14 +1570,8 @@ void *carl9170_alloc(size_t priv_size)
 	INIT_LIST_HEAD(&ar->vif_list);
 	init_completion(&ar->tx_flush);
 
-	/*
-	 * Note:
-	 * IBSS/ADHOC and AP mode are only enabled, if the firmware
-	 * supports these modes. The code which will add the
-	 * additional interface_modes is in fw.c.
-	 */
-	hw->wiphy->interface_modes = BIT(NL80211_IFTYPE_STATION) |
-				     BIT(NL80211_IFTYPE_P2P_CLIENT);
+	/* firmware decides which modes we support */
+	hw->wiphy->interface_modes = 0;
 
 	hw->flags |= IEEE80211_HW_RX_INCLUDES_FCS |
 		     IEEE80211_HW_REPORTS_TX_ACK_STATUS |
@@ -1829,7 +1768,7 @@ int carl9170_register(struct ar9170 *ar)
 	err = carl9170_led_register(ar);
 	if (err)
 		goto err_unreg;
-#endif /* CONFIG_CAR9L170_LEDS */
+#endif /* CONFIG_CARL9170_LEDS */
 
 #ifdef CONFIG_CARL9170_WPC
 	err = carl9170_register_wps_button(ar);

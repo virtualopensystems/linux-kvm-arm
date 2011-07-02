@@ -1,25 +1,8 @@
 /*
- * Copyright (C) 2009 - QLogic Corporation.
- * All rights reserved.
+ * QLogic qlcnic NIC Driver
+ * Copyright (c)  2009-2010 QLogic Corporation
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but
- * WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston,
- * MA  02111-1307, USA.
- *
- * The full GNU General Public License is included in this distribution
- * in the file called "COPYING".
- *
+ * See LICENSE.qlcnic for copyright and licensing details.
  */
 
 #include <linux/netdevice.h>
@@ -111,7 +94,7 @@ void qlcnic_release_rx_buffers(struct qlcnic_adapter *adapter)
 	struct qlcnic_rx_buffer *rx_buf;
 	int i, ring;
 
-	recv_ctx = &adapter->recv_ctx;
+	recv_ctx = adapter->recv_ctx;
 	for (ring = 0; ring < adapter->max_rds_rings; ring++) {
 		rds_ring = &recv_ctx->rds_rings[ring];
 		for (i = 0; i < rds_ring->num_desc; ++i) {
@@ -136,7 +119,7 @@ void qlcnic_reset_rx_buffers_list(struct qlcnic_adapter *adapter)
 	struct qlcnic_rx_buffer *rx_buf;
 	int i, ring;
 
-	recv_ctx = &adapter->recv_ctx;
+	recv_ctx = adapter->recv_ctx;
 	for (ring = 0; ring < adapter->max_rds_rings; ring++) {
 		rds_ring = &recv_ctx->rds_rings[ring];
 
@@ -190,7 +173,7 @@ void qlcnic_free_sw_resources(struct qlcnic_adapter *adapter)
 	struct qlcnic_host_tx_ring *tx_ring;
 	int ring;
 
-	recv_ctx = &adapter->recv_ctx;
+	recv_ctx = adapter->recv_ctx;
 
 	if (recv_ctx->rds_rings == NULL)
 		goto skip_rds;
@@ -236,15 +219,14 @@ int qlcnic_alloc_sw_resources(struct qlcnic_adapter *adapter)
 	tx_ring->num_desc = adapter->num_txd;
 	tx_ring->txq = netdev_get_tx_queue(netdev, 0);
 
-	cmd_buf_arr = vmalloc(TX_BUFF_RINGSIZE(tx_ring));
+	cmd_buf_arr = vzalloc(TX_BUFF_RINGSIZE(tx_ring));
 	if (cmd_buf_arr == NULL) {
 		dev_err(&netdev->dev, "failed to allocate cmd buffer ring\n");
 		goto err_out;
 	}
-	memset(cmd_buf_arr, 0, TX_BUFF_RINGSIZE(tx_ring));
 	tx_ring->cmd_buf_arr = cmd_buf_arr;
 
-	recv_ctx = &adapter->recv_ctx;
+	recv_ctx = adapter->recv_ctx;
 
 	size = adapter->max_rds_rings * sizeof(struct qlcnic_host_rds_ring);
 	rds_ring = kzalloc(size, GFP_KERNEL);
@@ -275,14 +257,12 @@ int qlcnic_alloc_sw_resources(struct qlcnic_adapter *adapter)
 				rds_ring->dma_size + NET_IP_ALIGN;
 			break;
 		}
-		rds_ring->rx_buf_arr = (struct qlcnic_rx_buffer *)
-			vmalloc(RCV_BUFF_RINGSIZE(rds_ring));
+		rds_ring->rx_buf_arr = vzalloc(RCV_BUFF_RINGSIZE(rds_ring));
 		if (rds_ring->rx_buf_arr == NULL) {
 			dev_err(&netdev->dev, "Failed to allocate "
 				"rx buffer ring %d\n", ring);
 			goto err_out;
 		}
-		memset(rds_ring->rx_buf_arr, 0, RCV_BUFF_RINGSIZE(rds_ring));
 		INIT_LIST_HEAD(&rds_ring->free_list);
 		/*
 		 * Now go through all of them, set reference handles
@@ -365,7 +345,7 @@ static int qlcnic_wait_rom_done(struct qlcnic_adapter *adapter)
 }
 
 static int do_rom_fast_read(struct qlcnic_adapter *adapter,
-			    int addr, int *valp)
+			    u32 addr, u32 *valp)
 {
 	QLCWR32(adapter, QLCNIC_ROMUSB_ROM_ADDRESS, addr);
 	QLCWR32(adapter, QLCNIC_ROMUSB_ROM_DUMMY_BYTE_CNT, 0);
@@ -418,7 +398,7 @@ qlcnic_rom_fast_read_words(struct qlcnic_adapter *adapter, int addr,
 	return ret;
 }
 
-int qlcnic_rom_fast_read(struct qlcnic_adapter *adapter, int addr, int *valp)
+int qlcnic_rom_fast_read(struct qlcnic_adapter *adapter, u32 addr, u32 *valp)
 {
 	int ret;
 
@@ -647,12 +627,73 @@ qlcnic_setup_idc_param(struct qlcnic_adapter *adapter) {
 	return 0;
 }
 
+static int qlcnic_get_flt_entry(struct qlcnic_adapter *adapter, u8 region,
+				struct qlcnic_flt_entry *region_entry)
+{
+	struct qlcnic_flt_header flt_hdr;
+	struct qlcnic_flt_entry *flt_entry;
+	int i = 0, ret;
+	u32 entry_size;
+
+	memset(region_entry, 0, sizeof(struct qlcnic_flt_entry));
+	ret = qlcnic_rom_fast_read_words(adapter, QLCNIC_FLT_LOCATION,
+					 (u8 *)&flt_hdr,
+					 sizeof(struct qlcnic_flt_header));
+	if (ret) {
+		dev_warn(&adapter->pdev->dev,
+			 "error reading flash layout header\n");
+		return -EIO;
+	}
+
+	entry_size = flt_hdr.len - sizeof(struct qlcnic_flt_header);
+	flt_entry = (struct qlcnic_flt_entry *)vzalloc(entry_size);
+	if (flt_entry == NULL) {
+		dev_warn(&adapter->pdev->dev, "error allocating memory\n");
+		return -EIO;
+	}
+
+	ret = qlcnic_rom_fast_read_words(adapter, QLCNIC_FLT_LOCATION +
+					 sizeof(struct qlcnic_flt_header),
+					 (u8 *)flt_entry, entry_size);
+	if (ret) {
+		dev_warn(&adapter->pdev->dev,
+			 "error reading flash layout entries\n");
+		goto err_out;
+	}
+
+	while (i < (entry_size/sizeof(struct qlcnic_flt_entry))) {
+		if (flt_entry[i].region == region)
+			break;
+		i++;
+	}
+	if (i >= (entry_size/sizeof(struct qlcnic_flt_entry))) {
+		dev_warn(&adapter->pdev->dev,
+			 "region=%x not found in %d regions\n", region, i);
+		ret = -EIO;
+		goto err_out;
+	}
+	memcpy(region_entry, &flt_entry[i], sizeof(struct qlcnic_flt_entry));
+
+err_out:
+	vfree(flt_entry);
+	return ret;
+}
+
 int
 qlcnic_check_flash_fw_ver(struct qlcnic_adapter *adapter)
 {
+	struct qlcnic_flt_entry fw_entry;
 	u32 ver = -1, min_ver;
+	int ret;
 
-	qlcnic_rom_fast_read(adapter, QLCNIC_FW_VERSION_OFFSET, (int *)&ver);
+	ret = qlcnic_get_flt_entry(adapter, QLCNIC_FW_IMAGE_REGION, &fw_entry);
+	if (!ret)
+		/* 0-4:-signature,  4-8:-fw version */
+		qlcnic_rom_fast_read(adapter, fw_entry.start_addr + 4,
+				     (int *)&ver);
+	else
+		qlcnic_rom_fast_read(adapter, QLCNIC_FW_VERSION_OFFSET,
+				     (int *)&ver);
 
 	ver = QLCNIC_DECODE_VERSION(ver);
 	min_ver = QLCNIC_MIN_FW_VERSION;
@@ -823,7 +864,7 @@ nomn:
 	for (i = 0; i < entries; i++) {
 
 		__le32 flags, file_chiprev, offs;
-		u8 chiprev = adapter->ahw.revision_id;
+		u8 chiprev = adapter->ahw->revision_id;
 		u32 flagbit;
 
 		offs = cpu_to_le32(ptab_descr->findex) +
@@ -1089,9 +1130,20 @@ qlcnic_load_firmware(struct qlcnic_adapter *adapter)
 	} else {
 		u64 data;
 		u32 hi, lo;
+		int ret;
+		struct qlcnic_flt_entry bootld_entry;
 
-		size = (QLCNIC_IMAGE_START - QLCNIC_BOOTLD_START) / 8;
-		flashaddr = QLCNIC_BOOTLD_START;
+		ret = qlcnic_get_flt_entry(adapter, QLCNIC_BOOTLD_REGION,
+					&bootld_entry);
+		if (!ret) {
+			size = bootld_entry.size / 8;
+			flashaddr = bootld_entry.start_addr;
+		} else {
+			size = (QLCNIC_IMAGE_START - QLCNIC_BOOTLD_START) / 8;
+			flashaddr = QLCNIC_BOOTLD_START;
+			dev_info(&pdev->dev,
+				"using legacy method to get flash fw region");
+		}
 
 		for (i = 0; i < size; i++) {
 			if (qlcnic_rom_fast_read(adapter,
@@ -1338,8 +1390,8 @@ static struct sk_buff *qlcnic_process_rxbuf(struct qlcnic_adapter *adapter,
 
 	skb = buffer->skb;
 
-	if (likely(adapter->rx_csum && (cksum == STATUS_CKSUM_OK ||
-						cksum == STATUS_CKSUM_LOOP))) {
+	if (likely((adapter->netdev->features & NETIF_F_RXCSUM) &&
+	    (cksum == STATUS_CKSUM_OK || cksum == STATUS_CKSUM_LOOP))) {
 		adapter->stats.csummed++;
 		skb->ip_summed = CHECKSUM_UNNECESSARY;
 	} else {
@@ -1353,7 +1405,7 @@ static struct sk_buff *qlcnic_process_rxbuf(struct qlcnic_adapter *adapter,
 	return skb;
 }
 
-static int
+static inline int
 qlcnic_check_rx_tagging(struct qlcnic_adapter *adapter, struct sk_buff *skb,
 			u16 *vlan_tag)
 {
@@ -1384,7 +1436,7 @@ qlcnic_process_rcv(struct qlcnic_adapter *adapter,
 		int ring, u64 sts_data0)
 {
 	struct net_device *netdev = adapter->netdev;
-	struct qlcnic_recv_context *recv_ctx = &adapter->recv_ctx;
+	struct qlcnic_recv_context *recv_ctx = adapter->recv_ctx;
 	struct qlcnic_rx_buffer *buffer;
 	struct sk_buff *skb;
 	struct qlcnic_host_rds_ring *rds_ring;
@@ -1426,10 +1478,10 @@ qlcnic_process_rcv(struct qlcnic_adapter *adapter,
 
 	skb->protocol = eth_type_trans(skb, netdev);
 
-	if ((vid != 0xffff) && adapter->vlgrp)
-		vlan_gro_receive(&sds_ring->napi, adapter->vlgrp, vid, skb);
-	else
-		napi_gro_receive(&sds_ring->napi, skb);
+	if (vid != 0xffff)
+		__vlan_hwaccel_put_tag(skb, vid);
+
+	napi_gro_receive(&sds_ring->napi, skb);
 
 	adapter->stats.rx_pkts++;
 	adapter->stats.rxbytes += length;
@@ -1447,7 +1499,7 @@ qlcnic_process_lro(struct qlcnic_adapter *adapter,
 		int ring, u64 sts_data0, u64 sts_data1)
 {
 	struct net_device *netdev = adapter->netdev;
-	struct qlcnic_recv_context *recv_ctx = &adapter->recv_ctx;
+	struct qlcnic_recv_context *recv_ctx = adapter->recv_ctx;
 	struct qlcnic_rx_buffer *buffer;
 	struct sk_buff *skb;
 	struct qlcnic_host_rds_ring *rds_ring;
@@ -1511,10 +1563,9 @@ qlcnic_process_lro(struct qlcnic_adapter *adapter,
 
 	length = skb->len;
 
-	if ((vid != 0xffff) && adapter->vlgrp)
-		vlan_hwaccel_receive_skb(skb, adapter->vlgrp, vid);
-	else
-		netif_receive_skb(skb);
+	if (vid != 0xffff)
+		__vlan_hwaccel_put_tag(skb, vid);
+	netif_receive_skb(skb);
 
 	adapter->stats.lro_pkts++;
 	adapter->stats.lrobytes += length;
@@ -1584,7 +1635,7 @@ skip:
 
 	for (ring = 0; ring < adapter->max_rds_rings; ring++) {
 		struct qlcnic_host_rds_ring *rds_ring =
-			&adapter->recv_ctx.rds_rings[ring];
+			&adapter->recv_ctx->rds_rings[ring];
 
 		if (!list_empty(&sds_ring->free_list[ring])) {
 			list_for_each(cur, &sds_ring->free_list[ring]) {
@@ -1610,12 +1661,13 @@ skip:
 }
 
 void
-qlcnic_post_rx_buffers(struct qlcnic_adapter *adapter, u32 ringid,
+qlcnic_post_rx_buffers(struct qlcnic_adapter *adapter,
 	struct qlcnic_host_rds_ring *rds_ring)
 {
 	struct rcv_desc *pdesc;
 	struct qlcnic_rx_buffer *buffer;
-	int producer, count = 0;
+	int count = 0;
+	u32 producer;
 	struct list_head *head;
 
 	producer = rds_ring->producer;
@@ -1655,7 +1707,8 @@ qlcnic_post_rx_buffers_nodb(struct qlcnic_adapter *adapter,
 {
 	struct rcv_desc *pdesc;
 	struct qlcnic_rx_buffer *buffer;
-	int producer, count = 0;
+	int  count = 0;
+	uint32_t producer;
 	struct list_head *head;
 
 	if (!spin_trylock(&rds_ring->lock))
@@ -1691,99 +1744,6 @@ qlcnic_post_rx_buffers_nodb(struct qlcnic_adapter *adapter,
 				rds_ring->crb_rcv_producer);
 	}
 	spin_unlock(&rds_ring->lock);
-}
-
-static void dump_skb(struct sk_buff *skb)
-{
-	int i;
-	unsigned char *data = skb->data;
-
-	for (i = 0; i < skb->len; i++) {
-		printk("%02x ", data[i]);
-		if ((i & 0x0f) == 8)
-			printk("\n");
-	}
-}
-
-static struct qlcnic_rx_buffer *
-qlcnic_process_rcv_diag(struct qlcnic_adapter *adapter,
-		struct qlcnic_host_sds_ring *sds_ring,
-		int ring, u64 sts_data0)
-{
-	struct qlcnic_recv_context *recv_ctx = &adapter->recv_ctx;
-	struct qlcnic_rx_buffer *buffer;
-	struct sk_buff *skb;
-	struct qlcnic_host_rds_ring *rds_ring;
-	int index, length, cksum, pkt_offset;
-
-	if (unlikely(ring >= adapter->max_rds_rings))
-		return NULL;
-
-	rds_ring = &recv_ctx->rds_rings[ring];
-
-	index = qlcnic_get_sts_refhandle(sts_data0);
-	if (unlikely(index >= rds_ring->num_desc))
-		return NULL;
-
-	buffer = &rds_ring->rx_buf_arr[index];
-
-	length = qlcnic_get_sts_totallength(sts_data0);
-	cksum  = qlcnic_get_sts_status(sts_data0);
-	pkt_offset = qlcnic_get_sts_pkt_offset(sts_data0);
-
-	skb = qlcnic_process_rxbuf(adapter, rds_ring, index, cksum);
-	if (!skb)
-		return buffer;
-
-	if (length > rds_ring->skb_size)
-		skb_put(skb, rds_ring->skb_size);
-	else
-		skb_put(skb, length);
-
-	if (pkt_offset)
-		skb_pull(skb, pkt_offset);
-
-	if (!qlcnic_check_loopback_buff(skb->data))
-		adapter->diag_cnt++;
-	else
-		dump_skb(skb);
-
-	dev_kfree_skb_any(skb);
-	adapter->stats.rx_pkts++;
-	adapter->stats.rxbytes += length;
-
-	return buffer;
-}
-
-void
-qlcnic_process_rcv_ring_diag(struct qlcnic_host_sds_ring *sds_ring)
-{
-	struct qlcnic_adapter *adapter = sds_ring->adapter;
-	struct status_desc *desc;
-	struct qlcnic_rx_buffer *rxbuf;
-	u64 sts_data0;
-
-	int opcode, ring, desc_cnt;
-	u32 consumer = sds_ring->consumer;
-
-	desc = &sds_ring->desc_head[consumer];
-	sts_data0 = le64_to_cpu(desc->status_desc_data[0]);
-
-	if (!(sts_data0 & STATUS_OWNER_HOST))
-		return;
-
-	desc_cnt = qlcnic_get_sts_desc_cnt(sts_data0);
-	opcode = qlcnic_get_sts_opcode(sts_data0);
-
-	ring = qlcnic_get_sts_type(sts_data0);
-	rxbuf = qlcnic_process_rcv_diag(adapter, sds_ring,
-					ring, sts_data0);
-
-	desc->status_desc_data[0] = cpu_to_le64(STATUS_OWNER_PHANTOM);
-	consumer = get_next_index(consumer, sds_ring->num_desc);
-
-	sds_ring->consumer = consumer;
-	writel(consumer, sds_ring->crb_sts_consumer);
 }
 
 void

@@ -738,7 +738,7 @@ static inline void build_term_codes(struct respQ_msg_t *rsp_msg,
 	}
 }
 
-int iwch_post_zb_read(struct iwch_qp *qhp)
+int iwch_post_zb_read(struct iwch_ep *ep)
 {
 	union t3_wr *wqe;
 	struct sk_buff *skb;
@@ -761,10 +761,10 @@ int iwch_post_zb_read(struct iwch_qp *qhp)
 	wqe->read.local_len = cpu_to_be32(0);
 	wqe->read.local_to = cpu_to_be64(1);
 	wqe->send.wrh.op_seop_flags = cpu_to_be32(V_FW_RIWR_OP(T3_WR_READ));
-	wqe->send.wrh.gen_tid_len = cpu_to_be32(V_FW_RIWR_TID(qhp->ep->hwtid)|
+	wqe->send.wrh.gen_tid_len = cpu_to_be32(V_FW_RIWR_TID(ep->hwtid)|
 						V_FW_RIWR_LEN(flit_cnt));
 	skb->priority = CPL_PRIORITY_DATA;
-	return iwch_cxgb3_ofld_send(qhp->rhp->rdev.t3cdev_p, skb);
+	return iwch_cxgb3_ofld_send(ep->com.qp->rhp->rdev.t3cdev_p, skb);
 }
 
 /*
@@ -1148,60 +1148,4 @@ out:
 
 	PDBG("%s exit state %d\n", __func__, qhp->attr.state);
 	return ret;
-}
-
-static int quiesce_qp(struct iwch_qp *qhp)
-{
-	spin_lock_irq(&qhp->lock);
-	iwch_quiesce_tid(qhp->ep);
-	qhp->flags |= QP_QUIESCED;
-	spin_unlock_irq(&qhp->lock);
-	return 0;
-}
-
-static int resume_qp(struct iwch_qp *qhp)
-{
-	spin_lock_irq(&qhp->lock);
-	iwch_resume_tid(qhp->ep);
-	qhp->flags &= ~QP_QUIESCED;
-	spin_unlock_irq(&qhp->lock);
-	return 0;
-}
-
-int iwch_quiesce_qps(struct iwch_cq *chp)
-{
-	int i;
-	struct iwch_qp *qhp;
-
-	for (i=0; i < T3_MAX_NUM_QP; i++) {
-		qhp = get_qhp(chp->rhp, i);
-		if (!qhp)
-			continue;
-		if ((qhp->attr.rcq == chp->cq.cqid) && !qp_quiesced(qhp)) {
-			quiesce_qp(qhp);
-			continue;
-		}
-		if ((qhp->attr.scq == chp->cq.cqid) && !qp_quiesced(qhp))
-			quiesce_qp(qhp);
-	}
-	return 0;
-}
-
-int iwch_resume_qps(struct iwch_cq *chp)
-{
-	int i;
-	struct iwch_qp *qhp;
-
-	for (i=0; i < T3_MAX_NUM_QP; i++) {
-		qhp = get_qhp(chp->rhp, i);
-		if (!qhp)
-			continue;
-		if ((qhp->attr.rcq == chp->cq.cqid) && qp_quiesced(qhp)) {
-			resume_qp(qhp);
-			continue;
-		}
-		if ((qhp->attr.scq == chp->cq.cqid) && qp_quiesced(qhp))
-			resume_qp(qhp);
-	}
-	return 0;
 }

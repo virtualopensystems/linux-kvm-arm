@@ -17,7 +17,6 @@
 #include <linux/delay.h>
 #include <linux/slab.h>
 #include <sound/soc.h>
-#include <sound/soc-dapm.h>
 #include <sound/initval.h>
 #include <sound/tlv.h>
 
@@ -28,7 +27,6 @@
 struct ak4671_priv {
 	enum snd_soc_control_type control_type;
 	void *control_data;
-	u8 reg_cache[AK4671_CACHEREGNUM];
 };
 
 /* ak4671 register cache & default register settings */
@@ -354,7 +352,7 @@ static const struct snd_soc_dapm_widget ak4671_dapm_widgets[] = {
 	SND_SOC_DAPM_SUPPLY("PMPLL", AK4671_PLL_MODE_SELECT1, 0, 0, NULL, 0),
 };
 
-static const struct snd_soc_dapm_route intercon[] = {
+static const struct snd_soc_dapm_route ak4671_intercon[] = {
 	{"DAC Left", "NULL", "PMPLL"},
 	{"DAC Right", "NULL", "PMPLL"},
 	{"ADC Left", "NULL", "PMPLL"},
@@ -434,16 +432,6 @@ static const struct snd_soc_dapm_route intercon[] = {
 	{"LOUT3 Mixer", "LINS4", "LIN4 Mixing Circuit"},
 	{"ROUT3 Mixer", "RINS4", "RIN4 Mixing Circuit"},
 };
-
-static int ak4671_add_widgets(struct snd_soc_codec *codec)
-{
-	snd_soc_dapm_new_controls(codec, ak4671_dapm_widgets,
-				  ARRAY_SIZE(ak4671_dapm_widgets));
-
-	snd_soc_dapm_add_routes(codec, intercon, ARRAY_SIZE(intercon));
-
-	return 0;
-}
 
 static int ak4671_hw_params(struct snd_pcm_substream *substream,
 		struct snd_pcm_hw_params *params,
@@ -602,7 +590,7 @@ static int ak4671_set_bias_level(struct snd_soc_codec *codec,
 		snd_soc_write(codec, AK4671_AD_DA_POWER_MANAGEMENT, 0x00);
 		break;
 	}
-	codec->bias_level = level;
+	codec->dapm.bias_level = level;
 	return 0;
 }
 
@@ -651,7 +639,6 @@ static int ak4671_probe(struct snd_soc_codec *codec)
 
 	snd_soc_add_controls(codec, ak4671_snd_controls,
 			     ARRAY_SIZE(ak4671_snd_controls));
-	ak4671_add_widgets(codec);
 
 	ak4671_set_bias_level(codec, SND_SOC_BIAS_STANDBY);
 
@@ -671,6 +658,10 @@ static struct snd_soc_codec_driver soc_codec_dev_ak4671 = {
 	.reg_cache_size = AK4671_CACHEREGNUM,
 	.reg_word_size = sizeof(u8),
 	.reg_cache_default = ak4671_reg,
+	.dapm_widgets = ak4671_dapm_widgets,
+	.num_dapm_widgets = ARRAY_SIZE(ak4671_dapm_widgets),
+	.dapm_routes = ak4671_intercon,
+	.num_dapm_routes = ARRAY_SIZE(ak4671_intercon),
 };
 
 static int __devinit ak4671_i2c_probe(struct i2c_client *client,

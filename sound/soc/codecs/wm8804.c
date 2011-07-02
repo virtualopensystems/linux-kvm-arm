@@ -23,7 +23,6 @@
 #include <sound/pcm.h>
 #include <sound/pcm_params.h>
 #include <sound/soc.h>
-#include <sound/soc-dapm.h>
 #include <sound/initval.h>
 #include <sound/tlv.h>
 
@@ -176,7 +175,7 @@ static int txsrc_put(struct snd_kcontrol *kcontrol,
 	return 0;
 }
 
-static int wm8804_volatile(unsigned int reg)
+static int wm8804_volatile(struct snd_soc_codec *codec, unsigned int reg)
 {
 	switch (reg) {
 	case WM8804_RST_DEVID1:
@@ -515,7 +514,7 @@ static int wm8804_set_bias_level(struct snd_soc_codec *codec,
 		snd_soc_update_bits(codec, WM8804_PWRDN, 0x9, 0);
 		break;
 	case SND_SOC_BIAS_STANDBY:
-		if (codec->bias_level == SND_SOC_BIAS_OFF) {
+		if (codec->dapm.bias_level == SND_SOC_BIAS_OFF) {
 			ret = regulator_bulk_enable(ARRAY_SIZE(wm8804->supplies),
 						    wm8804->supplies);
 			if (ret) {
@@ -537,7 +536,7 @@ static int wm8804_set_bias_level(struct snd_soc_codec *codec,
 		break;
 	}
 
-	codec->bias_level = level;
+	codec->dapm.bias_level = level;
 	return 0;
 }
 
@@ -581,7 +580,7 @@ static int wm8804_probe(struct snd_soc_codec *codec)
 	wm8804 = snd_soc_codec_get_drvdata(codec);
 	wm8804->codec = codec;
 
-	codec->idle_bias_off = 1;
+	codec->dapm.idle_bias_off = 1;
 
 	ret = snd_soc_codec_set_cache_io(codec, 8, 8, wm8804->control_type);
 	if (ret < 0) {
@@ -681,20 +680,25 @@ static struct snd_soc_dai_ops wm8804_dai_ops = {
 #define WM8804_FORMATS (SNDRV_PCM_FMTBIT_S16_LE | SNDRV_PCM_FMTBIT_S20_3LE | \
 			SNDRV_PCM_FMTBIT_S24_LE)
 
+#define WM8804_RATES (SNDRV_PCM_RATE_32000 | SNDRV_PCM_RATE_44100 | \
+		      SNDRV_PCM_RATE_48000 | SNDRV_PCM_RATE_64000 | \
+		      SNDRV_PCM_RATE_88200 | SNDRV_PCM_RATE_96000 | \
+		      SNDRV_PCM_RATE_176400 | SNDRV_PCM_RATE_192000)
+
 static struct snd_soc_dai_driver wm8804_dai = {
 	.name = "wm8804-spdif",
 	.playback = {
 		.stream_name = "Playback",
 		.channels_min = 2,
 		.channels_max = 2,
-		.rates = SNDRV_PCM_RATE_8000_192000,
+		.rates = WM8804_RATES,
 		.formats = WM8804_FORMATS,
 	},
 	.capture = {
 		.stream_name = "Capture",
 		.channels_min = 2,
 		.channels_max = 2,
-		.rates = SNDRV_PCM_RATE_8000_192000,
+		.rates = WM8804_RATES,
 		.formats = WM8804_FORMATS,
 	},
 	.ops = &wm8804_dai_ops,

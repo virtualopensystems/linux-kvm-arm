@@ -18,7 +18,7 @@
 
 #include <sound/core.h>
 #include <sound/initval.h>
-#include <sound/soc-dapm.h>
+#include <sound/soc.h>
 
 #include "cx20442.h"
 
@@ -26,7 +26,6 @@
 struct cx20442_priv {
 	enum snd_soc_control_type control_type;
 	void *control_data;
-	u8 reg_cache[1];
 };
 
 #define CX20442_PM		0x0
@@ -86,17 +85,6 @@ static const struct snd_soc_dapm_route cx20442_audio_map[] = {
 
 	{"ADC", NULL, "Input Mixer"},
 };
-
-static int cx20442_add_widgets(struct snd_soc_codec *codec)
-{
-	snd_soc_dapm_new_controls(codec, cx20442_dapm_widgets,
-				  ARRAY_SIZE(cx20442_dapm_widgets));
-
-	snd_soc_dapm_add_routes(codec, cx20442_audio_map,
-				ARRAY_SIZE(cx20442_audio_map));
-
-	return 0;
-}
 
 static unsigned int cx20442_read_reg_cache(struct snd_soc_codec *codec,
 							unsigned int reg)
@@ -263,7 +251,7 @@ static void v253_close(struct tty_struct *tty)
 	/* Prevent the codec driver from further accessing the modem */
 	codec->hw_write = NULL;
 	cx20442->control_data = NULL;
-	codec->pop_time = 0;
+	codec->card->pop_time = 0;
 }
 
 /* Line discipline .hangup() */
@@ -291,7 +279,7 @@ static void v253_receive(struct tty_struct *tty,
 		/* Set up codec driver access to modem controls */
 		cx20442->control_data = tty;
 		codec->hw_write = (hw_write_t)tty->ops->write;
-		codec->pop_time = 1;
+		codec->card->pop_time = 1;
 	}
 }
 
@@ -344,11 +332,9 @@ static int cx20442_codec_probe(struct snd_soc_codec *codec)
 		return -ENOMEM;
 	snd_soc_codec_set_drvdata(codec, cx20442);
 
-	cx20442_add_widgets(codec);
-
 	cx20442->control_data = NULL;
 	codec->hw_write = NULL;
-	codec->pop_time = 0;
+	codec->card->pop_time = 0;
 
 	return 0;
 }
@@ -367,13 +353,20 @@ static int cx20442_codec_remove(struct snd_soc_codec *codec)
 	return 0;
 }
 
+static const u8 cx20442_reg;
+
 static struct snd_soc_codec_driver cx20442_codec_dev = {
 	.probe = 	cx20442_codec_probe,
 	.remove = 	cx20442_codec_remove,
+	.reg_cache_default = &cx20442_reg,
 	.reg_cache_size = 1,
 	.reg_word_size = sizeof(u8),
 	.read = cx20442_read_reg_cache,
 	.write = cx20442_write,
+	.dapm_widgets = cx20442_dapm_widgets,
+	.num_dapm_widgets = ARRAY_SIZE(cx20442_dapm_widgets),
+	.dapm_routes = cx20442_audio_map,
+	.num_dapm_routes = ARRAY_SIZE(cx20442_audio_map),
 };
 
 static int cx20442_platform_probe(struct platform_device *pdev)

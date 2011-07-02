@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008-2010 Atheros Communications Inc.
+ * Copyright (c) 2008-2011 Atheros Communications Inc.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -175,13 +175,15 @@ static void ar9002_hw_spur_mitigate(struct ath_hw *ah,
 	int upper, lower, cur_vit_mask;
 	int tmp, newVal;
 	int i;
-	int pilot_mask_reg[4] = { AR_PHY_TIMING7, AR_PHY_TIMING8,
-			  AR_PHY_PILOT_MASK_01_30, AR_PHY_PILOT_MASK_31_60
+	static const int pilot_mask_reg[4] = {
+		AR_PHY_TIMING7, AR_PHY_TIMING8,
+		AR_PHY_PILOT_MASK_01_30, AR_PHY_PILOT_MASK_31_60
 	};
-	int chan_mask_reg[4] = { AR_PHY_TIMING9, AR_PHY_TIMING10,
-			 AR_PHY_CHANNEL_MASK_01_30, AR_PHY_CHANNEL_MASK_31_60
+	static const int chan_mask_reg[4] = {
+		AR_PHY_TIMING9, AR_PHY_TIMING10,
+		AR_PHY_CHANNEL_MASK_01_30, AR_PHY_CHANNEL_MASK_31_60
 	};
-	int inc[4] = { 0, 100, 0, 0 };
+	static const int inc[4] = { 0, 100, 0, 0 };
 	struct chan_centers centers;
 
 	int8_t mask_m[123];
@@ -201,13 +203,14 @@ static void ar9002_hw_spur_mitigate(struct ath_hw *ah,
 	for (i = 0; i < AR_EEPROM_MODAL_SPURS; i++) {
 		cur_bb_spur = ah->eep_ops->get_spur_channel(ah, i, is2GHz);
 
+		if (AR_NO_SPUR == cur_bb_spur)
+			break;
+
 		if (is2GHz)
 			cur_bb_spur = (cur_bb_spur / 10) + AR_BASE_FREQ_2GHZ;
 		else
 			cur_bb_spur = (cur_bb_spur / 10) + AR_BASE_FREQ_5GHZ;
 
-		if (AR_NO_SPUR == cur_bb_spur)
-			break;
 		cur_bb_spur = cur_bb_spur - freq;
 
 		if (IS_CHAN_HT40(chan)) {
@@ -473,21 +476,21 @@ static void ar9002_hw_do_getnf(struct ath_hw *ah,
 	int16_t nf;
 
 	nf = MS(REG_READ(ah, AR_PHY_CCA), AR9280_PHY_MINCCA_PWR);
-	nfarray[0] = sign_extend(nf, 9);
+	nfarray[0] = sign_extend32(nf, 8);
 
 	nf = MS(REG_READ(ah, AR_PHY_EXT_CCA), AR9280_PHY_EXT_MINCCA_PWR);
 	if (IS_CHAN_HT40(ah->curchan))
-		nfarray[3] = sign_extend(nf, 9);
+		nfarray[3] = sign_extend32(nf, 8);
 
 	if (AR_SREV_9285(ah) || AR_SREV_9271(ah))
 		return;
 
 	nf = MS(REG_READ(ah, AR_PHY_CH1_CCA), AR9280_PHY_CH1_MINCCA_PWR);
-	nfarray[1] = sign_extend(nf, 9);
+	nfarray[1] = sign_extend32(nf, 8);
 
 	nf = MS(REG_READ(ah, AR_PHY_CH1_EXT_CCA), AR9280_PHY_CH1_EXT_MINCCA_PWR);
 	if (IS_CHAN_HT40(ah->curchan))
-		nfarray[4] = sign_extend(nf, 9);
+		nfarray[4] = sign_extend32(nf, 8);
 }
 
 static void ar9002_hw_set_nf_limits(struct ath_hw *ah)
@@ -514,23 +517,7 @@ static void ar9002_hw_set_nf_limits(struct ath_hw *ah)
 	}
 }
 
-void ar9002_hw_attach_phy_ops(struct ath_hw *ah)
-{
-	struct ath_hw_private_ops *priv_ops = ath9k_hw_private_ops(ah);
-
-	priv_ops->set_rf_regs = NULL;
-	priv_ops->rf_alloc_ext_banks = NULL;
-	priv_ops->rf_free_ext_banks = NULL;
-	priv_ops->rf_set_freq = ar9002_hw_set_channel;
-	priv_ops->spur_mitigate_freq = ar9002_hw_spur_mitigate;
-	priv_ops->olc_init = ar9002_olc_init;
-	priv_ops->compute_pll_control = ar9002_hw_compute_pll_control;
-	priv_ops->do_getnf = ar9002_hw_do_getnf;
-
-	ar9002_hw_set_nf_limits(ah);
-}
-
-void ath9k_hw_antdiv_comb_conf_get(struct ath_hw *ah,
+static void ar9002_hw_antdiv_comb_conf_get(struct ath_hw *ah,
 				   struct ath_hw_antcomb_conf *antconf)
 {
 	u32 regval;
@@ -542,10 +529,11 @@ void ath9k_hw_antdiv_comb_conf_get(struct ath_hw *ah,
 				 AR_PHY_9285_ANT_DIV_ALT_LNACONF_S;
 	antconf->fast_div_bias = (regval & AR_PHY_9285_FAST_DIV_BIAS) >>
 				  AR_PHY_9285_FAST_DIV_BIAS_S;
+	antconf->lna1_lna2_delta = -3;
+	antconf->div_group = 0;
 }
-EXPORT_SYMBOL(ath9k_hw_antdiv_comb_conf_get);
 
-void ath9k_hw_antdiv_comb_conf_set(struct ath_hw *ah,
+static void ar9002_hw_antdiv_comb_conf_set(struct ath_hw *ah,
 				   struct ath_hw_antcomb_conf *antconf)
 {
 	u32 regval;
@@ -563,4 +551,23 @@ void ath9k_hw_antdiv_comb_conf_set(struct ath_hw *ah,
 
 	REG_WRITE(ah, AR_PHY_MULTICHAIN_GAIN_CTL, regval);
 }
-EXPORT_SYMBOL(ath9k_hw_antdiv_comb_conf_set);
+
+void ar9002_hw_attach_phy_ops(struct ath_hw *ah)
+{
+	struct ath_hw_private_ops *priv_ops = ath9k_hw_private_ops(ah);
+	struct ath_hw_ops *ops = ath9k_hw_ops(ah);
+
+	priv_ops->set_rf_regs = NULL;
+	priv_ops->rf_alloc_ext_banks = NULL;
+	priv_ops->rf_free_ext_banks = NULL;
+	priv_ops->rf_set_freq = ar9002_hw_set_channel;
+	priv_ops->spur_mitigate_freq = ar9002_hw_spur_mitigate;
+	priv_ops->olc_init = ar9002_olc_init;
+	priv_ops->compute_pll_control = ar9002_hw_compute_pll_control;
+	priv_ops->do_getnf = ar9002_hw_do_getnf;
+
+	ops->antdiv_comb_conf_get = ar9002_hw_antdiv_comb_conf_get;
+	ops->antdiv_comb_conf_set = ar9002_hw_antdiv_comb_conf_set;
+
+	ar9002_hw_set_nf_limits(ah);
+}
