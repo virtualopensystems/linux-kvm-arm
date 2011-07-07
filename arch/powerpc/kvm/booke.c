@@ -312,6 +312,19 @@ void kvmppc_core_deliver_interrupts(struct kvm_vcpu *vcpu)
 		vcpu->arch.shared->int_pending = 0;
 }
 
+int kvmppc_vcpu_run(struct kvm_run *kvm_run, struct kvm_vcpu *vcpu)
+{
+	int ret;
+
+	local_irq_disable();
+	kvm_guest_enter();
+	ret = __kvmppc_vcpu_run(kvm_run, vcpu);
+	kvm_guest_exit();
+	local_irq_enable();
+
+	return ret;
+}
+
 /**
  * kvmppc_handle_exit
  *
@@ -863,6 +876,26 @@ int kvm_arch_vcpu_ioctl_translate(struct kvm_vcpu *vcpu,
 int kvm_vm_ioctl_get_dirty_log(struct kvm *kvm, struct kvm_dirty_log *log)
 {
 	return -ENOTSUPP;
+}
+
+int kvmppc_core_prepare_memory_region(struct kvm *kvm,
+				      struct kvm_userspace_memory_region *mem)
+{
+	return 0;
+}
+
+void kvmppc_core_commit_memory_region(struct kvm *kvm,
+				struct kvm_userspace_memory_region *mem)
+{
+}
+
+int kvmppc_core_init_vm(struct kvm *kvm)
+{
+	return 0;
+}
+
+void kvmppc_core_destroy_vm(struct kvm *kvm)
+{
 }
 
 int __init kvmppc_booke_init(void)
