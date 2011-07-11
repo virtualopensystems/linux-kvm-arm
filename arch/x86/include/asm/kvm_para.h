@@ -94,6 +94,7 @@ struct kvm_vcpu_pv_apf_data {
 
 extern void kvmclock_init(void);
 extern int kvm_register_clock(char *txt);
+extern void kvm_disable_steal_time(void);
 
 
 /* This instruction is vmcall.  On non-VT architectures, it will generate a
