@@ -448,7 +448,7 @@ static bool __check_direct_spte_mmio_pf(u64 spte)
 
 	/* It is valid if the spte is being zapped. */
 	if (sspte.spte_low == 0ull &&
-	      sspte.spte_high & high_mmio_mask == high_mmio_mask)
+	    (sspte.spte_high & high_mmio_mask) == high_mmio_mask)
 		return true;
 
 	return false;
