@@ -94,7 +94,6 @@ struct kvm_vcpu_pv_apf_data {
 
 extern void kvmclock_init(void);
 extern int kvm_register_clock(char *txt);
-extern void kvm_disable_steal_time(void);
 
 
 /* This instruction is vmcall.  On non-VT architectures, it will generate a
@@ -193,6 +192,7 @@ void __init kvm_guest_init(void);
 void kvm_async_pf_task_wait(u32 token);
 void kvm_async_pf_task_wake(u32 token);
 u32 kvm_read_and_reset_pf_reason(void);
+extern void kvm_disable_steal_time(void);
 #else
 #define kvm_guest_init() do { } while (0)
 #define kvm_async_pf_task_wait(T) do {} while(0)
@@ -200,6 +200,11 @@ u32 kvm_read_and_reset_pf_reason(void);
 static inline u32 kvm_read_and_reset_pf_reason(void)
 {
 	return 0;
+}
+
+static inline void kvm_disable_steal_time(void)
+{
+	return;
 }
 #endif
 
