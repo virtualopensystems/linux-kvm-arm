@@ -40,6 +40,27 @@ TRACE_EVENT(kvm_exit,
 );
 
 
+TRACE_EVENT(kvm_irq_line,
+	TP_PROTO(unsigned int type, unsigned int level, unsigned int vcpu_idx),
+	TP_ARGS(type, level, vcpu_idx),
+
+	TP_STRUCT__entry(
+		__field(	unsigned int,	type			)
+		__field(	unsigned int,	level			)
+		__field(	unsigned int,	vcpu_idx		)
+	),
+
+	TP_fast_assign(
+		__entry->type			= type;
+		__entry->level			= level;
+		__entry->vcpu_idx		= vcpu_idx;
+	),
+
+	TP_printk("KVM_IRQ_LINE: type: %s, level: %u, vcpu: %u",
+		(__entry->type == KVM_ARM_IRQ_LINE) ? "IRQ" : "FIQ",
+		__entry->level, __entry->vcpu_idx)
+);
+
 
 #endif /* _TRACE_KVM_H */
 
