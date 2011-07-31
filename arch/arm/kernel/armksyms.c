@@ -49,6 +49,12 @@ extern void __aeabi_ulcmp(void);
 
 extern void fpundefinstr(void);
 
+#ifdef CONFIG_KVM_ARM_HOST
+/* This is needed for KVM */
+extern void __irq_svc(void);
+
+EXPORT_SYMBOL_GPL(__irq_svc);
+#endif
 
 EXPORT_SYMBOL(__backtrace);
 
