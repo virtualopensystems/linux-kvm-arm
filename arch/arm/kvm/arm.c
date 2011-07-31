@@ -307,9 +307,18 @@ int kvm_arch_vcpu_ioctl_set_mpstate(struct kvm_vcpu *vcpu,
 	return -EINVAL;
 }
 
+/**
+ * kvm_arch_vcpu_runnable - determine if the vcpu can be scheduled
+ * @v:		The VCPU pointer
+ *
+ * If the guest CPU is not waiting for interrupts (or is waiting for interrupts
+ * but there actually is an incoming interrupt), then it is by definition
+ * runnable.
+ */
 int kvm_arch_vcpu_runnable(struct kvm_vcpu *v)
 {
-	return 0;
+	return !!v->arch.virt_irq ||
+		!v->arch.wait_for_interrupts;
 }
 
 static inline int handle_exit(struct kvm_vcpu *vcpu, struct kvm_run *run,
@@ -385,6 +394,9 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 	int ret;
 
 	for (;;) {
+		if (vcpu->arch.wait_for_interrupts)
+			goto wait_for_interrupts;
+
 		if (run->exit_reason == KVM_EXIT_MMIO) {
 			ret = kvm_handle_mmio_return(vcpu, vcpu->run);
 			if (ret)
@@ -419,6 +431,10 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 			schedule();
 			vcpu_load(vcpu);
 		}
+
+wait_for_interrupts:
+		if (vcpu->arch.wait_for_interrupts)
+			kvm_vcpu_block(vcpu);
 
 		if (signal_pending(current) && !(run->exit_reason)) {
 			run->exit_reason = KVM_EXIT_IRQ_WINDOW_OPEN;
@@ -460,6 +476,8 @@ static int kvm_arch_vm_ioctl_irq_line(struct kvm *kvm,
 	if (irq_level->level) {
 		vcpu->arch.virt_irq |= mask;
 		vcpu->arch.wait_for_interrupts = 0;
+		if (waitqueue_active(&vcpu->wq))
+			wake_up_interruptible(&vcpu->wq);
 	} else
 		vcpu->arch.virt_irq &= ~mask;
 
