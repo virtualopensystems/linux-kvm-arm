@@ -19,10 +19,19 @@
 #define TWD_TIMER_CONTROL_IT_ENABLE	(1 << 2)
 
 struct clock_event_device;
+struct resource;
 
 extern void __iomem *twd_base;
 
 void twd_timer_setup(struct clock_event_device *);
 void twd_timer_stop(struct clock_event_device *);
+#ifdef CONFIG_HAVE_ARM_TWD
+int twd_timer_register(struct resource *res, int res_nr);
+#else
+static inline int twd_timer_register(struct resource *res, int res_nr)
+{
+	return 0;
+}
+#endif
 
 #endif
