@@ -18,17 +18,13 @@
 #include <linux/clockchips.h>
 #include <linux/irq.h>
 #include <linux/io.h>
+#include <linux/interrupt.h>
 
 #include <asm/smp_twd.h>
-#include <asm/localtimer.h>
-#include <asm/hardware/gic.h>
 
-/* set up by the platform code */
-void __iomem *twd_base;
+static void __iomem *twd_base;
 
 static unsigned long twd_timer_rate;
-
-static struct clock_event_device __percpu **twd_evt;
 
 static void twd_set_mode(enum clock_event_mode mode,
 			struct clock_event_device *clk)
@@ -84,7 +80,7 @@ int twd_timer_ack(void)
 	return 0;
 }
 
-void twd_timer_stop(struct clock_event_device *clk)
+static void twd_timer_stop(struct clock_event_device *clk)
 {
 	twd_set_mode(CLOCK_EVT_MODE_UNUSED, clk);
 	disable_percpu_irq(clk->irq);
@@ -131,7 +127,7 @@ static void __cpuinit twd_calibrate_rate(void)
 
 static irqreturn_t twd_handler(int irq, void *dev_id)
 {
-	struct clock_event_device *evt = *(struct clock_event_device **)dev_id;
+	struct clock_event_device *evt = dev_id;
 
 	if (twd_timer_ack()) {
 		evt->event_handler(evt);
@@ -144,28 +140,8 @@ static irqreturn_t twd_handler(int irq, void *dev_id)
 /*
  * Setup the local clock events for a CPU.
  */
-void __cpuinit twd_timer_setup(struct clock_event_device *clk)
+static void __cpuinit twd_timer_setup(struct clock_event_device *clk)
 {
-	struct clock_event_device **this_cpu_clk;
-
-	if (!twd_evt) {
-		int err;
-
-		twd_evt = alloc_percpu(struct clock_event_device *);
-		if (!twd_evt) {
-			pr_err("twd: can't allocate memory\n");
-			return;
-		}
-
-		err = request_percpu_irq(clk->irq, twd_handler,
-					 "twd", twd_evt);
-		if (err) {
-			pr_err("twd: can't register interrupt %d (%d)\n",
-			       clk->irq, err);
-			return;
-		}
-	}
-
 	twd_calibrate_rate();
 
 	clk->name = "local_timer";
@@ -179,15 +155,11 @@ void __cpuinit twd_timer_setup(struct clock_event_device *clk)
 	clk->max_delta_ns = clockevent_delta2ns(0xffffffff, clk);
 	clk->min_delta_ns = clockevent_delta2ns(0xf, clk);
 
-	this_cpu_clk = __this_cpu_ptr(twd_evt);
-	*this_cpu_clk = clk;
-
 	clockevents_register_device(clk);
 
 	enable_percpu_irq(clk->irq, 0);
 }
 
-#ifdef CONFIG_ARM_SMP_TWD
 static struct clock_event_device __percpu *twd_clock_event;
 static int twd_ppi;
 
@@ -233,6 +205,7 @@ static struct notifier_block __cpuinitdata twd_cpu_nb = {
 int __init twd_timer_register(struct resource *res, int res_nr)
 {
 	struct clock_event_device *clk;
+	int err;
 
 	if (res_nr != 2 || res[1].start < 0)
 		return -EINVAL;
@@ -244,10 +217,15 @@ int __init twd_timer_register(struct resource *res, int res_nr)
 	twd_base	= ioremap(res[0].start, resource_size(&res[0]));
 	twd_clock_event	= alloc_percpu(struct clock_event_device);
 	if (!twd_base || !twd_clock_event) {
-		iounmap(twd_base);
-		twd_base = NULL;
-		free_percpu(twd_clock_event);
-		return -ENOMEM;
+		err = -ENOMEM;
+		goto out_free;
+	}
+
+	err = request_percpu_irq(twd_ppi, twd_handler, "twd", twd_clock_event);
+	if (err) {
+		pr_err("twd: can't register interrupt %d (%d)\n",
+		       twd_ppi, err);
+		goto out_free;
 	}
 
 	/* Immediately configure the timer on the boot CPU */
@@ -257,5 +235,10 @@ int __init twd_timer_register(struct resource *res, int res_nr)
 	register_cpu_notifier(&twd_cpu_nb);
 
 	return 0;
+
+out_free:
+	iounmap(twd_base);
+	twd_base = NULL;
+	free_percpu(twd_clock_event);
+	return err;
 }
-#endif
