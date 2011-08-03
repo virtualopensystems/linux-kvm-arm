@@ -13,6 +13,7 @@
 #include <linux/delay.h>
 #include <linux/device.h>
 #include <linux/smp.h>
+#include <linux/cpu.h>
 #include <linux/jiffies.h>
 #include <linux/clockchips.h>
 #include <linux/irq.h>
@@ -170,7 +171,7 @@ void __cpuinit twd_timer_setup(struct clock_event_device *clk)
 	clk->name = "local_timer";
 	clk->features = CLOCK_EVT_FEAT_PERIODIC | CLOCK_EVT_FEAT_ONESHOT |
 			CLOCK_EVT_FEAT_C3STOP;
-	clk->rating = 350;
+	clk->rating = 450;	/* Make sure this is higher than broadcast */
 	clk->set_mode = twd_set_mode;
 	clk->set_next_event = twd_set_next_event;
 	clk->shift = 20;
@@ -185,3 +186,76 @@ void __cpuinit twd_timer_setup(struct clock_event_device *clk)
 
 	enable_percpu_irq(clk->irq, 0);
 }
+
+#ifdef CONFIG_ARM_SMP_TWD
+static struct clock_event_device __percpu *twd_clock_event;
+static int twd_ppi;
+
+static void __cpuinit twd_setup(void *data)
+{
+	struct clock_event_device *clk = data;
+	clk->cpumask = cpumask_of(smp_processor_id());
+	clk->irq = twd_ppi;
+	twd_timer_setup(clk);
+}
+
+static void __cpuinit twd_teardown(void *data)
+{
+	struct clock_event_device *clk = data;
+	twd_timer_stop(clk);
+}
+
+static int __cpuinit twd_cpu_notify(struct notifier_block *self,
+				    unsigned long action, void *data)
+{
+	int cpu = (int)data;
+	struct clock_event_device *clk = per_cpu_ptr(twd_clock_event, cpu);
+
+	switch (action) {
+	case CPU_STARTING:
+	case CPU_STARTING_FROZEN:
+		smp_call_function_single(cpu, twd_setup, clk, 1);
+		break;
+
+	case CPU_DOWN_PREPARE:
+	case CPU_DOWN_PREPARE_FROZEN:
+		smp_call_function_single(cpu, twd_teardown, clk, 1);
+		break;
+	}
+
+	return NOTIFY_OK;
+}
+
+static struct notifier_block __cpuinitdata twd_cpu_nb = {
+	.notifier_call = twd_cpu_notify,
+};
+
+int __init twd_timer_register(struct resource *res, int res_nr)
+{
+	struct clock_event_device *clk;
+
+	if (res_nr != 2 || res[1].start < 0)
+		return -EINVAL;
+
+	if (twd_base)
+		return -EBUSY;
+
+	twd_ppi		= res[1].start;
+	twd_base	= ioremap(res[0].start, resource_size(&res[0]));
+	twd_clock_event	= alloc_percpu(struct clock_event_device);
+	if (!twd_base || !twd_clock_event) {
+		iounmap(twd_base);
+		twd_base = NULL;
+		free_percpu(twd_clock_event);
+		return -ENOMEM;
+	}
+
+	/* Immediately configure the timer on the boot CPU */
+	clk = per_cpu_ptr(twd_clock_event, smp_processor_id());
+	twd_setup(clk);
+
+	register_cpu_notifier(&twd_cpu_nb);
+
+	return 0;
+}
+#endif

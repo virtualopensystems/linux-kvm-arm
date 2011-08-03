@@ -1419,6 +1419,10 @@ config HAVE_ARM_TWD
 	help
 	  This options enables support for the ARM timer and watchdog unit
 
+config ARM_SMP_TWD
+	bool
+	select HAVE_ARM_TWD if SMP
+
 choice
 	prompt "Memory split"
 	default VMSPLIT_3G
@@ -1457,7 +1461,7 @@ config HOTPLUG_CPU
 
 config LOCAL_TIMERS
 	bool "Use local timer interrupts"
-	depends on SMP
+	depends on SMP && !ARM_SMP_TWD
 	default y
 	select HAVE_ARM_TWD if (!ARCH_MSM_SCORPIONMP && !EXYNOS4_MCT)
 	help
