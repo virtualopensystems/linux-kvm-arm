@@ -1542,7 +1542,7 @@ config HOTPLUG_CPU
 
 config LOCAL_TIMERS
 	bool "Use local timer interrupts"
-	depends on SMP && !ARM_SMP_TWD && !EXYNOS4_MCT
+	depends on SMP && !ARM_SMP_TWD && !EXYNOS4_MCT && !MSM
 	default y
 	help
 	  Enable support for local timers on SMP platforms, rather then the
