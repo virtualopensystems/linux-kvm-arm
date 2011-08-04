@@ -8,27 +8,53 @@
 #include <linux/errno.h>
 #include <linux/clksrc-dbx500-prcmu.h>
 
-#include <asm/localtimer.h>
+#include <asm/smp_twd.h>
 
 #include <plat/mtu.h>
 
 #include <mach/setup.h>
 #include <mach/hardware.h>
 
+#ifdef CONFIG_ARM_SMP_TWD
+static struct resource ux500_twd_resources[] __initdata = {
+	{
+		.flags	= IORESOURCE_MEM,
+	},
+	{
+		.start	= IRQ_LOCALTIMER,
+		.end	= IRQ_LOCALTIMER,
+		.flags	= IORESOURCE_IRQ,
+	},
+};
+
+static void __init ux500_twd_init(void)
+{
+	int err = twd_timer_register(ux500_twd_resources,
+				     ARRAY_SIZE(ux500_twd_resources));
+	if (err)
+		pr_err("twd_timer_register failed %d\n", err);
+}
+
+static void __init ux500_twd_set_base(unsigned long base)
+{
+	ux500_twd_resources[0].start = base;
+	ux500_twd_resources[0].end = base + 0x10;
+}
+#else
+#define ux500_twd_init	NULL
+#define ux500_twd_set_base(b)	do { } while(0)
+#endif
+
 static void __init ux500_timer_init(void)
 {
 	void __iomem *prcmu_timer_base;
 
 	if (cpu_is_u5500()) {
-#ifdef CONFIG_LOCAL_TIMERS
-		twd_base = __io_address(U5500_TWD_BASE);
-#endif
+		ux500_twd_set_base(U5500_TWD_BASE);
 		mtu_base = __io_address(U5500_MTU0_BASE);
 		prcmu_timer_base = __io_address(U5500_PRCMU_TIMER_3_BASE);
 	} else if (cpu_is_u8500()) {
-#ifdef CONFIG_LOCAL_TIMERS
-		twd_base = __io_address(U8500_TWD_BASE);
-#endif
+		ux500_twd_set_base(U8500_TWD_BASE);
 		mtu_base = __io_address(U8500_MTU0_BASE);
 		prcmu_timer_base = __io_address(U8500_PRCMU_TIMER_4_BASE);
 	} else {
@@ -54,6 +80,7 @@ static void __init ux500_timer_init(void)
 
 	nmdk_timer_init();
 	clksrc_dbx500_prcmu_init(prcmu_timer_base);
+	late_time_init = ux500_twd_init;
 }
 
 static void ux500_timer_reset(void)
