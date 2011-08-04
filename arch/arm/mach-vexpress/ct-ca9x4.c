@@ -53,16 +53,27 @@ static struct map_desc ct_ca9x4_io_desc[] __initdata = {
 
 static void __init ct_ca9x4_map_io(void)
 {
-#ifdef CONFIG_LOCAL_TIMERS
-	twd_base = MMIO_P2V(A9_MPCORE_TWD);
-#endif
 	iotable_init(ct_ca9x4_io_desc, ARRAY_SIZE(ct_ca9x4_io_desc));
 }
+
+#ifdef CONFIG_HAVE_ARM_TWD
+static DEFINE_TWD_LOCAL_TIMER(twd_local_timer, A9_MPCORE_TWD, IRQ_LOCALTIMER);
+
+static void __init ca9x4_twd_init(void)
+{
+	int err = twd_local_timer_register(&twd_local_timer);
+	if (err)
+		pr_err("twd_local_timer_register failed %d\n", err);
+}
+#else
+#define ca9x4_twd_init()	do {} while(0)
+#endif
 
 static void __init ct_ca9x4_init_irq(void)
 {
 	gic_init(0, 29, MMIO_P2V(A9_MPCORE_GIC_DIST),
 		 MMIO_P2V(A9_MPCORE_GIC_CPU));
+	ca9x4_twd_init();
 }
 
 #if 0
