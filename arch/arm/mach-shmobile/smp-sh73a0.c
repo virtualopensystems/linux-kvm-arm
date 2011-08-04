@@ -22,6 +22,7 @@
 #include <linux/smp.h>
 #include <linux/spinlock.h>
 #include <linux/io.h>
+#include <linux/ioport.h>
 #include <mach/common.h>
 #include <asm/smp_scu.h>
 #include <asm/smp_twd.h>
@@ -41,6 +42,31 @@ static void __iomem *scu_base_addr(void)
 static DEFINE_SPINLOCK(scu_lock);
 static unsigned long tmp;
 
+#ifdef CONFIG_ARM_SMP_TWD
+static struct resource sh73a0_twd_resources[] __initdata = {
+	{
+		.start	= 0xf0000600,
+		.end	= 0xf0000600 + 0x10,
+		.flags	= IORESOURCE_MEM,
+	},
+	{
+		.start	= 29,
+		.end	= 29,
+		.flags	= IORESOURCE_IRQ,
+	},
+};
+
+static void __init sh73a0_twd_init(void)
+{
+	int err = twd_timer_register(sh73a0_twd_resources,
+				     ARRAY_SIZE(sh73a0_twd_resources));
+	if (err)
+		pr_err("twd_timer_register failed %d\n", err);
+}
+#else
+#define sh73a0_twd_init	NULL
+#endif
+
 static void modify_scu_cpu_psr(unsigned long set, unsigned long clr)
 {
 	void __iomem *scu_base = scu_base_addr();
@@ -59,9 +85,9 @@ unsigned int __init sh73a0_get_core_count(void)
 {
 	void __iomem *scu_base = scu_base_addr();
 
-#ifdef CONFIG_HAVE_ARM_TWD
-	/* twd_base needs to be initialized before percpu_timer_setup() */
-	twd_base = (void __iomem *)0xf0000600;
+
+#ifdef CONFIG_ARM_SMP_TWD
+	shmobile_local_timer_register(sh73a0_twd_init);
 #endif
 
 	return scu_get_core_count(scu_base);

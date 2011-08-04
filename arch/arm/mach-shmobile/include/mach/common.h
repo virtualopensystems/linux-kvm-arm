@@ -52,4 +52,7 @@ extern void sh73a0_secondary_init(unsigned int cpu);
 extern int sh73a0_boot_secondary(unsigned int cpu);
 extern void sh73a0_smp_prepare_cpus(void);
 
+struct resource;
+extern void shmobile_local_timer_register(void (*)(void));
+
 #endif /* __ARCH_MACH_COMMON_H */
