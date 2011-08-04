@@ -15,7 +15,7 @@
 #include <asm/hardware/cache-l2x0.h>
 #include <asm/hardware/gic.h>
 #include <asm/mach/map.h>
-#include <asm/localtimer.h>
+#include <asm/smp_twd.h>
 
 #include <plat/mtu.h>
 #include <mach/hardware.h>
@@ -120,15 +120,40 @@ static int ux500_l2x0_init(void)
 early_initcall(ux500_l2x0_init);
 #endif
 
+#ifdef CONFIG_ARM_SMP_TWD
+static struct resource ux500_twd_resources[] __initdata = {
+	{
+		.flags	= IORESOURCE_MEM,
+	},
+	{
+		.start	= IRQ_LOCALTIMER,
+		.end	= IRQ_LOCALTIMER,
+		.flags	= IORESOURCE_IRQ,
+	},
+};
+
+static void __init ux500_twd_init(void)
+{
+	int err = twd_timer_register(ux500_twd_resources,
+				     ARRAY_SIZE(ux500_twd_resources));
+	if (err)
+		pr_err("twd_timer_register failed %d\n", err);
+}
+#else
+#define ux500_twd_init	NULL
+#endif
+
 static void __init ux500_timer_init(void)
 {
-#ifdef CONFIG_LOCAL_TIMERS
+#ifdef CONFIG_ARM_SMP_TWD
 	/* Setup the local timer base */
-	if (cpu_is_u5500())
-		twd_base = __io_address(U5500_TWD_BASE);
-	else if (cpu_is_u8500())
-		twd_base = __io_address(U8500_TWD_BASE);
-	else
+	if (cpu_is_u5500()) {
+		ux500_twd_resources[0].start = U5500_TWD_BASE;
+		ux500_twd_resources[0].end = U5500_TWD_BASE + 0x10;
+	} else if (cpu_is_u8500()) {
+		ux500_twd_resources[0].start = U8500_TWD_BASE;
+		ux500_twd_resources[0].end = U8500_TWD_BASE + 0x10;
+	} else
 		ux500_unknown_soc();
 #endif
 	if (cpu_is_u5500())
@@ -141,8 +166,15 @@ static void __init ux500_timer_init(void)
 		ux500_unknown_soc();
 
 	nmdk_timer_init();
+	late_time_init = ux500_twd_init;
 }
 
 struct sys_timer ux500_timer = {
 	.init	= ux500_timer_init,
+};
+
+struct arm_soc_desc ux500_soc_desc __initdata = {
+	.name		= "STE Ux500",
+	soc_smp_init_ops(ux500_soc_smp_init_ops)
+	soc_smp_ops(ux500_soc_smp_ops)
 };
