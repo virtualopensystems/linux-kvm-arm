@@ -32,6 +32,7 @@
 #include <linux/fcntl.h>
 #include <linux/device_cgroup.h>
 #include <linux/fs_struct.h>
+#include <linux/posix_acl.h>
 #include <asm/uaccess.h>
 
 #include "internal.h"
@@ -173,12 +174,57 @@ void putname(const char *name)
 EXPORT_SYMBOL(putname);
 #endif
 
+static int check_acl(struct inode *inode, int mask)
+{
+#ifdef CONFIG_FS_POSIX_ACL
+	struct posix_acl *acl;
+
+	if (mask & MAY_NOT_BLOCK) {
+		acl = get_cached_acl_rcu(inode, ACL_TYPE_ACCESS);
+	        if (!acl)
+	                return -EAGAIN;
+		/* no ->get_acl() calls in RCU mode... */
+		if (acl == ACL_NOT_CACHED)
+			return -ECHILD;
+	        return posix_acl_permission(inode, acl, mask);
+	}
+
+	acl = get_cached_acl(inode, ACL_TYPE_ACCESS);
+
+	/*
+	 * A filesystem can force a ACL callback by just never filling the
+	 * ACL cache. But normally you'd fill the cache either at inode
+	 * instantiation time, or on the first ->get_acl call.
+	 *
+	 * If the filesystem doesn't have a get_acl() function at all, we'll
+	 * just create the negative cache entry.
+	 */
+	if (acl == ACL_NOT_CACHED) {
+	        if (inode->i_op->get_acl) {
+			acl = inode->i_op->get_acl(inode, ACL_TYPE_ACCESS);
+			if (IS_ERR(acl))
+				return PTR_ERR(acl);
+		} else {
+		        set_cached_acl(inode, ACL_TYPE_ACCESS, NULL);
+		        return -EAGAIN;
+		}
+	}
+
+	if (acl) {
+	        int error = posix_acl_permission(inode, acl, mask);
+	        posix_acl_release(acl);
+	        return error;
+	}
+#endif
+
+	return -EAGAIN;
+}
+
 /*
  * This does basic POSIX ACL permission checking
  */
 static int acl_permission_check(struct inode *inode, int mask)
 {
-	int (*check_acl)(struct inode *inode, int mask);
 	unsigned int mode = inode->i_mode;
 
 	mask &= MAY_READ | MAY_WRITE | MAY_EXEC | MAY_NOT_BLOCK;
@@ -186,11 +232,10 @@ static int acl_permission_check(struct inode *inode, int mask)
 	if (current_user_ns() != inode_userns(inode))
 		goto other_perms;
 
-	if (current_fsuid() == inode->i_uid)
+	if (likely(current_fsuid() == inode->i_uid))
 		mode >>= 6;
 	else {
-		check_acl = inode->i_op->check_acl;
-		if (IS_POSIXACL(inode) && (mode & S_IRWXG) && check_acl) {
+		if (IS_POSIXACL(inode) && (mode & S_IRWXG)) {
 			int error = check_acl(inode, mask);
 			if (error != -EAGAIN)
 				return error;
@@ -666,19 +711,25 @@ static int follow_automount(struct path *path, unsigned flags,
 	if ((flags & LOOKUP_NO_AUTOMOUNT) && !(flags & LOOKUP_PARENT))
 		return -EISDIR; /* we actually want to stop here */
 
-	/* We want to mount if someone is trying to open/create a file of any
-	 * type under the mountpoint, wants to traverse through the mountpoint
-	 * or wants to open the mounted directory.
-	 *
+	/*
 	 * We don't want to mount if someone's just doing a stat and they've
 	 * set AT_SYMLINK_NOFOLLOW - unless they're stat'ing a directory and
 	 * appended a '/' to the name.
 	 */
-	if (!(flags & LOOKUP_FOLLOW) &&
-	    !(flags & (LOOKUP_PARENT | LOOKUP_DIRECTORY |
-		       LOOKUP_OPEN | LOOKUP_CREATE)))
-		return -EISDIR;
-
+	if (!(flags & LOOKUP_FOLLOW)) {
+		/* We do, however, want to mount if someone wants to open or
+		 * create a file of any type under the mountpoint, wants to
+		 * traverse through the mountpoint or wants to open the mounted
+		 * directory.
+		 * Also, autofs may mark negative dentries as being automount
+		 * points.  These will need the attentions of the daemon to
+		 * instantiate them before they can be used.
+		 */
+		if (!(flags & (LOOKUP_PARENT | LOOKUP_DIRECTORY |
+			     LOOKUP_OPEN | LOOKUP_CREATE)) &&
+		    path->dentry->d_inode)
+			return -EISDIR;
+	}
 	current->total_link_count++;
 	if (current->total_link_count >= 40)
 		return -ELOOP;
