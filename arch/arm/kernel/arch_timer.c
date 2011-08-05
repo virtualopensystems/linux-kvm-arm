@@ -146,6 +146,8 @@ static void __cpuinit arch_timer_setup(void *data)
 					0xf, 0x7fffffff);
 
 	enable_percpu_irq(clk->irq, 0);
+	if (arch_timer_ppi2 >= -1)
+		enable_percpu_irq(arch_timer_ppi2, 0);
 }
 
 /* Is the optional system timer available? */
