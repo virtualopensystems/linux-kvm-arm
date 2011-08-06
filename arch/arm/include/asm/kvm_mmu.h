@@ -37,4 +37,9 @@ void remove_hyp_mappings(pgd_t *hyp_pgd,
 			 unsigned long end);
 void free_hyp_pmds(pgd_t *hyp_pgd);
 
+int kvm_alloc_stage2_pgd(struct kvm *kvm);
+void kvm_free_stage2_pgd(struct kvm *kvm);
+
+int kvm_handle_guest_abort(struct kvm_vcpu *vcpu, struct kvm_run *run);
+
 #endif /* __ARM_KVM_MMU_H__ */
