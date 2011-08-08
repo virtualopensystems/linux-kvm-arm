@@ -555,6 +555,7 @@ struct kvm_ppc_pvinfo {
 #define KVM_CAP_PPC_RMA	65
 #define KVM_CAP_MAX_VCPUS 66       /* returns max vcpus per vm */
 #define KVM_CAP_PPC_HIOR 67
+#define KVM_CAP_PPC_PAPR 68
 
 #ifdef KVM_CAP_IRQ_ROUTING
 
