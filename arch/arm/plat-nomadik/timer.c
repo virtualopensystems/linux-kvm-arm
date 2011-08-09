@@ -17,7 +17,6 @@
 #include <linux/clk.h>
 #include <linux/jiffies.h>
 #include <linux/err.h>
-#include <linux/sched.h>
 #include <asm/mach/time.h>
 #include <asm/sched_clock.h>
 
@@ -30,23 +29,12 @@ void __iomem *mtu_base; /* Assigned by machine code */
  * local implementation which uses the clocksource to get some
  * better resolution when scheduling the kernel.
  */
-static DEFINE_CLOCK_DATA(cd);
-
-unsigned long long notrace sched_clock(void)
+static u32 notrace nomadik_read_sched_clock(void)
 {
-	u32 cyc;
-
 	if (unlikely(!mtu_base))
 		return 0;
 
-	cyc = -readl(mtu_base + MTU_VAL(0));
-	return cyc_to_sched_clock(&cd, cyc, (u32)~0);
-}
-
-static void notrace nomadik_update_sched_clock(void)
-{
-	u32 cyc = -readl(mtu_base + MTU_VAL(0));
-	update_sched_clock(&cd, cyc, (u32)~0);
+	return -readl(mtu_base + MTU_VAL(0));
 }
 
 /* Clockevent device: use one-shot mode */
@@ -154,7 +142,7 @@ void __init nmdk_timer_init(void)
 		pr_err("timer: failed to initialize clock source %s\n",
 		       "mtu_0");
 
-	init_sched_clock(&cd, nomadik_update_sched_clock, 32, rate);
+	setup_sched_clock(nomadik_read_sched_clock, 32, rate);
 
 	/* Timer 1 is used for events */
 
