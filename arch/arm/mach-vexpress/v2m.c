@@ -49,7 +49,7 @@ static struct map_desc v2m_io_desc[] __initdata = {
 	},
 };
 
-static void __init v2m_timer_init(void)
+void __init v2m_timer_init(void)
 {
 	u32 scctrl;
 
@@ -67,8 +67,13 @@ static void __init v2m_timer_init(void)
 		"v2m-timer0");
 }
 
+void __init v2m_ct_timer_init(void)
+{
+	ct_desc->timer_init();
+}
+
 static struct sys_timer v2m_timer = {
-	.init	= v2m_timer_init,
+	.init	= v2m_ct_timer_init,
 };
 
 
@@ -371,9 +376,8 @@ static struct clk_lookup v2m_lookups[] = {
 
 static void __init v2m_init_early(void)
 {
-	ct_desc->init_early();
 	clkdev_add_table(v2m_lookups, ARRAY_SIZE(v2m_lookups));
-	versatile_sched_clock_init(MMIO_P2V(V2M_SYS_24MHZ), 24000000);
+	ct_desc->init_early();
 }
 
 static void v2m_power_off(void)
