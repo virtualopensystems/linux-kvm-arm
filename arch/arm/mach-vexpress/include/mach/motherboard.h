@@ -117,6 +117,7 @@
 
 int v2m_cfg_write(u32 devfn, u32 data);
 int v2m_cfg_read(u32 devfn, u32 *data);
+void v2m_timer_init(void);
 
 /*
  * Miscellaneous
@@ -136,6 +137,7 @@ struct ct_desc {
 	void			(*map_io)(void);
 	void			(*init_early)(void);
 	void			(*init_irq)(void);
+	void			(*timer_init)(void);
 	void			(*init_tile)(void);
 #ifdef CONFIG_SMP
 	void			(*init_cpu_map)(void);
