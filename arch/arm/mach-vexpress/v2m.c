@@ -40,6 +40,8 @@
 #define V2M_PA_CS3	0x4c000000
 #define V2M_PA_CS7	0x10000000
 
+struct ct_desc *ct_desc;
+
 static struct map_desc v2m_io_desc[] __initdata = {
 	{
 		.virtual	= __MMIO_P2V(V2M_PA_CS7),
@@ -65,6 +67,8 @@ static void __init v2m_timer_init(void)
 	sp804_clocksource_init(MMIO_P2V(V2M_TIMER1), "v2m-timer1");
 	sp804_clockevents_init(MMIO_P2V(V2M_TIMER0), IRQ_V2M_TIMER0,
 		"v2m-timer0");
+
+	ct_desc->timer_init();
 }
 
 static struct sys_timer v2m_timer = {
@@ -371,9 +375,8 @@ static struct clk_lookup v2m_lookups[] = {
 
 static void __init v2m_init_early(void)
 {
-	ct_desc->init_early();
 	clkdev_add_table(v2m_lookups, ARRAY_SIZE(v2m_lookups));
-	versatile_sched_clock_init(MMIO_P2V(V2M_SYS_24MHZ), 24000000);
+	ct_desc->init_early();
 }
 
 static void v2m_power_off(void)
@@ -387,8 +390,6 @@ static void v2m_restart(char str, const char *cmd)
 	if (v2m_cfg_write(SYS_CFG_REBOOT | SYS_CFG_SITE_MB, 0))
 		printk(KERN_EMERG "Unable to reboot\n");
 }
-
-struct ct_desc *ct_desc;
 
 static struct ct_desc *ct_descs[] __initdata = {
 #ifdef CONFIG_ARCH_VEXPRESS_CA9X4

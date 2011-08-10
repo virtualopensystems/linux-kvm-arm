@@ -28,6 +28,7 @@
 
 #include <mach/motherboard.h>
 
+#include <plat/sched_clock.h>
 #include <plat/clcd.h>
 
 #define V2M_PA_CS7	0x10000000
@@ -201,10 +202,15 @@ static void __init ca9x4_twd_init(void)
 #define ca9x4_twd_init()	do {} while(0)
 #endif
 
+static void __init ct_ca9x4_timer_init(void)
+{
+	ca9x4_twd_init();
+	versatile_sched_clock_init(MMIO_P2V(V2M_SYS_24MHZ), 24000000);
+}
+
 static void __init ct_ca9x4_init_early(void)
 {
 	clkdev_add_table(lookups, ARRAY_SIZE(lookups));
-	ca9x4_twd_init();
 }
 
 static void __init ct_ca9x4_init(void)
@@ -254,6 +260,7 @@ struct ct_desc ct_ca9x4_desc __initdata = {
 	.map_io		= ct_ca9x4_map_io,
 	.init_early	= ct_ca9x4_init_early,
 	.init_irq	= ct_ca9x4_init_irq,
+	.timer_init	= ct_ca9x4_timer_init,
 	.init_tile	= ct_ca9x4_init,
 #ifdef CONFIG_SMP
 	.init_cpu_map	= ct_ca9x4_init_cpu_map,
