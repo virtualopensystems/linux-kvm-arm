@@ -187,8 +187,9 @@ void arm_machine_reset(unsigned long reset_code_phys)
 	local_irq_disable();
 	local_fiq_disable();
 
-	/* Disable the L2. */
-	outer_disable();
+	/* Disable the L2 if we're the last man standing. */
+	if (num_online_cpus() == 1)
+		outer_disable();
 
 	/* Change to the new stack and continue with the reset. */
 	call_with_stack(__arm_machine_reset, (void *)reset_args, (void *)stack);
