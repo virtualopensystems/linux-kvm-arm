@@ -88,9 +88,9 @@ _mali_osk_errcode_t mali_kernel_core_validate_mali_phys_range( u32 phys_base, u3
  * @brief Signal a power up on a Mali core.
  *
  * This function flags a core as powered up.
- * For PP and GP cores it calls functions that move the core from a power off 
+ * For PP and GP cores it calls functions that move the core from a power off
  * queue into the idle queue ready to run jobs. It also tries to schedule any
- * pending jobs to run on it. 
+ * pending jobs to run on it.
  *
  * This function will fail if the core is not powered off - either running or
  * already idle.
@@ -100,7 +100,7 @@ _mali_osk_errcode_t mali_kernel_core_validate_mali_phys_range( u32 phys_base, u3
  *
  * @return _MALI_OSK_ERR_OK if the core has been powered up. Otherwise a
  * suitable _mali_osk_errcode_t error.
- */ 
+ */
 _mali_osk_errcode_t mali_core_signal_power_up( mali_pmm_core_id core, mali_bool queue_only );
 
 /**
@@ -108,9 +108,9 @@ _mali_osk_errcode_t mali_core_signal_power_up( mali_pmm_core_id core, mali_bool 
  *
  * This function flags a core as powered down.
  * For PP and GP cores it calls functions that move the core from an idle
- * queue into the power off queue. 
+ * queue into the power off queue.
  *
- * This function will fail if the core is not idle - either running or 
+ * This function will fail if the core is not idle - either running or
  * already powered down.
  *
  * @param core The PMM core id to power up.
@@ -119,7 +119,7 @@ _mali_osk_errcode_t mali_core_signal_power_up( mali_pmm_core_id core, mali_bool 
  *
  * @return _MALI_OSK_ERR_OK if the core has been powered up. Otherwise a
  * suitable _mali_osk_errcode_t error.
- */ 
+ */
 _mali_osk_errcode_t mali_core_signal_power_down( mali_pmm_core_id core, mali_bool immediate_only );
 
 #endif

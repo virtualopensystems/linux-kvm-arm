@@ -138,9 +138,9 @@ int ump_size_get_wrapper(u32 __user * argument, struct ump_session_data  * sessi
 }
 
 /*
- * IOCTL operation; Return size for specified UMP memory.
+ * IOCTL operation; Do cache maintenance on specified UMP memory.
  */
- int ump_msync_wrapper(u32 __user * argument, struct ump_session_data  * session_data)
+int ump_msync_wrapper(u32 __user * argument, struct ump_session_data  * session_data)
 {
 	_ump_uk_msync_s user_interaction;
 

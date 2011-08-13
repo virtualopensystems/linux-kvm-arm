@@ -167,6 +167,10 @@ mali_pmm_core_mask pmm_cores_to_power_down( _mali_pmm_internal_state_t *pmm, mal
 				 * as the core is unregistered before we tell it to power
 				 * down, but it does not matter as we are terminating
 				 */
+#if MALI_STATE_TRACKING
+                pmm->mali_pmm_lock_acquired = 0;
+#endif /* MALI_STATE_TRACKING */
+
 				MALI_PMM_UNLOCK(pmm);
 				/* Signal the core to power down
 				 * If it is busy (not idle) it will set a pending power down flag 
@@ -176,6 +180,11 @@ mali_pmm_core_mask pmm_cores_to_power_down( _mali_pmm_internal_state_t *pmm, mal
 				 */
 				err = mali_core_signal_power_down( cores_list[n], immediate_only );
 				MALI_PMM_LOCK(pmm);
+
+#if MALI_STATE_TRACKING
+                pmm->mali_pmm_lock_acquired = 1;
+#endif /* MALI_STATE_TRACKING */
+			
 
 				/* Re-read cores_subset in case it has changed */
 				cores_subset = (*ppowered & cores);
@@ -244,12 +253,19 @@ void pmm_power_down_cancel( _mali_pmm_internal_state_t *pmm )
 			 * as the core is unregistered before we tell it to power
 			 * up, but it does not matter as we are terminating
 			 */
+#if MALI_STATE_TRACKING
+			pmm->mali_pmm_lock_acquired = 0;
+#endif /* MALI_STATE_TRACKING */
+
 			MALI_PMM_UNLOCK(pmm);
 			/* As we are cancelling - only move the cores back to the queue - 
 			 * no reset needed
 			 */
 			err = mali_core_signal_power_up( cores_list[n], MALI_TRUE );
 			MALI_PMM_LOCK(pmm);
+#if MALI_STATE_TRACKING
+			pmm->mali_pmm_lock_acquired = 1;
+#endif /* MALI_STATE_TRACKING */
 
 			/* Update pending list with the current registered cores */
 			pd &= (*pregistered);
@@ -374,9 +390,18 @@ mali_bool pmm_invoke_power_up( _mali_pmm_internal_state_t *pmm )
 				 * as the core is unregistered before we tell it to power
 				 * up, but it does not matter as we are terminating
 				 */
+#if MALI_STATE_TRACKING
+				pmm->mali_pmm_lock_acquired = 0;
+#endif /* MALI_STATE_TRACKING */
+
 				MALI_PMM_UNLOCK(pmm);
 				err = mali_core_signal_power_up( cores_list[n], MALI_FALSE );
 				MALI_PMM_LOCK(pmm);
+
+#if MALI_STATE_TRACKING
+				pmm->mali_pmm_lock_acquired = 1;
+#endif /* MALI_STATE_TRACKING */
+
 
 				if( err != _MALI_OSK_ERR_OK )
 				{
@@ -527,10 +552,18 @@ void pmm_fatal_reset( _mali_pmm_internal_state_t *pmm )
 		{
 			if( (cores_list[n] & (*pregistered)) != 0 )
 			{
+#if MALI_STATE_TRACKING
+				pmm->mali_pmm_lock_acquired = 0;
+#endif /* MALI_STATE_TRACKING */
+
 				MALI_PMM_UNLOCK(pmm);
 				/* Core is now active - so try putting it in the idle queue */
 				err = mali_core_signal_power_up( cores_list[n], MALI_FALSE );
 				MALI_PMM_LOCK(pmm);
+#if MALI_STATE_TRACKING
+                pmm->mali_pmm_lock_acquired = 1;
+#endif /* MALI_STATE_TRACKING */
+
 				/* We either succeeded, or we were not off anyway, or we have
 				 * just be deregistered 
 				 */

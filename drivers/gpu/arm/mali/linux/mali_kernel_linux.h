@@ -16,8 +16,22 @@ extern "C"
 {
 #endif
 
+#include <linux/cdev.h>     /* character device definitions */
+#include "mali_kernel_license.h"
+
+struct mali_dev
+{
+	struct cdev cdev;
+#if MALI_LICENSE_IS_GPL
+	struct class *  mali_class;
+#endif
+};
+
 _mali_osk_errcode_t initialize_kernel_device(void);
 void terminate_kernel_device(void);
+
+void mali_osk_low_level_mem_init(void);
+void mali_osk_low_level_mem_term(void);
 
 #ifdef __cplusplus
 }

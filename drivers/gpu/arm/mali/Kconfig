@@ -18,24 +18,10 @@ config USING_UMP
         ---help---
                 Using UMP for Mali memory.
 
-config ONLY_ZBT
-        bool "Only ZBT"
-        depends on MALI400MP
-        default "0"
-        ---help---
-                Only ZBT, add here more
-
-config USING_ZBT
-	bool "Using ZBT"
-	depends on MALI400MP
-	default "1"
-	---help---
-		This support ZBT add here more
-
 config USING_OS_MEMORY
         bool "Using OS memory"
         depends on MALI400MP
-        default "0"
+        default "1"
         ---help---
                 This enables for Mali to use OS memory.
 

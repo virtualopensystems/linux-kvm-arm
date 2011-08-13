@@ -173,6 +173,10 @@ _mali_osk_errcode_t pmm_policy_process_job_control( _mali_pmm_internal_state_t *
 	/* Mainly the data is the cores */
 	cores = pmm_cores_from_event_data( pmm, event );
 
+#if MALI_STATE_TRACKING
+	pmm->mali_last_pmm_status = pmm->status;
+#endif /* MALI_STATE_TRACKING */
+
 	switch( pmm->status )
 	{
 	/**************** IDLE ****************/
@@ -217,7 +221,7 @@ _mali_osk_errcode_t pmm_policy_process_job_control( _mali_pmm_internal_state_t *
 				}
 			}
 			pmm->status = MALI_PMM_STATUS_DVFS_PAUSE;
-			_mali_osk_pmm_dvfs_operation_done( 0 );
+			_mali_osk_pmm_dvfs_operation_done(0);
 			break;
 
 		case MALI_PMM_EVENT_OS_POWER_DOWN:
@@ -300,7 +304,7 @@ _mali_osk_errcode_t pmm_policy_process_job_control( _mali_pmm_internal_state_t *
 		{
 		case MALI_PMM_EVENT_DVFS_RESUME:
 
-			if ( pmm->cores_powered !=0)
+			if ( pmm->cores_powered != 0 )
 			{
 				pmm->cores_ack_down =0;
 				pmm_power_down_cancel( pmm );
@@ -316,9 +320,9 @@ _mali_osk_errcode_t pmm_policy_process_job_control( _mali_pmm_internal_state_t *
 		case MALI_PMM_EVENT_OS_POWER_DOWN:
 			/* Set waiting status */
 			pmm->status = MALI_PMM_STATUS_OS_WAITING;
-			if ( pmm->cores_powered != 0)
+			if ( pmm->cores_powered != 0 )
 			{
-				if( pmm_invoke_power_down( pmm ) )
+				if ( pmm_invoke_power_down( pmm ) )
 				{
 					_mali_osk_pmm_power_down_done( 0 );
 					break;
@@ -373,7 +377,7 @@ _mali_osk_errcode_t pmm_policy_process_job_control( _mali_pmm_internal_state_t *
 				if( pmm_power_down_okay( pmm ) )
 				{
 					pmm->is_dvfs_active = 0;
-				pmm->status = MALI_PMM_STATUS_DVFS_PAUSE;
+					pmm->status = MALI_PMM_STATUS_DVFS_PAUSE;
 					_mali_osk_pmm_dvfs_operation_done( pmm_retrieve_os_event_data( pmm ) );
 				}
 				break;
@@ -436,6 +440,10 @@ _mali_osk_errcode_t pmm_policy_process_job_control( _mali_pmm_internal_state_t *
 
 	/* Update the PMM state */
 	pmm_update_system_state( pmm );
+#if MALI_STATE_TRACKING
+	pmm->mali_new_event_status = event->id;
+#endif /* MALI_STATE_TRACKING */
+
 	MALIPMM_DEBUG_PRINT( ("PMM: Job control policy process end - status=%d and event=%d\n", pmm->status,event->id) );
 
 	MALI_SUCCESS;

@@ -26,6 +26,7 @@
 #include <linux/slab.h>
 
 #include <asm/memory.h>
+#include <asm/uaccess.h>			/* to verify pointers from user space */
 #include <asm/cacheflush.h>
 #include <linux/dma-mapping.h>
 
@@ -206,38 +207,92 @@ _mali_osk_errcode_t _ump_osk_mem_mapregion_map( ump_memory_allocation * descript
 }
 
 
-void _ump_osk_msync( ump_dd_mem * mem, ump_uk_msync_op op )
+void _ump_osk_msync( ump_dd_mem * mem, void * virt, u32 offset, u32 size, ump_uk_msync_op op )
 {
 	int i;
-	DBG_MSG(3, ("Flushing nr of blocks: %u. First: paddr: 0x%08x vaddr: 0x%08x size:%dB\n", mem->nr_blocks, mem->block_array[0].addr, phys_to_virt(mem->block_array[0].addr), mem->block_array[0].size));
+	const void *start_v, *end_v;
 
-	/* TODO: Use args->size and args->address to select a subrange of this allocation to flush */
-	for (i=0 ; i<mem->nr_blocks; i++)
+	DBG_MSG(3, ("Flushing nr of blocks: %u, size: %u. First: paddr: 0x%08x vaddr: 0x%08x offset: 0x%08x size:%uB\n",
+	            mem->nr_blocks, mem->size_bytes, mem->block_array[0].addr, virt, offset, size));
+
+	/* Flush L1 using virtual address, the entire range in one go.
+	 * Only flush if user space process has a valid write mapping on given address. */
+	if(access_ok(VERIFY_WRITE, virt, size))
 	{
-		/* TODO: Find out which flush method is best of 1)Dma OR  2)Normal flush functions */
-		/* TODO: Use args->op to select the flushing method: CLEAN_AND_INVALIDATE or CLEAN */
-		/*#define USING_DMA_FLUSH*/
-		#ifdef  USING_DMA_FLUSH
-			DEBUG_ASSERT( (PAGE_SIZE==mem->block_array[i].size));
-			dma_map_page(NULL, pfn_to_page(mem->block_array[i].addr >> PAGE_SHIFT), 0, PAGE_SIZE, DMA_BIDIRECTIONAL );
-			/*dma_unmap_page(NULL, mem->block_array[i].addr, PAGE_SIZE, DMA_BIDIRECTIONAL);*/
-		#else
-			/* Normal style flush */
-			ump_dd_physical_block *block;
-			u32 start_p, end_p;
-			const void *start_v, *end_v;
-			block = &mem->block_array[i];
-
-			start_p   = (u32)block->addr;
-			start_v = phys_to_virt( start_p ) ;
-
-			end_p   = start_p + block->size-1;
-			end_v   = phys_to_virt( end_p ) ;
-
-			dmac_flush_range(start_v, end_v);
-			outer_flush_range(start_p, end_p);
-		#endif
+		start_v = (void *)virt;
+		end_v   = (void *)(start_v + size - 1);
+		/*  There is no dmac_clean_range, so the L1 is always flushed,
+		 *  also for UMP_MSYNC_CLEAN. */
+		dmac_flush_range(start_v, end_v);
+	}
+	else
+	{
+		DBG_MSG(1, ("Attempt to flush %d@%x as part of ID %u rejected: there is no valid mapping.\n",
+		            size, virt, mem->secure_id));
+		return;
 	}
 
-	return ;
+	/* Flush L2 using physical addresses, block for block. */
+	for (i=0 ; i < mem->nr_blocks; i++)
+	{
+		u32 start_p, end_p;
+		ump_dd_physical_block *block;
+		block = &mem->block_array[i];
+
+		if(offset >= block->size)
+		{
+			offset -= block->size;
+			continue;
+		}
+
+		if(offset)
+		{
+			start_p = (u32)block->addr + offset;
+			/* We'll zero the offset later, after using it to calculate end_p. */
+		}
+		else
+		{
+			start_p = (u32)block->addr;
+		}
+
+		if(size < block->size - offset)
+		{
+			end_p = start_p + size - 1;
+			size = 0;
+		}
+		else
+		{
+			if(offset)
+			{
+				end_p = start_p + (block->size - offset - 1);
+				size -= block->size - offset;
+				offset = 0;
+			}
+			else
+			{
+				end_p = start_p + block->size - 1;
+				size -= block->size;
+			}
+		}
+
+		switch(op)
+		{
+				case _UMP_UK_MSYNC_CLEAN:
+						outer_clean_range(start_p, end_p);
+						break;
+				case _UMP_UK_MSYNC_CLEAN_AND_INVALIDATE:
+						outer_flush_range(start_p, end_p);
+						break;
+				default:
+						break;
+		}
+
+		if(0 == size)
+		{
+			/* Nothing left to flush. */
+			break;
+		}
+	}
+
+	return;
 }

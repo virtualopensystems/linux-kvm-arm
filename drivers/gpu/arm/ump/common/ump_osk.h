@@ -39,7 +39,7 @@ _mali_osk_errcode_t _ump_osk_mem_mapregion_map( ump_memory_allocation * descript
 
 void _ump_osk_mem_mapregion_term( ump_memory_allocation * descriptor );
 
-void _ump_osk_msync( ump_dd_mem * mem, ump_uk_msync_op op );
+void _ump_osk_msync( ump_dd_mem * mem, void * virt, u32 offset, u32 size, ump_uk_msync_op op );
 
 #ifdef __cplusplus
 }

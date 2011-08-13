@@ -33,6 +33,7 @@ typedef enum mali_l2_cache_register {
 	/*unused                               = 0x0003 */
 	MALI400_L2_CACHE_REGISTER_COMMAND      = 0x0004, /**< Misc cache commands, e.g. clear */
 	MALI400_L2_CACHE_REGISTER_CLEAR_PAGE   = 0x0005,
+	MALI400_L2_CACHE_REGISTER_MAX_READS    = 0x0006, /**< Limit of outstanding read requests */
 	MALI400_L2_CACHE_REGISTER_ENABLE       = 0x0007, /**< Enable misc cache features */
 	MALI400_L2_CACHE_REGISTER_PERFCNT_SRC0 = 0x0008,
 	MALI400_L2_CACHE_REGISTER_PERFCNT_VAL0 = 0x0009,
@@ -86,6 +87,10 @@ typedef struct mali_kernel_l2_cache_core
 	_mali_osk_lock_t *lock; /**< Serialize all L2 cache commands */
 } mali_kernel_l2_cache_core;
 
+
+#define MALI400_L2_MAX_READS_DEFAULT 0x1C
+
+int mali_l2_max_reads = MALI400_L2_MAX_READS_DEFAULT;
 
 
 /**
@@ -154,6 +159,9 @@ struct mali_kernel_subsystem mali_subsystem_l2_cache =
 	NULL,                        /**< session_begin */
 	NULL,                        /**< session_end */
 	NULL,                        /**< broadcast_notification */
+#if MALI_STATE_TRACKING
+	NULL,                        /**< dump_state */
+#endif
 };
 
 
@@ -193,6 +201,7 @@ static void mali_l2_cache_terminate(mali_kernel_subsystem_identifier id)
 	_MALI_OSK_LIST_FOREACHENTRY( cache, temp_cache, &caches_head, mali_kernel_l2_cache_core, list )
 	{
 		/* reset to defaults */
+		mali_l2_cache_register_write(cache, MALI400_L2_CACHE_REGISTER_MAX_READS, (u32)MALI400_L2_MAX_READS_DEFAULT);
 		mali_l2_cache_register_write(cache, MALI400_L2_CACHE_REGISTER_ENABLE, (u32)MALI400_L2_CACHE_ENABLE_DEFAULT);
 
 		/* remove from the list of cacges on the system */
@@ -327,11 +336,11 @@ void mali_kernel_l2_cache_do_enable(void)
 {
 	mali_kernel_l2_cache_core * cache, *temp_cache;
 
-
 	/* loop over all L2 cache units and enable them*/
 	_MALI_OSK_LIST_FOREACHENTRY( cache, temp_cache, &caches_head, mali_kernel_l2_cache_core, list)
 	{
 		mali_l2_cache_register_write(cache, MALI400_L2_CACHE_REGISTER_ENABLE, (u32)MALI400_L2_CACHE_ENABLE_ACCESS | (u32)MALI400_L2_CACHE_ENABLE_READ_ALLOCATE);
+		mali_l2_cache_register_write(cache, MALI400_L2_CACHE_REGISTER_MAX_READS, (u32)mali_l2_max_reads);
 	}
 }
 
@@ -486,6 +495,7 @@ void mali_kernel_l2_cache_get_perf_counters(u32 *src0, u32 *val0, u32 *src1, u32
 
 		MALI_DEBUG_PRINT(5, ("L2 cache counters get: SRC0=%u, VAL0=%u, SRC1=%u, VAL1=%u\n", cur_src0, cur_val0, cur_src1, cur_val1));
 
+		/* Only update the counter source once, with the value from the first L2 cache unit. */
 		if (first_time)
 		{
 			*src0 = cur_src0;
@@ -493,6 +503,7 @@ void mali_kernel_l2_cache_get_perf_counters(u32 *src0, u32 *val0, u32 *src1, u32
 			first_time = 0;
 		}
 
+		/* Bail out if the L2 cache units have different counters set. */
 		if (*src0 == cur_src0 && *src1 == cur_src1)
 		{
 			*val0 += cur_val0;

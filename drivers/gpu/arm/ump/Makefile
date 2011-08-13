@@ -22,7 +22,7 @@ UDD_FILE_PREFIX := drivers/gpu/arm/ump/
 ifeq (($CONFIG_UMP_DEBUG),y)
 EXTRA_CFLAGS += -DDEBUG
 endif
-
+EXTRA_CFLAGS += -DMALI_STATE_TRACKING=0
 USING_MEMORY_TYPE ?=0 # 0: dedicated memory 1: OS memory
 
 EXTRA_CFLAGS += -I$(UDD_FILE_PREFIX) -I$(UDD_FILE_PREFIX)/common -I$(UDD_FILE_PREFIX)/linux -I$(UDD_FILE_PREFIX)/../mali/common -I$(UDD_FILE_PREFIX)/../mali/linux -I$(UDD_FILE_PREFIX)/include

@@ -71,6 +71,11 @@ typedef struct mali_kernel_subsystem
 
 	/* Used by subsystems to send messages to each other. This is the receiving end */
 	void (*broadcast_notification)(mali_core_notification_message message, u32 data);
+
+#if MALI_STATE_TRACKING
+	/** Dump the current state of the subsystem */
+	u32 (*dump_state)(char *buf, u32 size);
+#endif
 } mali_kernel_subsystem;
 
 /* functions used by the subsystems to interact with the core */
@@ -90,5 +95,13 @@ _mali_osk_errcode_t _mali_kernel_core_register_resource_handler(_mali_osk_resour
  * @param data Message specific extra data
  */
 void _mali_kernel_core_broadcast_subsystem_message(mali_core_notification_message message, u32 data);
+
+#if MALI_STATE_TRACKING
+/**
+ * Tell all subsystems to dump their current state
+ */
+u32 _mali_kernel_core_dump_state(char *buf, u32 size);
+#endif
+
 
 #endif /* __MALI_KERNEL_SUBSYSTEM_H__ */

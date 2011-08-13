@@ -27,6 +27,18 @@ void _mali_osk_dbgmsg( const char *fmt, ... )
 	va_end(args);
 }
 
+u32 _mali_osk_snprintf( char *buf, u32 size, const char *fmt, ... )
+{
+	int res;
+	va_list args;
+	va_start(args, fmt);
+
+	res = vsnprintf(buf, (size_t)size, fmt, args);
+
+	va_end(args);
+	return res;
+}
+
 void _mali_osk_abort(void)
 {
 	/* make a simple fault by dereferencing a NULL pointer */

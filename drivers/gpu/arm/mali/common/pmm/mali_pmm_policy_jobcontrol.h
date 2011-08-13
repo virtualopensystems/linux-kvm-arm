@@ -27,10 +27,10 @@ extern "C"
  * @{
  */
 
-/** @brief The jobcontrol policy inactivity latency timeout (in ticks) 
+/** @brief The jobcontrol policy inactivity latency timeout (in ticks)
  * before the hardware is switched off
  *
- * @note Setting this low whilst tracing or producing debug output can 
+ * @note Setting this low whilst tracing or producing debug output can
  * cause alot of timeouts to fire which can affect the PMM behaviour
  */
 #define MALI_PMM_POLICY_JOBCONTROL_INACTIVITY_TIMEOUT 50

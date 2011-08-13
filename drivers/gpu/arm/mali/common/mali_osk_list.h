@@ -126,7 +126,7 @@ MALI_STATIC_INLINE void _mali_osk_list_delinit( _mali_osk_list_t *list )
  * An empty list is one that contains a single element that points to itself.
  *
  * @param list the list to check.
- * @return non-zero if the list it empty, and zero otherwise.
+ * @return non-zero if the list is empty, and zero otherwise.
  */
 MALI_STATIC_INLINE int _mali_osk_list_empty( _mali_osk_list_t *list )
 {

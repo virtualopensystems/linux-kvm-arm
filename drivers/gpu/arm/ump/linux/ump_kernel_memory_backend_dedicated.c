@@ -222,6 +222,7 @@ static int block_allocator_allocate(void* ctx, ump_dd_mem * mem)
 	mem->backend_info = last_allocated;
 
 	up(&allocator->mutex);
+	mem->is_cached=0;
 
 	return 1;
 }

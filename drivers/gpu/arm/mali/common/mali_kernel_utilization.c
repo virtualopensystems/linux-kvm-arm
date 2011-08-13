@@ -29,7 +29,7 @@ static mali_bool timer_running = MALI_FALSE;
 
 static void calculate_gpu_utilization(void* arg)
 {
-	u64 time_now = _mali_osk_time_get_ns();
+	u64 time_now;
 	u64 time_period;
 	u32 leading_zeroes;
 	u32 shift_val;
@@ -39,7 +39,7 @@ static void calculate_gpu_utilization(void* arg)
 
 	_mali_osk_lock_wait(time_data_lock, _MALI_OSK_LOCKMODE_RW);
 
-	if (accumulated_work_time == 0)
+	if (accumulated_work_time == 0 && work_start_time == 0)
 	{
 		/* Don't reschedule timer, this will be started if new work arrives */
 		timer_running = MALI_FALSE;
@@ -52,6 +52,7 @@ static void calculate_gpu_utilization(void* arg)
 		return;
 	}
 
+	time_now = _mali_osk_time_get_ns();
 	time_period = time_now - period_start_time;
 
 	/* If we are currently busy, update working period up to now */
@@ -129,19 +130,14 @@ _mali_osk_errcode_t mali_utilization_init(void)
 	return _MALI_OSK_ERR_OK;
 }
 
-
-
-
 void mali_utilization_suspend(void)
 {
-        if (NULL != utilization_timer)
-        {
-                _mali_osk_timer_del(utilization_timer);
-                timer_running = MALI_FALSE;
-        }
+	if (NULL != utilization_timer)
+	{
+		_mali_osk_timer_del(utilization_timer);
+		timer_running = MALI_FALSE;
+	}
 }
-
-
 
 void mali_utilization_term(void)
 {
@@ -198,9 +194,11 @@ void mali_utilization_core_end(void)
 		/*
 		 * No more cores are working, so accumulate the time we was busy.
 		 */
-		u64 time_now = _mali_osk_time_get_ns();
+		u64 time_now;
+
 		_mali_osk_lock_wait(time_data_lock, _MALI_OSK_LOCKMODE_RW);
 
+		time_now = _mali_osk_time_get_ns();
 		accumulated_work_time += (time_now - work_start_time);
 		work_start_time = 0;
 

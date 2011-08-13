@@ -101,6 +101,9 @@ static _mali_osk_errcode_t maligp_renderunit_create(_mali_osk_resource_t * resou
 #if USING_MMU
 static void maligp_subsystem_broadcast_notification(mali_core_notification_message message, u32 data);
 #endif
+#if MALI_STATE_TRACKING
+u32 maligp_subsystem_dump_state(char *buf, u32 size);
+#endif
 
 /* Internal support functions  */
 static _mali_osk_errcode_t maligp_core_version_legal( mali_core_renderunit *core );
@@ -155,6 +158,9 @@ struct mali_kernel_subsystem mali_subsystem_gp2=
 	maligp_subsystem_broadcast_notification,    /* broadcast_notification */
 #else
     NULL,
+#endif
+#if MALI_STATE_TRACKING
+	maligp_subsystem_dump_state,                /* dump_state */
 #endif
 } ;
 
@@ -698,6 +704,9 @@ static _mali_osk_errcode_t subsystem_maligp_start_job(mali_core_job * job, mali_
 	subsystem_flush_mapped_mem_cache();
 
 	MALI_DEBUG_PRINT(4, ("Mali GP: STARTING GP WITH CMD: 0x%x\n", startcmd));
+#if MALI_STATE_TRACKING
+	 _mali_osk_atomic_inc(&job->session->jobs_started);
+#endif
 
 	/* This is the command that starts the Core */
 	mali_core_renderunit_register_write(core,
@@ -827,6 +836,9 @@ static int subsystem_maligp_irq_handler_bottom_half(mali_core_renderunit* core)
 #endif
 
 		MALI_DEBUG_PRINT(2, ("Mali GP: Job aborted - userspace would not provide more heap memory.\n"));
+#if MALI_STATE_TRACKING
+		_mali_osk_atomic_inc(&job->session->jobs_ended);
+#endif
 		return JOB_STATUS_END_OOM; /* Core is ready for more jobs.*/
 	}
 	/* finished ? */
@@ -887,6 +899,9 @@ static int subsystem_maligp_irq_handler_bottom_half(mali_core_renderunit* core)
 
 		mali_core_renderunit_register_write(core, MALIGP2_REG_ADDR_MGMT_INT_CLEAR, MALIGP2_REG_VAL_IRQ_MASK_ALL);
 
+#if MALI_STATE_TRACKING
+		_mali_osk_atomic_inc(&job->session->jobs_ended);
+#endif
 		return JOB_STATUS_END_SUCCESS; /* core idle */
 	}
 	/* sw watchdog timeout handling or time to do hang checking ? */
@@ -916,6 +931,11 @@ static int subsystem_maligp_irq_handler_bottom_half(mali_core_renderunit* core)
 #ifdef DEBUG
 		maligp_print_regs(2, core);
 #endif
+
+#if MALI_STATE_TRACKING
+		_mali_osk_atomic_inc(&job->session->jobs_ended);
+#endif
+
 		return JOB_STATUS_END_HANG;
 	}
 	/* if hang timeout checking was enabled and we detected progress, will be fall down to this check */
@@ -1016,6 +1036,9 @@ static int subsystem_maligp_irq_handler_bottom_half(mali_core_renderunit* core)
 		MALI_DEBUG_PRINT(1, ("Mali GP: Registers Before reset:\n"));
 		maligp_print_regs(1, core);
 		#endif
+#if MALI_STATE_TRACKING
+		_mali_osk_atomic_inc(&job->session->jobs_ended);
+#endif
 		return JOB_STATUS_END_UNKNOWN_ERR;
 	}
 }
@@ -1026,7 +1049,7 @@ to a created mali_core_job object with the data given from userspace */
 static _mali_osk_errcode_t subsystem_maligp_get_new_job_from_user(struct mali_core_session * session, void * argument)
 {
 	maligp_job *jobgp;
-	mali_core_job *job;
+	mali_core_job *job = NULL;
 	mali_core_job *previous_replaced_job;
 	_mali_osk_errcode_t err = _MALI_OSK_ERR_OK;
 	_mali_uk_gp_start_job_s * user_ptr_job_input;
@@ -1148,6 +1171,16 @@ function_exit:
 	{
 		_mali_osk_free(jobgp);
 	}
+#if MALI_STATE_TRACKING
+	if (_MALI_UK_START_JOB_STARTED==user_ptr_job_input->status)
+	{
+		if(job)
+		{
+			job->job_nr=_mali_osk_atomic_inc_return(&session->jobs_received);
+		}
+	}
+#endif
+
 	MALI_ERROR(err);
 }
 
@@ -1275,6 +1308,9 @@ static void subsystem_maligp_return_job_to_user( mali_core_job * job, mali_subsy
 	job_out->perf_counter_l2_val1 = jobgp->perf_counter_l2_val1;
 #endif
 
+#if MALI_STATE_TRACKING
+	_mali_osk_atomic_inc(&session->jobs_returned);
+#endif
 	_mali_osk_notification_queue_send( session->notification_queue, jobgp->notification_obj);
 	jobgp->notification_obj = NULL;
 
@@ -1402,4 +1438,11 @@ _mali_osk_errcode_t maligp_signal_power_down( mali_bool immediate_only )
 	return( mali_core_subsystem_signal_power_down( &subsystem_maligp, 0, immediate_only ) );
 }
 
+#endif
+
+#if MALI_STATE_TRACKING
+u32 maligp_subsystem_dump_state(char *buf, u32 size)
+{
+	return mali_core_renderunit_dump_state(&subsystem_maligp, buf, size);
+}
 #endif

@@ -188,6 +188,13 @@ typedef struct mali_core_session
 	struct mali_session_data * mmu_session; /* The session associated with the MMU page tables for this core */
 #endif
 	u32 magic_nr;
+#if MALI_STATE_TRACKING
+	_mali_osk_atomic_t jobs_received;
+	_mali_osk_atomic_t jobs_started;
+	_mali_osk_atomic_t jobs_ended;
+	_mali_osk_atomic_t jobs_returned;
+	u32 pid;
+#endif
 } mali_core_session;
 
 
@@ -204,6 +211,7 @@ typedef struct mali_core_job
 	u32 start_time_jiffies;
 	unsigned long watchdog_jiffies;
 	u32 abort_id;
+	u32 job_nr;
 } mali_core_job;
 
 /*
@@ -287,12 +295,14 @@ typedef struct register_array_user
 		MALI_DEBUG_PRINT(5, ("MUTEX: GRABBED %s() %d on %s\n",__FUNCTION__, __LINE__, subsys->name)); \
 		if ( SUBSYSTEM_MAGIC_NR != subsys->magic_nr ) MALI_PRINT_ERROR(("Wrong magic number"));\
 		rendercores_global_mutex_is_held = 1; \
+		rendercores_global_mutex_owner = _mali_osk_get_tid();  \
 	} while (0) ;
 
 #define MALI_CORE_SUBSYSTEM_MUTEX_RELEASE(subsys) \
 	do { \
 		MALI_DEBUG_PRINT(5, ("MUTEX: RELEASE %s() %d on %s\n",__FUNCTION__, __LINE__, subsys->name)); \
 		rendercores_global_mutex_is_held = 0; \
+		 rendercores_global_mutex_owner = 0; \
 		if ( SUBSYSTEM_MAGIC_NR != subsys->magic_nr ) MALI_PRINT_ERROR(("Wrong magic number"));\
 		_mali_osk_lock_signal( rendercores_global_mutex, _MALI_OSK_LOCKMODE_RW); \
 		MALI_DEBUG_PRINT(5, ("MUTEX: RELEASED %s() %d on %s\n",__FUNCTION__, __LINE__, subsys->name)); \
@@ -304,6 +314,7 @@ typedef struct register_array_user
 	do { \
 		if ( 0 == rendercores_global_mutex_is_held ) MALI_PRINT_ERROR(("ASSERT MUTEX SHOULD BE GRABBED"));\
 		if ( SUBSYSTEM_MAGIC_NR != input_pointer->magic_nr ) MALI_PRINT_ERROR(("Wrong magic number"));\
+		if ( rendercores_global_mutex_owner != _mali_osk_get_tid() ) MALI_PRINT_ERROR(("Owner mismatch"));\
 	} while (0)
 
 
@@ -343,6 +354,10 @@ void mali_core_subsystem_ioctl_abort_job(mali_core_session * session, u32 id);
 #if USING_MALI_PMM
 _mali_osk_errcode_t mali_core_subsystem_signal_power_down(mali_core_subsystem *subsys, u32 mali_core_nr, mali_bool immediate_only);
 _mali_osk_errcode_t mali_core_subsystem_signal_power_up(mali_core_subsystem *subsys, u32 mali_core_nr, mali_bool queue_only);
+#endif
+
+#if MALI_STATE_TRACKING
+u32 mali_core_renderunit_dump_state(mali_core_subsystem* subsystem, char *buf, u32 size);
 #endif
 
 #endif /* __MALI_RENDERCORE_H__ */

@@ -136,7 +136,7 @@ _mali_osk_irq_t *_mali_osk_irq_init( u32 irqnum, _mali_osk_irq_uhandler_t uhandl
 #if MALI_LICENSE_IS_GPL
 	if ( _MALI_OSK_IRQ_NUMBER_PMM == irqnum )
 	{
-		pmm_wq = create_workqueue("mali-pmm-wq");
+		pmm_wq = create_singlethread_workqueue("mali-pmm-wq");
 	}
 #endif
 
@@ -149,13 +149,24 @@ void _mali_osk_irq_schedulework( _mali_osk_irq_t *irq )
 #if MALI_LICENSE_IS_GPL
 	if ( irq_object->irqnum == _MALI_OSK_IRQ_NUMBER_PMM )
 	{
-		queue_work(pmm_wq,&irq_object->work_queue_irq_handle);
+		queue_work( pmm_wq,&irq_object->work_queue_irq_handle );
 	}
 	else
 	{
 #endif
 		schedule_work(&irq_object->work_queue_irq_handle);
 #if MALI_LICENSE_IS_GPL
+	}
+#endif
+}
+
+void _mali_osk_flush_workqueue( _mali_osk_irq_t *irq )
+{
+#if MALI_LICENSE_IS_GPL
+	mali_osk_irq_object_t *irq_object = (mali_osk_irq_object_t *)irq;
+        if(irq_object->irqnum == _MALI_OSK_IRQ_NUMBER_PMM )
+        {
+		flush_workqueue(pmm_wq);	
 	}
 #endif
 }

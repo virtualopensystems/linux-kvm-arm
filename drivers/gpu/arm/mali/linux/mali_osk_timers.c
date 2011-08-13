@@ -51,7 +51,6 @@ void _mali_osk_timer_del( _mali_osk_timer_t *tim )
     del_timer_sync(&(tim->timer));
 }
 
-
 void _mali_osk_timer_setcallback( _mali_osk_timer_t *tim, _mali_osk_timer_callback_t callback, void *data )
 {
     MALI_DEBUG_ASSERT_POINTER(tim);

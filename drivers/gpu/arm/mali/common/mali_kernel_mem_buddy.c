@@ -389,6 +389,9 @@ struct mali_kernel_subsystem mali_subsystem_memory =
     mali_memory_core_session_begin,             /* session_begin */
 	mali_memory_core_session_end,               /* session_end */
     NULL,                                       /* broadcast_notification */
+#if MALI_STATE_TRACKING
+	NULL,                                       /* dump_state */
+#endif
 };
 
 /* Initialized when this subsystem is initialized. This is determined by the

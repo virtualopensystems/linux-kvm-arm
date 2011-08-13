@@ -105,7 +105,7 @@ int wait_for_notification_wrapper(struct mali_session_data *session_data, _mali_
     err = _mali_ukk_wait_for_notification(&kargs);
     if (_MALI_OSK_ERR_OK != err) return map_errcode(err);
 
-    if( !(_MALI_NOTIFICATION_CORE_TIMEOUT == kargs.type || _MALI_NOTIFICATION_CORE_SHUTDOWN_IN_PROGRESS == kargs.type ) )
+	if(_MALI_NOTIFICATION_CORE_SHUTDOWN_IN_PROGRESS != kargs.type)
 	{
 		kargs.ctx = NULL; /* prevent kernel address to be returned to user space */
 		if (0 != copy_to_user(uargs, &kargs, sizeof(_mali_uk_wait_for_notification_s))) return -EFAULT;

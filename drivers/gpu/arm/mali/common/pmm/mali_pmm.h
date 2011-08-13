@@ -40,7 +40,7 @@ extern "C"
 /** @brief Compile option to switch between always on or job control PMM policy */
 #define MALI_PMM_ALWAYS_ON 0
 
-/** @brief Overrides hardware PMU and uses software simulation instead 
+/** @brief Overrides hardware PMU and uses software simulation instead
  *  @note This even stops intialization of PMU and cores being powered on at start up
  */
 #define MALI_PMM_NO_PMU 0
@@ -52,7 +52,7 @@ extern "C"
 
 /** @brief power management event message identifiers.
  */
-/* These must match up with the pmm_trace_events & pmm_trace_events_internal 
+/* These must match up with the pmm_trace_events & pmm_trace_events_internal
  * arrays
  */
 typedef enum mali_pmm_event_id
@@ -137,7 +137,6 @@ typedef enum mali_pmm_policy_tag
 	MALI_PMM_POLICY_RUNTIME_JOB_CONTROL = 3     /**< Run time power management control policy */
 } mali_pmm_policy;
 
-
 /** @brief Function to report to the OS when the power down has finished
  *
  * @param data The event message data that initiated the power down
@@ -150,7 +149,7 @@ void _mali_osk_pmm_power_down_done(mali_pmm_message_data data);
  */
 void _mali_osk_pmm_power_up_done(mali_pmm_message_data data);
 
-/** @brief Function to report that DVFS operation done 
+/** @brief Function to report that DVFS operation done
  *
  * @param data The event message data
  */
@@ -165,6 +164,18 @@ void _mali_osk_pmm_policy_events_notifications(mali_pmm_event_id event_id);
 
 #endif
 
+/** @brief Function to power up MALI
+ *
+ *  @note powers up the MALI during MALI device driver is unloaded
+ */
+void malipmm_force_powerup( void );
+
+/** @brief Function to power down MALI
+ *
+ *  @note powers down the MALI during MALI device driver is unloaded
+ */
+void malipmm_force_powerdown( void );
+
 /** @brief Function to report the OS that device is idle
  *
  *  @note inform the OS that device is idle
@@ -176,6 +187,12 @@ _mali_osk_errcode_t _mali_osk_pmm_dev_idle( void );
  * @note inform the os that device needs to be activated
  */
 void _mali_osk_pmm_dev_activate( void );
+
+/** @brief Function to report OS PMM for cleanup
+ *
+ * @note Function to report OS PMM for cleanup
+ */
+void _mali_osk_pmm_ospmm_cleanup( void );
 
 /** @brief Queries the current state of the PMM software
  *
@@ -303,11 +320,11 @@ void _mali_pmm_trace_event_message( mali_pmm_message_t *event, mali_bool receive
 
 #endif /* MALI_PMM_TRACE */
 
-#ifdef DEBUG
-/** @brief Dumps the current state of the PMM
+/** @brief Dumps the current state of OS PMM thread
  */
-void malipmm_state_dump(void);
-#endif
+#if MALI_STATE_TRACKING
+u32 mali_pmm_dump_os_thread_state( char *buf, u32 size );
+#endif /* MALI_STATE_TRACKING */
 
 /** @} */ /* end group pmmapi */
 

@@ -31,10 +31,6 @@ ifeq ($(CONFIG_USING_MMU),y)
 USING_MMU=1
 endif
 
-ifeq ($(CONFIG_ONLY_ZBT),y)
-ONLY_ZBT =1
-endif
-
 ifeq ($(CONFIG_USING_OS_MEMORY),y)
 USING_OS_MEMORY=1
 endif
@@ -63,13 +59,12 @@ endif
 ARCH ?= arm
 USING_MMU ?= 1
 USING_UMP ?= 0
-ONLY_ZBT ?= 0
-USING_ZBT ?= 1
 USING_OS_MEMORY ?= 0
 USING_PMM ?= 0
 USING_GPU_UTILIZATION ?= 0
 USING_MALI_RUN_TIME_PM ?= 0
 USING_MALI_PMM_TESTSUITE ?= 0
+OS_MEMORY_KERNEL_BUFFER_SIZE_IN_MB ?= 6
 USING_PROFILING ?= 0
 TIMESTAMP ?= default
 TARGET_PLATFORM ?= default
@@ -83,15 +78,17 @@ endif
 submodule_enabled = $(shell gcc $(DEFINES) -E $(MALICONFIGDIR)/config.h | grep type | grep -c $(2))
 
 # Set up our defines, which will be passed to gcc
-DEFINES += -DUSING_ZBT=$(USING_ZBT)
 DEFINES += -DUSING_OS_MEMORY=$(USING_OS_MEMORY)
 DEFINES += -DUSING_MMU=$(USING_MMU)
 DEFINES += -DUSING_UMP=$(USING_UMP)
-DEFINES += -DONLY_ZBT=$(ONLY_ZBT)
 DEFINES += -D_MALI_OSK_SPECIFIC_INDIRECT_MMAP
 DEFINES += -DMALI_TIMELINE_PROFILING_ENABLED=$(USING_PROFILING)
 DEFINES += -DMALI_POWER_MGMT_TEST_SUITE=$(USING_MALI_PMM_TESTSUITE)
 DEFINES += -DMALI_PMM_RUNTIME_JOB_CONTROL_ON=$(USING_MALI_RUN_TIME_PM)
+
+# MALI_STATE_TRACKING is only supported on Linux kernels from version 2.6.32.
+DEFINES += -DMALI_STATE_TRACKING=1
+DEFINES += -DMALI_OS_MEMORY_KERNEL_BUFFER_SIZE_IN_MB=$(OS_MEMORY_KERNEL_BUFFER_SIZE_IN_MB)
 
 ifneq ($(call submodule_enabled, $M, PMU),0)
         MALI_PLATFORM_FILE = platform/mali400-pmu/mali_platform.o
@@ -168,6 +165,9 @@ mali-y := \
 	$(OSKOS)/mali_osk_indir_mmap.o \
 	common/mali_kernel_rendercore.o \
 	common/mali_kernel_descriptor_mapping.o \
+	common/mali_kernel_vsync.o \
+	linux/mali_ukk_vsync.o \
+	linux/mali_kernel_sysfs.o \
 	$(MALI_PLATFORM_FILE) \
 	$(OSKFILES) \
 	$(UKKFILES)

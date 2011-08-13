@@ -11,7 +11,7 @@
 #ifndef __MALI_TIMESTAMP_H__
 #define __MALI_TIMESTAMP_H__
 
-#include "mali_osk.h" 
+#include "mali_osk.h"
 
 MALI_STATIC_INLINE _mali_osk_errcode_t _mali_timestamp_reset(void)
 {

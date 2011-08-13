@@ -296,15 +296,21 @@ _mali_osk_errcode_t _ump_ukk_size_get( _ump_uk_size_get_s *user_interaction )
 void _ump_ukk_msync( _ump_uk_msync_s *args )
 {
 	ump_dd_mem * mem = NULL;
+	void *virtual = NULL;
+	u32 size = 0;
+	u32 offset = 0;
 	_mali_osk_lock_wait(device.secure_id_map_lock, _MALI_OSK_LOCKMODE_RW);
 	ump_descriptor_mapping_get(device.secure_id_map, (int)args->secure_id, (void**)&mem);
-	_mali_osk_lock_signal(device.secure_id_map_lock, _MALI_OSK_LOCKMODE_RW);
 
-	if (NULL==mem)
+	if (NULL == mem)
 	{
+		_mali_osk_lock_signal(device.secure_id_map_lock, _MALI_OSK_LOCKMODE_RW);
 		DBG_MSG(1, ("Failed to look up mapping in _ump_ukk_msync(). ID: %u\n", (ump_secure_id)args->secure_id));
 		return;
 	}
+	/* Ensure the memory doesn't dissapear when we are flushing it. */
+	ump_dd_reference_add(mem);
+	_mali_osk_lock_signal(device.secure_id_map_lock, _MALI_OSK_LOCKMODE_RW);
 
 	/* Returns the cache settings back to Userspace */
 	args->is_cached=mem->is_cached;
@@ -313,17 +319,44 @@ void _ump_ukk_msync( _ump_uk_msync_s *args )
 	if ( _UMP_UK_MSYNC_READOUT_CACHE_ENABLED==args->op )
 	{
 		DBG_MSG(3, ("_ump_ukk_msync READOUT  ID: %u Enabled: %d\n", (ump_secure_id)args->secure_id, mem->is_cached));
-		return;
+		goto msync_release_and_return;
 	}
 
 	/* Nothing to do if the memory is not caches */
 	if ( 0==mem->is_cached )
 	{
 		DBG_MSG(3, ("_ump_ukk_msync IGNORING ID: %u Enabled: %d  OP: %d\n", (ump_secure_id)args->secure_id, mem->is_cached, args->op));
-		return ;
+		goto msync_release_and_return;
 	}
-	DBG_MSG(3, ("_ump_ukk_msync FLUSHING ID: %u Enabled: %d  OP: %d\n", (ump_secure_id)args->secure_id, mem->is_cached, args->op));
+	DBG_MSG(3, ("_ump_ukk_msync FLUSHING ID: %u Enabled: %d  OP: %d Address: 0x%08x Mapping: 0x%08x\n",
+	            (ump_secure_id)args->secure_id, mem->is_cached, args->op, args->address, args->mapping));
+
+	if ( args->address )
+	{
+		virtual = ((u32)args->address);
+		offset = (u32)((args->address) - (args->mapping));
+	} else {
+		/* Flush entire mapping when no address is specified. */
+		virtual = args->mapping;
+	}
+	if ( args->size )
+	{
+		size = args->size;
+	} else {
+		/* Flush entire mapping when no size is specified. */
+		size = mem->size_bytes - offset;
+	}
+
+	if ( (offset + size) > mem->size_bytes )
+	{
+		DBG_MSG(1, ("Trying to flush more than the entire UMP allocation: offset: %u + size: %u > %u\n", offset, size, mem->size_bytes));
+		goto msync_release_and_return;
+	}
 
 	/* The actual cache flush - Implemented for each OS*/
-	_ump_osk_msync( mem , args->op);
+	_ump_osk_msync( mem, virtual, offset, size, args->op);
+
+msync_release_and_return:
+	ump_dd_reference_release(mem);
+	return;
 }

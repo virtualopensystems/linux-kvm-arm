@@ -16,7 +16,6 @@
 #include <linux/fs.h>       /* file system operations */
 #include <linux/cdev.h>     /* character device definitions */
 #include <linux/mm.h> /* memory mananger definitions */
-#include <asm/uaccess.h>    /* user space access */
 #include <linux/device.h>
 
 /* the mali kernel subsystem types */
@@ -24,7 +23,6 @@
 
 /* A memory subsystem always exists, so no need to conditionally include it */
 #include "mali_kernel_common.h"
-#include "mali_kernel_mem.h"
 #include "mali_kernel_session_manager.h"
 #include "mali_kernel_core.h"
 
@@ -34,6 +32,8 @@
 #include "mali_kernel_ioctl.h"
 #include "mali_ukk_wrappers.h"
 #include "mali_kernel_pm.h"
+
+#include "mali_kernel_sysfs.h"
 
 /* */
 #include "mali_kernel_license.h"
@@ -60,18 +60,17 @@ extern int mali_max_job_runtime;
 module_param(mali_max_job_runtime, int, S_IRUSR | S_IWUSR | S_IWGRP | S_IRGRP | S_IROTH);
 MODULE_PARM_DESC(mali_max_job_runtime, "Maximum allowed job runtime in msecs.\nJobs will be killed after this no matter what");
 
-struct mali_dev
-{
-	struct cdev cdev;
-#if MALI_LICENSE_IS_GPL
-	struct class *  mali_class;
+#if defined(USING_MALI400_L2_CACHE)
+extern int mali_l2_max_reads;
+module_param(mali_l2_max_reads, int, S_IRUSR | S_IRGRP | S_IROTH);
+MODULE_PARM_DESC(mali_l2_max_reads, "Maximum reads for Mali L2 cache");
 #endif
-};
 
 static char mali_dev_name[] = "mali"; /* should be const, but the functions we call requires non-cost */
 
 /* the mali device */
 static struct mali_dev device;
+
 
 static int mali_open(struct inode *inode, struct file *filp);
 static int mali_release(struct inode *inode, struct file *filp);
@@ -104,47 +103,40 @@ int mali_driver_init(void)
 #if USING_MALI_PMM
 #if MALI_LICENSE_IS_GPL
 #ifdef CONFIG_PM
-        err = _mali_dev_platform_register();
-        if (err)
-        {
-                return err;
-        }
+	err = _mali_dev_platform_register();
+	if (err)
+	{
+		return err;
+	}
 #endif
 #endif
 #endif
-    err = mali_kernel_constructor();
-    if (_MALI_OSK_ERR_OK != err)
-    {
-        MALI_PRINT(("Failed to initialize driver (error %d)\n", err));
-        return -EFAULT;
-    }
+	err = mali_kernel_constructor();
+	if (_MALI_OSK_ERR_OK != err)
+	{
+#if USING_MALI_PMM
+#if MALI_LICENSE_IS_GPL
+#ifdef CONFIG_PM
+		_mali_dev_platform_unregister();
+#endif
+#endif
+#endif
+		MALI_PRINT(("Failed to initialize driver (error %d)\n", err));
+		return -EFAULT;
+	}
 
     return 0;
 }
 
 void mali_driver_exit(void)
 {
+#if USING_MALI_PMM
+	malipmm_force_powerup();
+#endif
+	mali_kernel_destructor();
 
 #if USING_MALI_PMM
-#if MALI_LICENSE_IS_GPL
-#ifdef CONFIG_PM_RUNTIME
-#if MALI_PMM_RUNTIME_JOB_CONTROL_ON
-
-	_mali_osk_pmm_dev_activate();
-#endif
-#endif
-#endif
-#endif
-	 mali_kernel_destructor();
-
-#if USING_MALI_PMM
-#if MALI_LICENSE_IS_GPL
-#ifdef CONFIG_PM_RUNTIME
-#if MALI_PMM_RUNTIME_JOB_CONTROL_ON
-	_mali_osk_pmm_dev_idle();
-#endif
-#endif
-#endif
+	malipmm_force_powerdown();
 #endif
 
 #if USING_MALI_PMM
@@ -174,45 +166,39 @@ int initialize_kernel_device(void)
 		err = register_chrdev_region(dev, 1/*count*/, mali_dev_name);
 	}
 
-	if (0 == err)
+	if (err)
 	{
-		memset(&device, 0, sizeof(device));
-
-		/* initialize our char dev data */
-		cdev_init(&device.cdev, &mali_fops);
-		device.cdev.owner = THIS_MODULE;
-		device.cdev.ops = &mali_fops;
-
-		/* register char dev with the kernel */
-		err = cdev_add(&device.cdev, dev, 1/*count*/);
-
-		if (0 == err)
-		{
-#if MALI_LICENSE_IS_GPL
-			device.mali_class = class_create(THIS_MODULE, mali_dev_name);
-			if (IS_ERR(device.mali_class))
-			{
-				err = PTR_ERR(device.mali_class);
-			}
-			else
-			{
-				struct device * mdev;
-				mdev = device_create(device.mali_class, NULL, dev, NULL, mali_dev_name);
-				if (!IS_ERR(mdev))
-				{
-					return 0;
-				}
-
-				err = PTR_ERR(mdev);
-			}
-			cdev_del(&device.cdev);
-#else
-			return 0;
-#endif
-		}
-		unregister_chrdev_region(dev, 1/*count*/);
+			goto init_chrdev_err;
 	}
 
+	memset(&device, 0, sizeof(device));
+
+	/* initialize our char dev data */
+	cdev_init(&device.cdev, &mali_fops);
+	device.cdev.owner = THIS_MODULE;
+	device.cdev.ops = &mali_fops;
+
+	/* register char dev with the kernel */
+	err = cdev_add(&device.cdev, dev, 1/*count*/);
+	if (err)
+	{
+			goto init_cdev_err;
+	}
+
+	err = mali_sysfs_register(&device, dev, mali_dev_name);
+	if (err)
+	{
+			goto init_sysfs_err;
+	}
+
+	/* Success! */
+	return 0;
+
+init_sysfs_err:
+	cdev_del(&device.cdev);
+init_cdev_err:
+	unregister_chrdev_region(dev, 1/*count*/);
+init_chrdev_err:
 	return err;
 }
 
@@ -220,11 +206,9 @@ int initialize_kernel_device(void)
 void terminate_kernel_device(void)
 {
 	dev_t dev = MKDEV(mali_major, 0);
+	
+	mali_sysfs_unregister(&device, dev, mali_dev_name);
 
-#if MALI_LICENSE_IS_GPL
-	device_destroy(device.mali_class, dev);
-	class_destroy(device.mali_class);
-#endif
 	/* unregister char device */
 	cdev_del(&device.cdev);
 	/* free major */
@@ -427,7 +411,7 @@ static int mali_ioctl(struct inode *inode, struct file *filp, unsigned int cmd, 
 
 		case MALI_IOC_MEM_ATTACH_UMP:
 		case MALI_IOC_MEM_RELEASE_UMP: /* FALL-THROUGH */
-        	MALI_DEBUG_PRINT(2, ("UMP not supported\n", cmd, arg));
+        	MALI_DEBUG_PRINT(2, ("UMP not supported\n"));
             err = -ENOTTY;
 			break;
 #endif
@@ -468,6 +452,10 @@ static int mali_ioctl(struct inode *inode, struct file *filp, unsigned int cmd, 
             err = gp_suspend_response_wrapper(session_data, (_mali_uk_gp_suspend_response_s __user *)arg);
             break;
 
+		case MALI_IOC_VSYNC_EVENT_REPORT:
+		    err = vsync_event_report_wrapper(session_data, (_mali_uk_vsync_event_report_s __user *)arg);
+		    break;
+
         default:
         	MALI_DEBUG_PRINT(2, ("No handler for ioctl 0x%08X 0x%08lX\n", cmd, arg));
             err = -ENOTTY;
@@ -475,6 +463,7 @@ static int mali_ioctl(struct inode *inode, struct file *filp, unsigned int cmd, 
 
     return err;
 }
+
 
 module_init(mali_driver_init);
 module_exit(mali_driver_exit);

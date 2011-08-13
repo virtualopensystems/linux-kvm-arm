@@ -280,12 +280,6 @@ _mali_osk_errcode_t _ump_ukk_map_mem( _ump_uk_map_mem_s *args )
 		args->is_cached       = 1;
 		DBG_MSG(3, ("Mapping UMP secure_id: %d as cached.\n", args->secure_id));
 	}
-	else if ( args->is_cached)
-	{
-		mem->is_cached = 1;
-		descriptor->is_cached = 1;
-		DBG_MSG(3, ("Warning mapping UMP secure_id: %d. As cached, while it was allocated uncached.\n", args->secure_id));
-	}
 	else
 	{
 		descriptor->is_cached = 0;

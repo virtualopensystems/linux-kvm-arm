@@ -93,6 +93,9 @@ static _mali_osk_errcode_t mali200_renderunit_create(_mali_osk_resource_t * reso
 #if USING_MMU
 static void mali200_subsystem_broadcast_notification(mali_core_notification_message message, u32 data);
 #endif
+#if MALI_STATE_TRACKING
+u32 mali200_subsystem_dump_state(char *buf, u32 size);
+#endif
 
 /* Internal support functions  */
 static _mali_osk_errcode_t mali200_core_version_legal( mali_core_renderunit *core );
@@ -135,7 +138,10 @@ struct mali_kernel_subsystem mali_subsystem_mali200=
 #if USING_MMU
 	mali200_subsystem_broadcast_notification,   /* broadcast_notification */
 #else
-    NULL
+    NULL,
+#endif
+#if MALI_STATE_TRACKING
+	mali200_subsystem_dump_state,               /* dump_state */
 #endif
 } ;
 
@@ -626,6 +632,10 @@ static _mali_osk_errcode_t subsystem_mali200_start_job(mali_core_job * job, mali
 	subsystem_flush_mapped_mem_cache();
 	_mali_osk_mem_barrier();
 
+#if MALI_STATE_TRACKING
+	_mali_osk_atomic_inc(&job->session->jobs_started);
+#endif
+
 	/* This is the command that starts the Core */
 	mali_core_renderunit_register_write(
 			core,
@@ -751,6 +761,9 @@ static int subsystem_mali200_irq_handler_bottom_half(struct mali_core_renderunit
 
 		}
 
+#if MALI_STATE_TRACKING
+		_mali_osk_atomic_inc(&job->session->jobs_ended);
+#endif
 		return JOB_STATUS_END_SUCCESS; /* reschedule */
 	}
 	/* Overall SW watchdog timeout or (time to do hang checking and progress detected)? */
@@ -765,6 +778,11 @@ static int subsystem_mali200_irq_handler_bottom_half(struct mali_core_renderunit
 		/* no progress detected, killed by the watchdog */
 		MALI_DEBUG_PRINT(2, ("M200: SW-Timeout Rawstat: 0x%x Tile_addr: 0x%x Status: 0x%x.\n", irq_readout ,current_tile_addr ,core_status) );
 		/* In this case will the system outside cleanup and reset the core */
+
+#if MALI_STATE_TRACKING
+		_mali_osk_atomic_inc(&job->session->jobs_ended);
+#endif
+
 		return JOB_STATUS_END_HANG;
    	}
 	/* HW watchdog triggered or an existing hang check passed? */
@@ -808,6 +826,9 @@ static int subsystem_mali200_irq_handler_bottom_half(struct mali_core_renderunit
 			(void)bus_error;
 		}
 
+#if MALI_STATE_TRACKING
+		_mali_osk_atomic_inc(&job->session->jobs_ended);
+#endif
 		return JOB_STATUS_END_UNKNOWN_ERR; /* reschedule */
 	}
 }
@@ -818,7 +839,7 @@ to a created mali_core_job object with the data given from userspace */
 static _mali_osk_errcode_t subsystem_mali200_get_new_job_from_user(struct mali_core_session * session, void * argument)
 {
 	mali200_job *job200;
-	mali_core_job *job;
+	mali_core_job *job = NULL;
 	mali_core_job *previous_replaced_job;
 	_mali_osk_errcode_t err = _MALI_OSK_ERR_OK;
 	_mali_uk_pp_start_job_s * user_ptr_job_input;
@@ -948,6 +969,16 @@ function_exit:
 	{
 		_mali_osk_free(job200);
 	}
+#if MALI_STATE_TRACKING
+	if (_MALI_UK_START_JOB_STARTED==user_ptr_job_input->status)
+	{
+		if(job)
+		{
+			job->job_nr=_mali_osk_atomic_inc_return(&session->jobs_received);
+		}
+	}
+#endif
+
 	MALI_ERROR(err);
 }
 
@@ -1020,6 +1051,9 @@ static void subsystem_mali200_return_job_to_user( mali_core_job * job, mali_subs
 	job_out->perf_counter_l2_val1_raw = job200->perf_counter_l2_val1_raw;
 #endif
 
+#if MALI_STATE_TRACKING
+	_mali_osk_atomic_inc(&session->jobs_returned);
+#endif
 	_mali_osk_notification_queue_send( session->notification_queue, job200->notification_obj);
 	job200->notification_obj = NULL;
 
@@ -1171,4 +1205,11 @@ _mali_osk_errcode_t malipp_signal_power_down( u32 core_num, mali_bool immediate_
 	return( mali_core_subsystem_signal_power_down( &subsystem_mali200, core_num, immediate_only ) );
 }
 
+#endif
+
+#if MALI_STATE_TRACKING
+u32 mali200_subsystem_dump_state(char *buf, u32 size)
+{
+	return mali_core_renderunit_dump_state(&subsystem_mali200, buf, size);
+}
 #endif

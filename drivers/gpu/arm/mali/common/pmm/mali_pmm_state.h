@@ -55,8 +55,7 @@ typedef enum mali_pmm_status_tag
 	MALI_PMM_STATUS_POLICY_POWER_DOWN,          /**< Policy initiated power down */
 	MALI_PMM_STATUS_POLICY_POWER_UP,            /**< Policy initiated power down */
         MALI_PMM_STATUS_OS_WAITING,                 /**< PMM is waiting for OS power up */
-	MALI_PMM_STATUS_OS_POWER_DOWN,              /**< OS initiated power down */ 
-	MALI_PMM_STATUS_RUNTIME_IDLE_IN_PROGRESS,
+	MALI_PMM_STATUS_OS_POWER_DOWN,              /**< OS initiated power down */
 	MALI_PMM_STATUS_DVFS_PAUSE,                 /**< PMM DVFS Status Pause */
 	MALI_PMM_STATUS_OS_POWER_UP,                /**< OS initiated power up */
 	MALI_PMM_STATUS_OFF,                        /**< PMM is not active */
@@ -95,8 +94,14 @@ typedef struct _mali_pmm_internal_state
 	u32 missed;                             /**< PMM missed events due to OOM */
 	mali_bool fatal_power_err;				/**< PMM has had a fatal power error? */
 	u32 is_dvfs_active;			/**< PMM DVFS activity */
-	
-#if MALI_PMM_TRACE
+
+#if MALI_STATE_TRACKING
+	mali_pmm_status mali_last_pmm_status;  /**< The previous PMM status */
+	mali_pmm_event_id mali_new_event_status;/**< The type of the last PMM event */
+	mali_bool mali_pmm_lock_acquired;      /**< Is the PMM lock held somewhere or not */
+#endif
+
+#if (MALI_PMM_TRACE || MALI_STATE_TRACKING)
 	u32 messages_sent;                      /**< Total event messages sent */
 	u32 messages_received;                  /**< Total event messages received */
 	u32 imessages_sent;                     /**< Total event internal messages sent */
@@ -127,11 +132,11 @@ mali_pmm_core_mask pmm_cores_from_event_data( _mali_pmm_internal_state_t *pmm, m
 
 /** @brief Sort out which cores need to be powered up from the given core mask
  *
- * All cores that can be powered up will be put into a pending state 
+ * All cores that can be powered up will be put into a pending state
  *
  * @param pmm internal PMM state
  * @param cores mask of cores to check if they need to be powered up
- * @return mask of cores that need to be powered up, this can be 0 if all cores 
+ * @return mask of cores that need to be powered up, this can be 0 if all cores
  * are powered up already
  */
 mali_pmm_core_mask pmm_cores_to_power_up( _mali_pmm_internal_state_t *pmm, mali_pmm_core_mask cores );
@@ -147,7 +152,7 @@ mali_pmm_core_mask pmm_cores_to_power_up( _mali_pmm_internal_state_t *pmm, mali_
  * @param cores mask of cores to check if they need to be powered down
  * @param immediate_only MALI_TRUE means that only cores that can power down now will
  * be put into a pending state
- * @return mask of cores that need to be powered down, this can be 0 if all cores 
+ * @return mask of cores that need to be powered down, this can be 0 if all cores
  * are powered down already
  */
 mali_pmm_core_mask pmm_cores_to_power_down( _mali_pmm_internal_state_t *pmm, mali_pmm_core_mask cores, mali_bool immediate_only );
@@ -171,7 +176,7 @@ mali_bool pmm_power_down_okay( _mali_pmm_internal_state_t *pmm );
 
 /** @brief Try to make all the pending cores power down
  *
- * If all the pending cores have acknowledged they can power down, this will call the 
+ * If all the pending cores have acknowledged they can power down, this will call the
  * PMU power down function to turn them off
  *
  * @param pmm internal PMM state
@@ -224,7 +229,7 @@ mali_pmm_core_mask pmm_cores_set_idle( _mali_pmm_internal_state_t *pmm, mali_pmm
 
 /** @brief Set the cores that have acknowledged a pending power down
  *
- * Updates which cores have acknowledged the pending power down and are now ready 
+ * Updates which cores have acknowledged the pending power down and are now ready
  * to be turned off
  *
  * @param pmm internal PMM state
@@ -247,15 +252,15 @@ mali_pmm_core_mask pmm_cores_set_up_ack( _mali_pmm_internal_state_t *pmm, mali_p
 
 /** @brief Tries to reset the PMM and PMU hardware to a known state after any fatal issues
  *
- * This will try and make all the cores powered up and reset the PMM state 
- * to its initial state after core registration - all cores powered but not 
+ * This will try and make all the cores powered up and reset the PMM state
+ * to its initial state after core registration - all cores powered but not
  * pending or active.
  * All events in the event queues will be thrown away.
  *
  * @note: Any pending power down will be cancelled including the OS calling for power down
  */
 void pmm_fatal_reset( _mali_pmm_internal_state_t *pmm );
-	
+
 /** @brief Save the OS specific data for an OS power up/down event
  *
  * @param pmm internal PMM state

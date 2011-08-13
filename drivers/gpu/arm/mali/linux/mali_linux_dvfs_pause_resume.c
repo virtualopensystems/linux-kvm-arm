@@ -9,7 +9,7 @@
  */
 
 /**
- * @file mali_device_pause_resume.c
+ * @file mali_linux_dvfs_pause_resume.c
  * Implementation of the Mali pause/resume functionality
  */
 #if USING_MALI_PMM
@@ -20,19 +20,19 @@
 #include "mali_kernel_common.h"
 #include "mali_platform.h"
 #include "mali_linux_pm.h"
-#include "mali_device_pause_resume.h"
+#include "mali_linux_dvfs_pause_resume.h"
 #include "mali_pmm.h"
 #include "mali_kernel_license.h"
 #ifdef CONFIG_PM
 #if MALI_LICENSE_IS_GPL
 
 /* Mali Pause Resume APIs */
-int mali_dev_pause()
+int mali_dev_dvfs_pause()
 {
 	int err = 0;
 	_mali_osk_lock_wait(lock, _MALI_OSK_LOCKMODE_RW);
-	if ((mali_dvfs_device_state ==  _MALI_DEVICE_SUSPEND) 
-	      || (mali_device_state == _MALI_DEVICE_SUSPEND) )
+	if ((mali_dvfs_device_state ==  _MALI_DEVICE_SUSPEND) || (mali_device_state == _MALI_DEVICE_SUSPEND_IN_PROGRESS)
+	      || (mali_device_state == _MALI_DEVICE_SUSPEND))
 	{
 		err = -EPERM;
 	}
@@ -45,14 +45,14 @@ int mali_dev_pause()
 	return err;
 }
 
-EXPORT_SYMBOL(mali_dev_pause);
+EXPORT_SYMBOL(mali_dev_dvfs_pause);
 
-int mali_dev_resume()
+int mali_dev_dvfs_resume()
 {
 	int err = 0;
 	_mali_osk_lock_wait(lock, _MALI_OSK_LOCKMODE_RW);
-	if ((mali_dvfs_device_state == _MALI_DEVICE_RESUME) 
-	     || (mali_device_state == _MALI_DEVICE_SUSPEND) )
+	if ((mali_dvfs_device_state == _MALI_DEVICE_RESUME) || (mali_device_state == _MALI_DEVICE_SUSPEND_IN_PROGRESS)
+	     || (mali_device_state == _MALI_DEVICE_SUSPEND))
 	{
 		err = -EPERM;
 	}
@@ -65,7 +65,7 @@ int mali_dev_resume()
 	return err;
 }
 
-EXPORT_SYMBOL(mali_dev_resume);
+EXPORT_SYMBOL(mali_dev_dvfs_resume);
 
 #endif /* MALI_LICENSE_IS_GPL */
 #endif /* CONFIG_PM */

@@ -55,6 +55,7 @@ typedef enum
     _MALI_UK_GP_SUBSYSTEM,        /**< Vertex Processor Group of U/K calls */
 	_MALI_UK_PROFILING_SUBSYSTEM, /**< Profiling Group of U/K calls */
     _MALI_UK_PMM_SUBSYSTEM,       /**< Power Management Module Group of U/K calls */
+	_MALI_UK_VSYNC_SUBSYSTEM,     /**< VSYNC Group of U/K calls */
 } _mali_uk_subsystem_t;
 
 /** Within a function group each function has its unique sequence number
@@ -125,6 +126,10 @@ typedef enum
     /** Power Management Module Functions */
     _MALI_UK_PMM_EVENT_MESSAGE = 0,       /**< Raise an event message */
 #endif
+
+	/** VSYNC reporting fuctions */
+	_MALI_UK_VSYNC_EVENT_REPORT      = 0, /**< _mali_ukk_vsync_event_report() */
+
 } _mali_uk_functions;
 
 /** @brief Get the size necessary for system info
@@ -613,7 +618,6 @@ typedef enum
 {
 	/** core notifications */
 
-	_MALI_NOTIFICATION_CORE_TIMEOUT =               (_MALI_UK_CORE_SUBSYSTEM << 16) | 0x10,
 	_MALI_NOTIFICATION_CORE_SHUTDOWN_IN_PROGRESS =  (_MALI_UK_CORE_SUBSYSTEM << 16) | 0x20,
 	_MALI_NOTIFICATION_APPLICATION_QUIT =           (_MALI_UK_CORE_SUBSYSTEM << 16) | 0x40,
 
@@ -647,13 +651,6 @@ typedef enum
  *
  * Interpreting the data union member depends on the notification type:
  *
- * - type == _MALI_NOTIFICATION_CORE_TIMEOUT
- *     - A notification timeout has occurred, since the code.timeout member was
- * exceeded.
- *     - In this case, the value of the data union member is undefined.
- *     - This is used so that the client can check other user-space state.
- * The client may repeat the call to _mali_ukk_wait_for_notification() to
- * continue reception of notifications.
  * - type == _MALI_NOTIFICATION_CORE_SHUTDOWN_IN_PROGRESS
  *     - The kernel side is shutting down. No further
  * _mali_uk_wait_for_notification() calls should be made.
@@ -736,7 +733,7 @@ typedef struct
  * The 16bit integer is stored twice in a 32bit integer
  * For example, for version 1 the value would be 0x00010001
  */
-#define _MALI_API_VERSION 7
+#define _MALI_API_VERSION 8
 #define _MALI_UK_API_VERSION _MAKE_VERSION_ID(_MALI_API_VERSION)
 
 /**
@@ -1105,7 +1102,7 @@ typedef u32 mali_pmm_message_data;
 
 /** @brief Arguments to _mali_ukk_pmm_event_message()
  */
-typedef struct 
+typedef struct
 {
 	void *ctx;                          /**< [in,out] user-kernel context (trashed on output) */
 	u32 id;                             /**< [in] event id */
@@ -1114,6 +1111,31 @@ typedef struct
 
 /** @} */ /* end group _mali_uk_pmm */
 #endif /* USING_MALI_PMM */
+
+/** @defgroup _mali_uk_vsync U/K VSYNC Wait Reporting Module
+ * @{ */
+
+/** @brief VSYNC events
+ *
+ * These events are reported when DDK starts to wait for vsync and when the
+ * vsync has occured and the DDK can continue on the next frame.
+ */
+typedef enum _mali_uk_vsync_event
+{
+	_MALI_UK_VSYNC_EVENT_BEGIN_WAIT = 0,
+	_MALI_UK_VSYNC_EVENT_END_WAIT
+} _mali_uk_vsync_event;
+
+/** @brief Arguments to _mali_ukk_vsync_event()
+ *
+ */
+typedef struct
+{
+	void *ctx;                      /**< [in,out] user-kernel context (trashed on output) */
+	_mali_uk_vsync_event event;     /**< [in] VSYNCH event type */
+} _mali_uk_vsync_event_report_s;
+
+/** @} */ /* end group _mali_uk_vsync */
 
 /** @} */ /* end group u_k_api */
 
