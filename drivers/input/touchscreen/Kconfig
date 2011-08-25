@@ -894,4 +894,11 @@ config TOUCHSCREEN_TPS6507X
 	  To compile this driver as a module, choose M here: the
 	  module will be called tps6507x_ts.
 
+config TOUCHSCREEN_UNIDISPLAY_TS
+        tristate "Pixcir capacitive touchscreen driver"
+        depends on I2C
+        help
+          Say Y here if you have a Pixcir capacitive based touchscreen
+          controller.
+
 endif
