@@ -488,6 +488,12 @@ static struct i2c_board_info i2c0_devs[] __initdata = {
 		.platform_data	= &origen_max8997_pdata,
 		.irq		= IRQ_EINT(4),
 	},
+#ifdef CONFIG_TOUCHSCREEN_UNIDISPLAY_TS
+	{
+		I2C_BOARD_INFO("unidisplay_ts", 0x41),
+		.irq = IRQ_TS,
+	},
+#endif
 };
 
 static struct regulator_consumer_supply mmc_supplies[] = {

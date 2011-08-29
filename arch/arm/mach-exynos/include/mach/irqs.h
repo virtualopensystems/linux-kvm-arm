@@ -464,6 +464,7 @@
 #define S5P_GPIOINT_BASE		(S5P_EINT_BASE1 + 32)
 #define IRQ_GPIO_END			(S5P_GPIOINT_BASE + S5P_GPIOINT_COUNT)
 #define IRQ_TIMER_BASE			(IRQ_GPIO_END + 64)
+#define IRQ_TS				(S5P_EINT_BASE1 + 25)
 
 /* Set the default NR_IRQS */
 
