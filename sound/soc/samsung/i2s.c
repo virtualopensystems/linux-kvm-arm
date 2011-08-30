@@ -853,6 +853,8 @@ static int i2s_resume(struct snd_soc_dai *dai)
 		writel(i2s->suspend_i2scon, i2s->addr + I2SCON);
 		writel(i2s->suspend_i2smod, i2s->addr + I2SMOD);
 		writel(i2s->suspend_i2spsr, i2s->addr + I2SPSR);
+	} else {
+		writel(CON_RSTCLR, i2s->addr + I2SCON);
 	}
 
 	return 0;
