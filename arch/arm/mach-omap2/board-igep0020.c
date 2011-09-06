@@ -677,6 +677,7 @@ MACHINE_START(IGEP0020, "IGEP v2 board")
 	.map_io		= omap3_map_io,
 	.init_early	= igep_init_early,
 	.init_irq	= omap3_init_irq,
+	.handle_irq	= omap3_intc_handle_irq,
 	.init_machine	= igep_init,
 	.timer		= &omap3_timer,
 MACHINE_END
@@ -687,6 +688,7 @@ MACHINE_START(IGEP0030, "IGEP OMAP3 module")
 	.map_io		= omap3_map_io,
 	.init_early	= igep_init_early,
 	.init_irq	= omap3_init_irq,
+	.handle_irq	= omap3_intc_handle_irq,
 	.init_machine	= igep_init,
 	.timer		= &omap3_timer,
 MACHINE_END

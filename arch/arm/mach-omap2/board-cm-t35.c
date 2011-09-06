@@ -639,6 +639,7 @@ MACHINE_START(CM_T35, "Compulab CM-T35")
 	.map_io		= omap3_map_io,
 	.init_early	= cm_t35_init_early,
 	.init_irq	= omap3_init_irq,
+	.handle_irq	= omap3_intc_handle_irq,
 	.init_machine	= cm_t35_init,
 	.timer		= &omap3_timer,
 MACHINE_END
@@ -649,6 +650,7 @@ MACHINE_START(CM_T3730, "Compulab CM-T3730")
 	.map_io         = omap3_map_io,
 	.init_early     = cm_t35_init_early,
 	.init_irq       = omap3_init_irq,
+	.handle_irq	= omap3_intc_handle_irq,
 	.init_machine   = cm_t3730_init,
 	.timer          = &omap3_timer,
 MACHINE_END

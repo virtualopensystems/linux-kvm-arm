@@ -138,6 +138,7 @@ MACHINE_START(OMAP_ZOOM2, "OMAP Zoom2 board")
 	.map_io		= omap3_map_io,
 	.init_early	= omap_zoom_init_early,
 	.init_irq	= omap3_init_irq,
+	.handle_irq	= omap3_intc_handle_irq,
 	.init_machine	= omap_zoom_init,
 	.timer		= &omap3_timer,
 MACHINE_END
@@ -148,6 +149,7 @@ MACHINE_START(OMAP_ZOOM3, "OMAP Zoom3 board")
 	.map_io		= omap3_map_io,
 	.init_early	= omap_zoom_init_early,
 	.init_irq	= omap3_init_irq,
+	.handle_irq	= omap3_intc_handle_irq,
 	.init_machine	= omap_zoom_init,
 	.timer		= &omap3_timer,
 MACHINE_END
