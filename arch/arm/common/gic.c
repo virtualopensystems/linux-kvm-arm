@@ -209,6 +209,29 @@ static int gic_set_wake(struct irq_data *d, unsigned int on)
 #define gic_set_wake	NULL
 #endif
 
+asmlinkage void __exception_irq_entry gic_handle_irq(struct pt_regs *regs)
+{
+	u32 irqstat, irqnr;
+
+	do {
+		irqstat = readl_relaxed(gic_cpu_base_addr + GIC_CPU_INTACK);
+		irqnr = irqstat & ~0x1c00;
+
+		if (likely(irqnr > 15 && irqnr < 1021)) {
+			handle_IRQ(irqnr, regs);
+			continue;
+		}
+		if (irqnr < 16) {
+			writel_relaxed(irqstat, gic_cpu_base_addr + GIC_CPU_EOI);
+#ifdef CONFIG_SMP
+			handle_IPI(irqnr, regs);
+#endif
+			continue;
+		}
+		break;
+	} while (1);
+}
+
 static void gic_handle_cascade_irq(unsigned int irq, struct irq_desc *desc)
 {
 	struct gic_chip_data *chip_data = irq_get_handler_data(irq);
