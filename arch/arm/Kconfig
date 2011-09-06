@@ -261,6 +261,7 @@ config ARCH_REALVIEW
 	select PLAT_VERSATILE_CLCD
 	select ARM_TIMER_SP804
 	select GPIO_PL061 if GPIOLIB
+	select MULTI_IRQ_HANDLER
 	help
 	  This enables support for ARM Ltd RealView boards.
 
