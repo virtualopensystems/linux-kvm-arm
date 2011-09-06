@@ -39,7 +39,7 @@
 static DEFINE_SPINLOCK(irq_controller_lock);
 
 /* Address of GIC 0 CPU interface */
-void __iomem *gic_cpu_base_addr __read_mostly;
+static void __iomem *gic_cpu_base_addr __read_mostly;
 
 /*
  * Supported arch specific GIC irq extension.
