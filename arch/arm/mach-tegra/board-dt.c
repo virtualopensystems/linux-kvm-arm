@@ -44,6 +44,7 @@
 #include "board-harmony.h"
 #include "clock.h"
 #include "devices.h"
+#include "common.h"
 
 void harmony_pinmux_init(void);
 void seaboard_pinmux_init(void);
@@ -127,6 +128,7 @@ static const char * tegra_dt_board_compat[] = {
 
 DT_MACHINE_START(TEGRA_DT, "nVidia Tegra (Flattened Device Tree)")
 	.map_io		= tegra_map_common_io,
+	.soc		= &tegra_soc_desc,
 	.init_early	= tegra_init_early,
 	.init_irq	= tegra_init_irq,
 	.timer		= &tegra_timer,
