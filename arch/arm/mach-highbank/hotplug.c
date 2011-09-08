@@ -24,7 +24,7 @@
 
 extern void secondary_startup(void);
 
-int platform_cpu_kill(unsigned int cpu)
+int highbank_cpu_kill(unsigned int cpu)
 {
 	return 1;
 }
@@ -33,7 +33,7 @@ int platform_cpu_kill(unsigned int cpu)
  * platform-specific code to shutdown a CPU
  *
  */
-void platform_cpu_die(unsigned int cpu)
+void highbank_cpu_die(unsigned int cpu)
 {
 	flush_cache_all();
 
@@ -46,7 +46,7 @@ void platform_cpu_die(unsigned int cpu)
 	panic("highbank: cpu %d unexpectedly exit from shutdown\n", cpu);
 }
 
-int platform_cpu_disable(unsigned int cpu)
+int highbank_cpu_disable(unsigned int cpu)
 {
 	/*
 	 * CPU0 should not be shut down via hotplug.  cpu_idle can WFI
