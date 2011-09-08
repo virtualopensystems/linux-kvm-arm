@@ -24,7 +24,7 @@
 
 #include "powerdomain.h"
 
-int platform_cpu_kill(unsigned int cpu)
+int omap4_cpu_kill(unsigned int cpu)
 {
 	return 1;
 }
@@ -33,7 +33,7 @@ int platform_cpu_kill(unsigned int cpu)
  * platform-specific code to shutdown a CPU
  * Called with IRQs disabled
  */
-void platform_cpu_die(unsigned int cpu)
+void omap4_cpu_die(unsigned int cpu)
 {
 	unsigned int this_cpu;
 
@@ -62,7 +62,7 @@ void platform_cpu_die(unsigned int cpu)
 	}
 }
 
-int platform_cpu_disable(unsigned int cpu)
+int omap4_cpu_disable(unsigned int cpu)
 {
 	/*
 	 * we don't allow CPU 0 to be shutdown (it is still too special
