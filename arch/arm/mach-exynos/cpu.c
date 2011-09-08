@@ -33,6 +33,8 @@
 #include <mach/regs-irq.h>
 #include <mach/regs-pmu.h>
 
+#include "core.h"
+
 unsigned int gic_bank_offset __read_mostly;
 
 extern int combiner_init(unsigned int combiner_nr, void __iomem *base,
@@ -296,3 +298,9 @@ int __init exynos_init(void)
 
 	return sysdev_register(&exynos4_sysdev);
 }
+
+struct arm_soc_desc exynos4_soc_desc __initdata = {
+	.name		= "Samsung EXYNOS4",
+	soc_smp_init_ops(exynos4_soc_smp_init_ops)
+	soc_smp_ops(exynos4_soc_smp_ops)
+};
