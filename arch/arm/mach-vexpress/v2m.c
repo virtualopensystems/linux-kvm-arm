@@ -16,6 +16,7 @@
 #include <linux/mtd/physmap.h>
 
 #include <asm/mach-types.h>
+#include <asm/soc.h>
 #include <asm/sizes.h>
 #include <asm/mach/arch.h>
 #include <asm/mach/map.h>
@@ -29,6 +30,7 @@
 #include <mach/motherboard.h>
 
 #include <plat/sched_clock.h>
+#include <plat/platsmp.h>
 
 #include "core.h"
 
@@ -442,8 +444,15 @@ static void __init v2m_init(void)
 	ct_desc->init_tile();
 }
 
+static struct arm_soc_desc vexpress_soc_desc __initdata = {
+	.name		= "ARM VE Platform",
+	soc_smp_init_ops(vexpress_soc_smp_init_ops)
+	soc_smp_ops(vexpress_soc_smp_ops)
+};
+
 MACHINE_START(VEXPRESS, "ARM-Versatile Express")
 	.atag_offset	= 0x100,
+	.soc		= &vexpress_soc_desc,
 	.map_io		= v2m_map_io,
 	.init_early	= v2m_init_early,
 	.init_irq	= v2m_init_irq,
