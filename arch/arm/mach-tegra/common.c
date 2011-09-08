@@ -23,6 +23,7 @@
 #include <linux/delay.h>
 #include <linux/of_irq.h>
 
+#include <asm/soc.h>
 #include <asm/hardware/cache-l2x0.h>
 #include <asm/hardware/gic.h>
 
@@ -32,6 +33,7 @@
 #include "board.h"
 #include "clock.h"
 #include "fuse.h"
+#include "common.h"
 
 #ifdef CONFIG_OF
 static const struct of_device_id tegra_dt_irq_match[] __initconst = {
@@ -108,3 +110,9 @@ void __init tegra30_init_early(void)
 	tegra_init_cache(0x441, 0x551);
 }
 #endif
+
+struct arm_soc_desc tegra_soc_desc __initdata = {
+	.name		= "NVIDIA Tegra",
+	soc_smp_init_ops(tegra_soc_smp_init_ops)
+	soc_smp_ops(tegra_soc_smp_ops)
+};
