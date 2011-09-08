@@ -139,7 +139,14 @@ static const char *highbank_match[] __initconst = {
 	NULL,
 };
 
+static struct arm_soc_desc highbank_soc_desc __initdata = {
+	.name	= "Calxeda Highbank",
+	soc_smp_init_ops(highbank_soc_smp_init_ops)
+	soc_smp_ops(highbank_soc_smp_ops)
+};
+
 DT_MACHINE_START(HIGHBANK, "Highbank")
+	.soc		= &highbank_soc_desc,
 	.map_io		= highbank_map_io,
 	.init_irq	= highbank_init_irq,
 	.timer		= &highbank_timer,
