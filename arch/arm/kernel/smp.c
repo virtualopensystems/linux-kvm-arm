@@ -27,6 +27,7 @@
 #include <linux/completion.h>
 
 #include <linux/atomic.h>
+#include <asm/soc.h>
 #include <asm/cacheflush.h>
 #include <asm/cpu.h>
 #include <asm/cputype.h>
@@ -127,8 +128,76 @@ int __cpuinit __cpu_up(unsigned int cpu)
 	return ret;
 }
 
+/* SoC helpers */
+static const struct arm_soc_smp_init_ops *soc_smp_init_ops  __initdata;
+static const struct arm_soc_smp_ops *soc_smp_ops  __cpuinitdata;
+static struct arm_soc_smp_ops __soc_smp_ops __cpuinitdata;
+
+void __init soc_smp_ops_register(struct arm_soc_smp_init_ops *smp_init_ops,
+				 struct arm_soc_smp_ops *smp_ops)
+{
+	if (smp_init_ops)
+		soc_smp_init_ops = smp_init_ops;
+
+	/*
+	 * Warning: we're copying an __initdata structure into a
+	 * __cpuinitdata structure. We *know* it is valid because only
+	 * __cpuinit (or more persistant) functions should be pointed
+	 * to by soc_smp_ops. Still, this is borderline ugly.
+	 */
+	if (smp_ops) {
+		__soc_smp_ops = *smp_ops;
+		soc_smp_ops = &__soc_smp_ops;
+	}
+}
+
+void __attribute__((weak)) __init smp_init_cpus(void)
+{
+	if (soc_smp_init_ops && soc_smp_init_ops->smp_init_cpus)
+		soc_smp_init_ops->smp_init_cpus();
+}
+
+void __attribute__((weak)) __init platform_smp_prepare_cpus(unsigned int max_cpus)
+{
+	if (soc_smp_ops && soc_smp_init_ops->smp_prepare_cpus)
+		soc_smp_init_ops->smp_prepare_cpus(max_cpus);
+}
+
+void __attribute__((weak)) __cpuinit platform_secondary_init(unsigned int cpu)
+{
+	if (soc_smp_ops && soc_smp_ops->smp_secondary_init)
+		soc_smp_ops->smp_secondary_init(cpu);
+}
+
+int __attribute__((weak)) __cpuinit boot_secondary(unsigned int cpu, struct task_struct *idle)
+{
+	if (soc_smp_ops && soc_smp_ops->smp_boot_secondary)
+		return soc_smp_ops->smp_boot_secondary(cpu, idle);
+	return -ENOSYS;
+}
+
 #ifdef CONFIG_HOTPLUG_CPU
 static void percpu_timer_stop(void);
+
+int __attribute__((weak)) __cpuinit platform_cpu_kill(unsigned int cpu)
+{
+	if (soc_smp_ops && soc_smp_ops->cpu_kill)
+		return soc_smp_ops->cpu_kill(cpu);
+	return 0;
+}
+
+void __attribute__((weak)) __cpuinit platform_cpu_die(unsigned int cpu)
+{
+	if (soc_smp_ops && soc_smp_ops->cpu_die)
+		soc_smp_ops->cpu_die(cpu);
+}
+
+int __attribute__((weak)) __cpuinit platform_cpu_disable(unsigned int cpu)
+{
+	if (soc_smp_ops && soc_smp_ops->cpu_disable)
+		return soc_smp_ops->cpu_disable(cpu);
+	return -EPERM;
+}
 
 /*
  * __cpu_disable runs on the processor to be shutdown.

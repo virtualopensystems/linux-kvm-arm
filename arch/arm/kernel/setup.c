@@ -914,6 +914,7 @@ void __init setup_arch(char **cmdline_p)
 	if (mdesc->soc) {
 		soc_desc = mdesc->soc;
 		pr_info("SoC: %s\n", soc_desc->name);
+		soc_smp_ops_register(soc_desc->smp_init_ops, soc_desc->smp_ops);
 	} else
 		soc_desc = NULL;
 
