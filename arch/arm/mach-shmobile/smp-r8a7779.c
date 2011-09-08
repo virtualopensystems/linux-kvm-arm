@@ -77,7 +77,7 @@ static void modify_scu_cpu_psr(unsigned long set, unsigned long clr)
 	__raw_writel(tmp, scu_base + 8);
 }
 
-unsigned int __init r8a7779_get_core_count(void)
+static unsigned int __init r8a7779_get_core_count(void)
 {
 	void __iomem *scu_base = scu_base_addr();
 
@@ -108,12 +108,12 @@ int r8a7779_platform_cpu_kill(unsigned int cpu)
 	return ret ? ret : 1;
 }
 
-void __cpuinit r8a7779_secondary_init(unsigned int cpu)
+static void __cpuinit r8a7779_secondary_init(unsigned int cpu)
 {
 	gic_secondary_init(0);
 }
 
-int __cpuinit r8a7779_boot_secondary(unsigned int cpu)
+static int __cpuinit r8a7779_boot_secondary(unsigned int cpu, struct task_struct *idle)
 {
 	struct r8a7779_pm_ch *ch = NULL;
 	int ret = -EIO;
@@ -132,7 +132,7 @@ int __cpuinit r8a7779_boot_secondary(unsigned int cpu)
 	return ret;
 }
 
-void __init r8a7779_smp_prepare_cpus(void)
+static void __init r8a7779_smp_prepare_cpus(unsigned int max_cpus)
 {
 	int cpu = cpu_logical_map(0);
 
@@ -151,3 +151,35 @@ void __init r8a7779_smp_prepare_cpus(void)
 	r8a7779_platform_cpu_kill(2);
 	r8a7779_platform_cpu_kill(3);
 }
+
+static void __init r8a7779_smp_init_cpus(void)
+{
+	unsigned int ncores = r8a7779_get_core_count();
+	unsigned int i;
+
+	if (ncores > nr_cpu_ids) {
+		pr_warn("SMP: %u cores greater than maximum (%u), clipping\n",
+			ncores, nr_cpu_ids);
+		ncores = nr_cpu_ids;
+	}
+
+	for (i = 0; i < ncores; i++)
+		set_cpu_possible(i, true);
+
+	set_smp_cross_call(gic_raise_softirq);
+}
+
+struct arm_soc_smp_init_ops r8a7779_soc_smp_init_ops __initdata = {
+	.smp_init_cpus		= r8a7779_smp_init_cpus,
+	.smp_prepare_cpus	= r8a7779_smp_prepare_cpus,
+};
+
+struct arm_soc_smp_ops r8a7779_soc_smp_ops __initdata = {
+	.smp_secondary_init	= r8a7779_secondary_init,
+	.smp_boot_secondary	= r8a7779_boot_secondary,
+#ifdef CONFIG_HOTPLUG_CPU
+	.cpu_kill		= shmobile_cpu_kill,
+	.cpu_die		= shmobile_cpu_die,
+	.cpu_disable		= shmobile_cpu_disable,
+#endif
+};

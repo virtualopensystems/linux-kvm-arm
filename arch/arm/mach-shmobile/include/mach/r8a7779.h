@@ -360,4 +360,10 @@ extern void r8a7779_add_device_to_domain(struct r8a7779_pm_domain *r8a7779_pd,
 #define r8a7779_add_device_to_domain(pd, pdev) do { } while (0)
 #endif /* CONFIG_PM */
 
+#include <asm/soc.h>
+
+extern struct arm_soc_smp_init_ops r8a7779_soc_smp_init_ops;
+extern struct arm_soc_smp_ops r8a7779_soc_smp_ops;
+extern struct arm_soc_desc r8a7779_soc_desc;
+
 #endif /* __ASM_R8A7779_H__ */
