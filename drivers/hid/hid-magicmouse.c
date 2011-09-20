@@ -568,6 +568,7 @@ static struct hid_driver magicmouse_driver = {
 	.remove = magicmouse_remove,
 	.raw_event = magicmouse_raw_event,
 	.input_mapping = magicmouse_input_mapping,
+	.input_register = magicmouse_setup_input,
 };
 
 static int __init magicmouse_init(void)
