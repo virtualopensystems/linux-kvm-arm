@@ -19,6 +19,7 @@
 #include "mali_osk.h"           /* kernel side OS functions */
 #include "mali_uk_types.h"
 #include "mali_kernel_linux.h"  /* exports initialize/terminate_kernel_device() */
+#include <mach/irqs.h>
 #include <mach/mali/config.h>   /* contains the configuration of the arch we are compiling for */
 
 /* is called from mali_kernel_constructor in common code */
