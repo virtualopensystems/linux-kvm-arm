@@ -10,12 +10,12 @@
 
 OSKOS :=linux
 FILES_PREFIX=
-MALI_FILE_PREFIX := drivers/gpu/arm/mali
+MALI_FILE_PREFIX := $(srctree)/drivers/gpu/arm/mali
 KBUILDROOT =
 
 # Add platform configuration file for Mali
 ifeq ($(CONFIG_ARCH_EXYNOS4),y)
-MACHDIR  := arch/arm/mach-exynos4
+MACHDIR  := $(srctree)/arch/arm/mach-exynos4
 MALICONFIGDIR :=$(MACHDIR)/include/mach/mali
 endif
 
