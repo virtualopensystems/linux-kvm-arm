@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010 ARM Limited. All rights reserved.
+ * Copyright (C) 2010-2011 ARM Limited. All rights reserved.
  * 
  * This program is free software and is provided to you under the terms of the GNU General Public License version 2
  * as published by the Free Software Foundation, and any use by you of this program is subject to the terms of such GNU licence.
@@ -184,6 +184,7 @@ _mali_osk_errcode_t pmm_policy_process_job_control( _mali_pmm_internal_state_t *
 			break;
 
 		case MALI_PMM_EVENT_JOB_SCHEDULED:
+
 			/* Update idle cores to indicate active - remove these! */
 			pmm_cores_set_active( pmm, cores );
 			/* Remember when this happened */
@@ -195,6 +196,7 @@ _mali_osk_errcode_t pmm_policy_process_job_control( _mali_pmm_internal_state_t *
 			/*** FALL THROUGH to QUEUED to check POWER UP ***/
 
 		case MALI_PMM_EVENT_JOB_QUEUED:
+		
 			pmm_policy_job_control_job_queued( pmm );
 #if MALI_POWER_MGMT_TEST_SUITE
 			_mali_osk_pmm_policy_events_notifications(MALI_PMM_EVENT_JOB_QUEUED);
@@ -202,22 +204,24 @@ _mali_osk_errcode_t pmm_policy_process_job_control( _mali_pmm_internal_state_t *
 			break;
 		
 		case MALI_PMM_EVENT_DVFS_PAUSE:
-			pmm->is_dvfs_active = 1;
+
 			cores_subset = pmm_cores_to_power_down( pmm, cores, MALI_FALSE );
 			if ( cores_subset != 0 )
 			{
 				if ( !pmm_power_down_okay( pmm ) )
 				{
+					pmm->is_dvfs_active = 1;
 					pmm->status = MALI_PMM_STATUS_OS_POWER_DOWN;
+					pmm_save_os_event_data( pmm, event->data );
 					break;
 				}
 			}
-			pmm->is_dvfs_active = 0;
 			pmm->status = MALI_PMM_STATUS_DVFS_PAUSE;
 			_mali_osk_pmm_dvfs_operation_done( 0 );
 			break;
 
 		case MALI_PMM_EVENT_OS_POWER_DOWN:
+
 			/* Need to power down all cores even if we need to wait for them */
 			cores_subset = pmm_cores_to_power_down( pmm, cores, MALI_FALSE );
 			if( cores_subset != 0 )
@@ -226,6 +230,7 @@ _mali_osk_errcode_t pmm_policy_process_job_control( _mali_pmm_internal_state_t *
 				if( !pmm_invoke_power_down( pmm ) )
 				{
 					/* We need to wait until they are idle */
+					
 					pmm->status = MALI_PMM_STATUS_OS_POWER_DOWN;
 					/* Save the OS data to respond later */
 					pmm_save_os_event_data( pmm, event->data );
@@ -240,6 +245,7 @@ _mali_osk_errcode_t pmm_policy_process_job_control( _mali_pmm_internal_state_t *
 			break;
 
 		case MALI_PMM_EVENT_JOB_FINISHED:
+
 			/* Update idle cores - add these! */
 			pmm_cores_set_idle( pmm, cores );
 #if MALI_POWER_MGMT_TEST_SUITE
@@ -256,6 +262,7 @@ _mali_osk_errcode_t pmm_policy_process_job_control( _mali_pmm_internal_state_t *
 			/*** FALL THROUGH to TIMEOUT TEST as NO TIMEOUT ***/
 
 		case MALI_PMM_EVENT_TIMEOUT:
+
 			/* Main job control policy - turn off cores after inactivity */
 			if( job_control_timeout_valid( pmm, &data_job_control->latency, (u32)event->data ) )
  			{
@@ -292,11 +299,12 @@ _mali_osk_errcode_t pmm_policy_process_job_control( _mali_pmm_internal_state_t *
 		switch ( event->id )
 		{
 		case MALI_PMM_EVENT_DVFS_RESUME:
-			/* Set idle status */
-			pmm->status = MALI_PMM_STATUS_IDLE;
+
 			if ( pmm->cores_powered !=0)
 			{
+				pmm->cores_ack_down =0;
 				pmm_power_down_cancel( pmm );
+				pmm->status = MALI_PMM_STATUS_IDLE;
 			}
 			else
 			{
@@ -308,11 +316,6 @@ _mali_osk_errcode_t pmm_policy_process_job_control( _mali_pmm_internal_state_t *
 		case MALI_PMM_EVENT_OS_POWER_DOWN:
 			/* Set waiting status */
 			pmm->status = MALI_PMM_STATUS_OS_WAITING;
-			if ( pmm->is_dvfs_active == 1 )
-			{
-				pmm->is_dvfs_active = 0;
-				_mali_osk_pmm_dvfs_operation_done( 0 );
-			}
 			if ( pmm->cores_powered != 0)
 			{
 				if( pmm_invoke_power_down( pmm ) )
@@ -362,12 +365,17 @@ _mali_osk_errcode_t pmm_policy_process_job_control( _mali_pmm_internal_state_t *
 		{
 
 		case MALI_PMM_EVENT_INTERNAL_POWER_DOWN_ACK:
+			
 			pmm_cores_set_down_ack( pmm, cores );
+			
 			if ( pmm->is_dvfs_active == 1 )
 			{
+				if( pmm_power_down_okay( pmm ) )
+				{
+					pmm->is_dvfs_active = 0;
 				pmm->status = MALI_PMM_STATUS_DVFS_PAUSE;
-				pmm->is_dvfs_active = 0;
-				_mali_osk_pmm_dvfs_operation_done( 0 );
+					_mali_osk_pmm_dvfs_operation_done( pmm_retrieve_os_event_data( pmm ) );
+				}
 				break;
 			}
 			

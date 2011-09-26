@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010 ARM Limited. All rights reserved.
+ * Copyright (C) 2010-2011 ARM Limited. All rights reserved.
  * 
  * This program is free software and is provided to you under the terms of the GNU General Public License version 2
  * as published by the Free Software Foundation, and any use by you of this program is subject to the terms of such GNU licence.
@@ -178,6 +178,8 @@ _mali_osk_errcode_t _ump_ukk_allocate( _ump_uk_allocate_s *user_interaction )
 	new_allocation->ctx = device.backend->ctx;
 	new_allocation->release_func = device.backend->release;
 
+	_mali_osk_lock_signal(device.secure_id_map_lock, _MALI_OSK_LOCKMODE_RW);
+
 	/* Initialize the session_memory_element, and add it to the session object */
 	session_memory_element->mem = new_allocation;
 	_mali_osk_lock_wait(session_data->lock, _MALI_OSK_LOCKMODE_RW);
@@ -187,8 +189,6 @@ _mali_osk_errcode_t _ump_ukk_allocate( _ump_uk_allocate_s *user_interaction )
 	user_interaction->secure_id = new_allocation->secure_id;
 	user_interaction->size = new_allocation->size_bytes;
 	DBG_MSG(3, ("UMP memory allocated. ID: %u, size: %lu\n", new_allocation->secure_id, new_allocation->size_bytes));
-
-	_mali_osk_lock_signal(device.secure_id_map_lock, _MALI_OSK_LOCKMODE_RW);
 
 	return _MALI_OSK_ERR_OK;
 }

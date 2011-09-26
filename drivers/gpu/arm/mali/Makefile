@@ -72,6 +72,7 @@ USING_MALI_RUN_TIME_PM ?= 0
 USING_MALI_PMM_TESTSUITE ?= 0
 USING_PROFILING ?= 0
 TIMESTAMP ?= default
+TARGET_PLATFORM ?= default
 
 ifeq ($(USING_UMP),1)
 	UMP_SYMVERS_FILE = ../ump/Module.symvers
@@ -92,16 +93,11 @@ DEFINES += -DMALI_TIMELINE_PROFILING_ENABLED=$(USING_PROFILING)
 DEFINES += -DMALI_POWER_MGMT_TEST_SUITE=$(USING_MALI_PMM_TESTSUITE)
 DEFINES += -DMALI_PMM_RUNTIME_JOB_CONTROL_ON=$(USING_MALI_RUN_TIME_PM)
 
-MALI_PLATFORM_FILE = platform/default/mali_platform.o
-
 ifneq ($(call submodule_enabled, $M, PMU),0)
         MALI_PLATFORM_FILE = platform/mali400-pmu/mali_platform.o
+else
+        MALI_PLATFORM_FILE = platform/$(TARGET_PLATFORM)/mali_platform.o
 endif
-
-ifeq ($(USING_MALI_RUN_TIME_PM),1)
-	MALI_PLATFORM_FILE = platform/mali-runtimepm/mali_platform.o
-endif
-
 
 DEFINES += -DUSING_MALI_PMM=$(USING_PMM)
 DEFINES += -DMALI_GPU_UTILIZATION=$(USING_GPU_UTILIZATION)

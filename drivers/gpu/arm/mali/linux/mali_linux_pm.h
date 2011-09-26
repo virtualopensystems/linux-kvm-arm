@@ -1,6 +1,6 @@
 
 /*
- * Copyright (C) 2010 ARM Limited. All rights reserved.
+ * Copyright (C) 2010-2011 ARM Limited. All rights reserved.
  * 
  * This program is free software and is provided to you under the terms of the GNU General Public License version 2
  * as published by the Free Software Foundation, and any use by you of this program is subject to the terms of such GNU licence.
@@ -35,7 +35,6 @@ typedef enum
 	_MALI_DVFS_RESUME_EVENT,                                        /* DVFS Resume event */
 	_MALI_MAX_DEBUG_OPERATIONS,
 } _mali_device_dvfs_events;
-
 
 extern _mali_device_power_states mali_device_state;
 extern _mali_device_power_states mali_dvfs_device_state;

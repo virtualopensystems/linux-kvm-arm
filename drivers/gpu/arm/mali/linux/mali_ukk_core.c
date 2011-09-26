@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010 ARM Limited. All rights reserved.
+ * Copyright (C) 2010-2011 ARM Limited. All rights reserved.
  * 
  * This program is free software and is provided to you under the terms of the GNU General Public License version 2
  * as published by the Free Software Foundation, and any use by you of this program is subject to the terms of such GNU licence.
@@ -101,21 +101,42 @@ int wait_for_notification_wrapper(struct mali_session_data *session_data, _mali_
 
     MALI_CHECK_NON_NULL(uargs, -EINVAL);
 
-    if (0 != get_user(kargs.code.timeout, &uargs->code.timeout)) return -EFAULT;
-
     kargs.ctx = session_data;
     err = _mali_ukk_wait_for_notification(&kargs);
     if (_MALI_OSK_ERR_OK != err) return map_errcode(err);
 
-    if( !(_MALI_NOTIFICATION_CORE_TIMEOUT == kargs.code.type || _MALI_NOTIFICATION_CORE_SHUTDOWN_IN_PROGRESS == kargs.code.type ) )
+    if( !(_MALI_NOTIFICATION_CORE_TIMEOUT == kargs.type || _MALI_NOTIFICATION_CORE_SHUTDOWN_IN_PROGRESS == kargs.type ) )
 	{
 		kargs.ctx = NULL; /* prevent kernel address to be returned to user space */
 		if (0 != copy_to_user(uargs, &kargs, sizeof(_mali_uk_wait_for_notification_s))) return -EFAULT;
 	}
 	else
 	{
-		if (0 != put_user(kargs.code.type, &uargs->code.type)) return -EFAULT;
+		if (0 != put_user(kargs.type, &uargs->type)) return -EFAULT;
 	}
 
     return 0;
+}
+
+int post_notification_wrapper(struct mali_session_data *session_data, _mali_uk_post_notification_s __user *uargs)
+{
+	_mali_uk_post_notification_s kargs;
+	_mali_osk_errcode_t err;
+
+	MALI_CHECK_NON_NULL(uargs, -EINVAL);
+
+	kargs.ctx = session_data;
+
+	if (0 != get_user(kargs.type, &uargs->type))
+	{
+		return -EFAULT;
+	}
+
+	err = _mali_ukk_post_notification(&kargs);
+	if (_MALI_OSK_ERR_OK != err)
+	{
+		return map_errcode(err);
+	}
+
+	return 0;
 }

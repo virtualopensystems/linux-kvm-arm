@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010 ARM Limited. All rights reserved.
+ * Copyright (C) 2010-2011 ARM Limited. All rights reserved.
  * 
  * This program is free software and is provided to you under the terms of the GNU General Public License version 2
  * as published by the Free Software Foundation, and any use by you of this program is subject to the terms of such GNU licence.
@@ -29,6 +29,11 @@
 static _mali_pmm_internal_state_t *pmm_state = NULL;
 /* Mali kernel subsystem id */
 static mali_kernel_subsystem_identifier mali_subsystem_pmm_id = -1;
+
+/* lock for SMP */
+#ifdef CONFIG_SMP
+_mali_osk_lock_t *mali_pmm_lock;
+#endif /* CONFIG_SMP */
 
 #define GET_PMM_STATE_PTR (pmm_state)
 
@@ -485,7 +490,7 @@ _mali_osk_errcode_t malipmm_create(_mali_osk_resource_t *resource)
 	if( !pmm_state->iqueue ) goto pmm_fail_cleanup;
 
 	/* We are creating an IRQ handler just for the worker thread it gives us */
-	pmm_state->irq = _mali_osk_irq_init( _MALI_OSK_IRQ_NUMBER_FAKE,
+	pmm_state->irq = _mali_osk_irq_init( _MALI_OSK_IRQ_NUMBER_PMM,
 		malipmm_irq_uhandler,
 		malipmm_irq_bhandler,
 		NULL,
@@ -494,6 +499,10 @@ _mali_osk_errcode_t malipmm_create(_mali_osk_resource_t *resource)
 		"PMM handler" );
 
 	if( !pmm_state->irq ) goto pmm_fail_cleanup;
+#ifdef CONFIG_SMP
+	mali_pmm_lock  = _mali_osk_lock_init((_mali_osk_lock_flags_t)( _MALI_OSK_LOCKFLAG_READERWRITER | _MALI_OSK_LOCKFLAG_ORDERED), 0, 0);
+	if( !mali_pmm_lock ) goto pmm_fail_cleanup;
+#endif /* CONFIG_SMP */
 
 	pmm_state->lock = _mali_osk_lock_init((_mali_osk_lock_flags_t)(_MALI_OSK_LOCKFLAG_READERWRITER | _MALI_OSK_LOCKFLAG_ORDERED), 0, 75);
 	if( !pmm_state->lock ) goto pmm_fail_cleanup;
@@ -558,10 +567,15 @@ void malipmm_kernel_subsystem_terminate( mali_kernel_subsystem_identifier id )
 		MALI_PMM_UNLOCK(pmm_state);
 		pmm_policy_term(pmm_state);
 		_mali_osk_irq_term( pmm_state->irq );
+#ifdef CONFIG_SMP
+                _mali_osk_lock_term(mali_pmm_lock);
+#endif /* CONFIG_SMP */
+
 		_mali_osk_notification_queue_term( pmm_state->queue );
 		_mali_osk_notification_queue_term( pmm_state->iqueue );
 		if( pmm_state->pmu_initialized ) mali_platform_deinit(&t);
 		_mali_osk_atomic_term( &(pmm_state->messages_queued) );
+		MALI_PMM_LOCK_TERM(pmm_state);
 		_mali_osk_free(pmm_state);
 		pmm_state = NULL; 
 	}
@@ -708,12 +722,18 @@ void malipmm_irq_bhandler(void *data)
 	if( power_test_check() ) return;
 #endif
 
+#ifdef CONFIG_SMP
+	_mali_osk_lock_wait( mali_pmm_lock, _MALI_OSK_LOCKMODE_RW );
+#endif /* CONFIG_SMP */
 	MALI_PMM_LOCK(pmm);
 
 	/* Quick out when we are shutting down */
 	if( pmm->status == MALI_PMM_STATUS_OFF )
 	{
 		MALI_PMM_UNLOCK(pmm);
+#ifdef CONFIG_SMP
+		_mali_osk_lock_signal( mali_pmm_lock, _MALI_OSK_LOCKMODE_RW );
+#endif /* CONFIG_SMP */
 		return;
 	}
 
@@ -742,9 +762,10 @@ void malipmm_irq_bhandler(void *data)
 	}
 
 	MALI_PMM_UNLOCK(pmm);
+#ifdef CONFIG_SMP
+	_mali_osk_lock_signal(mali_pmm_lock, _MALI_OSK_LOCKMODE_RW );
+#endif /* CONFIG_SMP */
 }
-
-#define MAX_PROCESS_EVENTS 5
 
 static void pmm_event_process( void )
 {
@@ -761,12 +782,11 @@ static void pmm_event_process( void )
 	 * processing the messages for a long time
 	 */
 	process_messages = _mali_osk_atomic_read( &(pmm->messages_queued) );
-	if( process_messages > MAX_PROCESS_EVENTS ) process_messages = MAX_PROCESS_EVENTS;
 
 	while( process_messages > 0 )
 	{
 		/* Check internal message queue first */
-		err = _mali_osk_notification_queue_receive( pmm->iqueue, 0, &msg );
+		err = _mali_osk_notification_queue_dequeue( pmm->iqueue, &msg );
 
 		if( err != _MALI_OSK_ERR_OK )
 		{
@@ -775,7 +795,7 @@ static void pmm_event_process( void )
 				if( pmm->waiting > 0 ) pmm->waiting--;
 
 				/* We aren't busy changing state, so look at real events */
-				err = _mali_osk_notification_queue_receive( pmm->queue, 0, &msg );
+				err = _mali_osk_notification_queue_dequeue( pmm->queue, &msg );
 
 				if( err != _MALI_OSK_ERR_OK )
 				{
@@ -821,6 +841,13 @@ static void pmm_event_process( void )
 		#endif
 		err = pmm_policy_process( pmm, event );
 
+		
+		if( err != _MALI_OSK_ERR_OK )
+		{
+			MALI_PRINT_ERROR( ("PMM: Error(%d) in policy %d when processing event message with id: %d", 
+					err, pmm->policy, event->id) );
+		}
+		
 		/* Delete notification */
 		_mali_osk_notification_delete ( msg );
 
@@ -830,11 +857,6 @@ static void pmm_event_process( void )
 			return;
 		}
 
-		if( err != _MALI_OSK_ERR_OK )
-		{
-			MALI_PRINT_ERROR( ("PMM: Error(%d) in policy %d when processing event message with id: %d", 
-					err, pmm->policy, event->id) );
-		}
 			
 		#if MALI_PMM_TRACE
 			MALI_PRINT( ("PMM Trace: Event processed, msgs (sent/read) = %d/%d, int msgs (sent/read) = %d/%d, no events = %d, waiting = %d\n", 

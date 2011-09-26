@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010 ARM Limited. All rights reserved.
+ * Copyright (C) 2010-2011 ARM Limited. All rights reserved.
  * 
  * This program is free software and is provided to you under the terms of the GNU General Public License version 2
  * as published by the Free Software Foundation, and any use by you of this program is subject to the terms of such GNU licence.
@@ -73,6 +73,7 @@ typedef enum
     _MALI_UK_GET_SYSTEM_INFO,             /**< _mali_ukk_get_system_info() */
     _MALI_UK_WAIT_FOR_NOTIFICATION,       /**< _mali_ukk_wait_for_notification() */
     _MALI_UK_GET_API_VERSION,             /**< _mali_ukk_get_api_version() */
+    _MALI_UK_POST_NOTIFICATION,           /**< _mali_ukk_post_notification() */
 
 	/** Memory functions */
 
@@ -614,6 +615,7 @@ typedef enum
 
 	_MALI_NOTIFICATION_CORE_TIMEOUT =               (_MALI_UK_CORE_SUBSYSTEM << 16) | 0x10,
 	_MALI_NOTIFICATION_CORE_SHUTDOWN_IN_PROGRESS =  (_MALI_UK_CORE_SUBSYSTEM << 16) | 0x20,
+	_MALI_NOTIFICATION_APPLICATION_QUIT =           (_MALI_UK_CORE_SUBSYSTEM << 16) | 0x40,
 
 	/** Fragment Processor notifications */
 
@@ -684,14 +686,8 @@ typedef enum
  */
 typedef struct
 {
-    void *ctx;                      /**< [in,out] user-kernel context (trashed on output) */
-	union
-	{
-        /** [in] Number of milliseconds we should wait for a notification */
-		u32 timeout;
-        /** [out] Type of notification available */
-		_mali_uk_notification_type type;
-	} code;
+    void *ctx;                       /**< [in,out] user-kernel context (trashed on output) */
+	_mali_uk_notification_type type; /**< [out] Type of notification available */
     union
     {
         _mali_uk_gp_job_suspended_s gp_job_suspended;/**< [out] Notification data for _MALI_NOTIFICATION_GP_STALLED notification type */
@@ -699,6 +695,17 @@ typedef struct
         _mali_uk_pp_job_finished_s  pp_job_finished; /**< [out] Notification data for _MALI_NOTIFICATION_PP_FINISHED notification type */
     } data;
 } _mali_uk_wait_for_notification_s;
+
+/** @brief Arguments for _mali_ukk_post_notification()
+ *
+ * Posts the specified notification to the notification queue for this application.
+ * This is used to send a quit message to the callback thread.
+ */
+typedef struct
+{
+    void *ctx;                       /**< [in,out] user-kernel context (trashed on output) */
+	_mali_uk_notification_type type; /**< [in] Type of notification to post */
+} _mali_uk_post_notification_s;
 /** @} */ /* end group _mali_uk_waitfornotification_s */
 
 /** @defgroup _mali_uk_getapiversion_s Get API Version
@@ -729,7 +736,7 @@ typedef struct
  * The 16bit integer is stored twice in a 32bit integer
  * For example, for version 1 the value would be 0x00010001
  */
-#define _MALI_API_VERSION 6
+#define _MALI_API_VERSION 7
 #define _MALI_UK_API_VERSION _MAKE_VERSION_ID(_MALI_API_VERSION)
 
 /**

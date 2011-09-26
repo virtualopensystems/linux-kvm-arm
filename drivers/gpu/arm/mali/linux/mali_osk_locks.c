@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010 ARM Limited. All rights reserved.
+ * Copyright (C) 2010-2011 ARM Limited. All rights reserved.
  * 
  * This program is free software and is provided to you under the terms of the GNU General Public License version 2
  * as published by the Free Software Foundation, and any use by you of this program is subject to the terms of such GNU licence.
@@ -39,6 +39,7 @@
 typedef enum
 {
 	_MALI_OSK_INTERNAL_LOCKTYPE_SPIN,            /* Mutex, implicitly non-interruptable, use spin_lock/spin_unlock */
+	_MALI_OSK_INTERNAL_LOCKTYPE_SPIN_IRQ,        /* Mutex, IRQ version of spinlock, use spin_lock_irqsave/spin_unlock_irqrestore */
 	_MALI_OSK_INTERNAL_LOCKTYPE_MUTEX,           /* Interruptable, use up()/down_interruptable() */
 	_MALI_OSK_INTERNAL_LOCKTYPE_MUTEX_NONINT,    /* Non-Interruptable, use up()/down() */
 	_MALI_OSK_INTERNAL_LOCKTYPE_MUTEX_NONINT_RW, /* Non-interruptable, Reader/Writer, use {up,down}{read,write}() */
@@ -56,6 +57,7 @@ typedef enum
 struct _mali_osk_lock_t_struct
 {
     _mali_osk_internal_locktype type;
+	unsigned long flags; 
     union
     {
         spinlock_t spinlock;
@@ -76,12 +78,13 @@ _mali_osk_lock_t *_mali_osk_lock_init( _mali_osk_lock_flags_t flags, u32 initial
 	/* Validate parameters: */
 	/* Flags acceptable */
 	MALI_DEBUG_ASSERT( 0 == ( flags & ~(_MALI_OSK_LOCKFLAG_SPINLOCK
+									  | _MALI_OSK_LOCKFLAG_SPINLOCK_IRQ
 									  | _MALI_OSK_LOCKFLAG_NONINTERRUPTABLE
 									  | _MALI_OSK_LOCKFLAG_READERWRITER
 									  | _MALI_OSK_LOCKFLAG_ORDERED
 									  | _MALI_OSK_LOCKFLAG_ONELOCK)) );
 	/* Spinlocks are always non-interruptable */
-	MALI_DEBUG_ASSERT( ((flags & _MALI_OSK_LOCKFLAG_SPINLOCK) && (flags & _MALI_OSK_LOCKFLAG_NONINTERRUPTABLE))
+	MALI_DEBUG_ASSERT( (((flags & _MALI_OSK_LOCKFLAG_SPINLOCK) || (flags & _MALI_OSK_LOCKFLAG_SPINLOCK_IRQ)) && (flags & _MALI_OSK_LOCKFLAG_NONINTERRUPTABLE))
 					 || !(flags & _MALI_OSK_LOCKFLAG_SPINLOCK) );
 	/* Parameter initial SBZ - for future expansion */
 	MALI_DEBUG_ASSERT( 0 == initial );
@@ -100,6 +103,12 @@ _mali_osk_lock_t *_mali_osk_lock_init( _mali_osk_lock_flags_t flags, u32 initial
 	{
 		/* Non-interruptable Spinlocks override all others */
 		lock->type = _MALI_OSK_INTERNAL_LOCKTYPE_SPIN;
+		spin_lock_init( &lock->obj.spinlock );
+	}
+	else if ( (flags & _MALI_OSK_LOCKFLAG_SPINLOCK_IRQ ) )
+	{
+		lock->type = _MALI_OSK_INTERNAL_LOCKTYPE_SPIN_IRQ;
+		lock->flags = 0;
 		spin_lock_init( &lock->obj.spinlock );
 	}
 	else if ( (flags & _MALI_OSK_LOCKFLAG_NONINTERRUPTABLE)
@@ -153,6 +162,9 @@ _mali_osk_errcode_t _mali_osk_lock_wait( _mali_osk_lock_t *lock, _mali_osk_lock_
 	{
 	case _MALI_OSK_INTERNAL_LOCKTYPE_SPIN:
 		spin_lock(&lock->obj.spinlock);
+		break;
+	case _MALI_OSK_INTERNAL_LOCKTYPE_SPIN_IRQ:
+		spin_lock_irqsave(&lock->obj.spinlock, lock->flags);
 		break;
 
 	case _MALI_OSK_INTERNAL_LOCKTYPE_MUTEX:
@@ -222,6 +234,9 @@ void _mali_osk_lock_signal( _mali_osk_lock_t *lock, _mali_osk_lock_mode_t mode )
 	{
 	case _MALI_OSK_INTERNAL_LOCKTYPE_SPIN:
 		spin_unlock(&lock->obj.spinlock);
+		break;
+	case _MALI_OSK_INTERNAL_LOCKTYPE_SPIN_IRQ:
+		spin_unlock_irqrestore(&lock->obj.spinlock, lock->flags);
 		break;
 
 	case _MALI_OSK_INTERNAL_LOCKTYPE_MUTEX:

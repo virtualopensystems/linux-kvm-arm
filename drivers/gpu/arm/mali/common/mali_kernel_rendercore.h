@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010 ARM Limited. All rights reserved.
+ * Copyright (C) 2010-2011 ARM Limited. All rights reserved.
  * 
  * This program is free software and is provided to you under the terms of the GNU General Public License version 2
  * as published by the Free Software Foundation, and any use by you of this program is subject to the terms of such GNU licence.
@@ -145,6 +145,7 @@ typedef struct mali_core_renderunit
 	_mali_osk_list_t list;                  /* Is always in subsystem->idle_list OR session->renderunits_working */
 	mali_core_status  state;
 	mali_bool error_recovery;               /* Indicates if the core is waiting for external help to recover (typically the MMU) */
+	mali_bool in_detach_function;
 	struct mali_core_job * current_job;     /* Current job being processed on this core ||NULL */
 	u32 magic_nr;
  	_mali_osk_timer_t * timer;

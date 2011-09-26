@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010 ARM Limited. All rights reserved.
+ * Copyright (C) 2010-2011 ARM Limited. All rights reserved.
  * 
  * This program is free software and is provided to you under the terms of the GNU General Public License version 2
  * as published by the Free Software Foundation, and any use by you of this program is subject to the terms of such GNU licence.
@@ -1247,14 +1247,12 @@ static void mali_kernel_mmu_bus_reset(mali_kernel_memory_mmu * mmu)
 	mali_mmu_register_write(mmu, MALI_MMU_REGISTER_DTE_ADDR, mali_empty_page_directory); /* no session is active, so just activate the empty page directory */
 	mali_mmu_register_write(mmu, MALI_MMU_REGISTER_COMMAND, MALI_MMU_COMMAND_ENABLE_PAGING);
 
-	/* resume normal operation */
-	_mali_kernel_core_broadcast_subsystem_message(MMU_KILL_STEP3_CONTINUE_JOB_HANDLING, (u32)mmu);
-
-	MALI_DEBUG_PRINT(4, ("Page fault handling complete\n"));
-
 	/* release the extra address space reference, will schedule */
 	mali_memory_core_mmu_release_address_space_reference(mmu);
 
+	/* resume normal operation */
+	_mali_kernel_core_broadcast_subsystem_message(MMU_KILL_STEP3_CONTINUE_JOB_HANDLING, (u32)mmu);
+	MALI_DEBUG_PRINT(4, ("Page fault handling complete\n"));
 }
 
 void mali_kernel_mmu_reset(void * input_mmu)

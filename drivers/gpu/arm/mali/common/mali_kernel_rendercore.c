@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010 ARM Limited. All rights reserved.
+ * Copyright (C) 2010-2011 ARM Limited. All rights reserved.
  * 
  * This program is free software and is provided to you under the terms of the GNU General Public License version 2
  * as published by the Free Software Foundation, and any use by you of this program is subject to the terms of such GNU licence.
@@ -30,7 +30,7 @@
 
 #define HANG_CHECK_MSECS_MIN 100
 #define HANG_CHECK_MSECS_MAX 2000 /* 2 secs */
-#define HANG_CHECK_MSECS_DEFAULT (2*HANG_CHECK_MSECS_MIN)
+#define HANG_CHECK_MSECS_DEFAULT 500 /* 500 ms */
 
 #define WATCHDOG_MSECS_MIN (2*HANG_CHECK_MSECS_MIN)
 #define WATCHDOG_MSECS_MAX 3600000 /* 1 hour */
@@ -443,6 +443,7 @@ _mali_osk_errcode_t mali_core_renderunit_init(mali_core_renderunit * core)
 #endif /* USING_MALI_PMM */
 
 	core->error_recovery = MALI_FALSE;
+	core->in_detach_function = MALI_FALSE;
 	core->state = CORE_IDLE;
 	core->current_job = NULL;
 	core->magic_nr = CORE_MAGIC_NR;
@@ -1512,14 +1513,26 @@ static void mali_core_renderunit_detach_job_from_core(mali_core_renderunit* core
 {
 	mali_core_job * job;
 	mali_core_subsystem * subsystem;
+	mali_bool already_in_detach_function;
+
 	job = core->current_job;
 	subsystem = core->subsystem;
 	MALI_DEBUG_ASSERT(CORE_IDLE != core->state);
 
-	if ( NULL != job )
+	/* The reset_core() called some lines below might call this detach
+	 * funtion again. To protect the core object from being modified by 
+	 * recursive calls, the in_detach_function would track if it is an recursive call
+	 */
+	already_in_detach_function = core->in_detach_function;
+	
+	if ( MALI_FALSE == already_in_detach_function )
 	{
-		mali_core_job_set_run_time(job);
-		core->current_job = NULL;
+		core->in_detach_function = MALI_TRUE;
+		if ( NULL != job )
+		{
+			mali_core_job_set_run_time(job);
+			core->current_job = NULL;
+		}
 	}
 
 	if (JOB_STATUS_END_SEG_FAULT == end_status)
@@ -1531,21 +1544,26 @@ static void mali_core_renderunit_detach_job_from_core(mali_core_renderunit* core
 		subsystem->reset_core( core, MALI_CORE_RESET_STYLE_RUNABLE );
 	}
 
-	if ( CORE_IDLE != core->state )
+	if ( MALI_FALSE == already_in_detach_function )
 	{
-#if MALI_GPU_UTILIZATION
-		mali_utilization_core_end();
-#endif
-		mali_core_subsystem_move_core_set_idle(core);
-	}
+		if ( CORE_IDLE != core->state )
+		{
+			#if MALI_GPU_UTILIZATION
+			mali_utilization_core_end();
+			#endif
+			mali_core_subsystem_move_core_set_idle(core);
+		}
 
-	if ( SUBSYSTEM_RESCHEDULE == reschedule )
-	{
-		mali_core_subsystem_schedule(subsystem);
-	}
-	if ( NULL != job )
-	{
-		core->subsystem->return_job_to_user(job, end_status);
+		core->in_detach_function = MALI_FALSE;
+
+		if ( SUBSYSTEM_RESCHEDULE == reschedule )
+		{
+			mali_core_subsystem_schedule(subsystem);
+		}
+		if ( NULL != job )
+		{
+			core->subsystem->return_job_to_user(job, end_status);
+		}
 	}
 }
 

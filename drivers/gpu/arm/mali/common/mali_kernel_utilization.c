@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010 ARM Limited. All rights reserved.
+ * Copyright (C) 2010-2011 ARM Limited. All rights reserved.
  * 
  * This program is free software and is provided to you under the terms of the GNU General Public License version 2
  * as published by the Free Software Foundation, and any use by you of this program is subject to the terms of such GNU licence.
@@ -13,7 +13,7 @@
 #include "mali_platform.h"
 
 /* Define how often to calculate and report GPU utilization, in milliseconds */
-#define MALI_GPU_UTILIZATION_TIMEOUT 10000
+#define MALI_GPU_UTILIZATION_TIMEOUT 1000
 
 static _mali_osk_lock_t *time_data_lock;
 
@@ -110,7 +110,7 @@ static void calculate_gpu_utilization(void* arg)
 
 _mali_osk_errcode_t mali_utilization_init(void)
 {
-	time_data_lock = _mali_osk_lock_init( _MALI_OSK_LOCKFLAG_SPINLOCK|_MALI_OSK_LOCKFLAG_NONINTERRUPTABLE, 0, 0 );
+	time_data_lock = _mali_osk_lock_init( _MALI_OSK_LOCKFLAG_SPINLOCK_IRQ|_MALI_OSK_LOCKFLAG_NONINTERRUPTABLE, 0, 0 );
 	if (NULL == time_data_lock)
 	{
 		return _MALI_OSK_ERR_FAULT;
@@ -127,6 +127,18 @@ _mali_osk_errcode_t mali_utilization_init(void)
 	_mali_osk_timer_setcallback(utilization_timer, calculate_gpu_utilization, NULL);
 
 	return _MALI_OSK_ERR_OK;
+}
+
+
+
+
+void mali_utilization_suspend(void)
+{
+        if (NULL != utilization_timer)
+        {
+                _mali_osk_timer_del(utilization_timer);
+                timer_running = MALI_FALSE;
+        }
 }
 
 

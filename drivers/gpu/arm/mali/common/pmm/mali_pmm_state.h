@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010 ARM Limited. All rights reserved.
+ * Copyright (C) 2010-2011 ARM Limited. All rights reserved.
  * 
  * This program is free software and is provided to you under the terms of the GNU General Public License version 2
  * as published by the Free Software Foundation, and any use by you of this program is subject to the terms of such GNU licence.
@@ -41,6 +41,8 @@ extern "C"
 	_mali_osk_lock_wait( pmm->lock, _MALI_OSK_LOCKMODE_RW )
 #define MALI_PMM_UNLOCK(pmm) \
 	_mali_osk_lock_signal( pmm->lock, _MALI_OSK_LOCKMODE_RW )
+#define MALI_PMM_LOCK_TERM(pmm) \
+        _mali_osk_lock_term( pmm->lock )
 
 /* Notification type for messages */
 #define MALI_PMM_NOTIFICATION_TYPE 0

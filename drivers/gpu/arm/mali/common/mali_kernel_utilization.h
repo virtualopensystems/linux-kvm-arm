@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010 ARM Limited. All rights reserved.
+ * Copyright (C) 2010-2011 ARM Limited. All rights reserved.
  * 
  * This program is free software and is provided to you under the terms of the GNU General Public License version 2
  * as published by the Free Software Foundation, and any use by you of this program is subject to the terms of such GNU licence.
@@ -29,6 +29,11 @@ void mali_utilization_term(void);
  * Should be called when a job is about to execute a job
  */
 void mali_utilization_core_start(void);
+
+/**
+ * Should be called to stop the utilization timer during system suspend
+ */
+void mali_utilization_suspend(void);
 
 /**
  * Should be called when a job has completed executing a job

@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2010 ARM Limited. All rights reserved.
+ * Copyright (C) 2010-2011 ARM Limited. All rights reserved.
  * 
  * This program is free software and is provided to you under the terms of the GNU General Public License version 2
  * as published by the Free Software Foundation, and any use by you of this program is subject to the terms of such GNU licence.
@@ -101,6 +101,17 @@ struct file_operations mali_fops =
 int mali_driver_init(void)
 {
 	int err;
+#if USING_MALI_PMM
+#if MALI_LICENSE_IS_GPL
+#ifdef CONFIG_PM
+        err = _mali_dev_platform_register();
+        if (err)
+        {
+                return err;
+        }
+#endif
+#endif
+#endif
     err = mali_kernel_constructor();
     if (_MALI_OSK_ERR_OK != err)
     {
@@ -150,18 +161,6 @@ int initialize_kernel_device(void)
 {
 	int err;
 	dev_t dev = 0;
-
-#if USING_MALI_PMM
-#if MALI_LICENSE_IS_GPL
-#ifdef CONFIG_PM
-	err = _mali_dev_platform_register();
-	if (err)
-	{
-		return err;
-	}
-#endif
-#endif
-#endif
 	if (0 == mali_major)
 	{
 		/* auto select a major */
@@ -354,6 +353,10 @@ static int mali_ioctl(struct inode *inode, struct file *filp, unsigned int cmd, 
 
         case MALI_IOC_GET_API_VERSION:
             err = get_api_version_wrapper(session_data, (_mali_uk_get_api_version_s __user *)arg);
+            break;
+
+        case MALI_IOC_POST_NOTIFICATION:
+            err = post_notification_wrapper(session_data, (_mali_uk_post_notification_s __user *)arg);
             break;
 
 #if MALI_TIMELINE_PROFILING_ENABLED

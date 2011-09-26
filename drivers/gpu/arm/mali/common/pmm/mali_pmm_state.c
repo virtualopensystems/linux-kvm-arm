@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010 ARM Limited. All rights reserved.
+ * Copyright (C) 2010-2011 ARM Limited. All rights reserved.
  * 
  * This program is free software and is provided to you under the terms of the GNU General Public License version 2
  * as published by the Free Software Foundation, and any use by you of this program is subject to the terms of such GNU licence.
@@ -562,7 +562,7 @@ void pmm_fatal_reset( _mali_pmm_internal_state_t *pmm )
 	/* Purge the event queues */
 	do
 	{
-		if( _mali_osk_notification_queue_receive( pmm->iqueue, 0, &msg ) == _MALI_OSK_ERR_OK )
+		if( _mali_osk_notification_queue_dequeue( pmm->iqueue, &msg ) == _MALI_OSK_ERR_OK )
 		{
 			_mali_osk_notification_delete ( msg );
 			break;
@@ -571,7 +571,7 @@ void pmm_fatal_reset( _mali_pmm_internal_state_t *pmm )
 
 	do
 	{
-		if( _mali_osk_notification_queue_receive( pmm->queue, 0, &msg ) == _MALI_OSK_ERR_OK )
+		if( _mali_osk_notification_queue_dequeue( pmm->queue, &msg ) == _MALI_OSK_ERR_OK )
 		{
 			_mali_osk_notification_delete ( msg );
 			break;
