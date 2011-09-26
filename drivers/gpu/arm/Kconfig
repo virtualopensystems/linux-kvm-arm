@@ -1,0 +1,20 @@
+menuconfig ARM_GPU
+	bool "ARM Graphic Accelarator"
+	---help---
+		Enables ARM Graphic Accelarator"
+
+if ARM_GPU
+
+config MALI400MP4
+        bool "Enable MALI integration"
+        default n
+        ---help---
+                This enables MALI 3D graphics driver. Required to use hardware accelerated OpenGL ES 2.0 and 1.1.
+
+config UMP
+        bool "Enable UMP(Unified Memory Provider)"
+        default n
+        ---help---
+                This enables Unified Memory Provider
+
+endif #ARM_GPU
