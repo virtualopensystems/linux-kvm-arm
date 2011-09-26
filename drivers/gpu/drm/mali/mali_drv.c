@@ -17,6 +17,17 @@
 #include "drmP.h"
 #include "mali_drv.h"
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,39)
+static struct pci_device_id pciidlist[] = {
+	/*need to fill this with right id lists*/
+};
+
+static struct pci_driver mali_pci_driver = {
+        .name = DRIVER_NAME,
+        .id_table = pciidlist,
+};
+#endif
+
 void mali_drm_preclose(struct drm_device *dev)
 {
 }
@@ -47,7 +58,9 @@ static int mali_drm_unload(struct drm_device *dev)
 
 static struct drm_driver driver = 
 {
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,39)
 	.driver_features = DRIVER_USE_PLATFORM_DEVICE,
+#endif
 	.load = mali_drm_load,
 	.unload = mali_drm_unload,
 	.context_dtor = NULL,
@@ -83,14 +96,23 @@ int mali_drm_init(struct platform_device *dev)
 {
 	printk(KERN_INFO "Mali DRM initialize, driver name: %s, version %d.%d\n", DRIVER_NAME, DRIVER_MAJOR, DRIVER_MINOR);
 	driver.num_ioctls = 0;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,38)
 	driver.platform_device = dev;
-
+#endif
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,39)
 	return drm_init(&driver);
+#else
+	return drm_pci_init(&driver, &mali_pci_driver);
+#endif
 }
 
 void mali_drm_exit(void)
 {
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,39)
 	drm_exit(&driver);
+#else
+	drm_pci_exit(&driver, &mali_pci_driver);
+#endif
 }
 
 static int mali_platform_drm_probe(struct platform_device *dev)

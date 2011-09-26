@@ -14,8 +14,8 @@ MALI_FILE_PREFIX := drivers/gpu/arm/mali
 KBUILDROOT =
 
 # Add platform configuration file for Mali
-ifeq ($(CONFIG_ARCH_S5PV310),y)
-MACHDIR  := arch/arm/mach-s5pv310
+ifeq ($(CONFIG_ARCH_EXYNOS4),y)
+MACHDIR  := arch/arm/mach-exynos4
 MALICONFIGDIR :=$(MACHDIR)/include/mach/mali
 endif
 
