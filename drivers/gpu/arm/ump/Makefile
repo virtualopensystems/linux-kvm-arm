@@ -8,21 +8,26 @@
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #
 
+ifeq ($(CONFIG_USING_OS_MEMORY),y)
+USING_MEMORY_TYPE=1
+endif
+
 UMP_FILE_PREFIX = 
 UDD_FILE_PREFIX := drivers/gpu/arm/ump/
 
 # For each arch check: CROSS_COMPILE , KDIR , CFLAGS += -DARCH
 
-ARCH ?= arm
 ## @note Should allow overriding of building UMP for non-debug:
+
+ifeq (($CONFIG_UMP_DEBUG),y)
 EXTRA_CFLAGS += -DDEBUG
+endif
 
-# linux build system integration
-
-obj-$(CONFIG_UMP)	+= ump.o
+USING_MEMORY_TYPE ?=0 # 0: dedicated memory 1: OS memory
 
 EXTRA_CFLAGS += -I$(UDD_FILE_PREFIX) -I$(UDD_FILE_PREFIX)/common -I$(UDD_FILE_PREFIX)/linux -I$(UDD_FILE_PREFIX)/../mali/common -I$(UDD_FILE_PREFIX)/../mali/linux -I$(UDD_FILE_PREFIX)/include
 
+EXTRA_CFLAGS += -DUMP_MEMORY_TYPE=$(USING_MEMORY_TYPE)
 # For customer releases the Linux Device Drivers will be provided as ARM proprietary and GPL releases:
 # The ARM proprietary product will only include the license/proprietary directory
 # The GPL product will only include the license/gpl directory
@@ -32,6 +37,8 @@ EXTRA_CFLAGS += -I$(UDD_FILE_PREFIX)/linux/license/proprietary
 else
 EXTRA_CFLAGS += -I$(UDD_FILE_PREFIX)/linux/license/gpl
 endif
+
+obj-$(CONFIG_UMP)       += ump.o
 
 ump-y:=	$(UMP_FILE_PREFIX)common/ump_kernel_common.o \
 	$(UMP_FILE_PREFIX)common/ump_kernel_descriptor_mapping.o \

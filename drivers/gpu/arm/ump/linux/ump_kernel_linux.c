@@ -16,7 +16,7 @@
 #include <asm/uaccess.h>             /* user space access */
 #include <asm/atomic.h>
 #include <linux/device.h>
-#include "arch/config.h"             /* Configuration for current platform. The symlinc for arch is set by Makefile */
+#include <mach/ump/config.h>         /* Configuration for current platform. The symlinc for arch is set by Makefile */
 #include "ump_ioctl.h"
 #include "ump_kernel_common.h"
 #include "ump_kernel_interface.h"
@@ -324,7 +324,7 @@ static int ump_file_ioctl(struct inode *inode, struct file *filp, unsigned int c
 
 	return err;
 }
-#ifndef CONFIG_MALI400MP4
+#ifndef CONFIG_MALI400MP
 int map_errcode( _mali_osk_errcode_t err )
 {
     switch(err)

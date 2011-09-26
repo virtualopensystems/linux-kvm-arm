@@ -1,0 +1,89 @@
+config MALI400MP
+        bool "Enable MALI integration"
+        default n
+        ---help---
+                This enables MALI 3D graphics driver. Required to use hardware accelerated OpenGL ES 2.0 and 1.1.
+
+config USING_MMU
+        bool "Using MMU"
+        depends on MALI400MP
+        default "1"
+        ---help--- 
+                This enables MMU for Mali. Required hardware support for MMU.
+
+config USING_UMP
+        bool "Using UMP"
+        depends on MALI400MP && UMP
+        default "0"
+        ---help---
+                Using UMP for Mali memory.
+
+config ONLY_ZBT
+        bool "Only ZBT"
+        depends on MALI400MP
+        default "0"
+        ---help---
+                Only ZBT, add here more
+
+config USING_ZBT
+	bool "Using ZBT"
+	depends on MALI400MP
+	default "1"
+	---help---
+		This support ZBT add here more
+
+config USING_OS_MEMORY
+        bool "Using OS memory"
+        depends on MALI400MP
+        default "0"
+        ---help---
+                This enables for Mali to use OS memory.
+
+config USING_PMM
+        bool "Enable Power Management"
+        depends on MALI400MP
+        default "0"
+        ---help---
+                This enables for Mali Power Management.
+
+config USING_GPU_UTILIZATION
+	bool "GPU utilization"
+        depends on MALI400MP
+        default "0"
+        ---help---
+                This enables GPU utilization information.
+
+config USING_MALI_RUN_TIME_PM
+        bool "Using Run time Power Management"
+        depends on MALI400MP
+        default "0"
+        ---help---
+                This enables Mali working with run time power management.
+
+config USING_MALI_PMM_TESTSUITE
+        bool "Power Management Test Suite"
+        depends on MALI400MP
+        default "0"
+        ---help---
+                This enables Power management Test Suite.
+
+config USING_PROFILING
+        bool "Enable Profiling"
+        depends on MALI400MP
+        default "0"
+        ---help---
+                This support Profiling on Mali.
+
+config DEBUG_BUILD
+        bool "Enables debug messages"
+        depends on MALI400MP
+        default "0"
+        ---help---
+                This enables Mali driver debug messages.
+
+config MALI_MEM_SIZE
+	int "Mali memory size"
+	depends on MALI400MP
+	default "64"
+	---help---
+		This value is memory size of Mali GPU(unit is MByte).

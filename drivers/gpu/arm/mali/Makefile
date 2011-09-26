@@ -13,6 +13,52 @@ FILES_PREFIX=
 MALI_FILE_PREFIX := drivers/gpu/arm/mali
 KBUILDROOT =
 
+# Add platform configuration file for Mali
+ifeq ($(CONFIG_ARCH_S5PV310),y)
+MACHDIR  := arch/arm/mach-s5pv310
+MALICONFIGDIR :=$(MACHDIR)/include/mach/mali
+endif
+
+ifeq ($(CONFIG_USING_MMU),y)
+USING_MMU=1
+endif
+
+ifeq ($(CONFIG_USING_UMP),y)
+USING_UMP=1
+endif
+
+ifeq ($(CONFIG_USING_MMU),y)
+USING_MMU=1
+endif
+
+ifeq ($(CONFIG_ONLY_ZBT),y)
+ONLY_ZBT =1
+endif
+
+ifeq ($(CONFIG_USING_OS_MEMORY),y)
+USING_OS_MEMORY=1
+endif
+
+ifeq ($(CONFIG_USING_PMM),y)
+USING_PMM=1
+endif
+
+ifeq ($(CONFIG_USING_GPU_UTILIZATION),y)
+USING_GPU_UTILIZATION =1
+endif
+
+ifeq ($(CONFIG_USING_MALI_RUN_TIME_PM),y)
+USING_MALI_RUN_TIME_PM =1
+endif
+
+ifeq ($(CONFIG_USING_MALI_PMM_TESTSUITE),y)
+USING_MALI_PMM_TESTSUITE=1
+endif
+
+ifeq ($(CONFIG_USING_PROFILING),y)
+USING_PROFILING =1
+endif
+
 # set up defaults if not defined by the user
 ARCH ?= arm
 USING_MMU ?= 1
@@ -26,7 +72,6 @@ USING_MALI_RUN_TIME_PM ?= 0
 USING_MALI_PMM_TESTSUITE ?= 0
 USING_PROFILING ?= 0
 TIMESTAMP ?= default
-BUILD ?= debug
 
 ifeq ($(USING_UMP),1)
 	UMP_SYMVERS_FILE = ../ump/Module.symvers
@@ -34,12 +79,7 @@ ifeq ($(USING_UMP),1)
 endif
 
 # Check if a Mali Core sub module should be enabled, true or false returned
-submodule_enabled = $(shell gcc $(DEFINES) -E $(MALI_FILE_PREFIX)/arch/config.h | grep type | grep -c $(2))
-
-# Inside the kernel build system
-
-# This conditional makefile exports the global definition ARM_INTERNAL_BUILD. Customer releases will not include arm_internal.mak
--include ../../../arm_internal.mak
+submodule_enabled = $(shell gcc $(DEFINES) -E $(MALICONFIGDIR)/config.h | grep type | grep -c $(2))
 
 # Set up our defines, which will be passed to gcc
 DEFINES += -DUSING_ZBT=$(USING_ZBT)
@@ -66,7 +106,7 @@ endif
 DEFINES += -DUSING_MALI_PMM=$(USING_PMM)
 DEFINES += -DMALI_GPU_UTILIZATION=$(USING_GPU_UTILIZATION)
 
-ifeq ($(BUILD), debug)
+ifeq ($(CONFIG_DEBUG_BUILD),y)
 DEFINES += -DDEBUG
 endif
 DEFINES += -DSVN_REV=$(SVN_REV)
@@ -83,7 +123,7 @@ else
 endif
 
 # Target build file
-obj-$(CONFIG_MALI400MP4)		+= mali.o
+obj-$(CONFIG_MALI400MP)		+= mali.o
 
 # Use our defines when compiling
 EXTRA_CFLAGS += $(DEFINES) -I$(MALI_FILE_PREFIX) -I$(MALI_FILE_PREFIX)/common -I$(MALI_FILE_PREFIX)/linux -I$(MALI_FILE_PREFIX)/platform
@@ -109,7 +149,7 @@ UKKFILES=\
         $(FILES_PREFIX)$(OSKOS)/mali_ukk_pp.o \
         $(FILES_PREFIX)$(OSKOS)/mali_ukk_core.o
 
-ifeq ($(USING_PROFILING),)
+ifeq ($(USING_PROFILING),1)
 UKKFILES+=\
         $(FILES_PREFIX)$(OSKOS)/mali_ukk_profiling.o
 endif
