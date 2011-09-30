@@ -740,9 +740,10 @@ static void start_apic_timer(struct kvm_lapic *apic)
 
 		now = apic->lapic_timer.timer.base->get_time();
 		guest_tsc = kvm_x86_ops->read_l1_tsc(vcpu);
-		if (likely(tscdeadline > guest_tsc))
-			ns = (tscdeadline - guest_tsc)
-				* 1000000L / this_tsc_khz;
+		if (likely(tscdeadline > guest_tsc)) {
+			ns = (tscdeadline - guest_tsc) * 1000000ULL;
+			do_div(ns, this_tsc_khz);
+		}
 		hrtimer_start(&apic->lapic_timer.timer,
 			ktime_add_ns(now, ns), HRTIMER_MODE_ABS);
 
