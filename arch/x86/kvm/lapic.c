@@ -963,6 +963,8 @@ void kvm_free_lapic(struct kvm_vcpu *vcpu)
 u64 kvm_get_lapic_tscdeadline_msr(struct kvm_vcpu *vcpu)
 {
 	struct kvm_lapic *apic = vcpu->arch.apic;
+	if (!apic)
+		return 0;
 
 	if (apic_lvtt_oneshot(apic) || apic_lvtt_period(apic))
 		return 0;
@@ -973,6 +975,8 @@ u64 kvm_get_lapic_tscdeadline_msr(struct kvm_vcpu *vcpu)
 void kvm_set_lapic_tscdeadline_msr(struct kvm_vcpu *vcpu, u64 data)
 {
 	struct kvm_lapic *apic = vcpu->arch.apic;
+	if (!apic)
+		return;
 
 	if (apic_lvtt_oneshot(apic) || apic_lvtt_period(apic))
 		return;
