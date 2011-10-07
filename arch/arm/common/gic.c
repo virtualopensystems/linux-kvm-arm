@@ -43,6 +43,23 @@
 #include <asm/mach/irq.h>
 #include <asm/hardware/gic.h>
 
+struct gic_chip_data {
+	unsigned int irq_offset;
+	void __percpu __iomem **dist_base;
+	void __percpu __iomem **cpu_base;
+#ifdef CONFIG_CPU_PM
+	u32 saved_spi_enable[DIV_ROUND_UP(1020, 32)];
+	u32 saved_spi_conf[DIV_ROUND_UP(1020, 16)];
+	u32 saved_spi_target[DIV_ROUND_UP(1020, 4)];
+	u32 __percpu *saved_ppi_enable;
+	u32 __percpu *saved_ppi_conf;
+#endif
+#ifdef CONFIG_IRQ_DOMAIN
+	struct irq_domain domain;
+#endif
+	unsigned int gic_irqs;
+};
+
 static DEFINE_RAW_SPINLOCK(irq_controller_lock);
 
 /* Address of GIC 0 CPU interface */
@@ -67,16 +84,26 @@ struct irq_chip gic_arch_extn = {
 
 static struct gic_chip_data gic_data[MAX_GIC_NR] __read_mostly;
 
+static inline void __iomem *gic_data_dist_base(struct gic_chip_data *data)
+{
+	return *__this_cpu_ptr(data->dist_base);
+}
+
 static inline void __iomem *gic_dist_base(struct irq_data *d)
 {
 	struct gic_chip_data *gic_data = irq_data_get_irq_chip_data(d);
-	return gic_data->dist_base;
+	return gic_data_dist_base(gic_data);
+}
+
+static inline void __iomem *gic_data_cpu_base(struct gic_chip_data *data)
+{
+	return *__this_cpu_ptr(data->cpu_base);
 }
 
 static inline void __iomem *gic_cpu_base(struct irq_data *d)
 {
 	struct gic_chip_data *gic_data = irq_data_get_irq_chip_data(d);
-	return gic_data->cpu_base;
+	return gic_data_cpu_base(gic_data);
 }
 
 static inline unsigned int gic_irq(struct irq_data *d)
@@ -225,7 +252,7 @@ static void gic_handle_cascade_irq(unsigned int irq, struct irq_desc *desc)
 	chained_irq_enter(chip, desc);
 
 	raw_spin_lock(&irq_controller_lock);
-	status = readl_relaxed(chip_data->cpu_base + GIC_CPU_INTACK);
+	status = readl_relaxed(gic_data_cpu_base(chip_data) + GIC_CPU_INTACK);
 	raw_spin_unlock(&irq_controller_lock);
 
 	gic_irq = (status & 0x3ff);
@@ -270,7 +297,7 @@ static void __init gic_dist_init(struct gic_chip_data *gic)
 	u32 cpumask;
 	unsigned int gic_irqs = gic->gic_irqs;
 	struct irq_domain *domain = &gic->domain;
-	void __iomem *base = gic->dist_base;
+	void __iomem *base = gic_data_dist_base(gic);
 	u32 cpu = 0;
 
 #ifdef CONFIG_SMP
@@ -330,8 +357,8 @@ static void __init gic_dist_init(struct gic_chip_data *gic)
 
 static void __cpuinit gic_cpu_init(struct gic_chip_data *gic)
 {
-	void __iomem *dist_base = gic->dist_base;
-	void __iomem *base = gic->cpu_base;
+	void __iomem *dist_base = gic_data_dist_base(gic);
+	void __iomem *base = gic_data_cpu_base(gic);
 	int i;
 
 	/*
@@ -368,7 +395,7 @@ static void gic_dist_save(unsigned int gic_nr)
 		BUG();
 
 	gic_irqs = gic_data[gic_nr].gic_irqs;
-	dist_base = gic_data[gic_nr].dist_base;
+	dist_base = gic_data_dist_base(&gic_data[gic_nr]);
 
 	if (!dist_base)
 		return;
@@ -403,7 +430,7 @@ static void gic_dist_restore(unsigned int gic_nr)
 		BUG();
 
 	gic_irqs = gic_data[gic_nr].gic_irqs;
-	dist_base = gic_data[gic_nr].dist_base;
+	dist_base = gic_data_dist_base(&gic_data[gic_nr]);
 
 	if (!dist_base)
 		return;
@@ -439,8 +466,8 @@ static void gic_cpu_save(unsigned int gic_nr)
 	if (gic_nr >= MAX_GIC_NR)
 		BUG();
 
-	dist_base = gic_data[gic_nr].dist_base;
-	cpu_base = gic_data[gic_nr].cpu_base;
+	dist_base = gic_data_dist_base(&gic_data[gic_nr]);
+	cpu_base = gic_data_cpu_base(&gic_data[gic_nr]);
 
 	if (!dist_base || !cpu_base)
 		return;
@@ -465,8 +492,8 @@ static void gic_cpu_restore(unsigned int gic_nr)
 	if (gic_nr >= MAX_GIC_NR)
 		BUG();
 
-	dist_base = gic_data[gic_nr].dist_base;
-	cpu_base = gic_data[gic_nr].cpu_base;
+	dist_base = gic_data_dist_base(&gic_data[gic_nr]);
+	cpu_base = gic_data_cpu_base(&gic_data[gic_nr]);
 
 	if (!dist_base || !cpu_base)
 		return;
@@ -569,13 +596,24 @@ void __init gic_init(unsigned int gic_nr, int irq_start,
 	struct gic_chip_data *gic;
 	struct irq_domain *domain;
 	int gic_irqs;
+	int cpu;
 
 	BUG_ON(gic_nr >= MAX_GIC_NR);
 
 	gic = &gic_data[gic_nr];
 	domain = &gic->domain;
-	gic->dist_base = dist_base;
-	gic->cpu_base = cpu_base;
+	gic->dist_base = alloc_percpu(void __iomem *);
+	gic->cpu_base = alloc_percpu(void __iomem *);
+	if (WARN_ON(!gic->dist_base || !gic->cpu_base)) {
+		free_percpu(gic->dist_base);
+		free_percpu(gic->cpu_base);
+		return;
+	}
+
+	for_each_possible_cpu(cpu) {
+		*per_cpu_ptr(gic->dist_base, cpu) = dist_base;
+		*per_cpu_ptr(gic->cpu_base, cpu) = cpu_base;
+	}
 
 	/*
 	 * For primary GICs, skip over SGIs.
@@ -617,11 +655,17 @@ void __init gic_init(unsigned int gic_nr, int irq_start,
 	gic_pm_init(gic);
 }
 
-void __cpuinit gic_secondary_init(unsigned int gic_nr)
+void __cpuinit gic_secondary_init_base(unsigned int gic_nr,
+				       void __iomem *dist_base,
+				       void __iomem *cpu_base)
 {
 	BUG_ON(gic_nr >= MAX_GIC_NR);
 
-	gic_cpu_init(&gic_data[gic_nr]);
+	if (dist_base)
+		*__this_cpu_ptr(gic_data[gic_nr].dist_base) = dist_base;
+	if (cpu_base)
+		*__this_cpu_ptr(gic_data[gic_nr].cpu_base) = cpu_base;
+	gic_cpu_init(&gic_data[gic_nr]);	
 }
 
 #ifdef CONFIG_SMP
@@ -641,7 +685,7 @@ void gic_raise_softirq(const struct cpumask *mask, unsigned int irq)
 	dsb();
 
 	/* this always happens on GIC0 */
-	writel_relaxed(map << 16 | irq, gic_data[0].dist_base + GIC_DIST_SOFTINT);
+	writel_relaxed(map << 16 | irq, gic_data_dist_base(&gic_data[0]) + GIC_DIST_SOFTINT);
 }
 #endif
 
