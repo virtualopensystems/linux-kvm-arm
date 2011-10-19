@@ -37,7 +37,7 @@ static int mali_seq_internal_state_show(struct seq_file *seq_file, void *v)
 	u32 len = 0;
 	u32 size;
 	char *buf;
-
+#if (MALI_STATE_TRACKING_USING_PROC==0)
 	size = seq_get_buf(seq_file, &buf);
 
 	if(!size)
@@ -52,7 +52,7 @@ static int mali_seq_internal_state_show(struct seq_file *seq_file, void *v)
 	len += _mali_kernel_core_dump_state(buf + len, size - len);
 
 	seq_commit(seq_file, len);
-
+#endif
 	return 0;
 }
 

@@ -94,7 +94,11 @@ static _mali_osk_errcode_t mali200_renderunit_create(_mali_osk_resource_t * reso
 static void mali200_subsystem_broadcast_notification(mali_core_notification_message message, u32 data);
 #endif
 #if MALI_STATE_TRACKING
+#if MALI_STATE_TRACKING_USING_PROC
+void mali200_subsystem_dump_state(void);
+#else
 u32 mali200_subsystem_dump_state(char *buf, u32 size);
+#endif
 #endif
 
 /* Internal support functions  */
@@ -1208,8 +1212,15 @@ _mali_osk_errcode_t malipp_signal_power_down( u32 core_num, mali_bool immediate_
 #endif
 
 #if MALI_STATE_TRACKING
+#if MALI_STATE_TRACKING_USING_PROC
+void mali200_subsystem_dump_state(void)
+{
+	mali_core_renderunit_dump_state(&subsystem_mali200);
+}
+#else
 u32 mali200_subsystem_dump_state(char *buf, u32 size)
 {
 	return mali_core_renderunit_dump_state(&subsystem_mali200, buf, size);
 }
+#endif
 #endif

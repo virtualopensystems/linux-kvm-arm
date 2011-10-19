@@ -357,7 +357,11 @@ _mali_osk_errcode_t mali_core_subsystem_signal_power_up(mali_core_subsystem *sub
 #endif
 
 #if MALI_STATE_TRACKING
+#if MALI_STATE_TRACKING_USING_PROC
+void mali_core_renderunit_dump_state(mali_core_subsystem* subsystem);
+#else
 u32 mali_core_renderunit_dump_state(mali_core_subsystem* subsystem, char *buf, u32 size);
+#endif
 #endif
 
 #endif /* __MALI_RENDERCORE_H__ */

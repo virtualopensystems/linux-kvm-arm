@@ -323,7 +323,11 @@ void _mali_pmm_trace_event_message( mali_pmm_message_t *event, mali_bool receive
 /** @brief Dumps the current state of OS PMM thread
  */
 #if MALI_STATE_TRACKING
+#if MALI_STATE_TRACKING_USING_PROC
+void mali_pmm_dump_os_thread_state( void );
+#else
 u32 mali_pmm_dump_os_thread_state( char *buf, u32 size );
+#endif
 #endif /* MALI_STATE_TRACKING */
 
 /** @} */ /* end group pmmapi */

@@ -884,6 +884,22 @@ _mali_osk_errcode_t mali_core_signal_power_down( mali_pmm_core_id core, mali_boo
 
 
 #if MALI_STATE_TRACKING
+#if MALI_STATE_TRACKING_USING_PROC
+void _mali_kernel_core_dump_state(void)
+{
+        int i;
+        for (i = 0; i < SUBSYSTEMS_COUNT; ++i)
+        {
+                if (NULL != subsystems[i]->dump_state)
+                {
+                        subsystems[i]->dump_state();
+                }
+        }
+#if USING_MALI_PMM
+        mali_pmm_dump_os_thread_state();
+#endif
+}
+#else
 u32 _mali_kernel_core_dump_state(char* buf, u32 size)
 {
 	int i, n;
@@ -905,4 +921,5 @@ u32 _mali_kernel_core_dump_state(char* buf, u32 size)
 	/* Return number of bytes written to buf */
 	return (u32)(buf - original_buf);
 }
+#endif
 #endif

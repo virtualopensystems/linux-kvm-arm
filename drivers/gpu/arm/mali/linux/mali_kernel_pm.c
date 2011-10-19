@@ -641,9 +641,16 @@ int mali_get_ospmm_thread_state(void)
 #endif /* CONFIG_PM */
 
 #if MALI_STATE_TRACKING
+#if MALI_STATE_TRACKING_USING_PROC
+void mali_pmm_dump_os_thread_state( void )
+{
+        MALI_PRINTF(("\nOSPMM: OS PMM thread is waiting: %s\n", is_os_pmm_thread_waiting ? "true" : "false"));
+}
+#else
 u32 mali_pmm_dump_os_thread_state( char *buf, u32 size )
 {
 	return snprintf(buf, size, "OSPMM: OS PMM thread is waiting: %s\n", is_os_pmm_thread_waiting ? "true" : "false");
 }
+#endif
 #endif /* MALI_STATE_TRACKING */
 #endif /* USING_MALI_PMM */

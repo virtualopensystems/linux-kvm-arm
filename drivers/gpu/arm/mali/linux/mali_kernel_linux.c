@@ -17,7 +17,9 @@
 #include <linux/cdev.h>     /* character device definitions */
 #include <linux/mm.h> /* memory mananger definitions */
 #include <linux/device.h>
-
+#if MALI_STATE_TRACKING_USING_PROC
+#include <linux/proc_fs.h>
+#endif
 /* the mali kernel subsystem types */
 #include "mali_kernel_subsystem.h"
 
@@ -44,7 +46,7 @@ module_param(mali_debug_level, int, S_IRUSR | S_IWUSR | S_IWGRP | S_IRGRP | S_IR
 MODULE_PARM_DESC(mali_debug_level, "Higher number, more dmesg output");
 
 /* By default the module uses any available major, but it's possible to set it at load time to a specific number */
-int mali_major = 0;
+int mali_major = 244;
 module_param(mali_major, int, S_IRUGO); /* r--r--r-- */
 MODULE_PARM_DESC(mali_major, "Device major number");
 
@@ -71,6 +73,10 @@ static char mali_dev_name[] = "mali"; /* should be const, but the functions we c
 /* the mali device */
 static struct mali_dev device;
 
+#if MALI_STATE_TRACKING_USING_PROC
+static struct proc_dir_entry *proc_entry;
+static int mali_proc_read(char *page, char **start, off_t off, int count, int *eof, void *data);
+#endif
 
 static int mali_open(struct inode *inode, struct file *filp);
 static int mali_release(struct inode *inode, struct file *filp);
@@ -185,6 +191,14 @@ int initialize_kernel_device(void)
 			goto init_cdev_err;
 	}
 
+#if MALI_STATE_TRACKING_USING_PROC
+	proc_entry = create_proc_entry(mali_dev_name, 0644, NULL);
+	if (proc_entry != NULL)
+	{
+		proc_entry->read_proc = mali_proc_read;
+	}
+#endif
+
 	err = mali_sysfs_register(&device, dev, mali_dev_name);
 	if (err)
 	{
@@ -199,6 +213,9 @@ init_sysfs_err:
 init_cdev_err:
 	unregister_chrdev_region(dev, 1/*count*/);
 init_chrdev_err:
+#if MALI_STATE_TRACKING_USING_PROC
+	remove_proc_entry(mali_dev_name, NULL);
+#endif
 	return err;
 }
 
@@ -208,6 +225,10 @@ void terminate_kernel_device(void)
 	dev_t dev = MKDEV(mali_major, 0);
 	
 	mali_sysfs_unregister(&device, dev, mali_dev_name);
+
+#if MALI_STATE_TRACKING_USING_PROC
+	remove_proc_entry(mali_dev_name, NULL);
+#endif
 
 	/* unregister char device */
 	cdev_del(&device.cdev);
@@ -463,6 +484,24 @@ static int mali_ioctl(struct inode *inode, struct file *filp, unsigned int cmd, 
 
     return err;
 }
+
+#if MALI_STATE_TRACKING_USING_PROC
+static int mali_proc_read(char *page, char **start, off_t off, int count, int *eof, void *data)
+{
+
+	MALI_DEBUG_PRINT(0,("\n***in the mali_proc_read\n"));	//zepplin
+	MALI_DEBUG_PRINT(1, ("mali_proc_read(page=%p, start=%p, off=%u, count=%d, eof=%p, data=%p\n", page, start, off, count, eof, data));
+
+	/*
+	 * A more elegant solution would be to gather information from all subsystems and
+	 * then report it all in the /proc/mali file, but this would require a bit more work.
+	 * Use MALI_PRINT for now so we get the information in the dmesg log at least.
+	 */
+	_mali_kernel_core_dump_state();
+
+	return 0;	
+}
+#endif
 
 
 module_init(mali_driver_init);
