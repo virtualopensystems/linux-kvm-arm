@@ -494,4 +494,10 @@ enum {
 	SHDMA_SLAVE_MMCIF_RX,
 };
 
+#include <asm/soc.h>
+
+extern struct arm_soc_smp_init_ops sh73a0_soc_smp_init_ops;
+extern struct arm_soc_smp_ops sh73a0_soc_smp_ops;
+extern struct arm_soc_desc sh73a0_soc_desc;
+
 #endif /* __ASM_SH73A0_H__ */

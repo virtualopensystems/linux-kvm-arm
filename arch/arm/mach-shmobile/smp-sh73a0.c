@@ -24,6 +24,7 @@
 #include <linux/io.h>
 #include <linux/ioport.h>
 #include <mach/common.h>
+#include <mach/sh73a0.h>
 #include <asm/smp_scu.h>
 #include <asm/smp_twd.h>
 #include <asm/hardware/gic.h>
@@ -81,7 +82,7 @@ static void modify_scu_cpu_psr(unsigned long set, unsigned long clr)
 	__raw_writel(tmp, scu_base + 8);
 }
 
-unsigned int __init sh73a0_get_core_count(void)
+static unsigned int __init sh73a0_get_core_count(void)
 {
 	void __iomem *scu_base = scu_base_addr();
 
@@ -93,12 +94,12 @@ unsigned int __init sh73a0_get_core_count(void)
 	return scu_get_core_count(scu_base);
 }
 
-void __cpuinit sh73a0_secondary_init(unsigned int cpu)
+static void __cpuinit sh73a0_secondary_init(unsigned int cpu)
 {
 	gic_secondary_init(0);
 }
 
-int __cpuinit sh73a0_boot_secondary(unsigned int cpu)
+static int __cpuinit sh73a0_boot_secondary(unsigned int cpu, struct task_struct *idle)
 {
 	/* enable cache coherency */
 	modify_scu_cpu_psr(0, 3 << (cpu * 8));
@@ -111,7 +112,7 @@ int __cpuinit sh73a0_boot_secondary(unsigned int cpu)
 	return 0;
 }
 
-void __init sh73a0_smp_prepare_cpus(void)
+static void __init sh73a0_smp_prepare_cpus(void)
 {
 	scu_enable(scu_base_addr());
 
@@ -122,3 +123,29 @@ void __init sh73a0_smp_prepare_cpus(void)
 	/* enable cache coherency on CPU0 */
 	modify_scu_cpu_psr(0, 3 << (0 * 8));
 }
+
+static void __init sh73a0_smp_init_cpus(void)
+{
+	unsigned int ncores = sh73a0_get_core_count();
+	unsigned int i;
+
+	for (i = 0; i < ncores; i++)
+		set_cpu_possible(i, true);
+
+	set_smp_cross_call(gic_raise_softirq);
+}
+
+struct arm_soc_smp_init_ops sh73a0_soc_smp_init_ops __initdata = {
+	.smp_init_cpus		= sh73a0_smp_init_cpus,
+	.smp_prepare_cpus	= sh73a0_smp_prepare_cpus,
+};
+
+struct arm_soc_smp_ops sh73a0_soc_smp_ops __initdata = {
+	.smp_secondary_init	= sh73a0_secondary_init,
+	.smp_boot_secondary	= sh73a0_boot_secondary,
+#ifdef CONFIG_HOTPLUG_CPU
+	.cpu_kill		= shmobile_cpu_kill,
+	.cpu_die		= shmobile_cpu_die,
+	.cpu_disable		= shmobile_cpu_disable,
+#endif
+};

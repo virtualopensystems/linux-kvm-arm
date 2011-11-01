@@ -38,6 +38,7 @@
 #include "clock.h"
 #include "devices.h"
 #include "gpio-names.h"
+#include "common.h"
 
 static struct plat_serial8250_port debug_uart_platform_data[] = {
 	{
@@ -203,6 +204,7 @@ static void __init tegra_wario_init(void)
 
 MACHINE_START(SEABOARD, "seaboard")
 	.boot_params    = 0x00000100,
+	.soc		= &tegra_soc_desc,
 	.map_io         = tegra_map_common_io,
 	.init_early     = tegra_init_early,
 	.init_irq       = tegra_init_irq,
@@ -213,6 +215,7 @@ MACHINE_END
 
 MACHINE_START(KAEN, "kaen")
 	.boot_params    = 0x00000100,
+	.soc		= &tegra_soc_desc,
 	.map_io         = tegra_map_common_io,
 	.init_early     = tegra_init_early,
 	.init_irq       = tegra_init_irq,
@@ -223,6 +226,7 @@ MACHINE_END
 
 MACHINE_START(WARIO, "wario")
 	.boot_params    = 0x00000100,
+	.soc		= &tegra_soc_desc,
 	.map_io         = tegra_map_common_io,
 	.init_early     = tegra_init_early,
 	.init_irq       = tegra_init_irq,
