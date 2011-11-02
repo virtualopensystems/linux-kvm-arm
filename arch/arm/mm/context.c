@@ -14,6 +14,7 @@
 #include <linux/percpu.h>
 
 #include <asm/mmu_context.h>
+#include <asm/thread_notify.h>
 #include <asm/tlbflush.h>
 
 static DEFINE_RAW_SPINLOCK(cpu_asid_lock);
@@ -21,6 +22,14 @@ unsigned int cpu_last_asid = ASID_FIRST_VERSION;
 #ifdef CONFIG_SMP
 DEFINE_PER_CPU(struct mm_struct *, current_mm);
 #endif
+
+#define read_contextidr(contextidr)					\
+	asm("mrc	p15, 0, %0, c13, c0, 1" : "=r" (contextidr));
+
+#define write_contextidr(contextidr) {					\
+	asm("mcr	p15, 0, %0, c13, c0, 1" : : "r" (contextidr));	\
+	isb();								\
+}
 
 #ifdef CONFIG_ARM_LPAE
 #define cpu_set_asid(asid) {						\
@@ -31,10 +40,62 @@ DEFINE_PER_CPU(struct mm_struct *, current_mm);
 	"	mcrr	p15, 0, %0, %1, c2		@ set TTBR0\n"	\
 	: "=&r" (ttbl), "=&r" (ttbh)					\
 	: "r" (asid & ~ASID_MASK));					\
+	isb();								\
+}
+
+#define cpu_set_procid	write_contextidr
+#elif defined (CONFIG_PID_IN_CONTEXTIDR)
+static void cpu_set_asid(unsigned int asid)
+{
+	u32 contextidr;
+
+	read_contextidr(contextidr);
+	contextidr &= ASID_MASK;
+	contextidr |= asid & ~ASID_MASK;
+	write_contextidr(contextidr);
+}
+
+static void cpu_set_procid(unsigned int procid)
+{
+	u32 contextidr;
+
+	read_contextidr(contextidr);
+	contextidr &= ~ASID_MASK;
+	contextidr |= procid << ASID_BITS;
+	write_contextidr(contextidr);
 }
 #else
-#define cpu_set_asid(asid) \
-	asm("	mcr	p15, 0, %0, c13, c0, 1\n" : : "r" (asid))
+#define cpu_set_asid	write_contextidr
+#endif
+
+#ifdef CONFIG_PID_IN_CONTEXTIDR
+static int contextidr_notifier(struct notifier_block *unused, unsigned long cmd,
+			       void *t)
+{
+	unsigned long flags;
+	pid_t pid;
+	struct thread_info *thread = t;
+
+	if (cmd != THREAD_NOTIFY_SWITCH)
+		return NOTIFY_DONE;
+
+	pid = task_pid_nr(thread->task);
+	local_irq_save(flags);
+	cpu_set_procid(pid);
+	local_irq_restore(flags);
+
+	return NOTIFY_OK;
+}
+
+static struct notifier_block contextidr_notifier_block = {
+	.notifier_call = contextidr_notifier,
+};
+
+static int __init contextidr_notifier_init(void)
+{
+	return thread_register_notifier(&contextidr_notifier_block);
+}
+arch_initcall(contextidr_notifier_init);
 #endif
 
 /*
@@ -53,7 +114,6 @@ static void flush_context(void)
 {
 	/* set the reserved ASID before flushing the TLB */
 	cpu_set_asid(0);
-	isb();
 	local_flush_tlb_all();
 	if (icache_is_vivt_asid_tagged()) {
 		__flush_icache_all();
@@ -115,7 +175,6 @@ static void reset_context(void *info)
 
 	/* set the new ASID */
 	cpu_set_asid(mm->context.id);
-	isb();
 }
 
 #else
