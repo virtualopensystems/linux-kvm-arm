@@ -18,6 +18,8 @@
 #include <linux/clockchips.h>
 #include <linux/irq.h>
 #include <linux/io.h>
+#include <linux/of_irq.h>
+#include <linux/of_address.h>
 
 #include <asm/smp_twd.h>
 #include <asm/localtimer.h>
@@ -230,20 +232,12 @@ static struct notifier_block __cpuinitdata twd_cpu_nb = {
 	.notifier_call = twd_cpu_notify,
 };
 
-int __init twd_timer_register(struct resource *res, int res_nr)
+static int __init twd_timer_common_init(void)
 {
 	struct clock_event_device *clk;
 
-	if (res_nr != 2 || res[1].start < 0)
-		return -EINVAL;
-
-	if (twd_base)
-		return -EBUSY;
-
-	twd_ppi		= res[1].start;
-	twd_base	= ioremap(res[0].start, resource_size(&res[0]));
 	twd_clock_event	= alloc_percpu(struct clock_event_device);
-	if (!twd_base || !twd_clock_event) {
+	if (!twd_clock_event) {
 		iounmap(twd_base);
 		twd_base = NULL;
 		free_percpu(twd_clock_event);
@@ -258,4 +252,41 @@ int __init twd_timer_register(struct resource *res, int res_nr)
 
 	return 0;
 }
+
+int __init twd_timer_register(struct resource *res, int res_nr)
+{
+	if (res_nr != 2 || res[1].start < 0)
+		return -EINVAL;
+
+	if (twd_base)
+		return -EBUSY;
+
+	twd_ppi		= res[1].start;
+	twd_base	= ioremap(res[0].start, resource_size(&res[0]));
+	if (!twd_base)
+		return -ENOMEM;
+
+	return twd_timer_common_init();
+}
+
+#ifdef CONFIG_OF
+int __init twd_timer_of_init(const struct of_device_id *twd_of_match)
+{
+	struct device_node *np;
+
+	np = of_find_matching_node(NULL, twd_of_match);
+	if (!np)
+		return -ENODEV;
+
+	twd_ppi = irq_of_parse_and_map(np, 0);
+	if (twd_ppi == NO_IRQ)
+		return -EINVAL;
+
+	twd_base = of_iomap(np, 0);
+	if (!twd_base)
+		return -ENOMEM;
+
+	return twd_timer_common_init();
+}
+#endif
 #endif
