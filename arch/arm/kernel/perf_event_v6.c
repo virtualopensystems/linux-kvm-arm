@@ -54,7 +54,7 @@ enum armv6_perf_types {
 };
 
 enum armv6_counters {
-	ARMV6_CYCLE_COUNTER = 1,
+	ARMV6_CYCLE_COUNTER = 0,
 	ARMV6_COUNTER0,
 	ARMV6_COUNTER1,
 };
@@ -487,7 +487,7 @@ armv6pmu_handle_irq(int irq_num,
 	perf_sample_data_init(&data, 0);
 
 	cpuc = &__get_cpu_var(cpu_hw_events);
-	for (idx = 0; idx <= armpmu->num_events; ++idx) {
+	for (idx = 0; idx < armpmu->num_events; ++idx) {
 		struct perf_event *event = cpuc->events[idx];
 		struct hw_perf_event *hwc;
 
@@ -635,7 +635,7 @@ armv6mpcore_pmu_disable_event(struct hw_perf_event *hwc,
 	raw_spin_unlock_irqrestore(&pmu_lock, flags);
 }
 
-static const struct arm_pmu armv6pmu = {
+static struct arm_pmu armv6pmu = {
 	.id			= ARM_PERF_PMU_ID_V6,
 	.name			= "v6",
 	.handle_irq		= armv6pmu_handle_irq,
@@ -653,7 +653,7 @@ static const struct arm_pmu armv6pmu = {
 	.max_period		= (1LLU << 32) - 1,
 };
 
-static const struct arm_pmu *__init armv6pmu_init(void)
+static struct arm_pmu *__init armv6pmu_init(void)
 {
 	return &armv6pmu;
 }
@@ -665,7 +665,7 @@ static const struct arm_pmu *__init armv6pmu_init(void)
  * disable the interrupt reporting and update the event. When unthrottling we
  * reset the period and enable the interrupt reporting.
  */
-static const struct arm_pmu armv6mpcore_pmu = {
+static struct arm_pmu armv6mpcore_pmu = {
 	.id			= ARM_PERF_PMU_ID_V6MP,
 	.name			= "v6mpcore",
 	.handle_irq		= armv6pmu_handle_irq,
@@ -683,17 +683,17 @@ static const struct arm_pmu armv6mpcore_pmu = {
 	.max_period		= (1LLU << 32) - 1,
 };
 
-static const struct arm_pmu *__init armv6mpcore_pmu_init(void)
+static struct arm_pmu *__init armv6mpcore_pmu_init(void)
 {
 	return &armv6mpcore_pmu;
 }
 #else
-static const struct arm_pmu *__init armv6pmu_init(void)
+static struct arm_pmu *__init armv6pmu_init(void)
 {
 	return NULL;
 }
 
-static const struct arm_pmu *__init armv6mpcore_pmu_init(void)
+static struct arm_pmu *__init armv6mpcore_pmu_init(void)
 {
 	return NULL;
 }

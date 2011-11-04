@@ -40,7 +40,7 @@ enum xscale_perf_types {
 };
 
 enum xscale_counters {
-	XSCALE_CYCLE_COUNTER	= 1,
+	XSCALE_CYCLE_COUNTER	= 0,
 	XSCALE_COUNTER0,
 	XSCALE_COUNTER1,
 	XSCALE_COUNTER2,
@@ -249,7 +249,7 @@ xscale1pmu_handle_irq(int irq_num, void *dev)
 	perf_sample_data_init(&data, 0);
 
 	cpuc = &__get_cpu_var(cpu_hw_events);
-	for (idx = 0; idx <= armpmu->num_events; ++idx) {
+	for (idx = 0; idx < armpmu->num_events; ++idx) {
 		struct perf_event *event = cpuc->events[idx];
 		struct hw_perf_event *hwc;
 
@@ -424,7 +424,7 @@ xscale1pmu_write_counter(int counter, u32 val)
 	}
 }
 
-static const struct arm_pmu xscale1pmu = {
+static struct arm_pmu xscale1pmu = {
 	.id		= ARM_PERF_PMU_ID_XSCALE1,
 	.name		= "xscale1",
 	.handle_irq	= xscale1pmu_handle_irq,
@@ -442,7 +442,7 @@ static const struct arm_pmu xscale1pmu = {
 	.max_period	= (1LLU << 32) - 1,
 };
 
-static const struct arm_pmu *__init xscale1pmu_init(void)
+static struct arm_pmu *__init xscale1pmu_init(void)
 {
 	return &xscale1pmu;
 }
@@ -581,7 +581,7 @@ xscale2pmu_handle_irq(int irq_num, void *dev)
 	perf_sample_data_init(&data, 0);
 
 	cpuc = &__get_cpu_var(cpu_hw_events);
-	for (idx = 0; idx <= armpmu->num_events; ++idx) {
+	for (idx = 0; idx < armpmu->num_events; ++idx) {
 		struct perf_event *event = cpuc->events[idx];
 		struct hw_perf_event *hwc;
 
@@ -786,7 +786,7 @@ xscale2pmu_write_counter(int counter, u32 val)
 	}
 }
 
-static const struct arm_pmu xscale2pmu = {
+static struct arm_pmu xscale2pmu = {
 	.id		= ARM_PERF_PMU_ID_XSCALE2,
 	.name		= "xscale2",
 	.handle_irq	= xscale2pmu_handle_irq,
@@ -804,17 +804,17 @@ static const struct arm_pmu xscale2pmu = {
 	.max_period	= (1LLU << 32) - 1,
 };
 
-static const struct arm_pmu *__init xscale2pmu_init(void)
+static struct arm_pmu *__init xscale2pmu_init(void)
 {
 	return &xscale2pmu;
 }
 #else
-static const struct arm_pmu *__init xscale1pmu_init(void)
+static struct arm_pmu *__init xscale1pmu_init(void)
 {
 	return NULL;
 }
 
-static const struct arm_pmu *__init xscale2pmu_init(void)
+static struct arm_pmu *__init xscale2pmu_init(void)
 {
 	return NULL;
 }

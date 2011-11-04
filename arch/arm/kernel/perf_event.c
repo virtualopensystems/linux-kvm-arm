@@ -35,7 +35,7 @@ static struct platform_device *pmu_device;
 static DEFINE_RAW_SPINLOCK(pmu_lock);
 
 /*
- * ARMv6 supports a maximum of 3 events, starting from index 1. If we add
+ * ARMv6 supports a maximum of 3 events, starting from index 0. If we add
  * another platform that supports more, we need to increase this to be the
  * largest of all platforms.
  *
@@ -43,13 +43,12 @@ static DEFINE_RAW_SPINLOCK(pmu_lock);
  *  cycle counter CCNT + 31 events counters CNT0..30.
  *  Cortex-A8 has 1+4 counters, Cortex-A9 has 1+6 counters.
  */
-#define ARMPMU_MAX_HWEVENTS		33
+#define ARMPMU_MAX_HWEVENTS		32
 
 /* The events for a given CPU. */
 struct cpu_hw_events {
 	/*
-	 * The events that are active on the CPU for the given index. Index 0
-	 * is reserved.
+	 * The events that are active on the CPU for the given index.
 	 */
 	struct perf_event	*events[ARMPMU_MAX_HWEVENTS];
 
@@ -69,12 +68,15 @@ static DEFINE_PER_CPU(struct cpu_hw_events, cpu_hw_events);
 
 struct arm_pmu {
 	enum arm_perf_pmu_ids id;
+	cpumask_t	active_irqs;
 	const char	*name;
 	irqreturn_t	(*handle_irq)(int irq_num, void *dev);
 	void		(*enable)(struct hw_perf_event *evt, int idx);
 	void		(*disable)(struct hw_perf_event *evt, int idx);
 	int		(*get_event_idx)(struct cpu_hw_events *cpuc,
 					 struct hw_perf_event *hwc);
+	int		(*set_event_filter)(struct hw_perf_event *evt,
+					    struct perf_event_attr *attr);
 	u32		(*read_counter)(int idx);
 	void		(*write_counter)(int idx, u32 val);
 	void		(*start)(void);
@@ -90,7 +92,7 @@ struct arm_pmu {
 };
 
 /* Set at runtime when we know what CPU type we are. */
-static const struct arm_pmu *armpmu;
+static struct arm_pmu *armpmu;
 
 enum arm_perf_pmu_ids
 armpmu_get_pmu_id(void)
@@ -388,20 +390,37 @@ static irqreturn_t armpmu_platform_irq(int irq, void *dev)
 	return plat->handle_irq(irq, dev, armpmu->handle_irq);
 }
 
+static void
+armpmu_release_hardware(void)
+{
+	int i, irq, irqs;
+
+	irqs = min(pmu_device->num_resources, num_possible_cpus());
+
+	for (i = 0; i < irqs; ++i) {
+		if (!cpumask_test_and_clear_cpu(i, &armpmu->active_irqs))
+			continue;
+		irq = platform_get_irq(pmu_device, i);
+		if (irq >= 0)
+			free_irq(irq, NULL);
+	}
+
+	armpmu->stop();
+	release_pmu(ARM_PMU_DEVICE_CPU);
+}
+
 static int
 armpmu_reserve_hardware(void)
 {
 	struct arm_pmu_platdata *plat;
 	irq_handler_t handle_irq;
-	int i, err = -ENODEV, irq;
+	int i, err, irq, irqs;
 
-	pmu_device = reserve_pmu(ARM_PMU_DEVICE_CPU);
-	if (IS_ERR(pmu_device)) {
+	err = reserve_pmu(ARM_PMU_DEVICE_CPU);
+	if (err) {
 		pr_warning("unable to reserve pmu\n");
-		return PTR_ERR(pmu_device);
+		return err;
 	}
-
-	init_pmu(ARM_PMU_DEVICE_CPU);
 
 	plat = dev_get_platdata(&pmu_device->dev);
 	if (plat && plat->handle_irq)
@@ -409,53 +428,43 @@ armpmu_reserve_hardware(void)
 	else
 		handle_irq = armpmu->handle_irq;
 
-	if (pmu_device->num_resources < 1) {
+	irqs = min(pmu_device->num_resources, num_possible_cpus());
+	if (irqs < 1) {
 		pr_err("no irqs for PMUs defined\n");
 		return -ENODEV;
 	}
 
-	for (i = 0; i < pmu_device->num_resources; ++i) {
+	for (i = 0; i < irqs; ++i) {
+		err = 0;
 		irq = platform_get_irq(pmu_device, i);
 		if (irq < 0)
 			continue;
 
+		/*
+		 * If we have a single PMU interrupt that we can't shift,
+		 * assume that we're running on a uniprocessor machine and
+		 * continue. Otherwise, continue without this interrupt.
+		 */
+		if (irq_set_affinity(irq, cpumask_of(i)) && irqs > 1) {
+			pr_warning("unable to set irq affinity (irq=%d, cpu=%u)\n",
+				    irq, i);
+			continue;
+		}
+
 		err = request_irq(irq, handle_irq,
 				  IRQF_DISABLED | IRQF_NOBALANCING,
-				  "armpmu", NULL);
+				  "arm-pmu", NULL);
 		if (err) {
-			pr_warning("unable to request IRQ%d for ARM perf "
-				"counters\n", irq);
-			break;
+			pr_err("unable to request IRQ%d for ARM PMU counters\n",
+				irq);
+			armpmu_release_hardware();
+			return err;
 		}
+
+		cpumask_set_cpu(i, &armpmu->active_irqs);
 	}
 
-	if (err) {
-		for (i = i - 1; i >= 0; --i) {
-			irq = platform_get_irq(pmu_device, i);
-			if (irq >= 0)
-				free_irq(irq, NULL);
-		}
-		release_pmu(ARM_PMU_DEVICE_CPU);
-		pmu_device = NULL;
-	}
-
-	return err;
-}
-
-static void
-armpmu_release_hardware(void)
-{
-	int i, irq;
-
-	for (i = pmu_device->num_resources - 1; i >= 0; --i) {
-		irq = platform_get_irq(pmu_device, i);
-		if (irq >= 0)
-			free_irq(irq, NULL);
-	}
-	armpmu->stop();
-
-	release_pmu(ARM_PMU_DEVICE_CPU);
-	pmu_device = NULL;
+	return 0;
 }
 
 static atomic_t active_events = ATOMIC_INIT(0);
@@ -468,6 +477,13 @@ hw_perf_event_destroy(struct perf_event *event)
 		armpmu_release_hardware();
 		mutex_unlock(&pmu_reserve_mutex);
 	}
+}
+
+static int
+event_requires_mode_exclusion(struct perf_event_attr *attr)
+{
+	return attr->exclude_idle || attr->exclude_user ||
+	       attr->exclude_kernel || attr->exclude_hv;
 }
 
 static int
@@ -495,34 +511,31 @@ __hw_perf_event_init(struct perf_event *event)
 	}
 
 	/*
-	 * Check whether we need to exclude the counter from certain modes.
-	 * The ARM performance counters are on all of the time so if someone
-	 * has asked us for some excludes then we have to fail.
+	 * We don't assign an index until we actually place the event onto
+	 * hardware. Use -1 to signify that we haven't decided where to put it
+	 * yet. For SMP systems, each core has it's own PMU so we can't do any
+	 * clever allocation or constraints checking at this point.
 	 */
-	if (event->attr.exclude_kernel || event->attr.exclude_user ||
-	    event->attr.exclude_hv || event->attr.exclude_idle) {
+	hwc->idx		= -1;
+	hwc->config_base	= 0;
+	hwc->config		= 0;
+	hwc->event_base		= 0;
+
+	/*
+	 * Check whether we need to exclude the counter from certain modes.
+	 */
+	if ((!armpmu->set_event_filter ||
+	     armpmu->set_event_filter(hwc, &event->attr)) &&
+	     event_requires_mode_exclusion(&event->attr)) {
 		pr_debug("ARM performance counters do not support "
 			 "mode exclusion\n");
 		return -EPERM;
 	}
 
 	/*
-	 * We don't assign an index until we actually place the event onto
-	 * hardware. Use -1 to signify that we haven't decided where to put it
-	 * yet. For SMP systems, each core has it's own PMU so we can't do any
-	 * clever allocation or constraints checking at this point.
+	 * Store the event encoding into the config_base field.
 	 */
-	hwc->idx = -1;
-
-	/*
-	 * Store the event encoding into the config_base field. config and
-	 * event_base are unused as the only 2 things we need to know are
-	 * the event mapping and the counter to use. The counter to use is
-	 * also the indx and the config_base is the event type.
-	 */
-	hwc->config_base	    = (unsigned long)mapping;
-	hwc->config		    = 0;
-	hwc->event_base		    = 0;
+	hwc->config_base	    |= (unsigned long)mapping;
 
 	if (!hwc->sample_period) {
 		hwc->sample_period  = armpmu->max_period;
@@ -589,7 +602,7 @@ static void armpmu_enable(struct pmu *pmu)
 	if (!armpmu)
 		return;
 
-	for (idx = 0; idx <= armpmu->num_events; ++idx) {
+	for (idx = 0; idx < armpmu->num_events; ++idx) {
 		struct perf_event *event = cpuc->events[idx];
 
 		if (!event)
@@ -638,6 +651,46 @@ armpmu_reset(void)
 }
 arch_initcall(armpmu_reset);
 
+/*
+ * PMU platform driver and devicetree bindings.
+ */
+static struct of_device_id armpmu_of_device_ids[] = {
+	{.compatible = "arm,cortex-a9-pmu"},
+	{.compatible = "arm,cortex-a8-pmu"},
+	{.compatible = "arm,arm1136-pmu"},
+	{.compatible = "arm,arm1176-pmu"},
+	{},
+};
+
+static struct platform_device_id armpmu_plat_device_ids[] = {
+	{.name = "arm-pmu"},
+	{},
+};
+
+static int __devinit armpmu_device_probe(struct platform_device *pdev)
+{
+	pmu_device = pdev;
+	return 0;
+}
+
+static struct platform_driver armpmu_driver = {
+	.driver		= {
+		.name	= "arm-pmu",
+		.of_match_table = armpmu_of_device_ids,
+	},
+	.probe		= armpmu_device_probe,
+	.id_table	= armpmu_plat_device_ids,
+};
+
+static int __init register_pmu_driver(void)
+{
+	return platform_driver_register(&armpmu_driver);
+}
+device_initcall(register_pmu_driver);
+
+/*
+ * CPU PMU identification and registration.
+ */
 static int __init
 init_hw_perf_events(void)
 {
