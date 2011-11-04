@@ -53,9 +53,6 @@ static struct map_desc ct_ca9x4_io_desc[] __initdata = {
 
 static void __init ct_ca9x4_map_io(void)
 {
-#ifdef CONFIG_LOCAL_TIMERS
-	twd_base = MMIO_P2V(A9_MPCORE_TWD);
-#endif
 	iotable_init(ct_ca9x4_io_desc, ARRAY_SIZE(ct_ca9x4_io_desc));
 }
 
@@ -191,9 +188,35 @@ static struct platform_device pmu_device = {
 	.resource	= pmu_resources,
 };
 
+#ifdef CONFIG_ARM_SMP_TWD
+static struct resource ca9x4_twd_resources[] __initdata = {
+	{
+		.start	= A9_MPCORE_TWD,
+		.end	= A9_MPCORE_TWD + 0x10,
+		.flags	= IORESOURCE_MEM,
+	},
+	{
+		.start	= IRQ_LOCALTIMER,
+		.end	= IRQ_LOCALTIMER,
+		.flags	= IORESOURCE_IRQ,
+	},
+};
+
+static void __init ca9x4_twd_init(void)
+{
+	int err = twd_timer_register(ca9x4_twd_resources,
+				     ARRAY_SIZE(ca9x4_twd_resources));
+	if (err)
+		pr_err("twd_timer_register failed %d\n", err);
+}
+#else
+#define ca9x4_twd_init	NULL
+#endif
+
 static void __init ct_ca9x4_init_early(void)
 {
 	clkdev_add_table(lookups, ARRAY_SIZE(lookups));
+	late_time_init = ca9x4_twd_init;
 }
 
 static void __init ct_ca9x4_init(void)

@@ -51,4 +51,7 @@ extern int shmobile_cpu_kill(unsigned int cpu);
 extern void shmobile_cpu_die(unsigned int cpu);
 extern int shmobile_cpu_disable(unsigned int cpu);
 
+struct resource;
+extern void shmobile_local_timer_register(void (*)(void));
+
 #endif /* __ARCH_MACH_COMMON_H */

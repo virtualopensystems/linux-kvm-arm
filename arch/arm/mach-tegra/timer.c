@@ -26,9 +26,10 @@
 #include <linux/clocksource.h>
 #include <linux/clk.h>
 #include <linux/io.h>
+#include <linux/ioport.h>
 
 #include <asm/mach/time.h>
-#include <asm/localtimer.h>
+#include <asm/smp_twd.h>
 #include <asm/sched_clock.h>
 
 #include <mach/iomap.h>
@@ -162,6 +163,31 @@ static struct irqaction tegra_timer_irq = {
 	.irq		= INT_TMR3,
 };
 
+#ifdef CONFIG_ARM_SMP_TWD
+static struct resource tegra_twd_resources[] __initdata = {
+	{
+		.start	= TEGRA_ARM_PERIF_BASE + 0x600,
+		.end	= TEGRA_ARM_PERIF_BASE + 0x610,
+		.flags	= IORESOURCE_MEM,
+	},
+	{
+		.start	= IRQ_LOCALTIMER,
+		.end	= IRQ_LOCALTIMER,
+		.flags	= IORESOURCE_IRQ,
+	},
+};
+
+static void __init tegra_twd_init(void)
+{
+	int err = twd_timer_register(tegra_twd_resources,
+				     ARRAY_SIZE(tegra_twd_resources));
+	if (err)
+		pr_err("twd_timer_register failed %d\n", err);
+}
+#else
+#define tegra_twd_init	NULL
+#endif
+
 static void __init tegra_init_timer(void)
 {
 	struct clk *clk;
@@ -179,10 +205,6 @@ static void __init tegra_init_timer(void)
 	clk = clk_get_sys("rtc-tegra", NULL);
 	BUG_ON(IS_ERR(clk));
 	clk_enable(clk);
-
-#ifdef CONFIG_HAVE_ARM_TWD
-	twd_base = IO_ADDRESS(TEGRA_ARM_PERIF_BASE + 0x600);
-#endif
 
 	switch (rate) {
 	case 12000000:
@@ -223,6 +245,8 @@ static void __init tegra_init_timer(void)
 	tegra_clockevent.cpumask = cpu_all_mask;
 	tegra_clockevent.irq = tegra_timer_irq.irq;
 	clockevents_register_device(&tegra_clockevent);
+
+	late_time_init = tegra_twd_init;
 }
 
 struct sys_timer tegra_timer = {
