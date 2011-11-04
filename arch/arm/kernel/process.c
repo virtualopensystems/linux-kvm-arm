@@ -165,7 +165,7 @@ static void __arm_machine_reset(void *args)
 	flush_cache_all();
 
 	/* Switch to the identity mapping. */
-	phys_reset = (phys_reset_t)virt_to_phys(cpu_reset);
+	phys_reset = (phys_reset_t)(unsigned long)virt_to_phys(cpu_reset);
 	phys_reset(reset_args->reset_code_phys);
 
 	/* Should never get here. */
