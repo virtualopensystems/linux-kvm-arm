@@ -41,6 +41,7 @@
 #include <asm/ptrace.h>
 #include <asm/localtimer.h>
 #include <asm/smp_plat.h>
+#include <asm/idmap.h>
 
 /*
  * as from 2.5, kernels no longer have an init_tasks structure
@@ -577,6 +578,10 @@ static void ipi_cpu_stop(unsigned int cpu)
 
 	local_fiq_disable();
 	local_irq_disable();
+
+#ifdef CONFIG_HOTPLUG_CPU
+	platform_cpu_kill(cpu);
+#endif
 
 	while (1)
 		cpu_relax();

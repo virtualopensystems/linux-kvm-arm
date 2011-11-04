@@ -1,8 +1,10 @@
 #include <linux/kernel.h>
 
 #include <asm/cputype.h>
+#include <asm/idmap.h>
 #include <asm/pgalloc.h>
 #include <asm/pgtable.h>
+#include <asm/sections.h>
 
 static void idmap_add_pmd(pud_t *pud, unsigned long addr, unsigned long end,
 	unsigned long prot)
@@ -71,20 +73,41 @@ void identity_mapping_del(pgd_t *pgd, unsigned long addr, unsigned long end)
 		idmap_del_pud(pgd, addr, next);
 	} while (pgd++, addr = next, addr != end);
 }
+#else
+void identity_mapping_del(pgd_t *pgd, unsigned long addr, unsigned long end)
+{
+}
 #endif
 
 /*
- * In order to soft-boot, we need to insert a 1:1 mapping in place of
- * the user-mode pages.  This will then ensure that we have predictable
- * results when turning the mmu off
+ * In order to soft-boot, we need to insert a 1:1 mapping of memory.
+ * This will then ensure that we have predictable results when turning
+ * the mmu off.
  */
-void setup_mm_for_reboot(char mode)
+void setup_mm_for_reboot(char mode, pgd_t *pgd)
 {
-	/*
-	 * We need to access to user-mode page tables here. For kernel threads
-	 * we don't have any user-mode mappings so we use the context that we
-	 * "borrowed".
-	 */
-	identity_mapping_add(current->active_mm->pgd, 0, TASK_SIZE);
+	unsigned long kernel_end;
+
+	/* If we don't have a pgd, hijack the current task. */
+	if (pgd == NULL) {
+		pgd = current->active_mm->pgd;
+		identity_mapping_add(pgd, 0, TASK_SIZE);
+	} else {
+		identity_mapping_add(pgd, 0, TASK_SIZE);
+		/*
+		 * Extend the flat mapping into kernelspace, leaving
+		 * room for the kernel image itself.
+		 */
+		kernel_end = ALIGN((unsigned long)_end, PMD_SIZE);
+		identity_mapping_add(pgd, kernel_end, 0);
+	}
+
+	/* Clean and invalidate L1. */
+	flush_cache_all();
+
+	/* Switch exclusively to kernel mappings. */
+	cpu_switch_mm(pgd, &init_mm);
+
+	/* Flush the TLB. */
 	local_flush_tlb_all();
 }
