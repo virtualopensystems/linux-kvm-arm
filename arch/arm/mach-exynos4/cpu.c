@@ -205,6 +205,32 @@ void __init exynos4_init_irq(void)
 	s5p_init_irq(NULL, 0);
 }
 
+asmlinkage void __exception_irq_entry exynos4_handle_irq(struct pt_regs *regs)
+{
+	int cpu = smp_processor_id();
+	u32 irqstat, irqnr;
+	void __iomem *cpu_base = S5P_VA_GIC_CPU +
+		(gic_bank_offset * cpu_logical_map(cpu));
+
+	do {
+		irqstat = readl_relaxed(cpu_base + GIC_CPU_INTACK);
+		irqnr = irqstat & ~0x1c00;
+
+		if (likely(irqnr > 15 && irqnr < 1021)) {
+			handle_IRQ(irqnr, regs);
+			continue;
+		}
+		if (irqnr < 16) {
+			writel_relaxed(irqstat, cpu_base + GIC_CPU_EOI);
+#ifdef CONFIG_SMP
+			handle_IPI(irqnr, regs);
+#endif
+			continue;
+		}
+		break;
+	} while (1);
+}
+
 struct sysdev_class exynos4_sysclass = {
 	.name	= "exynos4-core",
 };

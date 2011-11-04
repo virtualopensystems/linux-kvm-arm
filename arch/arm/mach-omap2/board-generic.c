@@ -71,6 +71,7 @@ MACHINE_START(OMAP_GENERIC, "Generic OMAP24xx")
 	.map_io		= omap_generic_map_io,
 	.init_early	= omap_generic_init_early,
 	.init_irq	= omap2_init_irq,
+	.handle_irq	= omap2_intc_handle_irq,
 	.init_machine	= omap_generic_init,
 	.timer		= &omap2_timer,
 MACHINE_END

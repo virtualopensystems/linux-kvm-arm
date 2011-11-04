@@ -594,7 +594,7 @@ MACHINE_START(AG5EVM, "ag5evm")
 	.map_io		= ag5evm_map_io,
 	.soc		= &sh73a0_soc_desc,
 	.init_irq	= ag5evm_init_irq,
-	.handle_irq	= shmobile_handle_irq_gic,
+	.handle_irq	= gic_handle_irq,
 	.init_machine	= ag5evm_init,
 	.timer		= &ag5evm_timer,
 MACHINE_END

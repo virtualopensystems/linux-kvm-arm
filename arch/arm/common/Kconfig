@@ -1,4 +1,5 @@
 config ARM_GIC
+	select MULTI_IRQ_HANDLER
 	bool
 
 config ARM_VIC

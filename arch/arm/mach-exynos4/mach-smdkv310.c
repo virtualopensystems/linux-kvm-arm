@@ -261,6 +261,7 @@ MACHINE_START(SMDKV310, "SMDKV310")
 	.soc		= &exynos4_soc_desc,
 	.init_irq	= exynos4_init_irq,
 	.map_io		= smdkv310_map_io,
+	.handle_irq	= exynos4_handle_irq,
 	.init_machine	= smdkv310_machine_init,
 	.timer		= &exynos4_timer,
 MACHINE_END

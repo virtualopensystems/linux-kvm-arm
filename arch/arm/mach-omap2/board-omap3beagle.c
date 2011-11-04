@@ -562,6 +562,7 @@ MACHINE_START(OMAP3_BEAGLE, "OMAP3 Beagle Board")
 	.map_io		= omap3_map_io,
 	.init_early	= omap3_beagle_init_early,
 	.init_irq	= omap3_beagle_init_irq,
+	.handle_irq	= omap3_intc_handle_irq,
 	.init_machine	= omap3_beagle_init,
 	.timer		= &omap3_secure_timer,
 MACHINE_END

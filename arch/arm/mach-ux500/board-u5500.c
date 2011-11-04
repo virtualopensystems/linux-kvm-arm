@@ -12,6 +12,7 @@
 #include <linux/irq.h>
 #include <linux/i2c.h>
 
+#include <asm/hardware/gic.h>
 #include <asm/mach/arch.h>
 #include <asm/mach-types.h>
 
@@ -123,5 +124,6 @@ MACHINE_START(U5500, "ST-Ericsson U5500 Platform")
 	.map_io		= u5500_map_io,
 	.init_irq	= ux500_init_irq,
 	.timer		= &ux500_timer,
+	.handle_irq	= gic_handle_irq,
 	.init_machine	= u5500_init_machine,
 MACHINE_END

@@ -338,6 +338,7 @@ MACHINE_START(OMAP_LDP, "OMAP LDP board")
 	.map_io		= omap3_map_io,
 	.init_early	= omap_ldp_init_early,
 	.init_irq	= omap3_init_irq,
+	.handle_irq	= omap3_intc_handle_irq,
 	.init_machine	= omap_ldp_init,
 	.timer		= &omap3_timer,
 MACHINE_END
