@@ -13,12 +13,14 @@
 #include <linux/errno.h>
 #include <linux/smp.h>
 
-int platform_cpu_kill(unsigned int cpu)
+#include <mach/common.h>
+
+int shmobile_cpu_kill(unsigned int cpu)
 {
 	return 1;
 }
 
-void platform_cpu_die(unsigned int cpu)
+void shmobile_cpu_die(unsigned int cpu)
 {
 	while (1) {
 		/*
@@ -31,7 +33,7 @@ void platform_cpu_die(unsigned int cpu)
 	}
 }
 
-int platform_cpu_disable(unsigned int cpu)
+int shmobile_cpu_disable(unsigned int cpu)
 {
 	/*
 	 * we don't allow CPU 0 to be shutdown (it is still too special
