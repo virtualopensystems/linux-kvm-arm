@@ -507,6 +507,7 @@ config KVMTOOL_TEST_ENABLE
 	select NET
 	select NETDEVICES
 	select PCI
+	select BLOCK
 	select BLK_DEV
 	select NETWORK_FILESYSTEMS
 	select INET
@@ -517,6 +518,8 @@ config KVMTOOL_TEST_ENABLE
 	select IP_PNP_DHCP
 	select BINFMT_ELF
 	select PCI_MSI
+	select HAVE_ARCH_KGDB
+	select DEBUG_KERNEL
 	select KGDB
 	select KGDB_SERIAL_CONSOLE
 	select VIRTIO
