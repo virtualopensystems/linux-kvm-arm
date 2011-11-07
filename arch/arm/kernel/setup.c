@@ -624,6 +624,29 @@ static int __init parse_tag_mem32(const struct tag *tag)
 
 __tagtable(ATAG_MEM, parse_tag_mem32);
 
+static int __init parse_tag_mem64(const struct tag *tag)
+{
+	/* We only use 32-bits for the size. */
+	unsigned long size;
+	phys_addr_t start, end;
+
+	start = tag->u.mem64.start;
+	size = tag->u.mem64.size;
+	end = start + size;
+
+	/* Ensure that the memory region is in range. */
+	if (end & ~PHYS_MASK)
+		pr_warning("Ignoring out-of-range mem64 tag (%.8llx-%.8llx)\n",
+			   (unsigned long long)start,
+			   (unsigned long long)end - 1);
+	else
+		arm_add_memory(start, size);
+
+	return 0;
+}
+
+__tagtable(ATAG_MEM64, parse_tag_mem64);
+
 #if defined(CONFIG_VGA_CONSOLE) || defined(CONFIG_DUMMY_CONSOLE)
 struct screen_info screen_info = {
  .orig_video_lines	= 30,
