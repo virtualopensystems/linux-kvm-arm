@@ -49,6 +49,8 @@ void kvm_update_cpuid(struct kvm_vcpu *vcpu)
 
 	if (apic)
 		apic->lapic_timer.timer_mode_mask = timer_mode_mask;
+
+	kvm_pmu_cpuid_update(vcpu);
 }
 
 static int is_efer_nx(void)
