@@ -147,6 +147,7 @@ static void __init u5500_init_machine(void)
 
 MACHINE_START(U5500, "ST-Ericsson U5500 Platform")
 	.atag_offset	= 0x100,
+	.soc		= &ux500_soc_desc,
 	.map_io		= u5500_map_io,
 	.init_irq	= ux500_init_irq,
 	.timer		= &ux500_timer,
