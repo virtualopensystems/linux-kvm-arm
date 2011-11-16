@@ -21,6 +21,20 @@
 #define SCU_INVALIDATE		0x0c
 #define SCU_FPGA_REVISION	0x10
 
+static int __scu_power_mode(void __iomem *scu_base, unsigned int mode, int cpu)
+{
+	unsigned int val;
+
+	if (mode > 3 || mode == 1 || cpu > 3)
+		return -EINVAL;
+
+	val = __raw_readb(scu_base + SCU_CPU_STATUS + cpu) & ~0x03;
+	val |= mode;
+	__raw_writeb(val, scu_base + SCU_CPU_STATUS + cpu);
+
+	return 0;
+}
+
 #ifdef CONFIG_SMP
 /*
  * Get the number of CPU cores from the SCU configuration
@@ -61,7 +75,6 @@ void scu_enable(void __iomem *scu_base)
 	 */
 	flush_cache_all();
 }
-#endif
 
 /*
  * Set the executing CPUs power mode as defined.  This will be in
@@ -73,15 +86,12 @@ void scu_enable(void __iomem *scu_base)
  */
 int scu_power_mode(void __iomem *scu_base, unsigned int mode)
 {
-	unsigned int val;
-	int cpu = smp_processor_id();
-
-	if (mode > 3 || mode == 1 || cpu > 3)
-		return -EINVAL;
-
-	val = __raw_readb(scu_base + SCU_CPU_STATUS + cpu) & ~0x03;
-	val |= mode;
-	__raw_writeb(val, scu_base + SCU_CPU_STATUS + cpu);
-
-	return 0;
+	int cpu = cpu_logical_map(smp_processor_id());
+	return __scu_power_mode(scu_base, mode, cpu);
 }
+#else	/* CONFIG_SMP */
+int scu_power_mode(void __iomem *scu_base, unsigned int mode)
+{
+	return __scu_power_mode(scu_base, mode, 0);
+}
+#endif
