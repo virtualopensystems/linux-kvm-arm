@@ -39,3 +39,9 @@ config ATH6KL_REGDOMAIN
 	  Enabling this makes it possible to change the regdomain in
 	  the firmware. This can be only enabled if regulatory requirements
 	  are taken into account.
+
+config ATH6KL_PLATFORM_DATA
+        bool "Atheros ath6kl Platform data support"
+        depends on ATH6KL
+        ---help---
+          Enables ath6kl platform data
