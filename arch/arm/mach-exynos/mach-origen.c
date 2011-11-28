@@ -28,6 +28,8 @@
 #include <linux/platform_data/s3c-hsotg.h>
 #include <linux/platform_data/usb-ehci-s5p.h>
 #include <linux/platform_data/usb-exynos.h>
+#include <linux/ath6kl.h>
+#include <linux/delay.h>
 
 #include <asm/mach/arch.h>
 #include <asm/hardware/gic.h>
@@ -541,6 +543,95 @@ static struct s3c_sdhci_platdata origen_hsmmc2_pdata __initdata = {
 	.cd_type		= S3C_SDHCI_CD_INTERNAL,
 };
 
+
+/*
+ * WLAN: SDIO Host will call this func at booting time
+ */
+static int origen_wifi_status_register(void (*notify_func)
+		(struct platform_device *, int state));
+
+/* WLAN: MMC3-SDIO */
+static struct s3c_sdhci_platdata origen_hsmmc3_pdata __initdata = {
+	.max_width		= 4,
+	.host_caps		= MMC_CAP_4_BIT_DATA |
+			MMC_CAP_MMC_HIGHSPEED | MMC_CAP_SD_HIGHSPEED,
+	.cd_type		= S3C_SDHCI_CD_EXTERNAL,
+	.ext_cd_init		= origen_wifi_status_register,
+};
+
+/*
+ * WLAN: Save SDIO Card detect func into this pointer
+ */
+static void (*wifi_status_cb)(struct platform_device *, int state);
+
+static int origen_wifi_status_register(void (*notify_func)
+		(struct platform_device *, int state))
+{
+	if (!notify_func)
+		return -EAGAIN;
+	else
+		wifi_status_cb = notify_func;
+
+	return 0;
+}
+
+#define ORIGEN_WLAN_WOW EXYNOS4_GPX2(3)
+#define ORIGEN_WLAN_RESET EXYNOS4_GPX2(4)
+
+
+static void origen_wlan_setup_power(bool val)
+{
+	int err;
+
+	if (val) {
+		err = gpio_request_one(ORIGEN_WLAN_RESET,
+				GPIOF_OUT_INIT_LOW, "GPX2_4");
+		if (err) {
+			pr_warning("ORIGEN: Not obtain WIFI gpios\n");
+			return;
+		}
+		s3c_gpio_cfgpin(ORIGEN_WLAN_RESET, S3C_GPIO_OUTPUT);
+		s3c_gpio_setpull(ORIGEN_WLAN_RESET,
+						S3C_GPIO_PULL_NONE);
+		/* VDD33,I/O Supply must be done */
+		gpio_set_value(ORIGEN_WLAN_RESET, 0);
+		udelay(30);	/*Tb */
+		gpio_direction_output(ORIGEN_WLAN_RESET, 1);
+	} else {
+		gpio_direction_output(ORIGEN_WLAN_RESET, 0);
+		gpio_free(ORIGEN_WLAN_RESET);
+	}
+
+	mdelay(100);
+
+	return;
+}
+
+/*
+ * This will be called at init time of WLAN driver
+ */
+static int origen_wifi_set_detect(bool val)
+{
+	if (!wifi_status_cb) {
+		printk(KERN_WARNING "WLAN: Nobody to notify\n");
+		return -EAGAIN;
+	}
+	if (true == val) {
+		origen_wlan_setup_power(true);
+		wifi_status_cb(&s3c_device_hsmmc3, 1);
+	} else {
+		origen_wlan_setup_power(false);
+		wifi_status_cb(&s3c_device_hsmmc3, 0);
+	}
+
+	return 0;
+}
+
+struct ath6kl_platform_data origen_wlan_data  __initdata = {
+	.setup_power = origen_wifi_set_detect,
+};
+
+
 /* USB EHCI */
 static struct s5p_ehci_platdata origen_ehci_pdata;
 
@@ -754,6 +845,7 @@ static struct platform_device *origen_devices[] __initdata = {
 	&mmc_fixed_voltage,
 	&s3c_device_hsmmc2,
 	&s3c_device_hsmmc0,
+	&s3c_device_hsmmc3,
 	&s3c_device_i2c0,
 	&s3c_device_i2c1,
 	&s3c_device_rtc,
@@ -851,6 +943,7 @@ static void __init origen_machine_init(void)
 	 */
 	s3c_sdhci2_set_platdata(&origen_hsmmc2_pdata);
 	s3c_sdhci0_set_platdata(&origen_hsmmc0_pdata);
+	s3c_sdhci3_set_platdata(&origen_hsmmc3_pdata);
 
 	origen_ehci_init();
 	origen_ohci_init();
@@ -876,6 +969,8 @@ static void __init origen_machine_init(void)
 	samsung_bl_set(&origen_bl_gpio_info, &origen_bl_data);
 
 	origen_bt_setup();
+
+	ath6kl_set_platform_data(&origen_wlan_data);
 }
 
 MACHINE_START(ORIGEN, "ORIGEN")
