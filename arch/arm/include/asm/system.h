@@ -230,7 +230,9 @@ static inline void set_copro_access(unsigned int val)
  * so enable interrupts over the context switch to avoid high
  * latency.
  */
+#ifndef CONFIG_CPU_HAS_ASID
 #define __ARCH_WANT_INTERRUPTS_ON_CTXSW
+#endif
 
 /*
  * switch_to(prev, next) should switch from task `prev' to `next'
