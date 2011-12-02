@@ -19,7 +19,10 @@
  *
  */
 #include <linux/platform_device.h>
+#include <mach/common.h>
 #include <asm/mach/time.h>
+
+static void (*local_timer_hook)(void) __initdata;
 
 static void __init shmobile_late_time_init(void)
 {
@@ -34,11 +37,18 @@ static void __init shmobile_late_time_init(void)
 	 */
 	early_platform_driver_register_all("earlytimer");
 	early_platform_driver_probe("earlytimer", 2, 0);
+	if (local_timer_hook)
+		local_timer_hook();
 }
 
 static void __init shmobile_timer_init(void)
 {
 	late_time_init = shmobile_late_time_init;
+}
+
+void __init shmobile_local_timer_register(void (*hook)(void))
+{
+	local_timer_hook = hook;
 }
 
 struct sys_timer shmobile_timer = {

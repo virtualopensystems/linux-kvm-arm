@@ -4,6 +4,7 @@ config UX500_SOC_COMMON
 	bool
 	default y
 	select ARM_GIC
+	select ARM_SMP_TWD
 	select HAS_MTU
 	select ARM_ERRATA_753970
 	select ARM_ERRATA_754322

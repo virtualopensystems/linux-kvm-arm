@@ -7,7 +7,6 @@ extern void shmobile_secondary_vector(void);
 struct clk;
 extern int clk_init(void);
 extern void shmobile_handle_irq_intc(struct pt_regs *);
-extern void shmobile_handle_irq_gic(struct pt_regs *);
 extern struct platform_suspend_ops shmobile_suspend_ops;
 struct cpuidle_driver;
 extern void (*shmobile_cpuidle_modes[])(void);
@@ -48,9 +47,11 @@ extern void sh73a0_pinmux_init(void);
 extern struct clk sh73a0_extal1_clk;
 extern struct clk sh73a0_extal2_clk;
 
-extern unsigned int sh73a0_get_core_count(void);
-extern void sh73a0_secondary_init(unsigned int cpu);
-extern int sh73a0_boot_secondary(unsigned int cpu);
-extern void sh73a0_smp_prepare_cpus(void);
+extern int shmobile_cpu_kill(unsigned int cpu);
+extern void shmobile_cpu_die(unsigned int cpu);
+extern int shmobile_cpu_disable(unsigned int cpu);
+
+struct resource;
+extern void shmobile_local_timer_register(void (*)(void));
 
 #endif /* __ARCH_MACH_COMMON_H */

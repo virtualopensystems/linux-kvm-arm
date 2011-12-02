@@ -15,6 +15,7 @@
 #include <asm/mach/irq.h>
 
 #include <asm/proc-fns.h>
+#include <asm/exception.h>
 #include <asm/hardware/cache-l2x0.h>
 #include <asm/hardware/gic.h>
 
@@ -32,6 +33,8 @@
 
 #include <mach/regs-irq.h>
 #include <mach/regs-pmu.h>
+
+#include "core.h"
 
 unsigned int gic_bank_offset __read_mostly;
 
@@ -207,17 +210,6 @@ void __init exynos4_init_clocks(int xtal)
 	exynos4_setup_clocks();
 }
 
-static void exynos4_gic_irq_fix_base(struct irq_data *d)
-{
-	struct gic_chip_data *gic_data = irq_data_get_irq_chip_data(d);
-
-	gic_data->cpu_base = S5P_VA_GIC_CPU +
-			    (gic_bank_offset * smp_processor_id());
-
-	gic_data->dist_base = S5P_VA_GIC_DIST +
-			    (gic_bank_offset * smp_processor_id());
-}
-
 void __init exynos4_init_irq(void)
 {
 	int irq;
@@ -225,9 +217,6 @@ void __init exynos4_init_irq(void)
 	gic_bank_offset = soc_is_exynos4412() ? 0x4000 : 0x8000;
 
 	gic_init(0, IRQ_PPI(0), S5P_VA_GIC_DIST, S5P_VA_GIC_CPU);
-	gic_arch_extn.irq_eoi = exynos4_gic_irq_fix_base;
-	gic_arch_extn.irq_unmask = exynos4_gic_irq_fix_base;
-	gic_arch_extn.irq_mask = exynos4_gic_irq_fix_base;
 
 	for (irq = 0; irq < MAX_COMBINER_NR; irq++) {
 
@@ -296,3 +285,9 @@ int __init exynos_init(void)
 
 	return sysdev_register(&exynos4_sysdev);
 }
+
+struct arm_soc_desc exynos4_soc_desc __initdata = {
+	.name		= "Samsung EXYNOS4",
+	soc_smp_init_ops(exynos4_soc_smp_init_ops)
+	soc_smp_ops(exynos4_soc_smp_ops)
+};

@@ -27,6 +27,7 @@
 #include <asm/cacheflush.h>
 #include <asm/unified.h>
 #include <asm/smp_scu.h>
+#include <asm/smp_twd.h>
 #include <asm/hardware/arm_timer.h>
 #include <asm/hardware/timer-sp.h>
 #include <asm/hardware/gic.h>
@@ -93,6 +94,16 @@ static void __init highbank_init_irq(void)
 	l2x0_of_init(0, ~0UL);
 }
 
+const static struct of_device_id twd_match[] __initconst = {
+	{ .compatible = "arm,smp-twd", },
+	{}
+};
+
+static void __init highbank_twd_init(void)
+{
+	twd_timer_of_init(twd_match);
+}
+
 static void __init highbank_timer_init(void)
 {
 	int irq;
@@ -113,6 +124,8 @@ static void __init highbank_timer_init(void)
 
 	sp804_clocksource_init(timer_base + 0x20, "timer1");
 	sp804_clockevents_init(timer_base, irq, "timer0");
+
+	late_time_init = highbank_twd_init;
 }
 
 static struct sys_timer highbank_timer = {
@@ -144,6 +157,7 @@ DT_MACHINE_START(HIGHBANK, "Highbank")
 	.map_io		= highbank_map_io,
 	.init_irq	= highbank_init_irq,
 	.timer		= &highbank_timer,
+	.handle_irq	= gic_handle_irq,
 	.init_machine	= highbank_init,
 	.dt_compat	= highbank_match,
 MACHINE_END

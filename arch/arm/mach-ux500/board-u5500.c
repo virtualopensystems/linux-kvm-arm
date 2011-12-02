@@ -12,6 +12,7 @@
 #include <linux/i2c.h>
 #include <linux/mfd/ab5500/ab5500.h>
 
+#include <asm/hardware/gic.h>
 #include <asm/mach/arch.h>
 #include <asm/mach-types.h>
 
@@ -146,8 +147,10 @@ static void __init u5500_init_machine(void)
 
 MACHINE_START(U5500, "ST-Ericsson U5500 Platform")
 	.atag_offset	= 0x100,
+	.soc		= &ux500_soc_desc,
 	.map_io		= u5500_map_io,
 	.init_irq	= ux500_init_irq,
 	.timer		= &ux500_timer,
+	.handle_irq	= gic_handle_irq,
 	.init_machine	= u5500_init_machine,
 MACHINE_END

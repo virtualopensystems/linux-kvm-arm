@@ -672,3 +672,9 @@ void __init sh73a0_add_early_devices(void)
 	early_platform_add_devices(sh73a0_early_devices,
 				   ARRAY_SIZE(sh73a0_early_devices));
 }
+
+struct arm_soc_desc sh73a0_soc_desc __initdata = {
+	.name		= "Renesas sh73a0",
+	soc_smp_init_ops(sh73a0_soc_smp_init_ops)
+	soc_smp_ops(sh73a0_soc_smp_ops)
+};

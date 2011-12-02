@@ -16,6 +16,7 @@
 #include <linux/of.h>
 #include <linux/of_irq.h>
 #include <linux/of_platform.h>
+#include <asm/smp_twd.h>
 #include <asm/hardware/cache-l2x0.h>
 #include <asm/hardware/gic.h>
 #include <asm/mach/arch.h>
@@ -61,9 +62,20 @@ static void __init imx6q_init_irq(void)
 	of_irq_init(imx6q_irq_match);
 }
 
+const static struct of_device_id imx6q_twd_match[] __initconst = {
+	{ .compatible = "arm,smp-twd", },
+	{}
+};
+
+static void __init imx6q_twd_init(void)
+{
+	twd_timer_of_init(imx6q_twd_match);
+}
+
 static void __init imx6q_timer_init(void)
 {
 	mx6q_clocks_init();
+	late_time_init = imx6q_twd_init;
 }
 
 static struct sys_timer imx6q_timer = {

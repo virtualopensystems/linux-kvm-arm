@@ -301,6 +301,31 @@ static void __init gic_init_irq(void)
 	}
 }
 
+#ifdef CONFIG_ARM_SMP_TWD
+static struct resource realview_pbx_twd_resources[] __initdata = {
+	{
+		.start	= REALVIEW_PBX_TILE_TWD_BASE,
+		.end	= REALVIEW_PBX_TILE_TWD_BASE + 0x10,
+		.flags	= IORESOURCE_MEM,
+	},
+	{
+		.start	= IRQ_LOCALTIMER,
+		.end	= IRQ_LOCALTIMER,
+		.flags	= IORESOURCE_IRQ,
+	},
+};
+
+static void __init realview_pbx_twd_init(void)
+{
+	int err = twd_timer_register(realview_pbx_twd_resources,
+				     ARRAY_SIZE(realview_pbx_twd_resources));
+	if (err)
+		pr_err("twd_timer_register failed %d\n", err);
+}
+#else
+#define realview_pbx_twd_init	NULL
+#endif
+
 static void __init realview_pbx_timer_init(void)
 {
 	timer0_va_base = __io_address(REALVIEW_PBX_TIMER0_1_BASE);
@@ -308,10 +333,9 @@ static void __init realview_pbx_timer_init(void)
 	timer2_va_base = __io_address(REALVIEW_PBX_TIMER2_3_BASE);
 	timer3_va_base = __io_address(REALVIEW_PBX_TIMER2_3_BASE) + 0x20;
 
-#ifdef CONFIG_LOCAL_TIMERS
 	if (core_tile_pbx11mp() || core_tile_pbxa9mp())
-		twd_base = __io_address(REALVIEW_PBX_TILE_TWD_BASE);
-#endif
+		late_time_init = realview_pbx_twd_init;
+
 	realview_timer_init(IRQ_PBX_TIMER0_1);
 }
 
@@ -394,11 +418,13 @@ static void __init realview_pbx_init(void)
 MACHINE_START(REALVIEW_PBX, "ARM-RealView PBX")
 	/* Maintainer: ARM Ltd/Deep Blue Solutions Ltd */
 	.atag_offset	= 0x100,
+	.soc		= &realview_soc_desc,
 	.fixup		= realview_pbx_fixup,
 	.map_io		= realview_pbx_map_io,
 	.init_early	= realview_init_early,
 	.init_irq	= gic_init_irq,
 	.timer		= &realview_pbx_timer,
+	.handle_irq	= gic_handle_irq,
 	.init_machine	= realview_pbx_init,
 #ifdef CONFIG_ZONE_DMA
 	.dma_zone_size	= SZ_256M,

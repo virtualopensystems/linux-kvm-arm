@@ -19,6 +19,7 @@
 #include <linux/platform_device.h>
 #include <linux/delay.h>
 #include <linux/percpu.h>
+#include <linux/cpu.h>
 
 #include <asm/hardware/gic.h>
 
@@ -39,12 +40,12 @@ static unsigned long clk_rate;
 static unsigned int mct_int_type;
 
 struct mct_clock_event_device {
-	struct clock_event_device *evt;
+	struct clock_event_device evt;
 	void __iomem *base;
 	char name[10];
 };
 
-static DEFINE_PER_CPU(struct mct_clock_event_device, percpu_mct_tick);
+static struct mct_clock_event_device __percpu *mct_tick;
 
 static void exynos4_mct_write(unsigned int value, void *addr)
 {
@@ -263,7 +264,6 @@ static void exynos4_clockevent_init(void)
 	setup_irq(IRQ_MCT_G0, &mct_comp_event_irq);
 }
 
-#ifdef CONFIG_LOCAL_TIMERS
 /* Clock event handling */
 static void exynos4_mct_tick_stop(struct mct_clock_event_device *mevt)
 {
@@ -302,8 +302,9 @@ static void exynos4_mct_tick_start(unsigned long cycles,
 static int exynos4_tick_set_next_event(unsigned long cycles,
 				       struct clock_event_device *evt)
 {
-	struct mct_clock_event_device *mevt = this_cpu_ptr(&percpu_mct_tick);
+	struct mct_clock_event_device *mevt;
 
+	mevt = container_of(evt, struct mct_clock_event_device, evt);
 	exynos4_mct_tick_start(cycles, mevt);
 
 	return 0;
@@ -312,8 +313,9 @@ static int exynos4_tick_set_next_event(unsigned long cycles,
 static inline void exynos4_tick_set_mode(enum clock_event_mode mode,
 					 struct clock_event_device *evt)
 {
-	struct mct_clock_event_device *mevt = this_cpu_ptr(&percpu_mct_tick);
+	struct mct_clock_event_device *mevt;
 
+	mevt = container_of(evt, struct mct_clock_event_device, evt);
 	exynos4_mct_tick_stop(mevt);
 
 	switch (mode) {
@@ -331,7 +333,7 @@ static inline void exynos4_tick_set_mode(enum clock_event_mode mode,
 
 static int exynos4_mct_tick_clear(struct mct_clock_event_device *mevt)
 {
-	struct clock_event_device *evt = mevt->evt;
+	struct clock_event_device *evt = &mevt->evt;
 
 	/*
 	 * This is for supporting oneshot mode.
@@ -353,7 +355,7 @@ static int exynos4_mct_tick_clear(struct mct_clock_event_device *mevt)
 static irqreturn_t exynos4_mct_tick_isr(int irq, void *dev_id)
 {
 	struct mct_clock_event_device *mevt = dev_id;
-	struct clock_event_device *evt = mevt->evt;
+	struct clock_event_device *evt = &mevt->evt;
 
 	exynos4_mct_tick_clear(mevt);
 
@@ -374,13 +376,11 @@ static struct irqaction mct_tick1_event_irq = {
 	.handler	= exynos4_mct_tick_isr,
 };
 
-static void exynos4_mct_tick_init(struct clock_event_device *evt)
+static void __cpuinit exynos4_mct_tick_init(void *data)
 {
-	struct mct_clock_event_device *mevt;
+	struct mct_clock_event_device *mevt = data;
+	struct clock_event_device *evt = &mevt->evt;
 	unsigned int cpu = smp_processor_id();
-
-	mevt = this_cpu_ptr(&percpu_mct_tick);
-	mevt->evt = evt;
 
 	mevt->base = EXYNOS4_MCT_L_BASE(cpu);
 	sprintf(mevt->name, "mct_tick%d", cpu);
@@ -418,23 +418,59 @@ static void exynos4_mct_tick_init(struct clock_event_device *evt)
 	}
 }
 
-/* Setup the local clock events for a CPU */
-int __cpuinit local_timer_setup(struct clock_event_device *evt)
+void exynos4_mct_tick_halt(void *data)
 {
-	exynos4_mct_tick_init(evt);
+	struct mct_clock_event_device *mevt = data;
+	struct clock_event_device *evt = &mevt->evt;
 
-	return 0;
-}
-
-void local_timer_stop(struct clock_event_device *evt)
-{
 	evt->set_mode(CLOCK_EVT_MODE_UNUSED, evt);
 	if (mct_int_type == MCT_INT_SPI)
 		disable_irq(evt->irq);
 	else
 		disable_percpu_irq(IRQ_MCT_LOCALTIMER);
 }
-#endif /* CONFIG_LOCAL_TIMERS */
+
+static int __cpuinit exynos4_mct_cpu_notify(struct notifier_block *self,
+					    unsigned long action, void *data)
+{
+	int cpu = (int)data;
+	struct mct_clock_event_device *mevt = per_cpu_ptr(mct_tick, cpu);
+
+	switch (action) {
+	case CPU_ONLINE:
+	case CPU_ONLINE_FROZEN:
+		smp_call_function_single(cpu, exynos4_mct_tick_init, mevt, 1);
+		break;
+
+	case CPU_DOWN_PREPARE:
+	case CPU_DOWN_PREPARE_FROZEN:
+		smp_call_function_single(cpu, exynos4_mct_tick_halt, mevt, 1);
+		break;
+	}
+
+	return NOTIFY_OK;
+}
+
+static struct notifier_block __cpuinitdata exynos4_mct_cpu_nb = {
+	.notifier_call = exynos4_mct_cpu_notify,
+};
+
+static void __init exynos4_mct_init(void)
+{
+	struct mct_clock_event_device *mevt;
+
+	mct_tick = alloc_percpu(struct mct_clock_event_device);
+	if (!mct_tick) {
+		pr_err("exynos4_mct_init: can't allocate memory\n");
+		return;
+	}
+
+	/* Immediately configure the timer on the boot CPU */
+	mevt = per_cpu_ptr(mct_tick, smp_processor_id());
+	exynos4_mct_tick_init(mevt);
+
+	register_cpu_notifier(&exynos4_mct_cpu_nb);
+}
 
 static void __init exynos4_timer_resources(void)
 {
@@ -448,7 +484,7 @@ static void __init exynos4_timer_resources(void)
 
 		err = request_percpu_irq(IRQ_MCT_LOCALTIMER,
 					 exynos4_mct_tick_isr, "MCT",
-					 &percpu_mct_tick);
+					 mct_tick);
 		WARN(err, "MCT: can't request IRQ %d (%d)\n",
 		     IRQ_MCT_LOCALTIMER, err);
 	}
@@ -464,6 +500,7 @@ static void __init exynos4_timer_init(void)
 	exynos4_timer_resources();
 	exynos4_clocksource_init();
 	exynos4_clockevent_init();
+	exynos4_mct_init();
 }
 
 struct sys_timer exynos4_timer = {

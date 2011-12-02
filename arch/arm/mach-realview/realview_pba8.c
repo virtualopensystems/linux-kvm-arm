@@ -311,11 +311,13 @@ static void __init realview_pba8_init(void)
 MACHINE_START(REALVIEW_PBA8, "ARM-RealView PB-A8")
 	/* Maintainer: ARM Ltd/Deep Blue Solutions Ltd */
 	.atag_offset	= 0x100,
+	.soc		= &realview_soc_desc,
 	.fixup		= realview_fixup,
 	.map_io		= realview_pba8_map_io,
 	.init_early	= realview_init_early,
 	.init_irq	= gic_init_irq,
 	.timer		= &realview_pba8_timer,
+	.handle_irq	= gic_handle_irq,
 	.init_machine	= realview_pba8_init,
 #ifdef CONFIG_ZONE_DMA
 	.dma_zone_size	= SZ_256M,

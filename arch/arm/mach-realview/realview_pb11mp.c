@@ -36,7 +36,7 @@
 #include <asm/pgtable.h>
 #include <asm/hardware/gic.h>
 #include <asm/hardware/cache-l2x0.h>
-#include <asm/localtimer.h>
+#include <asm/smp_twd.h>
 
 #include <asm/mach/arch.h>
 #include <asm/mach/flash.h>
@@ -298,6 +298,31 @@ static void __init gic_init_irq(void)
 	gic_cascade_irq(1, IRQ_TC11MP_PB_IRQ1);
 }
 
+#ifdef CONFIG_ARM_SMP_TWD
+static struct resource realview_pb11mp_twd_resources[] __initdata = {
+	{
+		.start	= REALVIEW_TC11MP_TWD_BASE,
+		.end	= REALVIEW_TC11MP_TWD_BASE + 0x10,
+		.flags	= IORESOURCE_MEM,
+	},
+	{
+		.start	= IRQ_LOCALTIMER,
+		.end	= IRQ_LOCALTIMER,
+		.flags	= IORESOURCE_IRQ,
+	},
+};
+
+static void __init realview_pb11mp_twd_init(void)
+{
+	int err = twd_timer_register(realview_pb11mp_twd_resources,
+				     ARRAY_SIZE(realview_pb11mp_twd_resources));
+	if (err)
+		pr_err("twd_timer_register failed %d\n", err);
+}
+#else
+#define realview_pb11mp_twd_init	NULL
+#endif
+
 static void __init realview_pb11mp_timer_init(void)
 {
 	timer0_va_base = __io_address(REALVIEW_PB11MP_TIMER0_1_BASE);
@@ -305,10 +330,8 @@ static void __init realview_pb11mp_timer_init(void)
 	timer2_va_base = __io_address(REALVIEW_PB11MP_TIMER2_3_BASE);
 	timer3_va_base = __io_address(REALVIEW_PB11MP_TIMER2_3_BASE) + 0x20;
 
-#ifdef CONFIG_LOCAL_TIMERS
-	twd_base = __io_address(REALVIEW_TC11MP_TWD_BASE);
-#endif
 	realview_timer_init(IRQ_TC11MP_TIMER0_1);
+	late_time_init = realview_pb11mp_twd_init;
 }
 
 static struct sys_timer realview_pb11mp_timer = {
@@ -361,11 +384,13 @@ static void __init realview_pb11mp_init(void)
 MACHINE_START(REALVIEW_PB11MP, "ARM-RealView PB11MPCore")
 	/* Maintainer: ARM Ltd/Deep Blue Solutions Ltd */
 	.atag_offset	= 0x100,
+	.soc		= &realview_soc_desc,
 	.fixup		= realview_fixup,
 	.map_io		= realview_pb11mp_map_io,
 	.init_early	= realview_init_early,
 	.init_irq	= gic_init_irq,
 	.timer		= &realview_pb11mp_timer,
+	.handle_irq	= gic_handle_irq,
 	.init_machine	= realview_pb11mp_init,
 #ifdef CONFIG_ZONE_DMA
 	.dma_zone_size	= SZ_256M,

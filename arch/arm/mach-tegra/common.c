@@ -22,6 +22,7 @@
 #include <linux/clk.h>
 #include <linux/delay.h>
 
+#include <asm/soc.h>
 #include <asm/hardware/cache-l2x0.h>
 
 #include <mach/iomap.h>
@@ -30,6 +31,7 @@
 #include "board.h"
 #include "clock.h"
 #include "fuse.h"
+#include "common.h"
 
 void (*arch_reset)(char mode, const char *cmd) = tegra_assert_system_reset;
 
@@ -81,3 +83,9 @@ void __init tegra_init_early(void)
 	tegra_clk_init_from_table(common_clk_init_table);
 	tegra_init_cache();
 }
+
+struct arm_soc_desc tegra_soc_desc __initdata = {
+	.name		= "NVIDIA Tegra",
+	soc_smp_init_ops(tegra_soc_smp_init_ops)
+	soc_smp_ops(tegra_soc_smp_ops)
+};

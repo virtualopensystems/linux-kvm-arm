@@ -1,0 +1,29 @@
+* ARM Timer Watchdog
+
+ARM 11MP, Cortex-A5 and Cortex-A9 are often associated with a per-core
+Timer-Watchdog (aka TWD), which provides both a per-cpu local timer
+and watchdog.
+
+The TWD is usually attached to a GIC to deliver its two per-processor
+interrupts.
+
+Main node required properties:
+
+- compatible : Should be one of:
+	"arm,cortex-a9-twd"
+	"arm,cortex-a5-twd"
+	"arm,arm11mp-twd"
+	"arm,smp-twd"
+
+- interrupts : Two interrupts to each core, the first one for the
+  timer, the second one for the watchdog.
+
+- reg : Specify the base address and the size of the TWD.
+
+Example:
+
+	twd@2c000600 {
+		compatible = "arm,arm11mp-twd", "arm,smp-twd";
+		reg = <0x2c000600 0x100>;
+		interrupts = <1 13 0xf01 1 14 0xf01>;
+	};

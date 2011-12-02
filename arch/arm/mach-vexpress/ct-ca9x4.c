@@ -28,9 +28,8 @@
 
 #include <mach/motherboard.h>
 
+#include <plat/sched_clock.h>
 #include <plat/clcd.h>
-
-#define V2M_PA_CS7	0x10000000
 
 static struct map_desc ct_ca9x4_io_desc[] __initdata = {
 	{
@@ -53,9 +52,6 @@ static struct map_desc ct_ca9x4_io_desc[] __initdata = {
 
 static void __init ct_ca9x4_map_io(void)
 {
-#ifdef CONFIG_LOCAL_TIMERS
-	twd_base = MMIO_P2V(A9_MPCORE_TWD);
-#endif
 	iotable_init(ct_ca9x4_io_desc, ARRAY_SIZE(ct_ca9x4_io_desc));
 }
 
@@ -191,9 +187,41 @@ static struct platform_device pmu_device = {
 	.resource	= pmu_resources,
 };
 
+#ifdef CONFIG_ARM_SMP_TWD
+static struct resource ca9x4_twd_resources[] __initdata = {
+	{
+		.start	= A9_MPCORE_TWD,
+		.end	= A9_MPCORE_TWD + 0x10,
+		.flags	= IORESOURCE_MEM,
+	},
+	{
+		.start	= IRQ_LOCALTIMER,
+		.end	= IRQ_LOCALTIMER,
+		.flags	= IORESOURCE_IRQ,
+	},
+};
+
+static void __init ca9x4_twd_init(void)
+{
+	int err = twd_timer_register(ca9x4_twd_resources,
+				     ARRAY_SIZE(ca9x4_twd_resources));
+	if (err)
+		pr_err("twd_timer_register failed %d\n", err);
+}
+#else
+#define ca9x4_twd_init	NULL
+#endif
+
+static void __init ct_ca9x4_timer_init(void)
+{
+	v2m_timer_init();
+	late_time_init = ca9x4_twd_init;
+}
+
 static void __init ct_ca9x4_init_early(void)
 {
 	clkdev_add_table(lookups, ARRAY_SIZE(lookups));
+	versatile_sched_clock_init(MMIO_P2V(V2M_SYS_24MHZ), 24000000);
 }
 
 static void __init ct_ca9x4_init(void)
@@ -229,8 +257,6 @@ static void ct_ca9x4_init_cpu_map(void)
 
 	for (i = 0; i < ncores; ++i)
 		set_cpu_possible(i, true);
-
-	set_smp_cross_call(gic_raise_softirq);
 }
 
 static void ct_ca9x4_smp_enable(unsigned int max_cpus)
@@ -239,12 +265,21 @@ static void ct_ca9x4_smp_enable(unsigned int max_cpus)
 }
 #endif
 
+static struct ct_id ct_ca9x4_ids[] = {
+	{
+		.id	= 0x0c000191,
+		.mask	= V2M_CT_ID_MASK,
+	},
+	{ },
+};
+
 struct ct_desc ct_ca9x4_desc __initdata = {
-	.id		= V2M_CT_ID_CA9,
+	.id_table	= ct_ca9x4_ids,
 	.name		= "CA9x4",
 	.map_io		= ct_ca9x4_map_io,
 	.init_early	= ct_ca9x4_init_early,
 	.init_irq	= ct_ca9x4_init_irq,
+	.timer_init	= ct_ca9x4_timer_init,
 	.init_tile	= ct_ca9x4_init,
 #ifdef CONFIG_SMP
 	.init_cpu_map	= ct_ca9x4_init_cpu_map,

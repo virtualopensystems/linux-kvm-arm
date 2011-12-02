@@ -22,6 +22,7 @@
 #include <linux/lcd.h>
 
 #include <asm/mach/arch.h>
+#include <asm/hardware/gic.h>
 #include <asm/mach-types.h>
 
 #include <video/platform_lcd.h>
@@ -42,6 +43,8 @@
 #include <plat/mfc.h>
 
 #include <mach/map.h>
+
+#include "core.h"
 
 /* Following are default values for UCON, ULCON and UFCON UART registers */
 #define ORIGEN_UCON_DEFAULT	(S3C2410_UCON_TXILEVEL |	\
@@ -692,8 +695,10 @@ static void __init origen_machine_init(void)
 MACHINE_START(ORIGEN, "ORIGEN")
 	/* Maintainer: JeongHyeon Kim <jhkim@insignal.co.kr> */
 	.atag_offset	= 0x100,
+	.soc		= &exynos4_soc_desc,
 	.init_irq	= exynos4_init_irq,
 	.map_io		= origen_map_io,
+	.handle_irq	= gic_handle_irq,
 	.init_machine	= origen_machine_init,
 	.timer		= &exynos4_timer,
 	.reserve	= &origen_reserve,

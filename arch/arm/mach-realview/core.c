@@ -33,6 +33,7 @@
 #include <linux/clkdev.h>
 #include <linux/mtd/physmap.h>
 
+#include <asm/soc.h>
 #include <asm/system.h>
 #include <mach/hardware.h>
 #include <asm/irq.h>
@@ -533,3 +534,9 @@ void realview_fixup(struct tag *tags, char **from, struct meminfo *meminfo)
 	meminfo->nr_banks = 1;
 #endif
 }
+
+struct arm_soc_desc realview_soc_desc __initdata = {
+	.name		= "ARM RealView Platform",
+	soc_smp_init_ops(realview_soc_smp_init_ops)
+	soc_smp_ops(realview_soc_smp_ops)
+};

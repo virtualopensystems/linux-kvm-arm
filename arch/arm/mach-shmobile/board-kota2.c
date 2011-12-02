@@ -447,6 +447,7 @@ struct sys_timer kota2_timer = {
 
 MACHINE_START(KOTA2, "kota2")
 	.map_io		= kota2_map_io,
+	.soc		= &sh73a0_soc_desc,
 	.init_irq	= kota2_init_irq,
 	.handle_irq	= shmobile_handle_irq_gic,
 	.init_machine	= kota2_init,

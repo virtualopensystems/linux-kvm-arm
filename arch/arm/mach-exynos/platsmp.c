@@ -32,6 +32,8 @@
 
 #include <plat/cpu.h>
 
+#include "core.h"
+
 extern unsigned int gic_bank_offset;
 extern void exynos4_secondary_startup(void);
 
@@ -65,39 +67,19 @@ static void __iomem *scu_base_addr(void)
 
 static DEFINE_SPINLOCK(boot_lock);
 
-static void __cpuinit exynos4_gic_secondary_init(void)
+static void __cpuinit exynos4_secondary_init(unsigned int cpu)
 {
 	void __iomem *dist_base = S5P_VA_GIC_DIST +
-				(gic_bank_offset * smp_processor_id());
+				(gic_bank_offset * cpu_logical_map(cpu));
 	void __iomem *cpu_base = S5P_VA_GIC_CPU +
-				(gic_bank_offset * smp_processor_id());
-	int i;
+				(gic_bank_offset * cpu_logical_map(cpu));
 
-	/*
-	 * Deal with the banked PPI and SGI interrupts - disable all
-	 * PPI interrupts, ensure all SGI interrupts are enabled.
-	 */
-	__raw_writel(0xffff0000, dist_base + GIC_DIST_ENABLE_CLEAR);
-	__raw_writel(0x0000ffff, dist_base + GIC_DIST_ENABLE_SET);
-
-	/*
-	 * Set priority on PPI and SGI interrupts
-	 */
-	for (i = 0; i < 32; i += 4)
-		__raw_writel(0xa0a0a0a0, dist_base + GIC_DIST_PRI + i * 4 / 4);
-
-	__raw_writel(0xf0, cpu_base + GIC_CPU_PRIMASK);
-	__raw_writel(1, cpu_base + GIC_CPU_CTRL);
-}
-
-void __cpuinit platform_secondary_init(unsigned int cpu)
-{
 	/*
 	 * if any interrupts are already enabled for the primary
 	 * core (e.g. timer irq), then they will not have been enabled
 	 * for us: do so
 	 */
-	exynos4_gic_secondary_init();
+	gic_secondary_init_base(0, dist_base, cpu_base);
 
 	/*
 	 * let the primary processor know we're out of the
@@ -112,7 +94,7 @@ void __cpuinit platform_secondary_init(unsigned int cpu)
 	spin_unlock(&boot_lock);
 }
 
-int __cpuinit boot_secondary(unsigned int cpu, struct task_struct *idle)
+static int __cpuinit exynos4_boot_secondary(unsigned int cpu, struct task_struct *idle)
 {
 	unsigned long timeout;
 
@@ -187,7 +169,7 @@ int __cpuinit boot_secondary(unsigned int cpu, struct task_struct *idle)
  * which may be present or become present in the system.
  */
 
-void __init smp_init_cpus(void)
+static void __init exynos4_smp_init_cpus(void)
 {
 	void __iomem *scu_base = scu_base_addr();
 	unsigned int i, ncores;
@@ -207,7 +189,7 @@ void __init smp_init_cpus(void)
 	set_smp_cross_call(gic_raise_softirq);
 }
 
-void __init platform_smp_prepare_cpus(unsigned int max_cpus)
+static void __init exynos4_smp_prepare_cpus(unsigned int max_cpus)
 {
 
 	scu_enable(scu_base_addr());
@@ -221,3 +203,18 @@ void __init platform_smp_prepare_cpus(unsigned int max_cpus)
 	__raw_writel(BSYM(virt_to_phys(exynos4_secondary_startup)),
 			CPU1_BOOT_REG);
 }
+
+struct arm_soc_smp_init_ops exynos4_soc_smp_init_ops __initdata = {
+	.smp_init_cpus		= exynos4_smp_init_cpus,
+	.smp_prepare_cpus	= exynos4_smp_prepare_cpus,
+};
+
+struct arm_soc_smp_ops exynos4_soc_smp_ops __initdata = {
+	.smp_secondary_init	= exynos4_secondary_init,
+	.smp_boot_secondary	= exynos4_boot_secondary,
+#ifdef CONFIG_HOTPLUG_CPU
+	.cpu_kill		= exynos4_cpu_kill,
+	.cpu_die		= exynos4_cpu_die,
+	.cpu_disable		= exynos4_cpu_disable,
+#endif
+};

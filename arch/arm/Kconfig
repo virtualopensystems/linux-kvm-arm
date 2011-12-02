@@ -310,6 +310,7 @@ config ARCH_VEXPRESS
 	select ICST
 	select PLAT_VERSATILE
 	select PLAT_VERSATILE_CLCD
+	select NEED_MACH_MEMORY_H
 	help
 	  This enables support for the ARM Ltd Versatile Express boards.
 
@@ -1441,7 +1442,8 @@ config SMP
 	depends on REALVIEW_EB_ARM11MP || REALVIEW_EB_A9MP || \
 		 MACH_REALVIEW_PB11MP || MACH_REALVIEW_PBX || ARCH_OMAP4 || \
 		 ARCH_EXYNOS4 || ARCH_TEGRA || ARCH_U8500 || ARCH_VEXPRESS_CA9X4 || \
-		 ARCH_MSM_SCORPIONMP || ARCH_SHMOBILE || ARCH_HIGHBANK || SOC_IMX6Q
+		 ARCH_MSM_SCORPIONMP || ARCH_SHMOBILE || ARCH_HIGHBANK || SOC_IMX6Q || \
+		 ARCH_VEXPRESS_CA15X4 || ARCH_VEXPRESS_CA5S
 	depends on MMU
 	select USE_GENERIC_SMP_HELPERS
 	select HAVE_ARM_SCU if !ARCH_MSM_SCORPIONMP
@@ -1505,12 +1507,23 @@ config HAVE_ARM_SCU
 	help
 	  This option enables support for the ARM system coherency unit
 
+config ARM_ARCH_TIMER
+	bool "Architected timer support"
+	depends on CPU_V7
+	select TICK_ONESHOT
+	help
+	  This option enables support for the ARM architected timer
+
 config HAVE_ARM_TWD
 	bool
 	depends on SMP
 	select TICK_ONESHOT
 	help
 	  This options enables support for the ARM timer and watchdog unit
+
+config ARM_SMP_TWD
+	bool
+	select HAVE_ARM_TWD if SMP
 
 choice
 	prompt "Memory split"
@@ -1547,17 +1560,6 @@ config HOTPLUG_CPU
 	help
 	  Say Y here to experiment with turning CPUs off and on.  CPUs
 	  can be controlled through /sys/devices/system/cpu.
-
-config LOCAL_TIMERS
-	bool "Use local timer interrupts"
-	depends on SMP
-	default y
-	select HAVE_ARM_TWD if (!ARCH_MSM_SCORPIONMP && !EXYNOS4_MCT)
-	help
-	  Enable support for local timers on SMP platforms, rather then the
-	  legacy IPI broadcast method.  Local timers allows the system
-	  accounting to be spread across the timer interval, preventing a
-	  "thundering herd" at every timer tick.
 
 source kernel/Kconfig.preempt
 

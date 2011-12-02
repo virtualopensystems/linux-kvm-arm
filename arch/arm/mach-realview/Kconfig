@@ -4,6 +4,7 @@ menu "RealView platform type"
 config MACH_REALVIEW_EB
 	bool "Support RealView(R) Emulation Baseboard"
 	select ARM_GIC
+	select ARM_SMP_TWD if SMP
 	help
 	  Include support for the ARM(R) RealView(R) Emulation Baseboard
 	  platform.
@@ -40,6 +41,7 @@ config MACH_REALVIEW_PB11MP
 	select ARM_GIC
 	select HAVE_PATA_PLATFORM
 	select ARCH_HAS_BARRIERS if SMP
+	select ARM_SMP_TWD if SMP
 	help
 	  Include support for the ARM(R) RealView(R) Platform Baseboard for
 	  the ARM11MPCore.  This platform has an on-board ARM11MPCore and has
@@ -80,6 +82,7 @@ config MACH_REALVIEW_PBX
 	select HAVE_PATA_PLATFORM
 	select ARCH_SPARSEMEM_ENABLE if CPU_V7 && !REALVIEW_HIGH_PHYS_OFFSET
 	select ZONE_DMA if SPARSEMEM
+	select ARM_SMP_TWD if SMP
 	help
 	  Include support for the ARM(R) RealView(R) Platform Baseboard
 	  Explore.

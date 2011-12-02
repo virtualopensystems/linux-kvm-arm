@@ -1,5 +1,5 @@
 obj-y += io.o idle.o timer.o
-obj-y += clock.o
+obj-y += clock.o core.o
 obj-$(CONFIG_DEBUG_FS) += clock-debug.o
 
 obj-$(CONFIG_MSM_VIC) += irq-vic.o

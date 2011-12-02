@@ -21,6 +21,8 @@
 #include <linux/clockchips.h>
 #include <linux/delay.h>
 #include <linux/io.h>
+#include <linux/cpu.h>
+#include <linux/slab.h>
 
 #include <asm/mach/time.h>
 #include <asm/hardware/gic.h>
@@ -197,7 +199,7 @@ static struct msm_clock msm_clocks[] = {
 	}
 };
 
-static void __init msm_timer_init(void)
+static void __init msm_timer_primary_setup(void)
 {
 	int i;
 	int res;
@@ -280,14 +282,11 @@ static void __init msm_timer_init(void)
 }
 
 #ifdef CONFIG_SMP
-int __cpuinit local_timer_setup(struct clock_event_device *evt)
+static void __cpuinit msm_timer_secondary_setup(void *data)
 {
 	static bool local_timer_inited;
+	struct clock_event_device *evt = data;
 	struct msm_clock *clock = &msm_clocks[MSM_GLOBAL_TIMER];
-
-	/* Use existing clock_event for cpu 0 */
-	if (!smp_processor_id())
-		return 0;
 
 	writel(DGT_CLK_CTL_DIV_4, MSM_TMR_BASE + DGT_CLK_CTL);
 
@@ -308,21 +307,69 @@ int __cpuinit local_timer_setup(struct clock_event_device *evt)
 	evt->max_delta_ns =
 		clockevent_delta2ns(0xf0000000 >> clock->shift, evt);
 	evt->min_delta_ns = clockevent_delta2ns(4, evt);
+	evt->cpumask = cpumask_of(smp_processor_id());
 
 	*__this_cpu_ptr(clock->percpu_evt) = evt;
 	enable_percpu_irq(evt->irq, 0);
 
 	clockevents_register_device(evt);
-	return 0;
 }
 
-void local_timer_stop(struct clock_event_device *evt)
+void msm_timer_secondary_teardown(void *data)
 {
+	struct clock_event_device *evt = data;
 	evt->set_mode(CLOCK_EVT_MODE_UNUSED, evt);
 	disable_percpu_irq(evt->irq);
 }
 
+static int __cpuinit msm_timer_cpu_notify(struct notifier_block *self,
+					  unsigned long action, void *data)
+{
+	int cpu = (int)data;
+	struct clock_event_device *clk;
+
+	clk = *per_cpu_ptr(msm_clocks[MSM_GLOBAL_TIMER].percpu_evt, cpu);
+	if (!clk) {
+		clk = kzalloc(sizeof(*clk), GFP_KERNEL);
+		if (!clk) {
+			pr_err("msm_timer: failed to allocate clk\n");
+			return NOTIFY_BAD;
+		}
+		*per_cpu_ptr(msm_clocks[MSM_GLOBAL_TIMER].percpu_evt, cpu) = clk;
+	}
+
+	switch (action) {
+	case CPU_ONLINE:
+	case CPU_ONLINE_FROZEN:
+		smp_call_function_single(cpu, msm_timer_secondary_setup,
+					 clk, 1);
+		break;
+
+	case CPU_DOWN_PREPARE:
+	case CPU_DOWN_PREPARE_FROZEN:
+		smp_call_function_single(cpu, msm_timer_secondary_teardown,
+					 clk, 1);
+		break;
+	}
+
+	return NOTIFY_OK;
+}
+
+static struct notifier_block __cpuinitdata msm_timer_cpu_nb = {
+	.notifier_call = msm_timer_cpu_notify,
+};
 #endif
+
+static void __init msm_timer_init(void)
+{
+	/* Immediately configure the timer on the boot CPU */
+	msm_timer_primary_setup();
+
+#ifdef CONFIG_SMP
+	if (cpu_is_msm8x60() || cpu_is_msm8960())
+		register_cpu_notifier(&msm_timer_cpu_nb);
+#endif
+}
 
 struct sys_timer msm_timer = {
 	.init = msm_timer_init
