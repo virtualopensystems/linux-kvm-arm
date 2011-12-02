@@ -19,6 +19,22 @@
 static DEFINE_RAW_SPINLOCK(cpu_asid_lock);
 unsigned int cpu_last_asid = ASID_FIRST_VERSION;
 
+#ifdef CONFIG_ARM_LPAE
+void cpu_set_reserved_ttbr0(void)
+{
+	unsigned long ttbl = __pa(swapper_pg_dir);
+	unsigned long ttbh = 0;
+
+	/*
+	 * Set TTBR0 to swapper_pg_dir. Note that swapper_pg_dir only contains
+	 * global entries so the ASID value is not relevant.
+	 */
+	asm(
+	"	mcrr	p15, 0, %0, %1, c2		@ set TTBR0\n"
+	:
+	: "r" (ttbl), "r" (ttbh));
+}
+#else
 void cpu_set_reserved_ttbr0(void)
 {
 	u32 ttb;
@@ -29,6 +45,7 @@ void cpu_set_reserved_ttbr0(void)
 	: "=r" (ttb));
 	isb();
 }
+#endif
 
 /*
  * We fork()ed a process, and we need a new context for the child
