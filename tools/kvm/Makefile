@@ -21,6 +21,7 @@ TAGS	:= ctags
 PROGRAM	:= kvm
 
 GUEST_INIT := guest/init
+GUEST_INIT_S2 := guest/init_stage2
 
 OBJS	+= builtin-balloon.o
 OBJS	+= builtin-debug.o
@@ -179,7 +180,7 @@ WARNINGS += -Wwrite-strings
 
 CFLAGS	+= $(WARNINGS)
 
-all: $(PROGRAM) $(GUEST_INIT)
+all: $(PROGRAM) $(GUEST_INIT) $(GUEST_INIT_S2)
 
 KVMTOOLS-VERSION-FILE:
 	@$(SHELL_PATH) util/KVMTOOLS-VERSION-GEN $(OUTPUT)
@@ -192,6 +193,10 @@ $(PROGRAM): $(DEPS) $(OBJS)
 $(GUEST_INIT): guest/init.c
 	$(E) "  LINK    " $@
 	$(Q) $(CC) -static guest/init.c -o $@
+
+$(GUEST_INIT_S2): guest/init_stage2.c
+	$(E) "  LINK    " $@
+	$(Q) $(CC) -static guest/init_stage2.c -o $@
 
 $(DEPS):
 
@@ -255,7 +260,7 @@ bios/bios-rom.h: bios/bios.bin.elf
 	$(E) "  NM      " $@
 	$(Q) cd bios && sh gen-offsets.sh > bios-rom.h && cd ..
 
-check: $(PROGRAM)
+check: all
 	$(MAKE) -C tests
 	./$(PROGRAM) run tests/pit/tick.bin
 	./$(PROGRAM) run -d tests/boot/boot_test.iso -p "init=init"
@@ -269,7 +274,7 @@ clean:
 	$(Q) rm -f bios/bios-rom.h
 	$(Q) rm -f tests/boot/boot_test.iso
 	$(Q) rm -rf tests/boot/rootfs/
-	$(Q) rm -f $(DEPS) $(OBJS) $(PROGRAM) $(GUEST_INIT)
+	$(Q) rm -f $(DEPS) $(OBJS) $(PROGRAM) $(GUEST_INIT) $(GUEST_INIT_S2)
 	$(Q) rm -f cscope.*
 	$(Q) rm -f $(KVM_INCLUDE)/common-cmds.h
 	$(Q) rm -f KVMTOOLS-VERSION-FILE
