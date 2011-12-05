@@ -85,6 +85,7 @@ OBJS	+= hw/vesa.o
 OBJS	+= hw/i8042.o
 OBJS	+= hw/pci-shmem.o
 OBJS	+= kvm-ipc.o
+OBJS	+= builtin-sandbox.o
 
 FLAGS_BFD := $(CFLAGS) -lbfd
 has_bfd := $(call try-cc,$(SOURCE_BFD),$(FLAGS_BFD))
