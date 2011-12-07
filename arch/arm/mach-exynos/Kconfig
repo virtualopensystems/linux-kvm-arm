@@ -341,6 +341,7 @@ config MACH_ORIGEN
 	select S3C24XX_PWM
 	select S3C_DEV_HSMMC
 	select S3C_DEV_HSMMC2
+	select S3C_DEV_HSMMC3
 	select S3C_DEV_RTC
 	select S3C_DEV_I2C1
 	select S3C_DEV_USB_HSOTG
