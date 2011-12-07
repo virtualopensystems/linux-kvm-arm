@@ -5,7 +5,7 @@ obj-$(CONFIG_ATH6KL)		+= ath6kl/
 obj-$(CONFIG_AR5523)		+= ar5523/
 obj-$(CONFIG_WIL6210)		+= wil6210/
 
-obj-$(CONFIG_ATH6KL_PLATFORM_DATA) += ath6kl/platform_data.o
+obj-$(CONFIG_ATH6KL_PLATFORM_DATA) += platform_data.o
 obj-$(CONFIG_ATH_COMMON)	+= ath.o
 
 ath-objs :=	main.o \
