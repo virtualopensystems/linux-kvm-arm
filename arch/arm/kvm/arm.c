@@ -253,7 +253,20 @@ int kvm_cpu_has_pending_timer(struct kvm_vcpu *vcpu)
 
 int kvm_arch_vcpu_init(struct kvm_vcpu *vcpu)
 {
-	KVMARM_NOT_IMPLEMENTED();
+	unsigned long cpsr;
+	unsigned long sctlr;
+
+	/* Init execution CPSR */
+	asm volatile ("mrs	%[cpsr], cpsr" :
+			[cpsr] "=r" (cpsr));
+	vcpu->arch.regs.cpsr = SVC_MODE | PSR_I_BIT | PSR_F_BIT | PSR_A_BIT |
+				(cpsr & PSR_E_BIT);
+
+	/* Init SCTLR with MMU disabled */
+	asm volatile ("mrc	p15, 0, %[sctlr], c1, c0, 0" :
+			[sctlr] "=r" (sctlr));
+	vcpu->arch.cp15.c1_SCTLR = sctlr & ~1U;
+
 	return 0;
 }
 
@@ -293,10 +306,36 @@ int kvm_arch_vcpu_runnable(struct kvm_vcpu *v)
 	return 0;
 }
 
+/**
+ * kvm_arch_vcpu_ioctl_run - the main VCPU run function to execute guest code
+ * @vcpu:	The VCPU pointer
+ * @run:	The kvm_run structure pointer used for userspace state exchange
+ *
+ * This function is called through the VCPU_RUN ioctl called from user space. It
+ * will execute VM code in a loop until the time slice for the process is used
+ * or some emulation is needed from user space in which case the function will
+ * return with return value 0 and with the kvm_run structure filled in with the
+ * required data for the requested emulation.
+ */
 int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 {
-	KVMARM_NOT_IMPLEMENTED();
-	return -EINVAL;
+	int ret;
+
+	for (;;) {
+		trace_kvm_entry(vcpu->arch.regs.pc);
+
+		local_irq_disable();
+		kvm_guest_enter();
+
+		ret = __kvm_vcpu_run(vcpu);
+
+		kvm_guest_exit();
+		local_irq_enable();
+
+		trace_kvm_exit(vcpu->arch.regs.pc);
+	}
+
+	return ret;
 }
 
 static int kvm_arch_vm_ioctl_irq_line(struct kvm *kvm,

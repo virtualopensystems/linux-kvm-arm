@@ -73,6 +73,7 @@ int kvm_arch_vcpu_ioctl_get_regs(struct kvm_vcpu *vcpu, struct kvm_regs *regs)
 	/*
 	 * Co-processor registers.
 	 */
+	regs->cp15.c0_midr = vcpu->arch.cp15.c0_MIDR;
 	regs->cp15.c1_sys = vcpu->arch.cp15.c1_SCTLR;
 	regs->cp15.c2_base0 = vcpu->arch.cp15.c2_TTBR0;
 	regs->cp15.c2_base1 = vcpu->arch.cp15.c2_TTBR1;
@@ -111,6 +112,7 @@ int kvm_arch_vcpu_ioctl_set_regs(struct kvm_vcpu *vcpu, struct kvm_regs *regs)
 	/*
 	 * Co-processor registers.
 	 */
+	vcpu->arch.cp15.c0_MIDR = regs->cp15.c0_midr;
 	vcpu->arch.cp15.c1_SCTLR = regs->cp15.c1_sys;
 
 	vcpu_regs->pc = regs->reg15;

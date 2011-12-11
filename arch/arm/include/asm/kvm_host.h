@@ -62,6 +62,7 @@ struct kvm_vcpu_arch {
 
 	/* System control coprocessor (cp15) */
 	struct {
+		u32 c0_MIDR;		/* Main ID Register */
 		u32 c1_SCTLR;		/* System Control Register */
 		u32 c1_ACTLR;		/* Auxilliary Control Register */
 		u32 c1_CPACR;		/* Coprocessor Access Control */
@@ -69,6 +70,12 @@ struct kvm_vcpu_arch {
 		u64 c2_TTBR1;		/* Translation Table Base Register 1 */
 		u32 c2_TTBCR;		/* Translation Table Base Control R. */
 		u32 c3_DACR;		/* Domain Access Control Register */
+		u32 c10_PRRR;		/* Primary Region Remap Register */
+		u32 c10_NMRR;		/* Normal Memory Remap Register */
+		u32 c13_CID;		/* Context ID Register */
+		u32 c13_TID_URW;	/* Thread ID, User R/W */
+		u32 c13_TID_URO;	/* Thread ID, User R/O */
+		u32 c13_TID_PRIV;	/* Thread ID, Priveleged */
 	} cp15;
 
 	u32 virt_irq;		/* HCR exception mask */
@@ -78,6 +85,7 @@ struct kvm_vcpu_arch {
 	u32 hdfar;		/* Hyp Data Fault Address Register */
 	u32 hifar;		/* Hyp Inst. Fault Address Register */
 	u32 hpfar;		/* Hyp IPA Fault Address Register */
+	u64 pc_ipa;		/* IPA for the current PC (VA to PA result) */
 
 	/* IO related fields */
 	u32 mmio_rd;
