@@ -54,6 +54,18 @@
 
 #endif	/* CONFIG_THUMB2_KERNEL */
 
+#ifdef CONFIG_KVM_ARM_HOST
+#ifdef __ASSEMBLY__
+.arch_extension sec
+.arch_extension virt
+#else
+__asm__(
+"	.arch_extension sec\n"
+"	.arch_extension virt\n"
+);
+#endif
+#endif
+
 #ifndef CONFIG_ARM_ASM_UNIFIED
 
 /*
