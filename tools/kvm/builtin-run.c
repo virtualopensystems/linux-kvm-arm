@@ -53,6 +53,7 @@
 #define DEFAULT_GUEST_MAC	"02:15:15:15:15:15"
 #define DEFAULT_HOST_MAC	"02:01:01:01:01:01"
 #define DEFAULT_SCRIPT		"none"
+const char *DEFAULT_SANDBOX_FILENAME = "guest/sandbox.sh";
 
 #define MB_SHIFT		(20)
 #define KB_SHIFT		(10)
@@ -82,6 +83,7 @@ static const char *guest_mac;
 static const char *host_mac;
 static const char *script;
 static const char *guest_name;
+static const char *sandbox;
 static struct virtio_net_params *net_params;
 static bool single_step;
 static bool readonly_image[MAX_DISK_IMAGES];
@@ -93,6 +95,7 @@ static bool custom_rootfs;
 static bool no_net;
 static bool no_dhcp;
 extern bool ioport_debug;
+static int  kvm_run_wrapper;
 extern int  active_console;
 extern int  debug_iodelay;
 
@@ -105,6 +108,15 @@ static const char * const run_usage[] = {
 	"kvm run [<options>] [<kernel image>]",
 	NULL
 };
+
+enum {
+	KVM_RUN_SANDBOX,
+};
+
+void kvm_run_set_wrapper_sandbox(void)
+{
+	kvm_run_wrapper = KVM_RUN_SANDBOX;
+}
 
 static int img_name_parser(const struct option *opt, const char *arg, int unset)
 {
@@ -422,6 +434,8 @@ static const struct option options[] = {
 	OPT_CALLBACK('\0', "tty", NULL, "tty id",
 		     "Remap guest TTY into a pty on the host",
 		     tty_parser),
+	OPT_STRING('\0', "sandbox", &sandbox, "script",
+			"Run this script when booting into custom rootfs"),
 
 	OPT_GROUP("Kernel options:"),
 	OPT_STRING('k', "kernel", &kernel_filename, "kernel",
@@ -703,6 +717,85 @@ void kvm_run_help(void)
 	usage_with_options(run_usage, options);
 }
 
+static int kvm_custom_stage2(void)
+{
+	char tmp[PATH_MAX], dst[PATH_MAX], *src;
+	const char *rootfs;
+	int r;
+
+	src = realpath("guest/init_stage2", NULL);
+	if (src == NULL)
+		return -ENOMEM;
+
+	if (image_filename[0] == NULL)
+		rootfs = "default";
+	else
+		rootfs = image_filename[0];
+
+	snprintf(tmp, PATH_MAX, "%s%s/virt/init_stage2", kvm__get_dir(), rootfs);
+	remove(tmp);
+
+	snprintf(dst, PATH_MAX, "/host/%s", src);
+	r = symlink(dst, tmp);
+	free(src);
+
+	return r;
+}
+
+static int kvm_run_set_sandbox(void)
+{
+	const char *guestfs_name = "default";
+	char path[PATH_MAX], script[PATH_MAX], *tmp;
+
+	if (image_filename[0])
+		guestfs_name = image_filename[0];
+
+	snprintf(path, PATH_MAX, "%s%s/virt/sandbox.sh", kvm__get_dir(), guestfs_name);
+
+	remove(path);
+
+	if (sandbox == NULL)
+		return 0;
+
+	tmp = realpath(sandbox, NULL);
+	if (tmp == NULL)
+		return -ENOMEM;
+
+	snprintf(script, PATH_MAX, "/host/%s", tmp);
+	free(tmp);
+
+	return symlink(script, path);
+}
+
+static void kvm_run_write_sandbox_cmd(const char **argv, int argc)
+{
+	const char script_hdr[] = "#! /bin/bash\n\n";
+	int fd;
+
+	remove(sandbox);
+
+	fd = open(sandbox, O_RDWR | O_CREAT, 0777);
+	if (fd < 0)
+		die("Failed creating sandbox script");
+
+	if (write(fd, script_hdr, sizeof(script_hdr) - 1) <= 0)
+		die("Failed writing sandbox script");
+
+	while (argc) {
+		if (write(fd, argv[0], strlen(argv[0])) <= 0)
+			die("Failed writing sandbox script");
+		if (argc - 1)
+			if (write(fd, " ", 1) <= 0)
+				die("Failed writing sandbox script");
+		argv++;
+		argc--;
+	}
+	if (write(fd, "\n", 1) <= 0)
+		die("Failed writing sandbox script");
+
+	close(fd);
+}
+
 int kvm_cmd_run(int argc, const char **argv, const char *prefix)
 {
 	static char real_cmdline[2048], default_name[20];
@@ -724,8 +817,18 @@ int kvm_cmd_run(int argc, const char **argv, const char *prefix)
 
 	while (argc != 0) {
 		argc = parse_options(argc, argv, options, run_usage,
-				PARSE_OPT_STOP_AT_NON_OPTION);
+				PARSE_OPT_STOP_AT_NON_OPTION |
+				PARSE_OPT_KEEP_DASHDASH);
 		if (argc != 0) {
+			/* Cusrom options, should have been handled elsewhere */
+			if (strcmp(argv[0], "--") == 0) {
+				if (kvm_run_wrapper == KVM_RUN_SANDBOX) {
+					sandbox = DEFAULT_SANDBOX_FILENAME;
+					kvm_run_write_sandbox_cmd(argv+1, argc-1);
+					break;
+				}
+			}
+
 			if (kernel_filename) {
 				fprintf(stderr, "Cannot handle parameter: "
 						"%s\n", argv[0]);
@@ -866,9 +969,14 @@ int kvm_cmd_run(int argc, const char **argv, const char *prefix)
 	if (using_rootfs) {
 		strcat(real_cmdline, " root=/dev/root rw rootflags=rw,trans=virtio,version=9p2000.L rootfstype=9p");
 		if (custom_rootfs) {
+			kvm_run_set_sandbox();
+
 			strcat(real_cmdline, " init=/virt/init");
+
 			if (!no_dhcp)
 				strcat(real_cmdline, "  ip=dhcp");
+			if (kvm_custom_stage2())
+				die("Failed linking stage 2 of init.");
 		}
 	} else if (!strstr(real_cmdline, "root=")) {
 		strlcat(real_cmdline, " root=/dev/vda rw ", sizeof(real_cmdline));
