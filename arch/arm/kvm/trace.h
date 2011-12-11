@@ -111,6 +111,21 @@ TRACE_EVENT(kvm_irq_line,
 		__entry->level, __entry->vcpu_idx)
 );
 
+TRACE_EVENT(kvm_wfi,
+	TP_PROTO(unsigned long vcpu_pc),
+	TP_ARGS(vcpu_pc),
+
+	TP_STRUCT__entry(
+		__field(	unsigned long,	vcpu_pc		)
+	),
+
+	TP_fast_assign(
+		__entry->vcpu_pc		= vcpu_pc;
+	),
+
+	TP_printk("guest executed wfi at: 0x%08lx", __entry->vcpu_pc)
+);
+
 
 #endif /* _TRACE_KVM_H */
 
