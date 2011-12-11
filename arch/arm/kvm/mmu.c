@@ -26,6 +26,7 @@
 #include "debug.h"
 
 pgd_t *kvm_hyp_pgd;
+DEFINE_MUTEX(kvm_hyp_pgd_mutex);
 
 static void free_ptes(pmd_t *pmd, unsigned long addr)
 {
@@ -55,6 +56,7 @@ void free_hyp_pmds(pgd_t *hyp_pgd)
 	pmd_t *pmd;
 	unsigned long addr, next, end;
 
+	mutex_lock(&kvm_hyp_pgd_mutex);
 	addr = PAGE_OFFSET;
 	end = ~0;
 	do {
@@ -71,6 +73,7 @@ void free_hyp_pmds(pgd_t *hyp_pgd)
 		free_ptes(pmd, addr);
 		pmd_free(NULL, pmd);
 	} while (addr = next, addr != end);
+	mutex_unlock(&kvm_hyp_pgd_mutex);
 }
 
 static void create_hyp_pte_mappings(pmd_t *pmd, unsigned long addr,
@@ -140,6 +143,7 @@ int create_hyp_mappings(pgd_t *hyp_pgd, void *from, void *to)
 	if (start < PAGE_OFFSET)
 		return -EINVAL;
 
+	mutex_lock(&kvm_hyp_pgd_mutex);
 	addr = start;
 	do {
 		next = pgd_addr_end(addr, end);
@@ -150,7 +154,8 @@ int create_hyp_mappings(pgd_t *hyp_pgd, void *from, void *to)
 			pmd = pmd_alloc_one(NULL, addr);
 			if (!pmd) {
 				kvm_err(-ENOMEM, "Cannot allocate Hyp pmd");
-				return -ENOMEM;
+				err = -ENOMEM;
+				goto out;
 			}
 			pud_populate(NULL, pud, pmd);
 		}
@@ -160,6 +165,8 @@ int create_hyp_mappings(pgd_t *hyp_pgd, void *from, void *to)
 			return err;
 	} while (addr = next, addr < end);
 
+out:
+	mutex_unlock(&kvm_hyp_pgd_mutex);
 	return err;
 }
 

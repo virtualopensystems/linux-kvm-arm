@@ -78,8 +78,6 @@ struct kvm_vcpu_arch {
 		u32 c13_TID_PRIV;	/* Thread ID, Priveleged */
 	} cp15;
 
-	u32 virt_irq;		/* HCR exception mask */
-
 	/* Exception Information */
 	u32 hsr;		/* Hyp Syndrom Register */
 	u32 hdfar;		/* Hyp Data Fault Address Register */
@@ -92,6 +90,8 @@ struct kvm_vcpu_arch {
 	u32 mmio_rd;
 
 	/* Misc. fields */
+	spinlock_t irq_lock;
+	u32 virt_irq;		/* HCR exception mask */
 	u32 wait_for_interrupts;
 };
 

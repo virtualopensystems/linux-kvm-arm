@@ -347,8 +347,10 @@ unsupp_err_out:
 int kvm_handle_wfi(struct kvm_vcpu *vcpu, struct kvm_run *run)
 {
 	trace_kvm_wfi(vcpu->arch.regs.pc);
+	spin_lock(&vcpu->arch.irq_lock);
 	if (!vcpu->arch.virt_irq)
 		vcpu->arch.wait_for_interrupts = 1;
+	spin_unlock(&vcpu->arch.irq_lock);
 	return 0;
 }
 
