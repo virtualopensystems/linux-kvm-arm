@@ -104,6 +104,14 @@
  */
 #define L_PGD_SWAPPER		(_AT(pgdval_t, 1) << 55)	/* swapper_pg_dir entry */
 
+/*
+ * 2-nd stage PTE definitions for LPAE.
+ */
+#define L_PTE2_READ		(_AT(pteval_t, 1) << 6)	/* HAP[0] */
+#define L_PTE2_WRITE		(_AT(pteval_t, 1) << 7)	/* HAP[1] */
+#define L_PTE2_NORM_WB		(_AT(pteval_t, 3) << 4)	/* MemAttr[3:2] */
+#define L_PTE2_INNER_WB		(_AT(pteval_t, 3) << 2)	/* MemAttr[1:0] */
+
 #ifndef __ASSEMBLY__
 
 #define pud_none(pud)		(!pud_val(pud))
