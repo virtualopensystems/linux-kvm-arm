@@ -63,6 +63,7 @@ struct kvm_vcpu_arch {
 	/* System control coprocessor (cp15) */
 	struct {
 		u32 c0_MIDR;		/* Main ID Register */
+		u32 c0_MPIDR;		/* MultiProcessor ID Register */
 		u32 c1_SCTLR;		/* System Control Register */
 		u32 c1_ACTLR;		/* Auxilliary Control Register */
 		u32 c1_CPACR;		/* Coprocessor Access Control */

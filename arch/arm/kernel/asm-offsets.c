@@ -148,6 +148,7 @@ int main(void)
 #ifdef CONFIG_KVM_ARM_HOST
   DEFINE(VCPU_KVM,		offsetof(struct kvm_vcpu, kvm));
   DEFINE(VCPU_MIDR,		offsetof(struct kvm_vcpu, arch.cp15.c0_MIDR));
+  DEFINE(VCPU_MPIDR,		offsetof(struct kvm_vcpu, arch.cp15.c0_MPIDR));
   DEFINE(VCPU_SCTLR,		offsetof(struct kvm_vcpu, arch.cp15.c1_SCTLR));
   DEFINE(VCPU_CPACR,		offsetof(struct kvm_vcpu, arch.cp15.c1_CPACR));
   DEFINE(VCPU_TTBR0,		offsetof(struct kvm_vcpu, arch.cp15.c2_TTBR0));

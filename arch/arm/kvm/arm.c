@@ -32,6 +32,7 @@
 #include <asm/ptrace.h>
 #include <asm/mman.h>
 #include <asm/tlbflush.h>
+#include <asm/cputype.h>
 #include <asm/kvm_arm.h>
 #include <asm/kvm_asm.h>
 #include <asm/kvm_mmu.h>
@@ -269,6 +270,9 @@ int kvm_arch_vcpu_init(struct kvm_vcpu *vcpu)
 	asm volatile ("mrc	p15, 0, %[sctlr], c1, c0, 0" :
 			[sctlr] "=r" (sctlr));
 	vcpu->arch.cp15.c1_SCTLR = sctlr & ~1U;
+
+	/* Compute guest MPIDR */
+	vcpu->arch.cp15.c0_MPIDR = (read_cpuid_mpidr() & ~0xff) | vcpu->vcpu_id;
 
 	return 0;
 }

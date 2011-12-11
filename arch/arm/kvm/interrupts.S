@@ -245,6 +245,10 @@ ENTRY(__kvm_vcpu_run)
 	ldr	r1, [r0, #VCPU_MIDR]
 	mcr	p15, 4, r1, c0, c0, 0
 
+	@ Write guest view of MPIDR into VMPIDR
+	ldr	r1, [r0, #VCPU_MPIDR]
+	mcr	p15, 4, r1, c0, c0, 5
+
 	@ Load guest registers
 	add	r0, r0, #(VCPU_USR_SP)
 	load_mode_state r0, usr
@@ -290,6 +294,10 @@ __kvm_vcpu_return:
 	@ Let guest read hardware MIDR
 	mrc	p15, 0, r2, c0, c0, 0
 	mcr	p15, 4, r2, c0, c0, 0
+
+	@ Back to hardware MPIDR
+	mrc	p15, 0, r2, c0, c0, 5
+	mcr	p15, 4, r2, c0, c0, 5
 
 	@ Set VMID == 0
 	mov	r2, #0
