@@ -24,5 +24,28 @@
 #define ARM_EXCEPTION_DATA_ABORT  4
 #define ARM_EXCEPTION_IRQ	  5
 #define ARM_EXCEPTION_FIQ	  6
+#define ARM_EXCEPTION_HVC	  7
+
+/*
+ * SMC Hypervisor API call numbers
+ */
+#ifdef __ASSEMBLY__
+.equ SMCHYP_HVBAR_W, 0xfffffff0
+#else /* !__ASSEMBLY__ */
+asm(".equ SMCHYP_HVBAR_W, 0xfffffff0");
+#endif /* __ASSEMBLY__ */
+
+#ifndef __ASSEMBLY__
+struct kvm_vcpu;
+
+extern char __kvm_hyp_init[];
+extern char __kvm_hyp_init_end[];
+
+extern char __kvm_hyp_vector[];
+extern char __kvm_hyp_vector_end[];
+
+extern int __kvm_vcpu_run(struct kvm_vcpu *vcpu);
+extern char __kvm_vcpu_run_end[];
+#endif
 
 #endif /* __ARM_KVM_ASM_H__ */
