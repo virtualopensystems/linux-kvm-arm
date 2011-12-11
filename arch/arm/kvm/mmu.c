@@ -177,6 +177,9 @@ out:
  * Allocates the 1st level table only of size defined by PGD2_ORDER (can
  * support either full 40-bit input addresses or limited to 32-bit input
  * addresses). Clears the allocated pages.
+ *
+ * Note we don't need locking here as this is only called when the VM is
+ * destroyed, which can only be done once.
  */
 int kvm_alloc_stage2_pgd(struct kvm *kvm)
 {
@@ -204,6 +207,9 @@ int kvm_alloc_stage2_pgd(struct kvm *kvm)
  * Walks the level-1 page table pointed to by kvm->arch.pgd and frees all
  * underlying level-2 and level-3 tables before freeing the actual level-1 table
  * and setting the struct pointer to NULL.
+ *
+ * Note we don't need locking here as this is only called when the VM is
+ * destroyed, which can only be done once.
  */
 void kvm_free_stage2_pgd(struct kvm *kvm)
 {
@@ -239,14 +245,51 @@ void kvm_free_stage2_pgd(struct kvm *kvm)
 	kvm->arch.pgd = NULL;
 }
 
-static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
-			  gfn_t gfn, struct kvm_memory_slot *memslot)
+static int __user_mem_abort(struct kvm *kvm, phys_addr_t addr, pfn_t pfn)
 {
-	pfn_t pfn;
 	pgd_t *pgd;
 	pud_t *pud;
 	pmd_t *pmd;
 	pte_t *pte, new_pte;
+
+	/* Create 2nd stage page table mapping - Level 1 */
+	pgd = kvm->arch.pgd + pgd_index(addr);
+	pud = pud_offset(pgd, addr);
+	if (pud_none(*pud)) {
+		pmd = pmd_alloc_one(NULL, addr);
+		if (!pmd) {
+			kvm_err(-ENOMEM, "Cannot allocate 2nd stage pmd");
+			return -ENOMEM;
+		}
+		pud_populate(NULL, pud, pmd);
+		pmd += pmd_index(addr);
+	} else
+		pmd = pmd_offset(pud, addr);
+
+	/* Create 2nd stage page table mapping - Level 2 */
+	if (pmd_none(*pmd)) {
+		pte = pte_alloc_one_kernel(NULL, addr);
+		if (!pte) {
+			kvm_err(-ENOMEM, "Cannot allocate 2nd stage pte");
+			return -ENOMEM;
+		}
+		pmd_populate_kernel(NULL, pmd, pte);
+		pte += pte_index(addr);
+	} else
+		pte = pte_offset_kernel(pmd, addr);
+
+	/* Create 2nd stage page table mapping - Level 3 */
+	new_pte = pfn_pte(pfn, PAGE_KVM_GUEST);
+	set_pte_ext(pte, new_pte, 0);
+
+	return 0;
+}
+
+static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
+			  gfn_t gfn, struct kvm_memory_slot *memslot)
+{
+	pfn_t pfn;
+	int ret;
 
 	pfn = gfn_to_pfn(vcpu->kvm, gfn);
 
@@ -257,37 +300,11 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
 		return -EFAULT;
 	}
 
-	/* Create 2nd stage page table mapping - Level 1 */
-	pgd = vcpu->kvm->arch.pgd + pgd_index(fault_ipa);
-	pud = pud_offset(pgd, fault_ipa);
-	if (pud_none(*pud)) {
-		pmd = pmd_alloc_one(NULL, fault_ipa);
-		if (!pmd) {
-			kvm_err(-ENOMEM, "Cannot allocate 2nd stage pmd");
-			return -ENOMEM;
-		}
-		pud_populate(NULL, pud, pmd);
-		pmd += pmd_index(fault_ipa);
-	} else
-		pmd = pmd_offset(pud, fault_ipa);
+	mutex_lock(&vcpu->kvm->arch.pgd_mutex);
+	ret = __user_mem_abort(vcpu->kvm, fault_ipa, pfn);
+	mutex_unlock(&vcpu->kvm->arch.pgd_mutex);
 
-	/* Create 2nd stage page table mapping - Level 2 */
-	if (pmd_none(*pmd)) {
-		pte = pte_alloc_one_kernel(NULL, fault_ipa);
-		if (!pte) {
-			kvm_err(-ENOMEM, "Cannot allocate 2nd stage pte");
-			return -ENOMEM;
-		}
-		pmd_populate_kernel(NULL, pmd, pte);
-		pte += pte_index(fault_ipa);
-	} else
-		pte = pte_offset_kernel(pmd, fault_ipa);
-
-	/* Create 2nd stage page table mapping - Level 3 */
-	new_pte = pfn_pte(pfn, PAGE_KVM_GUEST);
-	set_pte_ext(pte, new_pte, 0);
-
-	return 0;
+	return ret;
 }
 
 /**

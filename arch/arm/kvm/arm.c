@@ -119,6 +119,7 @@ int kvm_arch_init_vm(struct kvm *kvm)
 	ret = kvm_alloc_stage2_pgd(kvm);
 	if (ret)
 		goto out_fail_alloc;
+	mutex_init(&kvm->arch.pgd_mutex);
 
 	pgd_phys = virt_to_phys(kvm->arch.pgd);
 	kvm->arch.vttbr = pgd_phys & ((1LLU << 40) - 1) & ~((2 << VTTBR_X) - 1);

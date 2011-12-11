@@ -31,9 +31,15 @@ struct kvm_vcpu;
 u32 *kvm_vcpu_reg(struct kvm_vcpu *vcpu, u8 reg_num, u32 mode);
 
 struct kvm_arch {
-	u32    vmid;	/* The VMID used for the virt. memory system */
-	pgd_t *pgd;	/* 1-level 2nd stage table */
-	u64    vttbr;	/* VTTBR value associated with above pgd and vmid */
+	/* The VMID used for the virt. memory system */
+	u32    vmid;
+
+	/* 1-level 2nd stage table and lock */
+	struct mutex pgd_mutex;
+	pgd_t *pgd;
+
+	/* VTTBR value associated with above pgd and vmid */
+	u64    vttbr;
 };
 
 #define EXCEPTION_NONE      0
