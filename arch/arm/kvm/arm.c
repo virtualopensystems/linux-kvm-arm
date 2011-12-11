@@ -94,14 +94,61 @@ void kvm_arch_sync_events(struct kvm *kvm)
 {
 }
 
+/**
+ * kvm_arch_init_vm - initializes a VM data structure
+ * @kvm:	pointer to the KVM struct
+ */
 int kvm_arch_init_vm(struct kvm *kvm)
 {
-	return 0;
+	int ret = 0;
+	phys_addr_t pgd_phys;
+	unsigned long vmid;
+
+	mutex_lock(&kvm_vmids_mutex);
+	vmid = find_first_zero_bit(kvm_vmids, VMID_SIZE);
+	if (vmid >= VMID_SIZE) {
+		mutex_unlock(&kvm_vmids_mutex);
+		return -EBUSY;
+	}
+	__set_bit(vmid, kvm_vmids);
+	kvm->arch.vmid = vmid;
+	mutex_unlock(&kvm_vmids_mutex);
+
+	ret = kvm_alloc_stage2_pgd(kvm);
+	if (ret)
+		goto out_fail_alloc;
+
+	pgd_phys = virt_to_phys(kvm->arch.pgd);
+	kvm->arch.vttbr = pgd_phys & ((1LLU << 40) - 1) & ~((2 << VTTBR_X) - 1);
+	kvm->arch.vttbr |= ((u64)vmid << 48);
+
+	ret = create_hyp_mappings(kvm_hyp_pgd, kvm, kvm + 1);
+	if (ret)
+		goto out_free_stage2_pgd;
+
+	return ret;
+out_free_stage2_pgd:
+	kvm_free_stage2_pgd(kvm);
+out_fail_alloc:
+	clear_bit(vmid, kvm_vmids);
+	return ret;
 }
 
+/**
+ * kvm_arch_destroy_vm - destroy the VM data structure
+ * @kvm:	pointer to the KVM struct
+ */
 void kvm_arch_destroy_vm(struct kvm *kvm)
 {
 	int i;
+
+	kvm_free_stage2_pgd(kvm);
+
+	if (kvm->arch.vmid != 0) {
+		mutex_lock(&kvm_vmids_mutex);
+		clear_bit(kvm->arch.vmid, kvm_vmids);
+		mutex_unlock(&kvm_vmids_mutex);
+	}
 
 	for (i = 0; i < KVM_MAX_VCPUS; ++i) {
 		if (kvm->vcpus[i]) {
@@ -178,6 +225,10 @@ struct kvm_vcpu *kvm_arch_vcpu_create(struct kvm *kvm, unsigned int id)
 	if (err)
 		goto free_vcpu;
 
+	err = create_hyp_mappings(kvm_hyp_pgd, vcpu, vcpu + 1);
+	if (err)
+		goto free_vcpu;
+
 	return vcpu;
 free_vcpu:
 	kmem_cache_free(kvm_vcpu_cache, vcpu);
@@ -187,7 +238,7 @@ out:
 
 void kvm_arch_vcpu_free(struct kvm_vcpu *vcpu)
 {
-	KVMARM_NOT_IMPLEMENTED();
+	kmem_cache_free(kvm_vcpu_cache, vcpu);
 }
 
 void kvm_arch_vcpu_destroy(struct kvm_vcpu *vcpu)
@@ -293,8 +344,8 @@ static int init_hyp_mode(void)
 
 	hyp_stack_ptr = (unsigned long)kvm_arm_hyp_stack_page + PAGE_SIZE;
 
-	init_phys_addr = virt_to_phys((void *)&__kvm_hyp_init);
-	init_end_phys_addr = virt_to_phys((void *)&__kvm_hyp_init_end);
+	init_phys_addr = virt_to_phys(__kvm_hyp_init);
+	init_end_phys_addr = virt_to_phys(__kvm_hyp_init_end);
 
 	/*
 	 * Create identity mapping
