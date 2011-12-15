@@ -170,9 +170,10 @@ static void reprogram_counter(struct kvm_pmc *pmc, u32 type,
 		.exclude_host = 1,
 		.exclude_user = exclude_user,
 		.exclude_kernel = exclude_kernel,
-		.sample_period = (-pmc->counter) & pmc_bitmask(pmc),
 		.config = config,
 	};
+
+	attr.sample_period = (-pmc->counter) & pmc_bitmask(pmc);
 
 	event = perf_event_create_kernel_counter(&attr, -1, current,
 						 intr ? kvm_perf_overflow_intr :
