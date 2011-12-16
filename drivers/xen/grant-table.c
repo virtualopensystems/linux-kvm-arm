@@ -76,50 +76,73 @@ static union {
 /*This is a structure of function pointers for grant table*/
 struct gnttab_ops {
 	/*
-	 * Mapping a list of frames for storing grant entries. First input
-	 * parameter is used to storing grant table address when grant table
-	 * being setup, second parameter is the number of frames to map grant
-	 * table. Returning GNTST_okay means success and negative value means
-	 * failure.
+	 * Mapping a list of frames for storing grant entries. Frames parameter
+	 * is used to store grant table address when grant table being setup,
+	 * nr_gframes is the number of frames to map grant table. Returning
+	 * GNTST_okay means success and negative value means failure.
 	 */
-	int (*map_frames)(unsigned long *, unsigned int);
+	int (*map_frames)(unsigned long *frames, unsigned int nr_gframes);
 	/*
 	 * Release a list of frames which are mapped in map_frames for grant
 	 * entry status.
 	 */
 	void (*unmap_frames)(void);
 	/*
-	 * Introducing a valid entry into the grant table, granting the frame
-	 * of this grant entry to domain for accessing, or transfering, or
-	 * transitively accessing. First input parameter is reference of this
-	 * introduced grant entry, second one is domid of granted domain, third
-	 * one is the frame to be granted, and the last one is status of the
-	 * grant entry to be updated.
+	 * Introducing a valid entry into the grant table, granting the frame of
+	 * this grant entry to domain for accessing or transfering. Ref
+	 * parameter is reference of this introduced grant entry, domid is id of
+	 * granted domain, frame is the page frame to be granted, and flags is
+	 * status of the grant entry to be updated.
 	 */
-	void (*update_entry)(grant_ref_t, domid_t, unsigned long, unsigned);
+	void (*update_entry)(grant_ref_t ref, domid_t domid,
+			     unsigned long frame, unsigned flags);
 	/*
-	 * Stop granting a grant entry to domain for accessing. First input
-	 * parameter is reference of a grant entry whose grant access will be
-	 * stopped, second one is not in use now. If the grant entry is
+	 * Stop granting a grant entry to domain for accessing. Ref parameter is
+	 * reference of a grant entry whose grant access will be stopped,
+	 * readonly is not in use in this function. If the grant entry is
 	 * currently mapped for reading or writing, just return failure(==0)
 	 * directly and don't tear down the grant access. Otherwise, stop grant
 	 * access for this entry and return success(==1).
 	 */
-	int (*end_foreign_access_ref)(grant_ref_t, int);
+	int (*end_foreign_access_ref)(grant_ref_t ref, int readonly);
 	/*
-	 * Stop granting a grant entry to domain for transfer. If tranfer has
-	 * not started, just reclaim the grant entry and return failure(==0).
-	 * Otherwise, wait for the transfer to complete and then return the
-	 * frame.
+	 * Stop granting a grant entry to domain for transfer. Ref parameter is
+	 * reference of a grant entry whose grant transfer will be stopped. If
+	 * tranfer has not started, just reclaim the grant entry and return
+	 * failure(==0). Otherwise, wait for the transfer to complete and then
+	 * return the frame.
 	 */
-	unsigned long (*end_foreign_transfer_ref)(grant_ref_t);
+	unsigned long (*end_foreign_transfer_ref)(grant_ref_t ref);
 	/*
-	 * Query the status of a grant entry. Input parameter is reference of
+	 * Query the status of a grant entry. Ref parameter is reference of
 	 * queried grant entry, return value is the status of queried entry.
 	 * Detailed status(writing/reading) can be gotten from the return value
 	 * by bit operations.
 	 */
-	int (*query_foreign_access)(grant_ref_t);
+	int (*query_foreign_access)(grant_ref_t ref);
+	/*
+	 * Grant a domain to access a range of bytes within the page referred by
+	 * an available grant entry. Ref parameter is reference of a grant entry
+	 * which will be sub-page accessed, domid is id of grantee domain, frame
+	 * is frame address of subpage grant, flags is grant type and flag
+	 * information, page_off is offset of the range of bytes, and length is
+	 * length of bytes to be accessed.
+	 */
+	void (*update_subpage_entry)(grant_ref_t ref, domid_t domid,
+				     unsigned long frame, int flags,
+				     unsigned page_off, unsigned length);
+	/*
+	 * Redirect an available grant entry on domain A to another grant
+	 * reference of domain B, then allow domain C to use grant reference
+	 * of domain B transitively. Ref parameter is an available grant entry
+	 * reference on domain A, domid is id of domain C which accesses grant
+	 * entry transitively, flags is grant type and flag information,
+	 * trans_domid is id of domain B whose grant entry is finally accessed
+	 * transitively, trans_gref is grant entry transitive reference of
+	 * domain B.
+	 */
+	void (*update_trans_entry)(grant_ref_t ref, domid_t domid, int flags,
+				   domid_t trans_domid, grant_ref_t trans_gref);
 };
 
 static struct gnttab_ops *gnttab_interface;
@@ -260,6 +283,123 @@ int gnttab_grant_foreign_access(domid_t domid, unsigned long frame,
 	return ref;
 }
 EXPORT_SYMBOL_GPL(gnttab_grant_foreign_access);
+
+void gnttab_update_subpage_entry_v2(grant_ref_t ref, domid_t domid,
+				    unsigned long frame, int flags,
+				    unsigned page_off,
+				    unsigned length)
+{
+	gnttab_shared.v2[ref].sub_page.frame = frame;
+	gnttab_shared.v2[ref].sub_page.page_off = page_off;
+	gnttab_shared.v2[ref].sub_page.length = length;
+	gnttab_shared.v2[ref].hdr.domid = domid;
+	wmb();
+	gnttab_shared.v2[ref].hdr.flags =
+				GTF_permit_access | GTF_sub_page | flags;
+}
+
+int gnttab_grant_foreign_access_subpage_ref(grant_ref_t ref, domid_t domid,
+					    unsigned long frame, int flags,
+					    unsigned page_off,
+					    unsigned length)
+{
+	if (flags & (GTF_accept_transfer | GTF_reading |
+		     GTF_writing | GTF_transitive))
+		return -EPERM;
+
+	if (gnttab_interface->update_subpage_entry == NULL)
+		return -ENOSYS;
+
+	gnttab_interface->update_subpage_entry(ref, domid, frame, flags,
+					       page_off, length);
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(gnttab_grant_foreign_access_subpage_ref);
+
+int gnttab_grant_foreign_access_subpage(domid_t domid, unsigned long frame,
+					int flags, unsigned page_off,
+					unsigned length)
+{
+	int ref, rc;
+
+	ref = get_free_entries(1);
+	if (unlikely(ref < 0))
+		return -ENOSPC;
+
+	rc = gnttab_grant_foreign_access_subpage_ref(ref, domid, frame, flags,
+						     page_off, length);
+	if (rc < 0) {
+		put_free_entry(ref);
+		return rc;
+	}
+
+	return ref;
+}
+EXPORT_SYMBOL_GPL(gnttab_grant_foreign_access_subpage);
+
+bool gnttab_subpage_grants_available(void)
+{
+	return gnttab_interface->update_subpage_entry != NULL;
+}
+EXPORT_SYMBOL_GPL(gnttab_subpage_grants_available);
+
+void gnttab_update_trans_entry_v2(grant_ref_t ref, domid_t domid,
+				  int flags, domid_t trans_domid,
+				  grant_ref_t trans_gref)
+{
+	gnttab_shared.v2[ref].transitive.trans_domid = trans_domid;
+	gnttab_shared.v2[ref].transitive.gref = trans_gref;
+	gnttab_shared.v2[ref].hdr.domid = domid;
+	wmb();
+	gnttab_shared.v2[ref].hdr.flags =
+				GTF_permit_access | GTF_transitive | flags;
+}
+
+int gnttab_grant_foreign_access_trans_ref(grant_ref_t ref, domid_t domid,
+					  int flags, domid_t trans_domid,
+					  grant_ref_t trans_gref)
+{
+	if (flags & (GTF_accept_transfer | GTF_reading |
+		     GTF_writing | GTF_sub_page))
+		return -EPERM;
+
+	if (gnttab_interface->update_trans_entry == NULL)
+		return -ENOSYS;
+
+	gnttab_interface->update_trans_entry(ref, domid, flags, trans_domid,
+					     trans_gref);
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(gnttab_grant_foreign_access_trans_ref);
+
+int gnttab_grant_foreign_access_trans(domid_t domid, int flags,
+				      domid_t trans_domid,
+				      grant_ref_t trans_gref)
+{
+	int ref, rc;
+
+	ref = get_free_entries(1);
+	if (unlikely(ref < 0))
+		return -ENOSPC;
+
+	rc = gnttab_grant_foreign_access_trans_ref(ref, domid, flags,
+						   trans_domid, trans_gref);
+	if (rc < 0) {
+		put_free_entry(ref);
+		return rc;
+	}
+
+	return ref;
+}
+EXPORT_SYMBOL_GPL(gnttab_grant_foreign_access_trans);
+
+bool gnttab_trans_grants_available(void)
+{
+	return gnttab_interface->update_trans_entry != NULL;
+}
+EXPORT_SYMBOL_GPL(gnttab_trans_grants_available);
 
 static int gnttab_query_foreign_access_v1(grant_ref_t ref)
 {
@@ -813,6 +953,8 @@ static struct gnttab_ops gnttab_v2_ops = {
 	.end_foreign_access_ref		= gnttab_end_foreign_access_ref_v2,
 	.end_foreign_transfer_ref	= gnttab_end_foreign_transfer_ref_v2,
 	.query_foreign_access		= gnttab_query_foreign_access_v2,
+	.update_subpage_entry		= gnttab_update_subpage_entry_v2,
+	.update_trans_entry		= gnttab_update_trans_entry_v2,
 };
 
 static void gnttab_request_version(void)
