@@ -35,6 +35,7 @@ silentoldconfig: $(obj)/conf
 
 kvmconfig:
 	$(Q)$(CONFIG_SHELL) $(srctree)/scripts/config -e KVMTOOL_TEST_ENABLE
+	$(Q)yes "" | make oldconfig > /dev/null
 	@echo 'Kernel configuration modified to run as KVM guest.'
 
 # if no path is given, then use src directory to find file

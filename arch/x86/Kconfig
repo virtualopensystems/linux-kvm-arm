@@ -522,6 +522,7 @@ config KVMTOOL_TEST_ENABLE
 	select DEBUG_KERNEL
 	select KGDB
 	select KGDB_SERIAL_CONSOLE
+	select VIRTUALIZATION
 	select VIRTIO
 	select VIRTIO_RING
 	select VIRTIO_PCI
