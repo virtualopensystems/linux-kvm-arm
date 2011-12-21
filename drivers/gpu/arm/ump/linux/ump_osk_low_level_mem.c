@@ -140,7 +140,11 @@ _mali_osk_errcode_t _ump_osk_mem_mapregion_init( ump_memory_allocation * descrip
 	}
 
 	vma = (struct vm_area_struct*)descriptor->process_mapping_info;
-	if (NULL == vma ) return _MALI_OSK_ERR_FAULT;
+	if (NULL == vma )
+	{
+		kfree(vma_usage_tracker);
+		return _MALI_OSK_ERR_FAULT;
+	}
 
 	vma->vm_private_data = vma_usage_tracker;
 	vma->vm_flags |= VM_IO;

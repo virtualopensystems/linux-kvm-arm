@@ -121,6 +121,7 @@ typedef enum
 	_MALI_UK_PROFILING_STOP,              /**< __mali_uku_profiling_stop() */
 	_MALI_UK_PROFILING_GET_EVENT,         /**< __mali_uku_profiling_get_event() */
 	_MALI_UK_PROFILING_CLEAR,             /**< __mali_uku_profiling_clear() */
+	_MALI_UK_PROFILING_GET_CONFIG,        /**< __mali_uku_profiling_get_config() */
 
 #if USING_MALI_PMM
     /** Power Management Module Functions */
@@ -461,6 +462,8 @@ typedef struct
 	u32 abort_id;                       /**< [in] abort id of this job, used to identify this job for later abort requests */
 	u32 perf_counter_l2_src0;           /**< [in] soruce id for Mali-400 MP L2 cache performance counter 0 */
 	u32 perf_counter_l2_src1;           /**< [in] source id for Mali-400 MP L2 cache performance counter 1 */
+	u32 frame_builder_id;				/**< [in] id of the originating frame builder */
+	u32 flush_id;						/**< [in] flush id within the originating frame builder */
 } _mali_uk_gp_start_job_s;
 
 #define _MALI_PERFORMANCE_COUNTER_FLAG_SRC0_ENABLE (1<<0) /**< Enable performance counter SRC0 for a job */
@@ -574,6 +577,8 @@ typedef struct
 	u32 abort_id;                       /**< [in] abort id of this job, used to identify this job for later abort requests */
 	u32 perf_counter_l2_src0;           /**< [in] soruce id for Mali-400 MP L2 cache performance counter 0 */
 	u32 perf_counter_l2_src1;           /**< [in] source id for Mali-400 MP L2 cache performance counter 1 */
+	u32 frame_builder_id;				/**< [in] id of the originating frame builder */
+	u32 flush_id;						/**< [in] flush id within the originating frame builder */
 } _mali_uk_pp_start_job_s;
 /** @} */ /* end group _mali_uk_ppstartjob_s */
 
@@ -733,7 +738,7 @@ typedef struct
  * The 16bit integer is stored twice in a 32bit integer
  * For example, for version 1 the value would be 0x00010001
  */
-#define _MALI_API_VERSION 8
+#define _MALI_API_VERSION  9
 #define _MALI_UK_API_VERSION _MAKE_VERSION_ID(_MALI_API_VERSION)
 
 /**
@@ -1019,6 +1024,11 @@ typedef struct
 	void *ctx;                      /**< [in,out] user-kernel context (trashed on output) */
 } _mali_uk_profiling_clear_s;
 
+typedef struct
+{
+	void *ctx;                      /**< [in,out] user-kernel context (trashed on output) */
+	u32 enable_events;              /**< [out] 1 if user space process should generate events, 0 if not */
+} _mali_uk_profiling_get_config_s;
 
 
 /** @} */ /* end group _mali_uk_gp */

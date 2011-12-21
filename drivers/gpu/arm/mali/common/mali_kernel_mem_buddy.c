@@ -24,6 +24,8 @@
 #include "mali_osk_indir_mmap.h"
 #endif
 
+#error Support for non-MMU builds is no longer supported and is planned for removal.
+
 /**
  * Minimum memory allocation size
  */
@@ -55,7 +57,7 @@ typedef struct mali_memory_bank
 	_mali_osk_list_t list; /* links multiple banks together */
 	_mali_osk_lock_t *lock;
 	u32 base_addr; /* Mali seen address of bank */
-	u32 cpu_usage_adjust; /* Adjustmen factor for what the CPU sees */
+	u32 cpu_usage_adjust; /* Adjustment factor for what the CPU sees */
 	u32 size; /* the effective size */
 	u32 real_size; /* the real size of the bank, as given by to the subsystem */
 	int min_order;

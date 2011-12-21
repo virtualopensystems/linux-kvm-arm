@@ -102,11 +102,7 @@ static _mali_osk_errcode_t maligp_renderunit_create(_mali_osk_resource_t * resou
 static void maligp_subsystem_broadcast_notification(mali_core_notification_message message, u32 data);
 #endif
 #if MALI_STATE_TRACKING
-#if MALI_STATE_TRACKING_USING_PROC
-void maligp_subsystem_dump_state(void);
-#else
 u32 maligp_subsystem_dump_state(char *buf, u32 size);
-#endif
 #endif
 
 /* Internal support functions  */
@@ -587,8 +583,9 @@ static void maligp_initialize_registers_mgmt(mali_core_renderunit *core )
 	MALI_DEBUG_PRINT(6, ("Mali GP: maligp_initialize_registers_mgmt: %s\n", core->description)) ;
 	for(i=0 ; i< (sizeof(default_mgmt_regs)/sizeof(*default_mgmt_regs)) ; ++i)
 	{
-		mali_core_renderunit_register_write(core, default_mgmt_regs[i].address, default_mgmt_regs[i].value);
+		mali_core_renderunit_register_write_relaxed(core, default_mgmt_regs[i].address, default_mgmt_regs[i].value);
 	}
+	_mali_osk_write_mem_barrier(); 
 }
 
 
@@ -636,12 +633,12 @@ static _mali_osk_errcode_t subsystem_maligp_start_job(mali_core_job * job, mali_
 	{
 		if ( jobgp->user_input.perf_counter_flag & _MALI_PERFORMANCE_COUNTER_FLAG_SRC0_ENABLE)
 		{
-			mali_core_renderunit_register_write(
+			mali_core_renderunit_register_write_relaxed(
 					core,
 					MALIGP2_REG_ADDR_MGMT_PERF_CNT_0_SRC,
 					jobgp->user_input.perf_counter_src0);
 
-			mali_core_renderunit_register_write(
+			mali_core_renderunit_register_write_relaxed(
 					core,
 					MALIGP2_REG_ADDR_MGMT_PERF_CNT_0_ENABLE,
 					MALIGP2_REG_VAL_PERF_CNT_ENABLE);
@@ -649,12 +646,12 @@ static _mali_osk_errcode_t subsystem_maligp_start_job(mali_core_job * job, mali_
 
 		if ( jobgp->user_input.perf_counter_flag & _MALI_PERFORMANCE_COUNTER_FLAG_SRC1_ENABLE)
 		{
-			mali_core_renderunit_register_write(
+			mali_core_renderunit_register_write_relaxed(
 					core,
 					MALIGP2_REG_ADDR_MGMT_PERF_CNT_1_SRC,
 					jobgp->user_input.perf_counter_src1);
 
-			mali_core_renderunit_register_write(
+			mali_core_renderunit_register_write_relaxed(
 					core,
 					MALIGP2_REG_ADDR_MGMT_PERF_CNT_1_ENABLE,
 					MALIGP2_REG_VAL_PERF_CNT_ENABLE);
@@ -693,13 +690,13 @@ static _mali_osk_errcode_t subsystem_maligp_start_job(mali_core_job * job, mali_
 
 		jobgp->have_extended_progress_checking = 1;
 
-		mali_core_renderunit_register_write(
+		mali_core_renderunit_register_write_relaxed(
 				core,
 		MALIGP2_REG_ADDR_MGMT_PERF_CNT_1_SRC,
 		MALIGP2_REG_VAL_PERF_CNT1_SRC_NUMBER_OF_VERTICES_PROCESSED
 										   );
 
-		mali_core_renderunit_register_write(
+		mali_core_renderunit_register_write_relaxed(
 				core,
 		MALIGP2_REG_ADDR_MGMT_PERF_CNT_1_ENABLE,
 		MALIGP2_REG_VAL_PERF_CNT_ENABLE);
@@ -716,8 +713,11 @@ static _mali_osk_errcode_t subsystem_maligp_start_job(mali_core_job * job, mali_
 	mali_core_renderunit_register_write(core,
 										MALIGP2_REG_ADDR_MGMT_CMD,
 										startcmd);
+	_mali_osk_write_mem_barrier();
 
 #if MALI_TIMELINE_PROFILING_ENABLED
+	_mali_profiling_add_event(MALI_PROFILING_EVENT_TYPE_SINGLE | MALI_PROFILING_MAKE_EVENT_CHANNEL_GP(core->core_number) | MALI_PROFILING_EVENT_REASON_SINGLE_HW_FLUSH, 
+	                          jobgp->user_input.frame_builder_id, jobgp->user_input.flush_id, 0, 0, 0); 
 	_mali_profiling_add_event(MALI_PROFILING_EVENT_TYPE_START|MALI_PROFILING_MAKE_EVENT_CHANNEL_GP(core->core_number), jobgp->pid, jobgp->tid, 0, 0, 0);
 #endif
 
@@ -736,12 +736,16 @@ static u32 subsystem_maligp_irq_handler_upper_half(mali_core_renderunit * core)
 
 	irq_readout = mali_core_renderunit_register_read(core, MALIGP2_REG_ADDR_MGMT_INT_STAT);
 
-	MALI_DEBUG_PRINT(5, ("Mali GP: IRQ: %04x\n", irq_readout)) ;
 
 	if ( MALIGP2_REG_VAL_IRQ_MASK_NONE != irq_readout )
 	{
 		/* Mask out all IRQs from this core until IRQ is handled */
-		mali_core_renderunit_register_write(core, MALIGP2_REG_ADDR_MGMT_INT_MASK	, MALIGP2_REG_VAL_IRQ_MASK_NONE);
+		mali_core_renderunit_register_write(core, MALIGP2_REG_ADDR_MGMT_INT_MASK, MALIGP2_REG_VAL_IRQ_MASK_NONE);
+
+#if MALI_TIMELINE_PROFILING_ENABLED
+		_mali_profiling_add_event(MALI_PROFILING_EVENT_TYPE_SINGLE|MALI_PROFILING_MAKE_EVENT_CHANNEL_GP(core->core_number)|MALI_PROFILING_EVENT_REASON_SINGLE_HW_INTERRUPT, irq_readout, 0, 0, 0, 0);
+#endif
+
 		/* We do need to handle this in a bottom half, return 1 */
 		return 1;
 	}
@@ -799,10 +803,6 @@ static int subsystem_maligp_irq_handler_bottom_half(mali_core_renderunit* core)
 
 	if ( 0 != jobgp->is_stalled_waiting_for_more_memory )
 	{
-#if MALI_TIMELINE_PROFILING_ENABLED
-		_mali_profiling_add_event(MALI_PROFILING_EVENT_TYPE_STOP|MALI_PROFILING_MAKE_EVENT_CHANNEL_GP(core->core_number), 0, 0, 0, 0, 0); /* add GP and L2 counters and return status? */
-#endif
-
 		/* Readback the performance counters */
 		if (jobgp->user_input.perf_counter_flag & (_MALI_PERFORMANCE_COUNTER_FLAG_SRC0_ENABLE|_MALI_PERFORMANCE_COUNTER_FLAG_SRC1_ENABLE) )
 		{
@@ -839,6 +839,10 @@ static int subsystem_maligp_irq_handler_bottom_half(mali_core_renderunit* core)
 		}
 #endif
 
+#if MALI_TIMELINE_PROFILING_ENABLED
+		_mali_profiling_add_event(MALI_PROFILING_EVENT_TYPE_STOP|MALI_PROFILING_MAKE_EVENT_CHANNEL_GP(core->core_number), 0, 0, 0, 0, 0); /* add GP and L2 counters and return status? */
+#endif
+
 		MALI_DEBUG_PRINT(2, ("Mali GP: Job aborted - userspace would not provide more heap memory.\n"));
 #if MALI_STATE_TRACKING
 		_mali_osk_atomic_inc(&job->session->jobs_ended);
@@ -848,10 +852,6 @@ static int subsystem_maligp_irq_handler_bottom_half(mali_core_renderunit* core)
 	/* finished ? */
 	else if (0 == (core_status & MALIGP2_REG_VAL_STATUS_MASK_ACTIVE))
 	{
-#if MALI_TIMELINE_PROFILING_ENABLED
-		_mali_profiling_add_event(MALI_PROFILING_EVENT_TYPE_STOP|MALI_PROFILING_MAKE_EVENT_CHANNEL_GP(core->core_number), 0, 0, 0, 0, 0); /* add GP and L2 counters and return status? */
-#endif
-
 #ifdef DEBUG
 		MALI_DEBUG_PRINT(4, ("Mali GP: Registers On job end:\n"));
 		maligp_print_regs(4, core);
@@ -900,6 +900,20 @@ static int subsystem_maligp_irq_handler_bottom_half(mali_core_renderunit* core)
 			}
 #endif
 		}
+
+#if MALI_TIMELINE_PROFILING_ENABLED
+		_mali_profiling_add_event(MALI_PROFILING_EVENT_TYPE_STOP|MALI_PROFILING_MAKE_EVENT_CHANNEL_GP(core->core_number),
+				jobgp->perf_counter0, jobgp->perf_counter1,
+				jobgp->user_input.perf_counter_src0 | (jobgp->user_input.perf_counter_src1 << 8)
+#if defined(USING_MALI400_L2_CACHE)
+				| (jobgp->user_input.perf_counter_l2_src0 << 16) | (jobgp->user_input.perf_counter_l2_src1 << 24),
+				jobgp->perf_counter_l2_val0,
+				jobgp->perf_counter_l2_val1
+#else
+				,0, 0
+#endif
+				);
+#endif
 
 		mali_core_renderunit_register_write(core, MALIGP2_REG_ADDR_MGMT_INT_CLEAR, MALIGP2_REG_VAL_IRQ_MASK_ALL);
 
@@ -1228,9 +1242,10 @@ static _mali_osk_errcode_t subsystem_maligp_suspend_response(struct mali_core_se
 
 			mali_core_renderunit_register_write(core, MALIGP2_REG_ADDR_MGMT_INT_CLEAR, (MALIGP2_REG_VAL_IRQ_PLBU_OUT_OF_MEM | MALIGP2_REG_VAL_IRQ_HANG));
 			mali_core_renderunit_register_write(core, MALIGP2_REG_ADDR_MGMT_INT_MASK, jobgp->active_mask);
-			mali_core_renderunit_register_write(core, MALIGP2_REG_ADDR_MGMT_PLBU_ALLOC_START_ADDR, suspend_response->arguments[0]);
-			mali_core_renderunit_register_write(core, MALIGP2_REG_ADDR_MGMT_PLBU_ALLOC_END_ADDR, suspend_response->arguments[1]);
+			mali_core_renderunit_register_write_relaxed(core, MALIGP2_REG_ADDR_MGMT_PLBU_ALLOC_START_ADDR, suspend_response->arguments[0]);
+			mali_core_renderunit_register_write_relaxed(core, MALIGP2_REG_ADDR_MGMT_PLBU_ALLOC_END_ADDR, suspend_response->arguments[1]);
 			mali_core_renderunit_register_write(core, MALIGP2_REG_ADDR_MGMT_CMD, MALIGP2_REG_VAL_CMD_UPDATE_PLBU_ALLOC);
+			_mali_osk_write_mem_barrier();
 
 #if MALI_TIMELINE_PROFILING_ENABLED
 			_mali_profiling_add_event(MALI_PROFILING_EVENT_TYPE_RESUME|MALI_PROFILING_MAKE_EVENT_CHANNEL_GP(core->core_number), 0, 0, 0, 0, 0);
@@ -1445,15 +1460,8 @@ _mali_osk_errcode_t maligp_signal_power_down( mali_bool immediate_only )
 #endif
 
 #if MALI_STATE_TRACKING
-#if MALI_STATE_TRACKING_USING_PROC
-void maligp_subsystem_dump_state(void)
-{
-	return mali_core_renderunit_dump_state(&subsystem_maligp);
-}
-#else
 u32 maligp_subsystem_dump_state(char *buf, u32 size)
 {
 	return mali_core_renderunit_dump_state(&subsystem_maligp, buf, size);
 }
-#endif
 #endif

@@ -123,7 +123,7 @@ _mali_osk_errcode_t mali_allocation_engine_allocate_memory(mali_allocation_engin
 				}
 			}
 
-			MALI_DEBUG_PRINT(3, ("Non-fatal OOM, have to cleanup, stopped at offset %d for size %d\n", offset, descriptor->size));
+			MALI_PRINT(("Memory allocate failed, could not allocate size %d kB.\n", descriptor->size/1024));
 
 			/* allocation failure, start cleanup */
 			/* loop over any potential partial allocations */
@@ -345,4 +345,19 @@ void mali_allocation_engine_report_allocators( mali_physical_memory_allocator * 
 		active_allocator = active_allocator->next;
 	}
 
+}
+
+u32 mali_allocation_engine_memory_usage(mali_physical_memory_allocator *allocator)
+{
+	u32 sum = 0;
+	while(NULL != allocator)
+	{
+		/* Only count allocators that have set up a stat function. */
+		if(allocator->stat)
+			sum += allocator->stat(allocator);
+
+		allocator = allocator->next;
+	}
+
+	return sum;
 }

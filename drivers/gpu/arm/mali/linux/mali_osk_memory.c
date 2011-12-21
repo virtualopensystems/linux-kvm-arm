@@ -15,6 +15,7 @@
 
 #include "mali_osk.h"
 #include <linux/slab.h>
+#include <linux/vmalloc.h>
 
 void inline *_mali_osk_calloc( u32 n, u32 size )
 {
@@ -29,6 +30,16 @@ void inline *_mali_osk_malloc( u32 size )
 void inline _mali_osk_free( void *ptr )
 {
     kfree(ptr);
+}
+
+void inline *_mali_osk_valloc( u32 size )
+{
+    return vmalloc(size);
+}
+
+void inline _mali_osk_vfree( void *ptr )
+{
+    vfree(ptr);
 }
 
 void inline *_mali_osk_memcpy( void *dst, const void *src, u32	len )

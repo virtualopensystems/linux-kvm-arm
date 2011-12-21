@@ -333,7 +333,7 @@ void _ump_ukk_msync( _ump_uk_msync_s *args )
 
 	if ( args->address )
 	{
-		virtual = ((u32)args->address);
+		virtual = (void *)((u32)args->address);
 		offset = (u32)((args->address) - (args->mapping));
 	} else {
 		/* Flush entire mapping when no address is specified. */

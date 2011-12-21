@@ -1,6 +1,6 @@
 config UMP
         bool "Enable UMP(Unified Memory Provider)"
-        default n
+        default y
 	---help---
 		This enables UMP memory provider
 

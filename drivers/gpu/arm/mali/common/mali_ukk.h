@@ -680,6 +680,13 @@ _mali_osk_errcode_t _mali_ukk_profiling_get_event(_mali_uk_profiling_get_event_s
  */
 _mali_osk_errcode_t _mali_ukk_profiling_clear(_mali_uk_profiling_clear_s *args);
 
+/** @brief Get the profiling config applicable for calling process.
+ *
+ * @param args see _mali_uk_profiling_get_config_s in "mali_uk_types.h"
+ */
+_mali_osk_errcode_t _mali_ukk_profiling_get_config(_mali_uk_profiling_get_config_s *args);
+
+
 /** @} */ /* end group _mali_uk_profiling */
 #endif
 
@@ -702,6 +709,7 @@ _mali_osk_errcode_t _mali_ukk_vsync_event_report(_mali_uk_vsync_event_report_s *
 
 /** @} */ /* end group uddapi */
 
+u32 _mali_ukk_report_memory_usage(void);
 
 #ifdef __cplusplus
 }

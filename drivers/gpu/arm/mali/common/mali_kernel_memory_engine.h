@@ -47,7 +47,7 @@ typedef enum
 
 /**
  * Supplying this 'magic' physical address requests that the OS allocate the
- * physical address at page commit time, rather than commiting a specific page
+ * physical address at page commit time, rather than committing a specific page
  */
 #define MALI_MEMORY_ALLOCATION_OS_ALLOCATED_PHYSADDR_MAGIC ((u32)(-1))
 
@@ -78,6 +78,7 @@ typedef struct mali_physical_memory_allocator
 	mali_physical_memory_allocation_result (*allocate)(void* ctx, mali_allocation_engine * engine, mali_memory_allocation * descriptor, u32* offset, mali_physical_memory_allocation * alloc_info);
 	mali_physical_memory_allocation_result (*allocate_page_table_block)(void * ctx, mali_page_table_block * block); /* MALI_MEM_ALLOC_PARTIAL not allowed */
 	void (*destroy)(struct mali_physical_memory_allocator * allocator);
+	u32 (*stat)(struct mali_physical_memory_allocator * allocator);
 	void * ctx;
 	const char * name; /**< Descriptive name for use in mali_allocation_engine_report_allocators, or NULL */
 	u32 alloc_order; /**< Order in which the allocations should happen */
@@ -96,7 +97,7 @@ typedef struct mali_kernel_mem_address_manager
 	  * @param[in] off Offset from the start of range
 	  * @param[in,out] phys_addr A pointer to the physical address of the start of the
 	  * physical block. When *phys_addr == MALI_MEMORY_ALLOCATION_OS_ALLOCATED_PHYSADDR_MAGIC
-	  * is used, this requests the function must allocate the physical page
+	  * is used, this requests the function to allocate the physical page
 	  * itself, and return it through the pointer provided.
 	  * @param[in] size Length in bytes of the physical block
 	  * @return _MALI_OSK_ERR_OK on success.
@@ -141,5 +142,7 @@ void mali_allocation_engine_unmap_physical(mali_allocation_engine engine, mali_m
 int mali_allocation_engine_allocate_page_tables(mali_allocation_engine, mali_page_table_block * descriptor, mali_physical_memory_allocator * physical_provider);
 
 void mali_allocation_engine_report_allocators(mali_physical_memory_allocator * physical_provider);
+
+u32 mali_allocation_engine_memory_usage(mali_physical_memory_allocator *allocator);
 
 #endif /* __MALI_KERNEL_MEMORY_ENGINE_H__ */

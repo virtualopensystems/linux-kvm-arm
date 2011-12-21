@@ -18,6 +18,7 @@
 
 /* For mali_pmm_message_data and MALI_PMM_EVENT_UK_* defines */
 #include "mali_uk_types.h"
+#include "mali_platform.h"
 
 #ifdef __cplusplus
 extern "C"
@@ -95,6 +96,7 @@ typedef enum mali_pmm_core_id_tag
 	MALI_PMM_CORE_PP_ALL = 0x0000003C           /**< Mali 200 pixel processors 0-3 */
 } mali_pmm_core_id;
 
+
 /* @brief PMM bitmask of mali_pmm_core_ids
  */
 typedef u32 mali_pmm_core_mask;
@@ -137,6 +139,23 @@ typedef enum mali_pmm_policy_tag
 	MALI_PMM_POLICY_RUNTIME_JOB_CONTROL = 3     /**< Run time power management control policy */
 } mali_pmm_policy;
 
+/** @brief Function to power up MALI
+ *
+ * @param cores core mask to power up the cores
+ *
+ * @return error code if MALI fails to power up
+ */
+_mali_osk_errcode_t malipmm_powerup( u32 cores );
+
+/** @brief Function to power down MALI
+ *
+ * @param cores core mask to power down the cores
+ * @param The power mode to which MALI transitions
+ *
+ * @return error code if MALI fails to power down
+ */
+_mali_osk_errcode_t malipmm_powerdown( u32 cores, mali_power_mode power_mode );
+
 /** @brief Function to report to the OS when the power down has finished
  *
  * @param data The event message data that initiated the power down
@@ -169,12 +188,6 @@ void _mali_osk_pmm_policy_events_notifications(mali_pmm_event_id event_id);
  *  @note powers up the MALI during MALI device driver is unloaded
  */
 void malipmm_force_powerup( void );
-
-/** @brief Function to power down MALI
- *
- *  @note powers down the MALI during MALI device driver is unloaded
- */
-void malipmm_force_powerdown( void );
 
 /** @brief Function to report the OS that device is idle
  *
@@ -323,11 +336,7 @@ void _mali_pmm_trace_event_message( mali_pmm_message_t *event, mali_bool receive
 /** @brief Dumps the current state of OS PMM thread
  */
 #if MALI_STATE_TRACKING
-#if MALI_STATE_TRACKING_USING_PROC
-void mali_pmm_dump_os_thread_state( void );
-#else
 u32 mali_pmm_dump_os_thread_state( char *buf, u32 size );
-#endif
 #endif /* MALI_STATE_TRACKING */
 
 /** @} */ /* end group pmmapi */

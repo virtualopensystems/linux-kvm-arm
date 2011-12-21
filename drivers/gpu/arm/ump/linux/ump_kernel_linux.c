@@ -16,7 +16,9 @@
 #include <asm/uaccess.h>             /* user space access */
 #include <asm/atomic.h>
 #include <linux/device.h>
-#include <mach/ump/config.h>         /* Configuration for current platform. The symlinc for arch is set by Makefile */
+#include <linux/debugfs.h>
+
+#include <mach/ump/config.h>             /* Configuration for current platform. The symlinc for arch is set by Makefile */
 #include "ump_ioctl.h"
 #include "ump_kernel_common.h"
 #include "ump_kernel_interface.h"
@@ -40,7 +42,7 @@ module_param(ump_debug_level, int, S_IRUSR | S_IWUSR | S_IWGRP | S_IRGRP | S_IRO
 MODULE_PARM_DESC(ump_debug_level, "Higher number, more dmesg output");
 
 /* By default the module uses any available major, but it's possible to set it at load time to a specific number */
-int ump_major = 0;
+int ump_major = 243;
 module_param(ump_major, int, S_IRUGO); /* r--r--r-- */
 MODULE_PARM_DESC(ump_major, "Device major number");
 
@@ -48,6 +50,9 @@ MODULE_PARM_DESC(ump_major, "Device major number");
 static char ump_dev_name[] = "ump"; /* should be const, but the functions we call requires non-cost */
 
 
+#if UMP_LICENSE_IS_GPL
+static struct dentry *ump_debugfs_dir = NULL;
+#endif
 
 /*
  * The data which we attached to each virtual memory mapping request we get.
@@ -133,6 +138,21 @@ static void ump_cleanup_module(void)
 
 
 
+static ssize_t ump_memory_used_read(struct file *filp, char __user *ubuf, size_t cnt, loff_t *ppos)
+{
+        char buf[64];
+        size_t r;
+        u32 mem = _ump_ukk_report_memory_usage();
+
+        r = snprintf(buf, 64, "%u\n", mem);
+        return simple_read_from_buffer(ubuf, cnt, ppos, buf, r);
+}
+
+static const struct file_operations ump_memory_usage_fops = {
+        .owner = THIS_MODULE,
+        .read = ump_memory_used_read,
+};
+
 /*
  * Initialize the UMP device driver.
  */
@@ -140,6 +160,17 @@ int ump_kernel_device_initialize(void)
 {
 	int err;
 	dev_t dev = 0;
+#if UMP_LICENSE_IS_GPL
+	ump_debugfs_dir = debugfs_create_dir(ump_dev_name, NULL);
+	if (ERR_PTR(-ENODEV) == ump_debugfs_dir)
+	{
+			ump_debugfs_dir = NULL;
+	}
+	else
+	{
+		debugfs_create_file("memory_usage", 0400, ump_debugfs_dir, NULL, &ump_memory_usage_fops);
+	}
+#endif
 
 	if (0 == ump_major)
 	{
@@ -216,6 +247,11 @@ void ump_kernel_device_terminate(void)
 
 	/* free major */
 	unregister_chrdev_region(dev, 1);
+
+#if UMP_LICENSE_IS_GPL
+	if(ump_debugfs_dir)
+		debugfs_remove_recursive(ump_debugfs_dir);
+#endif
 }
 
 /*

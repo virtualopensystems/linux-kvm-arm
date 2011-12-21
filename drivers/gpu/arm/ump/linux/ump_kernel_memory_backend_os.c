@@ -26,11 +26,7 @@
 #include "ump_kernel_common.h"
 #include "ump_kernel_memory_backend.h"
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,38)
-#define LOCK_INIT(x)	sema_init(x,1)
-#else
-#define LOCK_INIT(x)	init_MUTEX(x)
-#endif
+
 
 typedef struct os_allocator
 {
@@ -44,6 +40,7 @@ typedef struct os_allocator
 static void os_free(void* ctx, ump_dd_mem * descriptor);
 static int os_allocate(void* ctx, ump_dd_mem * descriptor);
 static void os_memory_backend_destroy(ump_memory_backend * backend);
+static u32 os_stat(struct ump_memory_backend *backend);
 
 
 
@@ -64,7 +61,7 @@ ump_memory_backend * ump_os_memory_backend_create(const int max_allocation)
 	info->num_pages_max = max_allocation >> PAGE_SHIFT;
 	info->num_pages_allocated = 0;
 
-	LOCK_INIT(&info->mutex);
+	sema_init(&info->mutex, 1);
 
 	backend = kmalloc(sizeof(ump_memory_backend), GFP_KERNEL);
 	if (NULL == backend)
@@ -77,6 +74,7 @@ ump_memory_backend * ump_os_memory_backend_create(const int max_allocation)
 	backend->allocate = os_allocate;
 	backend->release = os_free;
 	backend->shutdown = os_memory_backend_destroy;
+	backend->stat = os_stat;
 	backend->pre_allocate_physical_check = NULL;
 	backend->adjust_to_mali_phys = NULL;
 
@@ -142,8 +140,7 @@ static int os_allocate(void* ctx, ump_dd_mem * descriptor)
 
 		if (is_cached)
 		{
-			/* Only allocate lowmem pages when using cached memory. */
-			new_page = alloc_page(GFP_USER | __GFP_ZERO | __GFP_REPEAT | __GFP_NOWARN);
+			new_page = alloc_page(GFP_HIGHUSER | __GFP_ZERO | __GFP_REPEAT | __GFP_NOWARN);
 		} else
 		{
 			new_page = alloc_page(GFP_HIGHUSER | __GFP_ZERO | __GFP_REPEAT | __GFP_NOWARN | __GFP_COLD);
@@ -247,4 +244,12 @@ static void os_free(void* ctx, ump_dd_mem * descriptor)
 	}
 
 	vfree(descriptor->block_array);
+}
+
+
+static u32 os_stat(struct ump_memory_backend *backend)
+{
+	os_allocator *info;
+	info = (os_allocator*)backend->ctx;
+	return info->num_pages_allocated * _MALI_OSK_MALI_PAGE_SIZE;
 }

@@ -49,6 +49,7 @@ static void block_allocator_release(void * ctx, void * handle);
 static mali_physical_memory_allocation_result block_allocator_allocate_page_table_block(void * ctx, mali_page_table_block * block);
 static void block_allocator_release_page_table_block( mali_page_table_block *page_table_block );
 static void block_allocator_destroy(mali_physical_memory_allocator * allocator);
+static u32 block_allocator_stat(mali_physical_memory_allocator * allocator);
 
 mali_physical_memory_allocator * mali_block_allocator_create(u32 base_address, u32 cpu_usage_adjust, u32 size, const char *name)
 {
@@ -97,6 +98,7 @@ mali_physical_memory_allocator * mali_block_allocator_create(u32 base_address, u
 				    allocator->allocate = block_allocator_allocate;
 				    allocator->allocate_page_table_block = block_allocator_allocate_page_table_block;
 				    allocator->destroy = block_allocator_destroy;
+				    allocator->stat = block_allocator_stat;
 				    allocator->ctx = info;
 					allocator->name = name;
 
@@ -275,7 +277,8 @@ static void block_allocator_release(void * ctx, void * handle)
 
 	_mali_osk_lock_signal(info->mutex, _MALI_OSK_LOCKMODE_RW);
 
-	_mali_osk_free( allocation );}
+	_mali_osk_free( allocation );
+}
 
 
 static mali_physical_memory_allocation_result block_allocator_allocate_page_table_block(void * ctx, mali_page_table_block * block)
@@ -368,3 +371,21 @@ static void block_allocator_release_page_table_block( mali_page_table_block *pag
 	_mali_osk_lock_signal(info->mutex, _MALI_OSK_LOCKMODE_RW);
 }
 
+static u32 block_allocator_stat(mali_physical_memory_allocator * allocator)
+{
+	block_allocator * info;
+	block_info *block;
+	u32 free_blocks = 0;
+
+	MALI_DEBUG_ASSERT_POINTER(allocator);
+
+	info = (block_allocator*)allocator->ctx;
+	block = info->first_free;
+
+	while(block)
+	{
+		free_blocks++;
+		block = block->next;
+	}
+	return (info->num_blocks - free_blocks) * MALI_BLOCK_SIZE;
+}

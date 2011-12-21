@@ -24,11 +24,7 @@
 #include "ump_kernel_common.h"
 #include "ump_kernel_memory_backend.h"
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,38)
-#define LOCK_INIT(x)    sema_init(x,1)
-#else
-#define LOCK_INIT(x)    init_MUTEX(x)
-#endif
+
 
 #define UMP_BLOCK_SIZE (256UL * 1024UL)  /* 256kB, remember to keep the ()s */
 
@@ -56,6 +52,7 @@ static void block_allocator_shutdown(ump_memory_backend * backend);
 static int block_allocator_allocate(void* ctx, ump_dd_mem * mem);
 static void block_allocator_release(void * ctx, ump_dd_mem * handle);
 static inline u32 get_phys(block_allocator * allocator, block_info * block);
+static u32 block_allocator_stat(struct ump_memory_backend *backend);
 
 
 
@@ -96,7 +93,7 @@ ump_memory_backend * ump_block_allocator_create(u32 base_address, u32 size)
 				allocator->num_blocks = num_blocks;
 				allocator->num_free = num_blocks;
 				allocator->base = base_address;
-				LOCK_INIT(&allocator->mutex);
+				sema_init(&allocator->mutex, 1);
 
 				for (i = 0; i < num_blocks; i++)
 				{
@@ -108,6 +105,7 @@ ump_memory_backend * ump_block_allocator_create(u32 base_address, u32 size)
 				backend->allocate = block_allocator_allocate;
 				backend->release = block_allocator_release;
 				backend->shutdown = block_allocator_shutdown;
+				backend->stat = block_allocator_stat;
 				backend->pre_allocate_physical_check = NULL;
 				backend->adjust_to_mali_phys = NULL;
 
@@ -274,4 +272,14 @@ static void block_allocator_release(void * ctx, ump_dd_mem * handle)
 static inline u32 get_phys(block_allocator * allocator, block_info * block)
 {
 	return allocator->base + ((block - allocator->all_blocks) * UMP_BLOCK_SIZE);
+}
+
+static u32 block_allocator_stat(struct ump_memory_backend *backend)
+{
+	block_allocator *allocator;
+	BUG_ON(!backend);
+	allocator = (block_allocator*)backend->ctx;
+	BUG_ON(!allocator);
+
+	return (allocator->num_blocks - allocator->num_free)* UMP_BLOCK_SIZE;
 }

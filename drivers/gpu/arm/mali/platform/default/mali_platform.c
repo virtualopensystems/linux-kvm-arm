@@ -17,22 +17,17 @@
 #include "mali_platform.h"
 
 
-_mali_osk_errcode_t mali_platform_init(_mali_osk_resource_t *resource)
+_mali_osk_errcode_t mali_platform_init(void)
 {
     MALI_SUCCESS;
 }
 
-_mali_osk_errcode_t mali_platform_deinit(_mali_osk_resource_type_t *type)
+_mali_osk_errcode_t mali_platform_deinit(void)
 {
     MALI_SUCCESS;
 }
 
-_mali_osk_errcode_t mali_platform_powerdown(u32 cores)
-{
-    MALI_SUCCESS;
-}
-
-_mali_osk_errcode_t mali_platform_powerup(u32 cores)
+_mali_osk_errcode_t mali_platform_power_mode_change(mali_power_mode power_mode)
 {
     MALI_SUCCESS;
 }
@@ -41,10 +36,8 @@ void mali_gpu_utilization_handler(u32 utilization)
 {
 }
 
-#if MALI_POWER_MGMT_TEST_SUITE
-u32 pmu_get_power_up_down_info(void)
+void set_mali_parent_power_domain(void* dev)
 {
-	return 4095;
-
 }
-#endif
+
+

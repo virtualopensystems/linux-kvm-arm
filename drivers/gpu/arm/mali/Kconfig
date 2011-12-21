@@ -1,27 +1,27 @@
 config MALI400MP
         bool "Enable MALI integration"
-        default n
+        default y
         ---help---
                 This enables MALI 3D graphics driver. Required to use hardware accelerated OpenGL ES 2.0 and 1.1.
 
 config USING_MMU
         bool "Using MMU"
         depends on MALI400MP
-        default "1"
+        default y
         ---help--- 
                 This enables MMU for Mali. Required hardware support for MMU.
 
 config USING_UMP
         bool "Using UMP"
         depends on MALI400MP && UMP
-        default "0"
+        default y
         ---help---
                 Using UMP for Mali memory.
 
 config USING_OS_MEMORY
         bool "Using OS memory"
         depends on MALI400MP
-        default "1"
+        default y
         ---help---
                 This enables for Mali to use OS memory.
 
@@ -63,7 +63,7 @@ config USING_PROFILING
 config DEBUG_BUILD
         bool "Enables debug messages"
         depends on MALI400MP
-        default "0"
+        default n
         ---help---
                 This enables Mali driver debug messages.
 

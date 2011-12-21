@@ -21,6 +21,15 @@
 void* mali_memory_core_mmu_lookup(u32 id);
 
 /**
+ * Set the core pointer of MMU to core owner of MMU
+ *
+ * @param core Core holding this MMU
+ * @param mmu_ptr The MMU whose core pointer needs set to core holding the MMU
+ * 
+ */
+void mali_memory_core_mmu_owner(void *core, void *mmu_ptr);
+
+/**
  * Activate a user session with its address space on the given MMU.
  * If the session can't be activated due to that the MMU is busy and
  * a callback pointer is given, the callback will be called once the MMU becomes idle.

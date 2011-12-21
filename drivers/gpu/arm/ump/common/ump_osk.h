@@ -18,7 +18,7 @@
 
 #include <mali_osk.h>
 #include <ump_kernel_memory_backend.h>
-#include <ump_uk_types.h>
+#include "ump_uk_types.h"
 
 #ifdef __cplusplus
 extern "C"

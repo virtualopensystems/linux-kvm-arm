@@ -74,11 +74,7 @@ typedef struct mali_kernel_subsystem
 
 #if MALI_STATE_TRACKING
 	/** Dump the current state of the subsystem */
-#if MALI_STATE_TRACKING_USING_PROC
-	void (*dump_state)(void);
-#else
 	u32 (*dump_state)(char *buf, u32 size);
-#endif
 #endif
 } mali_kernel_subsystem;
 
@@ -104,11 +100,7 @@ void _mali_kernel_core_broadcast_subsystem_message(mali_core_notification_messag
 /**
  * Tell all subsystems to dump their current state
  */
-#if MALI_STATE_TRACKING_USING_PROC
-void _mali_kernel_core_dump_state(void);
-#else
 u32 _mali_kernel_core_dump_state(char *buf, u32 size);
-#endif
 #endif
 
 

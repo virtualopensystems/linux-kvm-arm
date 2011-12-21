@@ -21,7 +21,6 @@
 #include "mali_pmm.h"
 #include "mali_pmm_system.h"
 #include "mali_pmm_state.h"
-#include "mali_pmm_policy.h"
 #include "mali_pmm_policy_alwayson.h"
 
 _mali_osk_errcode_t pmm_policy_init_always_on(void)

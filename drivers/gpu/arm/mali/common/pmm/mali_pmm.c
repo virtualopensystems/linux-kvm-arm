@@ -23,14 +23,13 @@
 #include "mali_pmm_system.h"
 #include "mali_pmm_state.h"
 #include "mali_pmm_policy.h"
+#include "mali_pmm_pmu.h"
 #include "mali_platform.h"
 
 /* Internal PMM subsystem state */
 static _mali_pmm_internal_state_t *pmm_state = NULL;
 /* Mali kernel subsystem id */
 static mali_kernel_subsystem_identifier mali_subsystem_pmm_id = -1;
-
-static u32 pmm_cores_registered_mask = 0;
 
 #define GET_PMM_STATE_PTR (pmm_state)
 
@@ -498,11 +497,11 @@ _mali_osk_errcode_t malipmm_create(_mali_osk_resource_t *resource)
 	/* Set up assumes all values are initialized to NULL or MALI_FALSE, so
 	 * we can exit halfway through set up and perform clean up
 	 */
-#if !MALI_PMM_NO_PMU
-	if( mali_platform_init(resource) != _MALI_OSK_ERR_OK ) goto pmm_fail_cleanup;
-	pmm_state->pmu_initialized = MALI_TRUE;
-#endif
 
+#if USING_MALI_PMU
+        if( mali_pmm_pmu_init(resource) != _MALI_OSK_ERR_OK ) goto pmm_fail_cleanup;
+        pmm_state->pmu_initialized = MALI_TRUE;
+#endif
 	pmm_state->queue = _mali_osk_notification_queue_init();
 	if( !pmm_state->queue ) goto pmm_fail_cleanup;
 
@@ -536,12 +535,18 @@ pmm_fail_cleanup:
 	MALI_PRINT_ERROR( ("PMM: subsystem failed to be created\n") );
 	if( pmm_state )
 	{
-		_mali_osk_resource_type_t t = PMU;
 		if( pmm_state->lock ) _mali_osk_lock_term( pmm_state->lock );
 		if( pmm_state->irq ) _mali_osk_irq_term( pmm_state->irq );
 		if( pmm_state->queue ) _mali_osk_notification_queue_term( pmm_state->queue );
 		if( pmm_state->iqueue ) _mali_osk_notification_queue_term( pmm_state->iqueue );		
-		if( pmm_state->pmu_initialized ) ( mali_platform_deinit(&t) );
+#if USING_MALI_PMU
+                if( pmm_state->pmu_initialized )
+                {
+                        _mali_osk_resource_type_t t = PMU;
+                        mali_pmm_pmu_deinit(&t);
+                }
+#endif /* USING_MALI_PMU */
+
 		_mali_osk_free(pmm_state);
 		pmm_state = NULL; 
 	}
@@ -571,7 +576,6 @@ void malipmm_force_powerup( void )
 	MALI_DEBUG_ASSERT_POINTER(pmm);
 	MALI_PMM_LOCK(pmm);
 	pmm->status = MALI_PMM_STATUS_OFF;
-	pmm_cores_registered_mask = pmm->cores_registered;
 	MALI_PMM_UNLOCK(pmm);
 	
 	/* flush PMM workqueue */
@@ -579,13 +583,8 @@ void malipmm_force_powerup( void )
 
 	if (pmm->cores_powered == 0)
 	{
-		mali_platform_powerup(pmm_cores_registered_mask);
+		malipmm_powerup(pmm->cores_registered);
 	}
-}
-
-void malipmm_force_powerdown( void )
-{
-	mali_platform_powerdown(pmm_cores_registered_mask);
 }
 
 void malipmm_kernel_subsystem_terminate( mali_kernel_subsystem_identifier id )
@@ -596,7 +595,6 @@ void malipmm_kernel_subsystem_terminate( mali_kernel_subsystem_identifier id )
 
 	if( pmm_state )
 	{
-		_mali_osk_resource_type_t t = PMU;
 #if PMM_OS_TEST
 		power_test_end();
 #endif
@@ -615,7 +613,15 @@ void malipmm_kernel_subsystem_terminate( mali_kernel_subsystem_identifier id )
 		_mali_osk_irq_term( pmm_state->irq );
 		_mali_osk_notification_queue_term( pmm_state->queue );
 		_mali_osk_notification_queue_term( pmm_state->iqueue );
-		if( pmm_state->pmu_initialized ) mali_platform_deinit(&t);
+		if (pmm_state->cores_registered) malipmm_powerdown(pmm_state->cores_registered,MALI_POWER_MODE_LIGHT_SLEEP);
+#if USING_MALI_PMU
+		if( pmm_state->pmu_initialized )
+		{
+			_mali_osk_resource_type_t t = PMU;
+			mali_pmm_pmu_deinit(&t);
+		}
+#endif /* USING_MALI_PMU */
+
 		_mali_osk_atomic_term( &(pmm_state->messages_queued) );
 		MALI_PMM_LOCK_TERM(pmm_state);
 		_mali_osk_free(pmm_state);
@@ -623,6 +629,47 @@ void malipmm_kernel_subsystem_terminate( mali_kernel_subsystem_identifier id )
 	}
 
 	MALIPMM_DEBUG_PRINT( ("PMM: subsystem terminated\n") );
+}
+
+_mali_osk_errcode_t malipmm_powerup( u32 cores )
+{
+        _mali_osk_errcode_t err = _MALI_OSK_ERR_OK;
+        _mali_pmm_internal_state_t *pmm = GET_PMM_STATE_PTR;
+
+	/* If all the cores are powered down, power up the MALI */
+        if (pmm->cores_powered == 0)
+        {
+                mali_platform_power_mode_change(MALI_POWER_MODE_ON);
+#if MALI_PMM_RUNTIME_JOB_CONTROL_ON
+		/* Initiate the power up */
+                _mali_osk_pmm_dev_activate();
+#endif
+        }
+
+#if USING_MALI_PMU
+        err = mali_pmm_pmu_powerup( cores );
+#endif
+        return err;
+}
+
+_mali_osk_errcode_t malipmm_powerdown( u32 cores, mali_power_mode power_mode )
+{
+        _mali_osk_errcode_t err = _MALI_OSK_ERR_OK;
+        _mali_pmm_internal_state_t *pmm = GET_PMM_STATE_PTR;
+#if USING_MALI_PMU
+        err = mali_pmm_pmu_powerdown( cores );
+#endif
+
+	/* If all cores are powered down, power off the MALI */
+        if (pmm->cores_powered == 0)
+        {
+#if MALI_PMM_RUNTIME_JOB_CONTROL_ON
+		/* Initiate the power down */
+                _mali_osk_pmm_dev_idle();
+#endif
+                mali_platform_power_mode_change(power_mode);
+        }
+        return err;
 }
 
 _mali_osk_errcode_t malipmm_core_register( mali_pmm_core_id core )
@@ -656,7 +703,7 @@ _mali_osk_errcode_t malipmm_core_register( mali_pmm_core_id core )
 
 #if !MALI_PMM_NO_PMU
 	/* Make sure the core is powered up */
-	err = mali_platform_powerup( core );
+	err = malipmm_powerup( core );
 #else
 	err = _MALI_OSK_ERR_OK;
 #endif
@@ -711,7 +758,6 @@ void malipmm_core_unregister( mali_pmm_core_id core )
 		mali_pmm_core_mask old_power = pmm->cores_powered;
 #endif
 		/* Remove the core from the system */
-		pmm->cores_registered &= (~core);
 		pmm->cores_idle &= (~core);
 		pmm->cores_powered &= (~core);
 		pmm->cores_pend_down &= (~core);
