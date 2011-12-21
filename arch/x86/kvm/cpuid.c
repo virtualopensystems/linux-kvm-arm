@@ -27,7 +27,6 @@ void kvm_update_cpuid(struct kvm_vcpu *vcpu)
 {
 	struct kvm_cpuid_entry2 *best;
 	struct kvm_lapic *apic = vcpu->arch.apic;
-	u32 timer_mode_mask;
 
 	best = kvm_find_cpuid_entry(vcpu, 1, 0);
 	if (!best)
@@ -40,15 +39,12 @@ void kvm_update_cpuid(struct kvm_vcpu *vcpu)
 			best->ecx |= bit(X86_FEATURE_OSXSAVE);
 	}
 
-	if (boot_cpu_data.x86_vendor == X86_VENDOR_INTEL &&
-		best->function == 0x1) {
-		best->ecx |= bit(X86_FEATURE_TSC_DEADLINE_TIMER);
-		timer_mode_mask = 3 << 17;
-	} else
-		timer_mode_mask = 1 << 17;
-
-	if (apic)
-		apic->lapic_timer.timer_mode_mask = timer_mode_mask;
+	if (apic) {
+		if (best->ecx & bit(X86_FEATURE_TSC_DEADLINE_TIMER))
+			apic->lapic_timer.timer_mode_mask = 3 << 17;
+		else
+			apic->lapic_timer.timer_mode_mask = 1 << 17;
+	}
 
 	kvm_pmu_cpuid_update(vcpu);
 }

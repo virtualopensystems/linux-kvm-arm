@@ -2089,6 +2089,9 @@ int kvm_dev_ioctl_check_extension(long ext)
 	case KVM_CAP_TSC_CONTROL:
 		r = kvm_has_tsc_control;
 		break;
+	case KVM_CAP_TSC_DEADLINE_TIMER:
+		r = boot_cpu_has(X86_FEATURE_TSC_DEADLINE_TIMER);
+		break;
 	default:
 		r = 0;
 		break;
