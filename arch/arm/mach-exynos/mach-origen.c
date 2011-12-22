@@ -729,6 +729,12 @@ static struct platform_device origen_device_bluetooth = {
 	},
 };
 
+/* Audio device */
+static struct platform_device origen_device_audio = {
+	.name = "origen-audio",
+	.id = -1,
+};
+
 static struct platform_device *origen_devices[] __initdata = {
 	&mmc_fixed_voltage,
 	&s3c_device_hsmmc2,
@@ -752,10 +758,12 @@ static struct platform_device *origen_devices[] __initdata = {
 	&s5p_device_mfc_l,
 	&s5p_device_mfc_r,
 	&s5p_device_mixer,
+	&exynos4_device_i2s0,
 	&exynos4_device_ohci,
 	&origen_device_gpiokeys,
 	&origen_lcd_hv070wsa,
 	&origen_leds_gpio,
+	&origen_device_audio,
 	&origen_device_bluetooth,
 };
 
