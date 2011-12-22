@@ -1,3 +1,13 @@
 # Staging the origen board audio codec
 config SND_SOC_ALC5625
 	tristate
+
+config SND_SOC_ORIGEN_ALC5625
+	tristate "SoC I2S Audio support for ALC5625 on ORIGEN board"
+	depends on SND_SOC_SAMSUNG && MACH_ORIGEN
+	select SND_SOC_ALC5625
+	select SND_SAMSUNG_I2S
+	select fool
+	help
+		Say Y if you want to add support for SoC audio
+		on origen board using ALC5625 codec
