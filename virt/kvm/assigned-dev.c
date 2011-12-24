@@ -18,6 +18,7 @@
 #include <linux/interrupt.h>
 #include <linux/slab.h>
 #include <linux/namei.h>
+#include <linux/fs.h>
 #include "irq.h"
 
 static struct kvm_assigned_dev_kernel *kvm_find_assigned_dev(struct list_head *head,
