@@ -482,14 +482,16 @@ out:
 	return r;
 }
 
-/* We want to test whether the caller has been granted permissions to
+/*
+ * We want to test whether the caller has been granted permissions to
  * use this device.  To be able to configure and control the device,
  * the user needs access to PCI configuration space and BAR resources.
  * These are accessed through PCI sysfs.  PCI config space is often
  * passed to the process calling this ioctl via file descriptor, so we
  * can't rely on access to that file.  We can check for permissions
  * on each of the BAR resource files, which is a pretty clear
- * indicator that the user has been granted access to the device. */
+ * indicator that the user has been granted access to the device.
+ */
 static int probe_sysfs_permissions(struct pci_dev *dev)
 {
 #ifdef CONFIG_SYSFS

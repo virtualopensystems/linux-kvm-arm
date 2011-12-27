@@ -1106,7 +1106,7 @@ support.  Instead it is reported via
 
   ioctl(KVM_CHECK_EXTENSION, KVM_CAP_TSC_DEADLINE_TIMER)
 
-if that returns true you use KVM_CREATE_IRQCHIP, or if emulate the
+if that returns true and you use KVM_CREATE_IRQCHIP, or if you emulate the
 feature in userspace, then you can enable the feature for KVM_SET_CPUID2.
 
 4.47 KVM_PPC_GET_PVINFO
