@@ -182,28 +182,31 @@ static unsigned long __meminitdata nr_all_pages;
 static unsigned long __meminitdata dma_reserve;
 
 #ifdef CONFIG_ARCH_POPULATES_NODE_MAP
-  /*
-   * MAX_ACTIVE_REGIONS determines the maximum number of distinct
-   * ranges of memory (RAM) that may be registered with add_active_range().
-   * Ranges passed to add_active_range() will be merged if possible
-   * so the number of times add_active_range() can be called is
-   * related to the number of nodes and the number of holes
-   */
-  #ifdef CONFIG_MAX_ACTIVE_REGIONS
-    /* Allow an architecture to set MAX_ACTIVE_REGIONS to save memory */
-    #define MAX_ACTIVE_REGIONS CONFIG_MAX_ACTIVE_REGIONS
-  #else
-    #if MAX_NUMNODES >= 32
-      /* If there can be many nodes, allow up to 50 holes per node */
-      #define MAX_ACTIVE_REGIONS (MAX_NUMNODES*50)
+  #ifndef CONFIG_HAVE_MEMBLOCK_NODE_MAP
+    /*
+     * MAX_ACTIVE_REGIONS determines the maximum number of distinct ranges
+     * of memory (RAM) that may be registered with add_active_range().
+     * Ranges passed to add_active_range() will be merged if possible so
+     * the number of times add_active_range() can be called is related to
+     * the number of nodes and the number of holes
+     */
+    #ifdef CONFIG_MAX_ACTIVE_REGIONS
+      /* Allow an architecture to set MAX_ACTIVE_REGIONS to save memory */
+      #define MAX_ACTIVE_REGIONS CONFIG_MAX_ACTIVE_REGIONS
     #else
-      /* By default, allow up to 256 distinct regions */
-      #define MAX_ACTIVE_REGIONS 256
+      #if MAX_NUMNODES >= 32
+        /* If there can be many nodes, allow up to 50 holes per node */
+        #define MAX_ACTIVE_REGIONS (MAX_NUMNODES*50)
+      #else
+        /* By default, allow up to 256 distinct regions */
+        #define MAX_ACTIVE_REGIONS 256
+      #endif
     #endif
-  #endif
 
-  static struct node_active_region __meminitdata early_node_map[MAX_ACTIVE_REGIONS];
-  static int __meminitdata nr_nodemap_entries;
+    static struct node_active_region __meminitdata early_node_map[MAX_ACTIVE_REGIONS];
+    static int __meminitdata nr_nodemap_entries;
+#endif /* !CONFIG_HAVE_MEMBLOCK_NODE_MAP */
+
   static unsigned long __meminitdata arch_zone_lowest_possible_pfn[MAX_NR_ZONES];
   static unsigned long __meminitdata arch_zone_highest_possible_pfn[MAX_NR_ZONES];
   static unsigned long __initdata required_kernelcore;
@@ -706,10 +709,10 @@ void __meminit __free_pages_bootmem(struct page *page, unsigned int order)
 		int loop;
 
 		prefetchw(page);
-		for (loop = 0; loop < BITS_PER_LONG; loop++) {
+		for (loop = 0; loop < (1 << order); loop++) {
 			struct page *p = &page[loop];
 
-			if (loop + 1 < BITS_PER_LONG)
+			if (loop + 1 < (1 << order))
 				prefetchw(p + 1);
 			__ClearPageReserved(p);
 			set_page_count(p, 0);
@@ -3738,34 +3741,6 @@ __meminit int init_currently_empty_zone(struct zone *zone,
 }
 
 #ifdef CONFIG_ARCH_POPULATES_NODE_MAP
-/*
- * Basic iterator support. Return the first range of PFNs for a node
- * Note: nid == MAX_NUMNODES returns first region regardless of node
- */
-static int __meminit first_active_region_index_in_nid(int nid)
-{
-	int i;
-
-	for (i = 0; i < nr_nodemap_entries; i++)
-		if (nid == MAX_NUMNODES || early_node_map[i].nid == nid)
-			return i;
-
-	return -1;
-}
-
-/*
- * Basic iterator support. Return the next active range of PFNs for a node
- * Note: nid == MAX_NUMNODES returns next region regardless of node
- */
-static int __meminit next_active_region_index_in_nid(int index, int nid)
-{
-	for (index = index + 1; index < nr_nodemap_entries; index++)
-		if (nid == MAX_NUMNODES || early_node_map[index].nid == nid)
-			return index;
-
-	return -1;
-}
-
 #ifndef CONFIG_HAVE_ARCH_EARLY_PFN_TO_NID
 /*
  * Required by SPARSEMEM. Given a PFN, return what node the PFN is on.
@@ -3775,15 +3750,12 @@ static int __meminit next_active_region_index_in_nid(int index, int nid)
  */
 int __meminit __early_pfn_to_nid(unsigned long pfn)
 {
-	int i;
+	unsigned long start_pfn, end_pfn;
+	int i, nid;
 
-	for (i = 0; i < nr_nodemap_entries; i++) {
-		unsigned long start_pfn = early_node_map[i].start_pfn;
-		unsigned long end_pfn = early_node_map[i].end_pfn;
-
+	for_each_mem_pfn_range(i, MAX_NUMNODES, &start_pfn, &end_pfn, &nid)
 		if (start_pfn <= pfn && pfn < end_pfn)
-			return early_node_map[i].nid;
-	}
+			return nid;
 	/* This is a memory hole */
 	return -1;
 }
@@ -3812,11 +3784,6 @@ bool __meminit early_pfn_in_nid(unsigned long pfn, int node)
 }
 #endif
 
-/* Basic iterator support to walk early_node_map[] */
-#define for_each_active_range_index_in_nid(i, nid) \
-	for (i = first_active_region_index_in_nid(nid); i != -1; \
-				i = next_active_region_index_in_nid(i, nid))
-
 /**
  * free_bootmem_with_active_regions - Call free_bootmem_node for each active range
  * @nid: The node to free memory on. If MAX_NUMNODES, all nodes are freed.
@@ -3826,122 +3793,34 @@ bool __meminit early_pfn_in_nid(unsigned long pfn, int node)
  * add_active_ranges() contain no holes and may be freed, this
  * this function may be used instead of calling free_bootmem() manually.
  */
-void __init free_bootmem_with_active_regions(int nid,
-						unsigned long max_low_pfn)
+void __init free_bootmem_with_active_regions(int nid, unsigned long max_low_pfn)
 {
-	int i;
+	unsigned long start_pfn, end_pfn;
+	int i, this_nid;
 
-	for_each_active_range_index_in_nid(i, nid) {
-		unsigned long size_pages = 0;
-		unsigned long end_pfn = early_node_map[i].end_pfn;
+	for_each_mem_pfn_range(i, nid, &start_pfn, &end_pfn, &this_nid) {
+		start_pfn = min(start_pfn, max_low_pfn);
+		end_pfn = min(end_pfn, max_low_pfn);
 
-		if (early_node_map[i].start_pfn >= max_low_pfn)
-			continue;
-
-		if (end_pfn > max_low_pfn)
-			end_pfn = max_low_pfn;
-
-		size_pages = end_pfn - early_node_map[i].start_pfn;
-		free_bootmem_node(NODE_DATA(early_node_map[i].nid),
-				PFN_PHYS(early_node_map[i].start_pfn),
-				size_pages << PAGE_SHIFT);
+		if (start_pfn < end_pfn)
+			free_bootmem_node(NODE_DATA(this_nid),
+					  PFN_PHYS(start_pfn),
+					  (end_pfn - start_pfn) << PAGE_SHIFT);
 	}
 }
-
-#ifdef CONFIG_HAVE_MEMBLOCK
-/*
- * Basic iterator support. Return the last range of PFNs for a node
- * Note: nid == MAX_NUMNODES returns last region regardless of node
- */
-static int __meminit last_active_region_index_in_nid(int nid)
-{
-	int i;
-
-	for (i = nr_nodemap_entries - 1; i >= 0; i--)
-		if (nid == MAX_NUMNODES || early_node_map[i].nid == nid)
-			return i;
-
-	return -1;
-}
-
-/*
- * Basic iterator support. Return the previous active range of PFNs for a node
- * Note: nid == MAX_NUMNODES returns next region regardless of node
- */
-static int __meminit previous_active_region_index_in_nid(int index, int nid)
-{
-	for (index = index - 1; index >= 0; index--)
-		if (nid == MAX_NUMNODES || early_node_map[index].nid == nid)
-			return index;
-
-	return -1;
-}
-
-#define for_each_active_range_index_in_nid_reverse(i, nid) \
-	for (i = last_active_region_index_in_nid(nid); i != -1; \
-				i = previous_active_region_index_in_nid(i, nid))
-
-u64 __init find_memory_core_early(int nid, u64 size, u64 align,
-					u64 goal, u64 limit)
-{
-	int i;
-
-	/* Need to go over early_node_map to find out good range for node */
-	for_each_active_range_index_in_nid_reverse(i, nid) {
-		u64 addr;
-		u64 ei_start, ei_last;
-		u64 final_start, final_end;
-
-		ei_last = early_node_map[i].end_pfn;
-		ei_last <<= PAGE_SHIFT;
-		ei_start = early_node_map[i].start_pfn;
-		ei_start <<= PAGE_SHIFT;
-
-		final_start = max(ei_start, goal);
-		final_end = min(ei_last, limit);
-
-		if (final_start >= final_end)
-			continue;
-
-		addr = memblock_find_in_range(final_start, final_end, size, align);
-
-		if (addr == MEMBLOCK_ERROR)
-			continue;
-
-		return addr;
-	}
-
-	return MEMBLOCK_ERROR;
-}
-#endif
 
 int __init add_from_early_node_map(struct range *range, int az,
 				   int nr_range, int nid)
 {
+	unsigned long start_pfn, end_pfn;
 	int i;
-	u64 start, end;
 
 	/* need to go over early_node_map to find out good range for node */
-	for_each_active_range_index_in_nid(i, nid) {
-		start = early_node_map[i].start_pfn;
-		end = early_node_map[i].end_pfn;
-		nr_range = add_range(range, az, nr_range, start, end);
-	}
+	for_each_mem_pfn_range(i, nid, &start_pfn, &end_pfn, NULL)
+		nr_range = add_range(range, az, nr_range, start_pfn, end_pfn);
 	return nr_range;
 }
 
-void __init work_with_active_regions(int nid, work_fn_t work_fn, void *data)
-{
-	int i;
-	int ret;
-
-	for_each_active_range_index_in_nid(i, nid) {
-		ret = work_fn(early_node_map[i].start_pfn,
-			      early_node_map[i].end_pfn, data);
-		if (ret)
-			break;
-	}
-}
 /**
  * sparse_memory_present_with_active_regions - Call memory_present for each active range
  * @nid: The node to call memory_present for. If MAX_NUMNODES, all nodes will be used.
@@ -3952,12 +3831,11 @@ void __init work_with_active_regions(int nid, work_fn_t work_fn, void *data)
  */
 void __init sparse_memory_present_with_active_regions(int nid)
 {
-	int i;
+	unsigned long start_pfn, end_pfn;
+	int i, this_nid;
 
-	for_each_active_range_index_in_nid(i, nid)
-		memory_present(early_node_map[i].nid,
-				early_node_map[i].start_pfn,
-				early_node_map[i].end_pfn);
+	for_each_mem_pfn_range(i, nid, &start_pfn, &end_pfn, &this_nid)
+		memory_present(this_nid, start_pfn, end_pfn);
 }
 
 /**
@@ -3974,13 +3852,15 @@ void __init sparse_memory_present_with_active_regions(int nid)
 void __meminit get_pfn_range_for_nid(unsigned int nid,
 			unsigned long *start_pfn, unsigned long *end_pfn)
 {
+	unsigned long this_start_pfn, this_end_pfn;
 	int i;
+
 	*start_pfn = -1UL;
 	*end_pfn = 0;
 
-	for_each_active_range_index_in_nid(i, nid) {
-		*start_pfn = min(*start_pfn, early_node_map[i].start_pfn);
-		*end_pfn = max(*end_pfn, early_node_map[i].end_pfn);
+	for_each_mem_pfn_range(i, nid, &this_start_pfn, &this_end_pfn, NULL) {
+		*start_pfn = min(*start_pfn, this_start_pfn);
+		*end_pfn = max(*end_pfn, this_end_pfn);
 	}
 
 	if (*start_pfn == -1UL)
@@ -4083,46 +3963,16 @@ unsigned long __meminit __absent_pages_in_range(int nid,
 				unsigned long range_start_pfn,
 				unsigned long range_end_pfn)
 {
-	int i = 0;
-	unsigned long prev_end_pfn = 0, hole_pages = 0;
-	unsigned long start_pfn;
+	unsigned long nr_absent = range_end_pfn - range_start_pfn;
+	unsigned long start_pfn, end_pfn;
+	int i;
 
-	/* Find the end_pfn of the first active range of pfns in the node */
-	i = first_active_region_index_in_nid(nid);
-	if (i == -1)
-		return 0;
-
-	prev_end_pfn = min(early_node_map[i].start_pfn, range_end_pfn);
-
-	/* Account for ranges before physical memory on this node */
-	if (early_node_map[i].start_pfn > range_start_pfn)
-		hole_pages = prev_end_pfn - range_start_pfn;
-
-	/* Find all holes for the zone within the node */
-	for (; i != -1; i = next_active_region_index_in_nid(i, nid)) {
-
-		/* No need to continue if prev_end_pfn is outside the zone */
-		if (prev_end_pfn >= range_end_pfn)
-			break;
-
-		/* Make sure the end of the zone is not within the hole */
-		start_pfn = min(early_node_map[i].start_pfn, range_end_pfn);
-		prev_end_pfn = max(prev_end_pfn, range_start_pfn);
-
-		/* Update the hole size cound and move on */
-		if (start_pfn > range_start_pfn) {
-			BUG_ON(prev_end_pfn > start_pfn);
-			hole_pages += start_pfn - prev_end_pfn;
-		}
-		prev_end_pfn = early_node_map[i].end_pfn;
+	for_each_mem_pfn_range(i, nid, &start_pfn, &end_pfn, NULL) {
+		start_pfn = clamp(start_pfn, range_start_pfn, range_end_pfn);
+		end_pfn = clamp(end_pfn, range_start_pfn, range_end_pfn);
+		nr_absent -= end_pfn - start_pfn;
 	}
-
-	/* Account for ranges past physical memory on this node */
-	if (range_end_pfn > prev_end_pfn)
-		hole_pages += range_end_pfn -
-				max(range_start_pfn, prev_end_pfn);
-
-	return hole_pages;
+	return nr_absent;
 }
 
 /**
@@ -4143,14 +3993,14 @@ static unsigned long __meminit zone_absent_pages_in_node(int nid,
 					unsigned long zone_type,
 					unsigned long *ignored)
 {
+	unsigned long zone_low = arch_zone_lowest_possible_pfn[zone_type];
+	unsigned long zone_high = arch_zone_highest_possible_pfn[zone_type];
 	unsigned long node_start_pfn, node_end_pfn;
 	unsigned long zone_start_pfn, zone_end_pfn;
 
 	get_pfn_range_for_nid(nid, &node_start_pfn, &node_end_pfn);
-	zone_start_pfn = max(arch_zone_lowest_possible_pfn[zone_type],
-							node_start_pfn);
-	zone_end_pfn = min(arch_zone_highest_possible_pfn[zone_type],
-							node_end_pfn);
+	zone_start_pfn = clamp(node_start_pfn, zone_low, zone_high);
+	zone_end_pfn = clamp(node_end_pfn, zone_low, zone_high);
 
 	adjust_zone_range_for_zone_movable(nid, zone_type,
 			node_start_pfn, node_end_pfn,
@@ -4448,6 +4298,35 @@ static inline void setup_nr_node_ids(void)
 }
 #endif
 
+#ifndef CONFIG_HAVE_MEMBLOCK_NODE_MAP
+/*
+ * Common iterator interface used to define for_each_mem_pfn_range().
+ */
+void __meminit __next_mem_pfn_range(int *idx, int nid,
+				    unsigned long *out_start_pfn,
+				    unsigned long *out_end_pfn, int *out_nid)
+{
+	struct node_active_region *r = NULL;
+
+	while (++*idx < nr_nodemap_entries) {
+		if (nid == MAX_NUMNODES || nid == early_node_map[*idx].nid) {
+			r = &early_node_map[*idx];
+			break;
+		}
+	}
+	if (!r) {
+		*idx = -1;
+		return;
+	}
+
+	if (out_start_pfn)
+		*out_start_pfn = r->start_pfn;
+	if (out_end_pfn)
+		*out_end_pfn = r->end_pfn;
+	if (out_nid)
+		*out_nid = r->nid;
+}
+
 /**
  * add_active_range - Register a range of PFNs backed by physical memory
  * @nid: The node ID the range resides on
@@ -4525,6 +4404,7 @@ void __init add_active_range(unsigned int nid, unsigned long start_pfn,
 void __init remove_active_range(unsigned int nid, unsigned long start_pfn,
 				unsigned long end_pfn)
 {
+	unsigned long this_start_pfn, this_end_pfn;
 	int i, j;
 	int removed = 0;
 
@@ -4532,26 +4412,22 @@ void __init remove_active_range(unsigned int nid, unsigned long start_pfn,
 			  nid, start_pfn, end_pfn);
 
 	/* Find the old active region end and shrink */
-	for_each_active_range_index_in_nid(i, nid) {
-		if (early_node_map[i].start_pfn >= start_pfn &&
-		    early_node_map[i].end_pfn <= end_pfn) {
+	for_each_mem_pfn_range(i, nid, &this_start_pfn, &this_end_pfn, NULL) {
+		if (this_start_pfn >= start_pfn && this_end_pfn <= end_pfn) {
 			/* clear it */
 			early_node_map[i].start_pfn = 0;
 			early_node_map[i].end_pfn = 0;
 			removed = 1;
 			continue;
 		}
-		if (early_node_map[i].start_pfn < start_pfn &&
-		    early_node_map[i].end_pfn > start_pfn) {
-			unsigned long temp_end_pfn = early_node_map[i].end_pfn;
+		if (this_start_pfn < start_pfn && this_end_pfn > start_pfn) {
 			early_node_map[i].end_pfn = start_pfn;
-			if (temp_end_pfn > end_pfn)
-				add_active_range(nid, end_pfn, temp_end_pfn);
+			if (this_end_pfn > end_pfn)
+				add_active_range(nid, end_pfn, this_end_pfn);
 			continue;
 		}
-		if (early_node_map[i].start_pfn >= start_pfn &&
-		    early_node_map[i].end_pfn > end_pfn &&
-		    early_node_map[i].start_pfn < end_pfn) {
+		if (this_start_pfn >= start_pfn && this_end_pfn > end_pfn &&
+		    this_start_pfn < end_pfn) {
 			early_node_map[i].start_pfn = end_pfn;
 			continue;
 		}
@@ -4611,6 +4487,11 @@ void __init sort_node_map(void)
 			sizeof(struct node_active_region),
 			cmp_node_active_region, NULL);
 }
+#else /* !CONFIG_HAVE_MEMBLOCK_NODE_MAP */
+static inline void sort_node_map(void)
+{
+}
+#endif
 
 /**
  * node_map_pfn_alignment - determine the maximum internode alignment
@@ -4634,15 +4515,11 @@ void __init sort_node_map(void)
 unsigned long __init node_map_pfn_alignment(void)
 {
 	unsigned long accl_mask = 0, last_end = 0;
+	unsigned long start, end, mask;
 	int last_nid = -1;
-	int i;
+	int i, nid;
 
-	for_each_active_range_index_in_nid(i, MAX_NUMNODES) {
-		int nid = early_node_map[i].nid;
-		unsigned long start = early_node_map[i].start_pfn;
-		unsigned long end = early_node_map[i].end_pfn;
-		unsigned long mask;
-
+	for_each_mem_pfn_range(i, MAX_NUMNODES, &start, &end, &nid) {
 		if (!start || last_nid < 0 || last_nid == nid) {
 			last_nid = nid;
 			last_end = end;
@@ -4669,12 +4546,12 @@ unsigned long __init node_map_pfn_alignment(void)
 /* Find the lowest pfn for a node */
 static unsigned long __init find_min_pfn_for_node(int nid)
 {
-	int i;
 	unsigned long min_pfn = ULONG_MAX;
+	unsigned long start_pfn;
+	int i;
 
-	/* Assuming a sorted map, the first range found has the starting pfn */
-	for_each_active_range_index_in_nid(i, nid)
-		min_pfn = min(min_pfn, early_node_map[i].start_pfn);
+	for_each_mem_pfn_range(i, nid, &start_pfn, NULL, NULL)
+		min_pfn = min(min_pfn, start_pfn);
 
 	if (min_pfn == ULONG_MAX) {
 		printk(KERN_WARNING
@@ -4703,15 +4580,16 @@ unsigned long __init find_min_pfn_with_active_regions(void)
  */
 static unsigned long __init early_calculate_totalpages(void)
 {
-	int i;
 	unsigned long totalpages = 0;
+	unsigned long start_pfn, end_pfn;
+	int i, nid;
 
-	for (i = 0; i < nr_nodemap_entries; i++) {
-		unsigned long pages = early_node_map[i].end_pfn -
-						early_node_map[i].start_pfn;
+	for_each_mem_pfn_range(i, MAX_NUMNODES, &start_pfn, &end_pfn, &nid) {
+		unsigned long pages = end_pfn - start_pfn;
+
 		totalpages += pages;
 		if (pages)
-			node_set_state(early_node_map[i].nid, N_HIGH_MEMORY);
+			node_set_state(nid, N_HIGH_MEMORY);
 	}
   	return totalpages;
 }
@@ -4766,6 +4644,8 @@ restart:
 	/* Spread kernelcore memory as evenly as possible throughout nodes */
 	kernelcore_node = required_kernelcore / usable_nodes;
 	for_each_node_state(nid, N_HIGH_MEMORY) {
+		unsigned long start_pfn, end_pfn;
+
 		/*
 		 * Recalculate kernelcore_node if the division per node
 		 * now exceeds what is necessary to satisfy the requested
@@ -4782,13 +4662,10 @@ restart:
 		kernelcore_remaining = kernelcore_node;
 
 		/* Go through each range of PFNs within this node */
-		for_each_active_range_index_in_nid(i, nid) {
-			unsigned long start_pfn, end_pfn;
+		for_each_mem_pfn_range(i, nid, &start_pfn, &end_pfn, NULL) {
 			unsigned long size_pages;
 
-			start_pfn = max(early_node_map[i].start_pfn,
-						zone_movable_pfn[nid]);
-			end_pfn = early_node_map[i].end_pfn;
+			start_pfn = max(start_pfn, zone_movable_pfn[nid]);
 			if (start_pfn >= end_pfn)
 				continue;
 
@@ -4890,8 +4767,8 @@ static void check_for_regular_memory(pg_data_t *pgdat)
  */
 void __init free_area_init_nodes(unsigned long *max_zone_pfn)
 {
-	unsigned long nid;
-	int i;
+	unsigned long start_pfn, end_pfn;
+	int i, nid;
 
 	/* Sort early_node_map as initialisation assumes it is sorted */
 	sort_node_map();
@@ -4941,11 +4818,9 @@ void __init free_area_init_nodes(unsigned long *max_zone_pfn)
 	}
 
 	/* Print out the early_node_map[] */
-	printk("early_node_map[%d] active PFN ranges\n", nr_nodemap_entries);
-	for (i = 0; i < nr_nodemap_entries; i++)
-		printk("  %3d: %0#10lx -> %0#10lx\n", early_node_map[i].nid,
-						early_node_map[i].start_pfn,
-						early_node_map[i].end_pfn);
+	printk("Early memory PFN ranges\n");
+	for_each_mem_pfn_range(i, MAX_NUMNODES, &start_pfn, &end_pfn, &nid)
+		printk("  %3d: %0#10lx -> %0#10lx\n", nid, start_pfn, end_pfn);
 
 	/* Initialise every node */
 	mminit_verify_pageflags_layout();

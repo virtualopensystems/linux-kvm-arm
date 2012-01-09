@@ -1282,12 +1282,14 @@ extern void free_area_init_node(int nid, unsigned long * zones_size,
  * CONFIG_ARCH_POPULATES_NODE_MAP
  */
 extern void free_area_init_nodes(unsigned long *max_zone_pfn);
+#ifndef CONFIG_HAVE_MEMBLOCK_NODE_MAP
 extern void add_active_range(unsigned int nid, unsigned long start_pfn,
 					unsigned long end_pfn);
 extern void remove_active_range(unsigned int nid, unsigned long start_pfn,
 					unsigned long end_pfn);
 extern void remove_all_active_ranges(void);
 void sort_node_map(void);
+#endif
 unsigned long node_map_pfn_alignment(void);
 unsigned long __absent_pages_in_range(int nid, unsigned long start_pfn,
 						unsigned long end_pfn);
@@ -1300,11 +1302,27 @@ extern void free_bootmem_with_active_regions(int nid,
 						unsigned long max_low_pfn);
 int add_from_early_node_map(struct range *range, int az,
 				   int nr_range, int nid);
-u64 __init find_memory_core_early(int nid, u64 size, u64 align,
-					u64 goal, u64 limit);
-typedef int (*work_fn_t)(unsigned long, unsigned long, void *);
-extern void work_with_active_regions(int nid, work_fn_t work_fn, void *data);
 extern void sparse_memory_present_with_active_regions(int nid);
+
+extern void __next_mem_pfn_range(int *idx, int nid,
+				 unsigned long *out_start_pfn,
+				 unsigned long *out_end_pfn, int *out_nid);
+
+/**
+ * for_each_mem_pfn_range - early memory pfn range iterator
+ * @i: an integer used as loop variable
+ * @nid: node selector, %MAX_NUMNODES for all nodes
+ * @p_start: ptr to ulong for start pfn of the range, can be %NULL
+ * @p_end: ptr to ulong for end pfn of the range, can be %NULL
+ * @p_nid: ptr to int for nid of the range, can be %NULL
+ *
+ * Walks over configured memory ranges.  Available after early_node_map is
+ * populated.
+ */
+#define for_each_mem_pfn_range(i, nid, p_start, p_end, p_nid)		\
+	for (i = -1, __next_mem_pfn_range(&i, nid, p_start, p_end, p_nid); \
+	     i >= 0; __next_mem_pfn_range(&i, nid, p_start, p_end, p_nid))
+
 #endif /* CONFIG_ARCH_POPULATES_NODE_MAP */
 
 #if !defined(CONFIG_ARCH_POPULATES_NODE_MAP) && \
