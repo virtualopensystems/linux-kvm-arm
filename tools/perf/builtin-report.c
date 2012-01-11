@@ -321,8 +321,7 @@ static int __cmd_report(struct perf_report *rep)
 	}
 
 	if (nr_samples == 0) {
-		ui__warning("The %s file has no samples!\n",
-			    rep->input_name);
+		ui__warning("The %s file has no samples!\n", session->filename);
 		goto out_delete;
 	}
 
@@ -407,7 +406,7 @@ parse_callchain_opt(const struct option *opt, const char *arg, int unset)
 		goto setup;
 
 	if (tok2[0] != 'c') {
-		callchain_param.print_limit = strtod(tok2, &endptr);
+		callchain_param.print_limit = strtoul(tok2, &endptr, 0);
 		tok2 = strtok(NULL, ",");
 		if (!tok2)
 			goto setup;
@@ -430,9 +429,10 @@ setup:
 
 int cmd_report(int argc, const char **argv, const char *prefix __used)
 {
+	struct stat st;
 	char callchain_default_opt[] = "fractal,0.5,callee";
 	const char * const report_usage[] = {
-		"perf report [<options>] <command>",
+		"perf report [<options>]",
 		NULL
 	};
 	struct perf_report report = {
@@ -451,7 +451,6 @@ int cmd_report(int argc, const char **argv, const char *prefix __used)
 			.ordered_samples = true,
 			.ordering_requires_timestamps = true,
 		},
-		.input_name		 = "perf.data",
 		.pretty_printing_style	 = "normal",
 	};
 	const struct option options[] = {
@@ -485,8 +484,8 @@ int cmd_report(int argc, const char **argv, const char *prefix __used)
 		   "regex filter to identify parent, see: '--sort parent'"),
 	OPT_BOOLEAN('x', "exclude-other", &symbol_conf.exclude_other,
 		    "Only display entries with parent-match"),
-	OPT_CALLBACK_DEFAULT('g', "call-graph", &report, "output_type,min_percent, call_order",
-		     "Display callchains using output_type (graph, flat, fractal, or none) , min percent threshold and callchain order. "
+	OPT_CALLBACK_DEFAULT('g', "call-graph", &report, "output_type,min_percent[,print_limit],call_order",
+		     "Display callchains using output_type (graph, flat, fractal, or none) , min percent threshold, optional print limit and callchain order. "
 		     "Default: fractal,0.5,callee", &parse_callchain_opt, callchain_default_opt),
 	OPT_BOOLEAN('G', "inverted", &report.inverted_callchain,
 		    "alias for inverted call graph"),
@@ -531,10 +530,18 @@ int cmd_report(int argc, const char **argv, const char *prefix __used)
 	if (report.inverted_callchain)
 		callchain_param.order = ORDER_CALLER;
 
+	if (!report.input_name || !strlen(report.input_name)) {
+		if (!fstat(STDIN_FILENO, &st) && S_ISFIFO(st.st_mode))
+			report.input_name = "-";
+		else
+			report.input_name = "perf.data";
+	}
+
 	if (strcmp(report.input_name, "-") != 0)
 		setup_browser(true);
 	else
 		use_browser = 0;
+
 	/*
 	 * Only in the newt browser we are doing integrated annotation,
 	 * so don't allocate extra space that won't be used in the stdio

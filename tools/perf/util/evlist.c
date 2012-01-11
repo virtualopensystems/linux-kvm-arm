@@ -447,8 +447,10 @@ static int __perf_evlist__mmap(struct perf_evlist *evlist,
 	evlist->mmap[idx].mask = mask;
 	evlist->mmap[idx].base = mmap(NULL, evlist->mmap_len, prot,
 				      MAP_SHARED, fd, 0);
-	if (evlist->mmap[idx].base == MAP_FAILED)
+	if (evlist->mmap[idx].base == MAP_FAILED) {
+		evlist->mmap[idx].base = NULL;
 		return -1;
+	}
 
 	perf_evlist__add_pollfd(evlist, fd);
 	return 0;
@@ -561,6 +563,8 @@ int perf_evlist__mmap(struct perf_evlist *evlist, unsigned int pages,
         /* 512 kiB: default amount of unprivileged mlocked memory */
         if (pages == UINT_MAX)
                 pages = (512 * 1024) / page_size;
+	else if (!is_power_of_2(pages))
+		return -EINVAL;
 
 	mask = pages * page_size - 1;
 

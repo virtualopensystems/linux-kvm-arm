@@ -50,7 +50,7 @@ struct perf_session {
 	int			cwdlen;
 	char			*cwd;
 	struct ordered_samples	ordered_samples;
-	char			filename[0];
+	char			filename[1];
 };
 
 struct perf_tool;
@@ -132,6 +132,14 @@ static inline int perf_session__parse_sample(struct perf_session *session,
 					session->sample_size,
 					session->sample_id_all, sample,
 					session->header.needs_swap);
+}
+
+static inline int perf_session__synthesize_sample(struct perf_session *session,
+						  union perf_event *event,
+						  const struct perf_sample *sample)
+{
+	return perf_event__synthesize_sample(event, session->sample_type,
+					     sample, session->header.needs_swap);
 }
 
 struct perf_evsel *perf_session__find_first_evtype(struct perf_session *session,
