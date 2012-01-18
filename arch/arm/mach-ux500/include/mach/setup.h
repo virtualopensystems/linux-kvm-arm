@@ -56,6 +56,5 @@ extern struct arm_soc_smp_ops ux500_soc_smp_ops;
 extern struct arm_soc_desc ux500_soc_desc;
 
 extern void ux500_cpu_die(unsigned int cpu);
-extern int  ux500_cpu_disable(unsigned int cpu);
 
 #endif /*  __ASM_ARCH_SETUP_H */

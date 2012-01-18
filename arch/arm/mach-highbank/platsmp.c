@@ -89,6 +89,6 @@ struct arm_soc_smp_ops highbank_soc_smp_ops __initdata = {
 #ifdef CONFIG_HOTPLUG_CPU
 	.cpu_kill		= dummy_cpu_kill,
 	.cpu_die		= highbank_cpu_die,
-	.cpu_disable		= highbank_cpu_disable,
+	.cpu_disable		= dummy_cpu_disable,
 #endif
 };

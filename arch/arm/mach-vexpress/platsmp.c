@@ -62,6 +62,6 @@ struct arm_soc_smp_ops vexpress_soc_smp_ops __initdata = {
 #ifdef CONFIG_HOTPLUG_CPU
 	.cpu_kill		= dummy_cpu_kill,
 	.cpu_die		= vexpress_cpu_die,
-	.cpu_disable		= vexpress_cpu_disable,
+	.cpu_disable		= dummy_cpu_disable,
 #endif
 };

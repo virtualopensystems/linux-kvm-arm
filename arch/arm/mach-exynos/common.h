@@ -32,7 +32,6 @@ extern struct arm_soc_smp_ops		exynos4_soc_smp_ops;
 extern struct arm_soc_desc		exynos4_soc_desc;
 
 extern void exynos4_cpu_die(unsigned int cpu);
-extern int  exynos4_cpu_disable(unsigned int cpu);
 
 #ifdef CONFIG_ARCH_EXYNOS
 extern  int exynos_init(void);

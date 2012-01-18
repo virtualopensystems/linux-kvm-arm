@@ -184,6 +184,15 @@ int dummy_cpu_kill(unsigned int cpu)
 	return 1;
 }
 
+int dummy_cpu_disable(unsigned int cpu)
+{
+	/*
+	 * we don't allow CPU 0 to be shutdown (it is still too special
+	 * e.g. clock tick interrupts)
+	 */
+	return cpu == 0 ? -EPERM : 0;
+}
+
 static int __cpuinit platform_cpu_kill(unsigned int cpu)
 {
 	if (soc_smp_ops && soc_smp_ops->cpu_kill)

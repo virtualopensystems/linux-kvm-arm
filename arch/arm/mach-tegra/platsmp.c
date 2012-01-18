@@ -147,6 +147,6 @@ struct arm_soc_smp_ops tegra_soc_smp_ops __initdata = {
 #ifdef CONFIG_HOTPLUG_CPU
 	.cpu_kill		= dummy_cpu_kill,
 	.cpu_die		= tegra_cpu_die,
-	.cpu_disable		= tegra_cpu_disable,
+	.cpu_disable		= dummy_cpu_disable,
 #endif
 };
