@@ -97,6 +97,6 @@ struct arm_soc_smp_ops imx_soc_smp_ops __initdata = {
 #ifdef CONFIG_HOTPLUG_CPU
 	.cpu_kill		= dummy_cpu_kill,
 	.cpu_die		= imx_cpu_die,
-	.cpu_disable		= imx_cpu_disable,
+	.cpu_disable		= dummy_cpu_disable,
 #endif
 };

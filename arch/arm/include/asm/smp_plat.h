@@ -51,5 +51,6 @@ extern int __cpu_logical_map[];
 
 /* Only use this if your platform doesn't have any CPU PM */
 extern int dummy_cpu_kill(unsigned int cpu);
+extern int dummy_cpu_disable(unsigned int cpu);
 
 #endif

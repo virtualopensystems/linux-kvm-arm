@@ -40,12 +40,3 @@ void highbank_cpu_die(unsigned int cpu)
 	/* We should never return from idle */
 	panic("highbank: cpu %d unexpectedly exit from shutdown\n", cpu);
 }
-
-int highbank_cpu_disable(unsigned int cpu)
-{
-	/*
-	 * CPU0 should not be shut down via hotplug.  cpu_idle can WFI
-	 * or a proper shutdown or hibernate should be used.
-	 */
-	return cpu == 0 ? -EPERM : 0;
-}
