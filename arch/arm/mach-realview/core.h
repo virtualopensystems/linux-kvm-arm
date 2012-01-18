@@ -71,7 +71,6 @@ extern struct arm_soc_desc		realview_soc_desc;
 extern struct arm_soc_smp_init_ops	realview_soc_smp_init_ops;
 extern struct arm_soc_smp_ops		realview_soc_smp_ops;
 
-extern int  realview_cpu_kill(unsigned int cpu);
 extern void realview_cpu_die(unsigned int cpu);
 extern int  realview_cpu_disable(unsigned int cpu);
 

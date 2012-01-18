@@ -16,6 +16,7 @@
 #include <mach/hardware.h>
 #include <asm/hardware/gic.h>
 #include <asm/mach-types.h>
+#include <asm/smp_plat.h>
 #include <asm/smp_scu.h>
 #include <asm/soc.h>
 
@@ -88,7 +89,7 @@ struct arm_soc_smp_ops realview_soc_smp_ops __initdata = {
 	.smp_secondary_init	= versatile_secondary_init,
 	.smp_boot_secondary	= versatile_boot_secondary,
 #ifdef CONFIG_HOTPLUG_CPU
-	.cpu_kill		= realview_cpu_kill,
+	.cpu_kill		= dummy_cpu_kill,
 	.cpu_die		= realview_cpu_die,
 	.cpu_disable		= realview_cpu_disable,
 #endif

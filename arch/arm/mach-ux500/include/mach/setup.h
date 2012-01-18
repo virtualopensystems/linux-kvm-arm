@@ -55,7 +55,6 @@ extern struct arm_soc_smp_init_ops ux500_soc_smp_init_ops;
 extern struct arm_soc_smp_ops ux500_soc_smp_ops;
 extern struct arm_soc_desc ux500_soc_desc;
 
-extern int  ux500_cpu_kill(unsigned int cpu);
 extern void ux500_cpu_die(unsigned int cpu);
 extern int  ux500_cpu_disable(unsigned int cpu);
 

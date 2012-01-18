@@ -22,6 +22,7 @@
 
 #include <asm/cacheflush.h>
 #include <asm/hardware/gic.h>
+#include <asm/smp_plat.h>
 #include <asm/smp_scu.h>
 #include <asm/soc.h>
 #include <mach/hardware.h>
@@ -191,7 +192,7 @@ struct arm_soc_smp_ops omap4_soc_smp_ops __initdata = {
 	.smp_secondary_init	= omap4_secondary_init,
 	.smp_boot_secondary	= omap4_boot_secondary,
 #ifdef CONFIG_HOTPLUG_CPU
-	.cpu_kill		= omap4_cpu_kill,
+	.cpu_kill		= dummy_cpu_kill,
 	.cpu_die		= omap4_cpu_die,
 	.cpu_disable		= omap4_cpu_disable,
 #endif

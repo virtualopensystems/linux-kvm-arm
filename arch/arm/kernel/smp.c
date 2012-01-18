@@ -179,6 +179,11 @@ int __cpuinit boot_secondary(unsigned int cpu, struct task_struct *idle)
 #ifdef CONFIG_HOTPLUG_CPU
 static void percpu_timer_stop(void);
 
+int dummy_cpu_kill(unsigned int cpu)
+{
+	return 1;
+}
+
 static int __cpuinit platform_cpu_kill(unsigned int cpu)
 {
 	if (soc_smp_ops && soc_smp_ops->cpu_kill)
