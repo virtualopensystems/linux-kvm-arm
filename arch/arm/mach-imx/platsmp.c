@@ -13,6 +13,7 @@
 #include <linux/init.h>
 #include <linux/smp.h>
 #include <asm/page.h>
+#include <asm/smp_plat.h>
 #include <asm/smp_scu.h>
 #include <asm/soc.h>
 #include <asm/hardware/gic.h>
@@ -94,7 +95,7 @@ struct arm_soc_smp_ops imx_soc_smp_ops __initdata = {
 	.smp_secondary_init	= imx_secondary_init,
 	.smp_boot_secondary	= imx_boot_secondary,
 #ifdef CONFIG_HOTPLUG_CPU
-	.cpu_kill		= imx_cpu_kill,
+	.cpu_kill		= dummy_cpu_kill,
 	.cpu_die		= imx_cpu_die,
 	.cpu_disable		= imx_cpu_disable,
 #endif

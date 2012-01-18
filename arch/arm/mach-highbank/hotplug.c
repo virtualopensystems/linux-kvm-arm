@@ -24,11 +24,6 @@
 
 extern void secondary_startup(void);
 
-int highbank_cpu_kill(unsigned int cpu)
-{
-	return 1;
-}
-
 /*
  * platform-specific code to shutdown a CPU
  *

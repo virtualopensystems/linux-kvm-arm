@@ -43,4 +43,7 @@ static inline int cache_ops_need_broadcast(void)
 }
 #endif
 
+/* Only use this if your platform doesn't have any CPU PM */
+extern int dummy_cpu_kill(unsigned int cpu);
+
 #endif

@@ -18,6 +18,7 @@
 #include <linux/smp.h>
 #include <linux/io.h>
 
+#include <asm/smp_plat.h>
 #include <asm/smp_scu.h>
 #include <asm/hardware/gic.h>
 
@@ -86,7 +87,7 @@ struct arm_soc_smp_ops highbank_soc_smp_ops __initdata = {
 	.smp_secondary_init	= highbank_secondary_init,
 	.smp_boot_secondary	= highbank_boot_secondary,
 #ifdef CONFIG_HOTPLUG_CPU
-	.cpu_kill		= highbank_cpu_kill,
+	.cpu_kill		= dummy_cpu_kill,
 	.cpu_die		= highbank_cpu_die,
 	.cpu_disable		= highbank_cpu_disable,
 #endif

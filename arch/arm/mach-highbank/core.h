@@ -10,7 +10,6 @@ extern void highbank_lluart_map_io(void);
 static inline void highbank_lluart_map_io(void) {}
 #endif
 
-extern int highbank_cpu_kill(unsigned int cpu);
 extern void highbank_cpu_die(unsigned int cpu);
 extern int highbank_cpu_disable(unsigned int cpu);
 

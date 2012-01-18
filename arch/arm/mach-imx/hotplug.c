@@ -14,11 +14,6 @@
 #include <asm/cacheflush.h>
 #include <mach/common.h>
 
-int imx_cpu_kill(unsigned int cpu)
-{
-	return 1;
-}
-
 /*
  * platform-specific code to shutdown a CPU
  *

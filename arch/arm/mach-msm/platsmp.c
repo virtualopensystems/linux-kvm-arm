@@ -20,6 +20,7 @@
 #include <asm/cacheflush.h>
 #include <asm/cputype.h>
 #include <asm/mach-types.h>
+#include <asm/smp_plat.h>
 
 #include <mach/msm_iomap.h>
 
@@ -182,7 +183,7 @@ struct arm_soc_smp_ops msm_soc_smp_ops __initdata = {
 	.smp_secondary_init	= msm_secondary_init,
 	.smp_boot_secondary	= msm_boot_secondary,
 #ifdef CONFIG_HOTPLUG_CPU
-	.cpu_kill		= msm_cpu_kill,
+	.cpu_kill		= dummy_cpu_kill,
 	.cpu_die		= msm_cpu_die,
 	.cpu_disable		= msm_cpu_disable,
 #endif

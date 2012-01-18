@@ -13,6 +13,7 @@
 #include <linux/smp.h>
 #include <linux/io.h>
 
+#include <asm/smp_plat.h>
 #include <asm/soc.h>
 
 #include <mach/motherboard.h>
@@ -59,7 +60,7 @@ struct arm_soc_smp_ops vexpress_soc_smp_ops __initdata = {
 	.smp_secondary_init	= versatile_secondary_init,
 	.smp_boot_secondary	= versatile_boot_secondary,
 #ifdef CONFIG_HOTPLUG_CPU
-	.cpu_kill		= vexpress_cpu_kill,
+	.cpu_kill		= dummy_cpu_kill,
 	.cpu_die		= vexpress_cpu_die,
 	.cpu_disable		= vexpress_cpu_disable,
 #endif

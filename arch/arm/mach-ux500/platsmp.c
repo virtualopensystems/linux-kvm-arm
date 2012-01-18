@@ -19,6 +19,7 @@
 
 #include <asm/cacheflush.h>
 #include <asm/hardware/gic.h>
+#include <asm/smp_plat.h>
 #include <asm/smp_scu.h>
 #include <mach/hardware.h>
 #include <mach/setup.h>
@@ -184,7 +185,7 @@ struct arm_soc_smp_ops ux500_soc_smp_ops __initdata = {
 	.smp_secondary_init	= ux500_secondary_init,
 	.smp_boot_secondary	= ux500_boot_secondary,
 #ifdef CONFIG_HOTPLUG_CPU
-	.cpu_kill		= ux500_cpu_kill,
+	.cpu_kill		= dummy_cpu_kill,
 	.cpu_die		= ux500_cpu_die,
 	.cpu_disable		= ux500_cpu_disable,
 #endif

@@ -24,11 +24,6 @@
 
 #include "powerdomain.h"
 
-int omap4_cpu_kill(unsigned int cpu)
-{
-	return 1;
-}
-
 /*
  * platform-specific code to shutdown a CPU
  * Called with IRQs disabled
