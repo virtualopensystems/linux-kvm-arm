@@ -22,7 +22,9 @@
 
 #include <asm/cacheflush.h>
 #include <asm/hardware/gic.h>
+#include <asm/smp_plat.h>
 #include <asm/smp_scu.h>
+#include <asm/soc.h>
 #include <mach/hardware.h>
 #include <mach/omap-secure.h>
 
@@ -40,7 +42,7 @@ void __iomem *omap4_get_scu_base(void)
 	return scu_base;
 }
 
-void __cpuinit platform_secondary_init(unsigned int cpu)
+static void __cpuinit omap4_secondary_init(unsigned int cpu)
 {
 	/*
 	 * Configure ACTRL and enable NS SMP bit access on CPU1 on HS device.
@@ -68,7 +70,7 @@ void __cpuinit platform_secondary_init(unsigned int cpu)
 	spin_unlock(&boot_lock);
 }
 
-int __cpuinit boot_secondary(unsigned int cpu, struct task_struct *idle)
+static int __cpuinit omap4_boot_secondary(unsigned int cpu, struct task_struct *idle)
 {
 	static struct clockdomain *cpu1_clkdm;
 	static bool booted;
@@ -144,7 +146,7 @@ static void __init wakeup_secondary(void)
  * Initialise the CPU possible map early - this describes the CPUs
  * which may be present or become present in the system.
  */
-void __init smp_init_cpus(void)
+static void __init omap4_smp_init_cpus(void)
 {
 	unsigned int i, ncores;
 
@@ -170,7 +172,7 @@ void __init smp_init_cpus(void)
 	set_smp_cross_call(gic_raise_softirq);
 }
 
-void __init platform_smp_prepare_cpus(unsigned int max_cpus)
+static void __init omap4_smp_prepare_cpus(unsigned int max_cpus)
 {
 
 	/*
@@ -180,3 +182,18 @@ void __init platform_smp_prepare_cpus(unsigned int max_cpus)
 	scu_enable(scu_base);
 	wakeup_secondary();
 }
+
+struct arm_soc_smp_init_ops omap4_soc_smp_init_ops __initdata = {
+	.smp_init_cpus		= omap4_smp_init_cpus,
+	.smp_prepare_cpus	= omap4_smp_prepare_cpus,
+};
+
+struct arm_soc_smp_ops omap4_soc_smp_ops __initdata = {
+	.smp_secondary_init	= omap4_secondary_init,
+	.smp_boot_secondary	= omap4_boot_secondary,
+#ifdef CONFIG_HOTPLUG_CPU
+	.cpu_kill		= dummy_cpu_kill,
+	.cpu_die		= omap4_cpu_die,
+	.cpu_disable		= dummy_cpu_disable,
+#endif
+};

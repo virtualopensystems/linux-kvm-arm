@@ -147,6 +147,7 @@ struct sys_timer marzen_timer = {
 };
 
 MACHINE_START(MARZEN, "marzen")
+	.soc		= &r8a7779_soc_desc,
 	.map_io		= marzen_map_io,
 	.init_early	= marzen_init_early,
 	.nr_irqs	= NR_IRQS_LEGACY,

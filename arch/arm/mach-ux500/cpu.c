@@ -14,7 +14,6 @@
 
 #include <asm/hardware/gic.h>
 #include <asm/mach/map.h>
-#include <asm/localtimer.h>
 
 #include <mach/hardware.h>
 #include <mach/setup.h>
@@ -50,3 +49,9 @@ void __init ux500_init_irq(void)
 		db8500_prcmu_early_init();
 	clk_init();
 }
+
+struct arm_soc_desc ux500_soc_desc __initdata = {
+	.name		= "STE Ux500",
+	soc_smp_init_ops(ux500_soc_smp_init_ops)
+	soc_smp_ops(ux500_soc_smp_ops)
+};

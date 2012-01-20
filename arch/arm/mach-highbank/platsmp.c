@@ -18,6 +18,7 @@
 #include <linux/smp.h>
 #include <linux/io.h>
 
+#include <asm/smp_plat.h>
 #include <asm/smp_scu.h>
 #include <asm/hardware/gic.h>
 
@@ -25,12 +26,12 @@
 
 extern void secondary_startup(void);
 
-void __cpuinit platform_secondary_init(unsigned int cpu)
+static void __cpuinit highbank_secondary_init(unsigned int cpu)
 {
 	gic_secondary_init(0);
 }
 
-int __cpuinit boot_secondary(unsigned int cpu, struct task_struct *idle)
+static int __cpuinit highbank_boot_secondary(unsigned int cpu, struct task_struct *idle)
 {
 	gic_raise_softirq(cpumask_of(cpu), 0);
 	return 0;
@@ -40,7 +41,7 @@ int __cpuinit boot_secondary(unsigned int cpu, struct task_struct *idle)
  * Initialise the CPU possible map early - this describes the CPUs
  * which may be present or become present in the system.
  */
-void __init smp_init_cpus(void)
+static void __init highbank_smp_init_cpus(void)
 {
 	unsigned int i, ncores;
 
@@ -61,7 +62,7 @@ void __init smp_init_cpus(void)
 	set_smp_cross_call(gic_raise_softirq);
 }
 
-void __init platform_smp_prepare_cpus(unsigned int max_cpus)
+static void __init highbank_smp_prepare_cpus(unsigned int max_cpus)
 {
 	int i;
 
@@ -76,3 +77,18 @@ void __init platform_smp_prepare_cpus(unsigned int max_cpus)
 	for (i = 1; i < max_cpus; i++)
 		highbank_set_cpu_jump(i, secondary_startup);
 }
+
+struct arm_soc_smp_init_ops highbank_soc_smp_init_ops __initdata = {
+	.smp_init_cpus		= highbank_smp_init_cpus,
+	.smp_prepare_cpus	= highbank_smp_prepare_cpus,
+};
+
+struct arm_soc_smp_ops highbank_soc_smp_ops __initdata = {
+	.smp_secondary_init	= highbank_secondary_init,
+	.smp_boot_secondary	= highbank_boot_secondary,
+#ifdef CONFIG_HOTPLUG_CPU
+	.cpu_kill		= dummy_cpu_kill,
+	.cpu_die		= highbank_cpu_die,
+	.cpu_disable		= dummy_cpu_disable,
+#endif
+};

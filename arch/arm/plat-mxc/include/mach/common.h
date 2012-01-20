@@ -133,10 +133,18 @@ extern void imx53_smd_common_init(void);
 extern int imx6q_set_lpm(enum mxc_cpu_pwr_mode mode);
 extern void imx6q_clock_map_io(void);
 
+extern void imx_cpu_die(unsigned int cpu);
+
 #ifdef CONFIG_PM
 extern void imx6q_pm_init(void);
 #else
 static inline void imx6q_pm_init(void) {}
 #endif
+
+struct arm_soc_smp_init_ops;
+struct arm_soc_smp_ops;
+
+extern struct arm_soc_smp_init_ops imx_soc_smp_init_ops;
+extern struct arm_soc_smp_ops imx_soc_smp_ops;
 
 #endif

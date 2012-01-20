@@ -13,7 +13,9 @@
 #include <linux/init.h>
 #include <linux/smp.h>
 #include <asm/page.h>
+#include <asm/smp_plat.h>
 #include <asm/smp_scu.h>
+#include <asm/soc.h>
 #include <asm/hardware/gic.h>
 #include <asm/mach/map.h>
 #include <mach/common.h>
@@ -41,7 +43,7 @@ void __init imx_scu_map_io(void)
 	scu_base = IMX_IO_ADDRESS(base);
 }
 
-void __cpuinit platform_secondary_init(unsigned int cpu)
+static void __cpuinit imx_secondary_init(unsigned int cpu)
 {
 	/*
 	 * if any interrupts are already enabled for the primary
@@ -51,7 +53,7 @@ void __cpuinit platform_secondary_init(unsigned int cpu)
 	gic_secondary_init(0);
 }
 
-int __cpuinit boot_secondary(unsigned int cpu, struct task_struct *idle)
+static int __cpuinit imx_boot_secondary(unsigned int cpu, struct task_struct *idle)
 {
 	imx_set_cpu_jump(cpu, v7_secondary_startup);
 	imx_enable_cpu(cpu, true);
@@ -62,7 +64,7 @@ int __cpuinit boot_secondary(unsigned int cpu, struct task_struct *idle)
  * Initialise the CPU possible map early - this describes the CPUs
  * which may be present or become present in the system.
  */
-void __init smp_init_cpus(void)
+static void __init imx_smp_init_cpus(void)
 {
 	int i, ncores;
 
@@ -79,7 +81,22 @@ void imx_smp_prepare(void)
 	scu_enable(scu_base);
 }
 
-void __init platform_smp_prepare_cpus(unsigned int max_cpus)
+static void __init imx_smp_prepare_cpus(unsigned int max_cpus)
 {
 	imx_smp_prepare();
 }
+
+struct arm_soc_smp_init_ops imx_soc_smp_init_ops __initdata = {
+	.smp_init_cpus		= imx_smp_init_cpus,
+	.smp_prepare_cpus	= imx_smp_prepare_cpus,
+};
+
+struct arm_soc_smp_ops imx_soc_smp_ops __initdata = {
+	.smp_secondary_init	= imx_secondary_init,
+	.smp_boot_secondary	= imx_boot_secondary,
+#ifdef CONFIG_HOTPLUG_CPU
+	.cpu_kill		= dummy_cpu_kill,
+	.cpu_die		= imx_cpu_die,
+	.cpu_disable		= dummy_cpu_disable,
+#endif
+};

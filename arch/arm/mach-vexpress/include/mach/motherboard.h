@@ -14,31 +14,58 @@
 /*
  * Physical addresses, offset from V2M_PA_CS7
  */
-#define V2M_SYSREGS		(V2M_PA_CS7 + 0x00000000)
-#define V2M_SYSCTL		(V2M_PA_CS7 + 0x00001000)
-#define V2M_SERIAL_BUS_PCI	(V2M_PA_CS7 + 0x00002000)
+#ifdef CONFIG_VEXPRESS_ORIGINAL_MEMORY_MAP
+/* CS register bases for the original memory map. */
+#define V2M_PA_CS0		0x40000000
+#define V2M_PA_CS1		0x44000000
+#define V2M_PA_CS2		0x48000000
+#define V2M_PA_CS3		0x4c000000
+#define V2M_PA_CS7		0x10000000
 
-#define V2M_AACI		(V2M_PA_CS7 + 0x00004000)
-#define V2M_MMCI		(V2M_PA_CS7 + 0x00005000)
-#define V2M_KMI0		(V2M_PA_CS7 + 0x00006000)
-#define V2M_KMI1		(V2M_PA_CS7 + 0x00007000)
+#define V2M_PERIPH_OFFSET(x)	(x << 12)
+#define V2M_SYSREGS		(V2M_PA_CS7 + V2M_PERIPH_OFFSET(0))
+#define V2M_SYSCTL		(V2M_PA_CS7 + V2M_PERIPH_OFFSET(1))
+#define V2M_SERIAL_BUS_PCI	(V2M_PA_CS7 + V2M_PERIPH_OFFSET(2))
 
-#define V2M_UART0		(V2M_PA_CS7 + 0x00009000)
-#define V2M_UART1		(V2M_PA_CS7 + 0x0000a000)
-#define V2M_UART2		(V2M_PA_CS7 + 0x0000b000)
-#define V2M_UART3		(V2M_PA_CS7 + 0x0000c000)
+#elif defined(CONFIG_VEXPRESS_EXTENDED_MEMORY_MAP)
+/* CS register bases for the extended memory map. */
+#define V2M_PA_CS0		0x08000000
+#define V2M_PA_CS1		0x0c000000
+#define V2M_PA_CS2		0x14000000
+#define V2M_PA_CS3		0x18000000
+#define V2M_PA_CS7		0x1c000000
 
-#define V2M_WDT			(V2M_PA_CS7 + 0x0000f000)
+#define V2M_PERIPH_OFFSET(x)	(x << 16)
+#define V2M_SYSREGS		(V2M_PA_CS7 + V2M_PERIPH_OFFSET(1))
+#define V2M_SYSCTL		(V2M_PA_CS7 + V2M_PERIPH_OFFSET(2))
+#define V2M_SERIAL_BUS_PCI	(V2M_PA_CS7 + V2M_PERIPH_OFFSET(3))
+#endif
 
-#define V2M_TIMER01		(V2M_PA_CS7 + 0x00011000)
-#define V2M_TIMER23		(V2M_PA_CS7 + 0x00012000)
+/* Common peripherals relative to CS7. */
+#define V2M_AACI		(V2M_PA_CS7 + V2M_PERIPH_OFFSET(4))
+#define V2M_MMCI		(V2M_PA_CS7 + V2M_PERIPH_OFFSET(5))
+#define V2M_KMI0		(V2M_PA_CS7 + V2M_PERIPH_OFFSET(6))
+#define V2M_KMI1		(V2M_PA_CS7 + V2M_PERIPH_OFFSET(7))
 
-#define V2M_SERIAL_BUS_DVI	(V2M_PA_CS7 + 0x00016000)
-#define V2M_RTC			(V2M_PA_CS7 + 0x00017000)
+#define V2M_UART0		(V2M_PA_CS7 + V2M_PERIPH_OFFSET(9))
+#define V2M_UART1		(V2M_PA_CS7 + V2M_PERIPH_OFFSET(10))
+#define V2M_UART2		(V2M_PA_CS7 + V2M_PERIPH_OFFSET(11))
+#define V2M_UART3		(V2M_PA_CS7 + V2M_PERIPH_OFFSET(12))
 
-#define V2M_CF			(V2M_PA_CS7 + 0x0001a000)
-#define V2M_CLCD		(V2M_PA_CS7 + 0x0001f000)
+#define V2M_WDT			(V2M_PA_CS7 + V2M_PERIPH_OFFSET(15))
 
+#define V2M_TIMER01		(V2M_PA_CS7 + V2M_PERIPH_OFFSET(17))
+#define V2M_TIMER23		(V2M_PA_CS7 + V2M_PERIPH_OFFSET(18))
+
+#define V2M_SERIAL_BUS_DVI	(V2M_PA_CS7 + V2M_PERIPH_OFFSET(22))
+#define V2M_RTC			(V2M_PA_CS7 + V2M_PERIPH_OFFSET(23))
+
+#define V2M_CF			(V2M_PA_CS7 + V2M_PERIPH_OFFSET(26))
+
+#define V2M_CLCD		(V2M_PA_CS7 + V2M_PERIPH_OFFSET(31))
+#define V2M_SIZE_CS7		V2M_PERIPH_OFFSET(32)
+
+/* System register offsets. */
 #define V2M_SYS_ID		(V2M_SYSREGS + 0x000)
 #define V2M_SYS_SW		(V2M_SYSREGS + 0x004)
 #define V2M_SYS_LED		(V2M_SYSREGS + 0x008)
@@ -115,22 +142,32 @@
 #define SYS_CFG_ERR		(1 << 1)
 #define SYS_CFG_COMPLETE	(1 << 0)
 
+#ifndef __ASSEMBLY__
 int v2m_cfg_write(u32 devfn, u32 data);
 int v2m_cfg_read(u32 devfn, u32 *data);
 
 /*
- * Core tile IDs
+ * Miscellaneous
  */
-#define V2M_CT_ID_CA9		0x0c000191
-#define V2M_CT_ID_UNSUPPORTED	0xff000191
+#define SYS_MISC_MASTERSITE	(1 << 14)
+
+/*
+ * Core tile description
+ */
+struct ct_id {
+	u32 id;
+	u32 mask;
+};
+
 #define V2M_CT_ID_MASK		0xff000fff
 
 struct ct_desc {
-	u32			id;
+	const struct ct_id	*id_table;
 	const char		*name;
 	void			(*map_io)(void);
 	void			(*init_early)(void);
 	void			(*init_irq)(void);
+	void			(*timer_init)(void);
 	void			(*init_tile)(void);
 #ifdef CONFIG_SMP
 	void			(*init_cpu_map)(void);
@@ -140,4 +177,5 @@ struct ct_desc {
 
 extern struct ct_desc *ct_desc;
 
+#endif	/* !__ASSEMBLY__ */
 #endif

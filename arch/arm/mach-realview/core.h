@@ -27,6 +27,7 @@
 
 #include <asm/setup.h>
 #include <asm/leds.h>
+#include <asm/soc.h>
 
 #define AMBA_DEVICE(name,busid,base,plat)			\
 static struct amba_device name##_device = {			\
@@ -65,5 +66,11 @@ extern int realview_usb_register(struct resource *res);
 extern void realview_init_early(void);
 extern void realview_fixup(struct tag *tags, char **from,
 			   struct meminfo *meminfo);
+
+extern struct arm_soc_desc		realview_soc_desc;
+extern struct arm_soc_smp_init_ops	realview_soc_smp_init_ops;
+extern struct arm_soc_smp_ops		realview_soc_smp_ops;
+
+extern void realview_cpu_die(unsigned int cpu);
 
 #endif
