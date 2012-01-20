@@ -70,7 +70,9 @@ ENTRY(cpu_v7_set_pte_ext)
 	tst	r3, #1 << (55 - 32)		@ L_PTE_DIRTY
 	orreq	r2, #L_PTE_RDONLY
 1:	strd	r2, r3, [r0]
-	mcr	p15, 0, r0, c7, c10, 1		@ flush_pte
+	mrc	p15, 0, r3, c0, c1, 7		@ read ID_MMFR3
+	tst	r3, #0xf << 20			@ check the coherent walk bits
+	mcreq	p15, 0, r0, c7, c10, 1		@ clean D-cache to PoU
 #endif
 	mov	pc, lr
 ENDPROC(cpu_v7_set_pte_ext)
