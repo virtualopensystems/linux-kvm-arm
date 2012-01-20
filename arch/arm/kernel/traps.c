@@ -816,6 +816,6 @@ void __init early_trap_init(void)
 	memcpy((void *)(vectors + KERN_RESTART_CODE - CONFIG_VECTORS_BASE),
 	       syscall_restart_code, sizeof(syscall_restart_code));
 
-	flush_icache_range(vectors, vectors + PAGE_SIZE);
+	flush_icache_range(CONFIG_VECTORS_BASE, CONFIG_VECTORS_BASE+PAGE_SIZE);
 	modify_domain(DOMAIN_USER, DOMAIN_CLIENT);
 }
