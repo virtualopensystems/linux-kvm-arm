@@ -26,7 +26,6 @@
 #include <linux/platform_device.h>
 #include <linux/regulator/driver.h>
 #include <linux/regulator/max8952.h>
-#include <linux/mutex.h>
 #include <linux/gpio.h>
 #include <linux/io.h>
 #include <linux/slab.h>
@@ -47,7 +46,6 @@ enum {
 struct max8952_data {
 	struct i2c_client	*client;
 	struct device		*dev;
-	struct mutex		mutex;
 	struct max8952_platform_data *pdata;
 	struct regulator_dev	*rdev;
 
@@ -139,7 +137,7 @@ static int max8952_set_voltage(struct regulator_dev *rdev,
 	s8 vid = -1, i;
 
 	if (!gpio_is_valid(max8952->pdata->gpio_vid0) ||
-			!gpio_is_valid(max8952->pdata->gpio_vid0)) {
+			!gpio_is_valid(max8952->pdata->gpio_vid1)) {
 		/* DVS not supported */
 		return -EPERM;
 	}
@@ -208,7 +206,6 @@ static int __devinit max8952_pmic_probe(struct i2c_client *client,
 	max8952->client = client;
 	max8952->dev = &client->dev;
 	max8952->pdata = pdata;
-	mutex_init(&max8952->mutex);
 
 	max8952->rdev = regulator_register(&regulator, max8952->dev,
 			&pdata->reg_data, max8952);

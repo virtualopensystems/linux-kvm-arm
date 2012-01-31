@@ -426,6 +426,20 @@ static int msp_s_frequency(struct v4l2_subdev *sd, struct v4l2_frequency *freq)
 	return 0;
 }
 
+static int msp_querystd(struct v4l2_subdev *sd, v4l2_std_id *id)
+{
+	struct msp_state *state = to_state(sd);
+	struct i2c_client *client = v4l2_get_subdevdata(sd);
+
+	*id &= state->detected_std;
+
+	v4l_dbg(2, msp_debug, client,
+		"detected standard: %s(0x%08Lx)\n",
+		msp_standard_std_name(state->std), state->detected_std);
+
+	return 0;
+}
+
 static int msp_s_std(struct v4l2_subdev *sd, v4l2_std_id id)
 {
 	struct msp_state *state = to_state(sd);
@@ -480,12 +494,14 @@ static int msp_g_tuner(struct v4l2_subdev *sd, struct v4l2_tuner *vt)
 	struct msp_state *state = to_state(sd);
 	struct i2c_client *client = v4l2_get_subdevdata(sd);
 
-	if (state->radio)
+	if (vt->type != V4L2_TUNER_ANALOG_TV)
 		return 0;
-	if (state->opmode == OPMODE_AUTOSELECT)
-		msp_detect_stereo(client);
-	vt->audmode    = state->audmode;
-	vt->rxsubchans = state->rxsubchans;
+	if (!state->radio) {
+		if (state->opmode == OPMODE_AUTOSELECT)
+			msp_detect_stereo(client);
+		vt->rxsubchans = state->rxsubchans;
+	}
+	vt->audmode = state->audmode;
 	vt->capability |= V4L2_TUNER_CAP_STEREO |
 		V4L2_TUNER_CAP_LANG1 | V4L2_TUNER_CAP_LANG2;
 	return 0;
@@ -614,6 +630,10 @@ static const struct v4l2_subdev_core_ops msp_core_ops = {
 	.s_std = msp_s_std,
 };
 
+static const struct v4l2_subdev_video_ops msp_video_ops = {
+	.querystd = msp_querystd,
+};
+
 static const struct v4l2_subdev_tuner_ops msp_tuner_ops = {
 	.s_frequency = msp_s_frequency,
 	.g_tuner = msp_g_tuner,
@@ -628,6 +648,7 @@ static const struct v4l2_subdev_audio_ops msp_audio_ops = {
 
 static const struct v4l2_subdev_ops msp_ops = {
 	.core = &msp_core_ops,
+	.video = &msp_video_ops,
 	.tuner = &msp_tuner_ops,
 	.audio = &msp_audio_ops,
 };
@@ -662,6 +683,7 @@ static int msp_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	v4l2_i2c_subdev_init(sd, client, &msp_ops);
 
 	state->v4l2_std = V4L2_STD_NTSC;
+	state->detected_std = V4L2_STD_ALL;
 	state->audmode = V4L2_TUNER_MODE_STEREO;
 	state->input = -1;
 	state->i2s_mode = 0;

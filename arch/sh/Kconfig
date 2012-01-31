@@ -11,6 +11,7 @@ config SUPERH
 	select HAVE_DMA_ATTRS
 	select HAVE_IRQ_WORK
 	select HAVE_PERF_EVENTS
+	select ARCH_HAVE_NMI_SAFE_CMPXCHG if (GUSA_RB || CPU_SH4A)
 	select PERF_USE_VMALLOC
 	select HAVE_KERNEL_GZIP
 	select HAVE_KERNEL_BZIP2
@@ -99,10 +100,6 @@ config GENERIC_CMOS_UPDATE
 config GENERIC_LOCKBREAK
 	def_bool y
 	depends on SMP && PREEMPT
-
-config SYS_SUPPORTS_PM
-	bool
-	depends on !SMP
 
 config ARCH_SUSPEND_POSSIBLE
 	def_bool n
@@ -348,6 +345,7 @@ config CPU_SUBTYPE_SH7720
 	select SYS_SUPPORTS_CMT
 	select ARCH_WANT_OPTIONAL_GPIOLIB
 	select USB_ARCH_HAS_OHCI
+	select USB_OHCI_SH if USB_OHCI_HCD
 	help
 	  Select SH7720 if you have a SH3-DSP SH7720 CPU.
 
@@ -357,6 +355,7 @@ config CPU_SUBTYPE_SH7721
 	select CPU_HAS_DSP
 	select SYS_SUPPORTS_CMT
 	select USB_ARCH_HAS_OHCI
+	select USB_OHCI_SH if USB_OHCI_HCD
 	help
 	  Select SH7721 if you have a SH3-DSP SH7721 CPU.
 
@@ -440,6 +439,7 @@ config CPU_SUBTYPE_SH7763
 	bool "Support SH7763 processor"
 	select CPU_SH4A
 	select USB_ARCH_HAS_OHCI
+	select USB_OHCI_SH if USB_OHCI_HCD
 	help
 	  Select SH7763 if you have a SH4A SH7763(R5S77631) CPU.
 
@@ -467,7 +467,9 @@ config CPU_SUBTYPE_SH7786
 	select GENERIC_CLOCKEVENTS_BROADCAST if SMP
 	select ARCH_WANT_OPTIONAL_GPIOLIB
 	select USB_ARCH_HAS_OHCI
+	select USB_OHCI_SH if USB_OHCI_HCD
 	select USB_ARCH_HAS_EHCI
+	select USB_EHCI_SH if USB_EHCI_HCD
 
 config CPU_SUBTYPE_SHX3
 	bool "Support SH-X3 processor"
@@ -643,7 +645,7 @@ config CRASH_DUMP
 	  a specially reserved region and then later executed after
 	  a crash by kdump/kexec. The crash dump kernel must be compiled
 	  to a memory address not used by the main kernel using
-	  MEMORY_START.
+	  PHYSICAL_START.
 
 	  For more details see Documentation/kdump/kdump.txt
 
@@ -653,6 +655,17 @@ config KEXEC_JUMP
 	help
 	  Jump between original kernel and kexeced kernel and invoke
 	  code via KEXEC
+
+config PHYSICAL_START
+	hex "Physical address where the kernel is loaded" if (EXPERT || CRASH_DUMP)
+	default MEMORY_START
+	---help---
+	  This gives the physical address where the kernel is loaded
+	  and is ordinarily the same as MEMORY_START.
+
+	  Different values are primarily used in the case of kexec on panic
+	  where the fail safe kernel needs to run at a different address
+	  than the panic-ed kernel.
 
 config SECCOMP
 	bool "Enable seccomp to safely compute untrusted bytecode"
@@ -891,21 +904,5 @@ source "arch/sh/Kconfig.debug"
 source "security/Kconfig"
 
 source "crypto/Kconfig"
-
-menuconfig VIRTUALIZATION
-	bool "Virtualization"
-	default n
-	---help---
-	  Say Y here to get to see options for using your Linux host to run other
-	  operating systems inside virtual machines (guests).
-	  This option alone does not add any kernel code.
-
-	  If you say N, all options in this submenu will be skipped and disabled.
-
-if VIRTUALIZATION
-
-source drivers/virtio/Kconfig
-
-endif # VIRTUALIZATION
 
 source "lib/Kconfig"

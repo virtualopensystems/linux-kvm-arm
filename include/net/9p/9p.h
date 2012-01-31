@@ -40,6 +40,7 @@
  * @P9_DEBUG_FID: fid allocation/deallocation tracking
  * @P9_DEBUG_PKT: packet marshalling/unmarshalling
  * @P9_DEBUG_FSC: FS-cache tracing
+ * @P9_DEBUG_VPKT: Verbose packet debugging (full packet dump)
  *
  * These flags are passed at mount time to turn on various levels of
  * verbosity and tracing which will be output to the system logs.
@@ -57,6 +58,7 @@ enum p9_debug_flags {
 	P9_DEBUG_FID =		(1<<9),
 	P9_DEBUG_PKT =		(1<<10),
 	P9_DEBUG_FSC =		(1<<11),
+	P9_DEBUG_VPKT =		(1<<12),
 };
 
 #ifdef CONFIG_NET_9P_DEBUG
@@ -77,6 +79,7 @@ do {  \
 #else
 #define P9_DPRINTK(level, format, arg...)  do { } while (0)
 #endif
+
 
 #define P9_EPRINTK(level, format, arg...) \
 do { \
@@ -175,6 +178,10 @@ enum p9_msg_t {
 	P9_RLINK,
 	P9_TMKDIR = 72,
 	P9_RMKDIR,
+	P9_TRENAMEAT = 74,
+	P9_RRENAMEAT,
+	P9_TUNLINKAT = 76,
+	P9_RUNLINKAT,
 	P9_TVERSION = 100,
 	P9_RVERSION,
 	P9_TAUTH = 102,
@@ -278,6 +285,35 @@ enum p9_perm_t {
 	P9_DMSETVTX = 0x00010000,
 };
 
+/* 9p2000.L open flags */
+#define P9_DOTL_RDONLY        00000000
+#define P9_DOTL_WRONLY        00000001
+#define P9_DOTL_RDWR          00000002
+#define P9_DOTL_NOACCESS      00000003
+#define P9_DOTL_CREATE        00000100
+#define P9_DOTL_EXCL          00000200
+#define P9_DOTL_NOCTTY        00000400
+#define P9_DOTL_TRUNC         00001000
+#define P9_DOTL_APPEND        00002000
+#define P9_DOTL_NONBLOCK      00004000
+#define P9_DOTL_DSYNC         00010000
+#define P9_DOTL_FASYNC        00020000
+#define P9_DOTL_DIRECT        00040000
+#define P9_DOTL_LARGEFILE     00100000
+#define P9_DOTL_DIRECTORY     00200000
+#define P9_DOTL_NOFOLLOW      00400000
+#define P9_DOTL_NOATIME       01000000
+#define P9_DOTL_CLOEXEC       02000000
+#define P9_DOTL_SYNC          04000000
+
+/* 9p2000.L at flags */
+#define P9_DOTL_AT_REMOVEDIR		0x200
+
+/* 9p2000.L lock type */
+#define P9_LOCK_TYPE_RDLCK 0
+#define P9_LOCK_TYPE_WRLCK 1
+#define P9_LOCK_TYPE_UNLCK 2
+
 /**
  * enum p9_qid_t - QID types
  * @P9_QTDIR: directory
@@ -319,6 +355,9 @@ enum p9_qid_t {
 
 /* Room for readdir header */
 #define P9_READDIRHDRSZ	24
+
+/* size of header for zero copy read/write */
+#define P9_ZC_HDR_SZ 4096
 
 /**
  * struct p9_qid - file system entity information
@@ -516,10 +555,6 @@ struct p9_rstatfs {
  * @tag: transaction id of the request
  * @offset: used by marshalling routines to track current position in buffer
  * @capacity: used by marshalling routines to track total malloc'd capacity
- * @pubuf: Payload user buffer given by the caller
- * @pkbuf: Payload kernel buffer given by the caller
- * @pbuf_size: pubuf/pkbuf(only one will be !NULL) size to be read/write.
- * @private: For transport layer's use.
  * @sdata: payload
  *
  * &p9_fcall represents the structure for all 9P RPC
@@ -536,10 +571,6 @@ struct p9_fcall {
 
 	size_t offset;
 	size_t capacity;
-	char __user *pubuf;
-	char *pkbuf;
-	size_t pbuf_size;
-	void *private;
 
 	u8 *sdata;
 };

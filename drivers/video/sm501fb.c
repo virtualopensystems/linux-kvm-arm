@@ -582,7 +582,7 @@ static int sm501fb_pan_crt(struct fb_var_screeninfo *var,
 {
 	struct sm501fb_par  *par = info->par;
 	struct sm501fb_info *fbi = par->info;
-	unsigned int bytes_pixel = var->bits_per_pixel / 8;
+	unsigned int bytes_pixel = info->var.bits_per_pixel / 8;
 	unsigned long reg;
 	unsigned long xoffs;
 
@@ -614,10 +614,10 @@ static int sm501fb_pan_pnl(struct fb_var_screeninfo *var,
 	struct sm501fb_info *fbi = par->info;
 	unsigned long reg;
 
-	reg = var->xoffset | (var->xres_virtual << 16);
+	reg = var->xoffset | (info->var.xres_virtual << 16);
 	smc501_writel(reg, fbi->regs + SM501_DC_PANEL_FB_WIDTH);
 
-	reg = var->yoffset | (var->yres_virtual << 16);
+	reg = var->yoffset | (info->var.yres_virtual << 16);
 	smc501_writel(reg, fbi->regs + SM501_DC_PANEL_FB_HEIGHT);
 
 	sm501fb_sync_regs(fbi);
@@ -1664,7 +1664,7 @@ static void sm501fb_stop(struct sm501fb_info *info)
 			   resource_size(info->regs_res));
 }
 
-static int sm501fb_init_fb(struct fb_info *fb,
+static int __devinit sm501fb_init_fb(struct fb_info *fb,
 			   enum sm501_controller head,
 			   const char *fbname)
 {

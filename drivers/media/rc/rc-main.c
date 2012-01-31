@@ -18,6 +18,7 @@
 #include <linux/input.h>
 #include <linux/slab.h>
 #include <linux/device.h>
+#include <linux/module.h>
 #include "rc-core-priv.h"
 
 /* Sizes are in bytes, 256 bytes allows for 32 entries on x64 */
@@ -522,18 +523,20 @@ EXPORT_SYMBOL_GPL(rc_g_keycode_from_table);
 /**
  * ir_do_keyup() - internal function to signal the release of a keypress
  * @dev:	the struct rc_dev descriptor of the device
+ * @sync:	whether or not to call input_sync
  *
  * This function is used internally to release a keypress, it must be
  * called with keylock held.
  */
-static void ir_do_keyup(struct rc_dev *dev)
+static void ir_do_keyup(struct rc_dev *dev, bool sync)
 {
 	if (!dev->keypressed)
 		return;
 
 	IR_dprintk(1, "keyup key 0x%04x\n", dev->last_keycode);
 	input_report_key(dev->input_dev, dev->last_keycode, 0);
-	input_sync(dev->input_dev);
+	if (sync)
+		input_sync(dev->input_dev);
 	dev->keypressed = false;
 }
 
@@ -549,7 +552,7 @@ void rc_keyup(struct rc_dev *dev)
 	unsigned long flags;
 
 	spin_lock_irqsave(&dev->keylock, flags);
-	ir_do_keyup(dev);
+	ir_do_keyup(dev, true);
 	spin_unlock_irqrestore(&dev->keylock, flags);
 }
 EXPORT_SYMBOL_GPL(rc_keyup);
@@ -578,7 +581,7 @@ static void ir_timer_keyup(unsigned long cookie)
 	 */
 	spin_lock_irqsave(&dev->keylock, flags);
 	if (time_is_before_eq_jiffies(dev->keyup_jiffies))
-		ir_do_keyup(dev);
+		ir_do_keyup(dev, true);
 	spin_unlock_irqrestore(&dev->keylock, flags);
 }
 
@@ -597,6 +600,7 @@ void rc_repeat(struct rc_dev *dev)
 	spin_lock_irqsave(&dev->keylock, flags);
 
 	input_event(dev->input_dev, EV_MSC, MSC_SCAN, dev->last_scancode);
+	input_sync(dev->input_dev);
 
 	if (!dev->keypressed)
 		goto out;
@@ -622,29 +626,28 @@ EXPORT_SYMBOL_GPL(rc_repeat);
 static void ir_do_keydown(struct rc_dev *dev, int scancode,
 			  u32 keycode, u8 toggle)
 {
+	bool new_event = !dev->keypressed ||
+			 dev->last_scancode != scancode ||
+			 dev->last_toggle != toggle;
+
+	if (new_event && dev->keypressed)
+		ir_do_keyup(dev, false);
+
 	input_event(dev->input_dev, EV_MSC, MSC_SCAN, scancode);
 
-	/* Repeat event? */
-	if (dev->keypressed &&
-	    dev->last_scancode == scancode &&
-	    dev->last_toggle == toggle)
-		return;
+	if (new_event && keycode != KEY_RESERVED) {
+		/* Register a keypress */
+		dev->keypressed = true;
+		dev->last_scancode = scancode;
+		dev->last_toggle = toggle;
+		dev->last_keycode = keycode;
 
-	/* Release old keypress */
-	ir_do_keyup(dev);
+		IR_dprintk(1, "%s: key down event, "
+			   "key 0x%04x, scancode 0x%04x\n",
+			   dev->input_name, keycode, scancode);
+		input_report_key(dev->input_dev, keycode, 1);
+	}
 
-	dev->last_scancode = scancode;
-	dev->last_toggle = toggle;
-	dev->last_keycode = keycode;
-
-	if (keycode == KEY_RESERVED)
-		return;
-
-	/* Register a keypress */
-	dev->keypressed = true;
-	IR_dprintk(1, "%s: key down event, key 0x%04x, scancode 0x%04x\n",
-		   dev->input_name, keycode, scancode);
-	input_report_key(dev->input_dev, dev->last_keycode, 1);
 	input_sync(dev->input_dev);
 }
 
@@ -733,6 +736,7 @@ static struct {
 	{ RC_TYPE_JVC,		"jvc"		},
 	{ RC_TYPE_SONY,		"sony"		},
 	{ RC_TYPE_RC5_SZ,	"rc-5-sz"	},
+	{ RC_TYPE_MCE_KBD,	"mce_kbd"	},
 	{ RC_TYPE_LIRC,		"lirc"		},
 	{ RC_TYPE_OTHER,	"other"		},
 };
@@ -925,10 +929,6 @@ out:
 
 static void rc_dev_release(struct device *device)
 {
-	struct rc_dev *dev = to_rc_dev(device);
-
-	kfree(dev);
-	module_put(THIS_MODULE);
 }
 
 #define ADD_HOTPLUG_VAR(fmt, val...)					\
@@ -941,6 +941,9 @@ static void rc_dev_release(struct device *device)
 static int rc_dev_uevent(struct device *device, struct kobj_uevent_env *env)
 {
 	struct rc_dev *dev = to_rc_dev(device);
+
+	if (!dev || !dev->input_dev)
+		return -ENODEV;
 
 	if (dev->rc_map.name)
 		ADD_HOTPLUG_VAR("NAME=%s", dev->rc_map.name);
@@ -1010,10 +1013,16 @@ EXPORT_SYMBOL_GPL(rc_allocate_device);
 
 void rc_free_device(struct rc_dev *dev)
 {
-	if (dev) {
+	if (!dev)
+		return;
+
+	if (dev->input_dev)
 		input_free_device(dev->input_dev);
-		put_device(&dev->dev);
-	}
+
+	put_device(&dev->dev);
+
+	kfree(dev);
+	module_put(THIS_MODULE);
 }
 EXPORT_SYMBOL_GPL(rc_free_device);
 
@@ -1097,13 +1106,14 @@ int rc_register_device(struct rc_dev *dev)
 		if (rc < 0)
 			goto out_input;
 	}
-	mutex_unlock(&dev->lock);
 
 	if (dev->change_protocol) {
 		rc = dev->change_protocol(dev, rc_map->rc_type);
 		if (rc < 0)
 			goto out_raw;
 	}
+
+	mutex_unlock(&dev->lock);
 
 	IR_dprintk(1, "Registered rc%ld (driver: %s, remote: %s, mode %s)\n",
 		   dev->devno,
@@ -1139,14 +1149,18 @@ void rc_unregister_device(struct rc_dev *dev)
 	if (dev->driver_type == RC_DRIVER_IR_RAW)
 		ir_raw_event_unregister(dev);
 
-	input_unregister_device(dev->input_dev);
-	dev->input_dev = NULL;
-
+	/* Freeing the table should also call the stop callback */
 	ir_free_table(&dev->rc_map);
 	IR_dprintk(1, "Freed keycode table\n");
 
-	device_unregister(&dev->dev);
+	input_unregister_device(dev->input_dev);
+	dev->input_dev = NULL;
+
+	device_del(&dev->dev);
+
+	rc_free_device(dev);
 }
+
 EXPORT_SYMBOL_GPL(rc_unregister_device);
 
 /*

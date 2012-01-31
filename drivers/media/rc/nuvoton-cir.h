@@ -67,10 +67,8 @@ static int debug;
 struct nvt_dev {
 	struct pnp_dev *pdev;
 	struct rc_dev *rdev;
-	struct ir_raw_event rawir;
 
 	spinlock_t nvt_lock;
-	bool in_use;
 
 	/* for rx */
 	u8 buf[RX_BUF_LEN];

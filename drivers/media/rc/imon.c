@@ -34,6 +34,7 @@
 #include <linux/module.h>
 #include <linux/slab.h>
 #include <linux/uaccess.h>
+#include <linux/ratelimit.h>
 
 #include <linux/input.h>
 #include <linux/usb.h>
@@ -307,6 +308,14 @@ static const struct {
 	/* 0xffdc iMON MCE VFD */
 	{ 0x00010000ffffffeell, KEY_VOLUMEUP },
 	{ 0x01000000ffffffeell, KEY_VOLUMEDOWN },
+	{ 0x00000001ffffffeell, KEY_MUTE },
+	{ 0x0000000fffffffeell, KEY_MEDIA },
+	{ 0x00000012ffffffeell, KEY_UP },
+	{ 0x00000013ffffffeell, KEY_DOWN },
+	{ 0x00000014ffffffeell, KEY_LEFT },
+	{ 0x00000015ffffffeell, KEY_RIGHT },
+	{ 0x00000016ffffffeell, KEY_ENTER },
+	{ 0x00000017ffffffeell, KEY_ESC },
 	/* iMON Knob values */
 	{ 0x000100ffffffffeell, KEY_VOLUMEUP },
 	{ 0x010000ffffffffeell, KEY_VOLUMEDOWN },
@@ -508,19 +517,19 @@ static int send_packet(struct imon_context *ictx)
 	if (retval) {
 		ictx->tx.busy = false;
 		smp_rmb(); /* ensure later readers know we're not busy */
-		pr_err("error submitting urb(%d)\n", retval);
+		pr_err_ratelimited("error submitting urb(%d)\n", retval);
 	} else {
 		/* Wait for transmission to complete (or abort) */
 		mutex_unlock(&ictx->lock);
 		retval = wait_for_completion_interruptible(
 				&ictx->tx.finished);
 		if (retval)
-			pr_err("task interrupted\n");
+			pr_err_ratelimited("task interrupted\n");
 		mutex_lock(&ictx->lock);
 
 		retval = ictx->tx.status;
 		if (retval)
-			pr_err("packet tx failed (%d)\n", retval);
+			pr_err_ratelimited("packet tx failed (%d)\n", retval);
 	}
 
 	kfree(control_req);
@@ -822,20 +831,20 @@ static ssize_t vfd_write(struct file *file, const char *buf,
 
 	ictx = file->private_data;
 	if (!ictx) {
-		pr_err("no context for device\n");
+		pr_err_ratelimited("no context for device\n");
 		return -ENODEV;
 	}
 
 	mutex_lock(&ictx->lock);
 
 	if (!ictx->dev_present_intf0) {
-		pr_err("no iMON device present\n");
+		pr_err_ratelimited("no iMON device present\n");
 		retval = -ENODEV;
 		goto exit;
 	}
 
 	if (n_bytes <= 0 || n_bytes > 32) {
-		pr_err("invalid payload size\n");
+		pr_err_ratelimited("invalid payload size\n");
 		retval = -EINVAL;
 		goto exit;
 	}
@@ -861,7 +870,7 @@ static ssize_t vfd_write(struct file *file, const char *buf,
 
 		retval = send_packet(ictx);
 		if (retval) {
-			pr_err("send packet failed for packet #%d\n", seq / 2);
+			pr_err_ratelimited("send packet #%d failed\n", seq / 2);
 			goto exit;
 		} else {
 			seq += 2;
@@ -875,7 +884,7 @@ static ssize_t vfd_write(struct file *file, const char *buf,
 	ictx->usb_tx_buf[7] = (unsigned char) seq;
 	retval = send_packet(ictx);
 	if (retval)
-		pr_err("send packet failed for packet #%d\n", seq / 2);
+		pr_err_ratelimited("send packet #%d failed\n", seq / 2);
 
 exit:
 	mutex_unlock(&ictx->lock);
@@ -904,20 +913,21 @@ static ssize_t lcd_write(struct file *file, const char *buf,
 
 	ictx = file->private_data;
 	if (!ictx) {
-		pr_err("no context for device\n");
+		pr_err_ratelimited("no context for device\n");
 		return -ENODEV;
 	}
 
 	mutex_lock(&ictx->lock);
 
 	if (!ictx->display_supported) {
-		pr_err("no iMON display present\n");
+		pr_err_ratelimited("no iMON display present\n");
 		retval = -ENODEV;
 		goto exit;
 	}
 
 	if (n_bytes != 8) {
-		pr_err("invalid payload size: %d (expected 8)\n", (int)n_bytes);
+		pr_err_ratelimited("invalid payload size: %d (expected 8)\n",
+				   (int)n_bytes);
 		retval = -EINVAL;
 		goto exit;
 	}
@@ -929,7 +939,7 @@ static ssize_t lcd_write(struct file *file, const char *buf,
 
 	retval = send_packet(ictx);
 	if (retval) {
-		pr_err("send packet failed!\n");
+		pr_err_ratelimited("send packet failed!\n");
 		goto exit;
 	} else {
 		dev_dbg(ictx->dev, "%s: write %d bytes to LCD\n",
@@ -1582,16 +1592,16 @@ static void imon_incoming_packet(struct imon_context *ictx,
 	/* Only panel type events left to process now */
 	spin_lock_irqsave(&ictx->kc_lock, flags);
 
+	do_gettimeofday(&t);
 	/* KEY_MUTE repeats from knob need to be suppressed */
 	if (ictx->kc == KEY_MUTE && ictx->kc == ictx->last_keycode) {
-		do_gettimeofday(&t);
 		msec = tv2int(&t, &prev_time);
-		prev_time = t;
 		if (msec < ictx->idev->rep[REP_DELAY]) {
 			spin_unlock_irqrestore(&ictx->kc_lock, flags);
 			return;
 		}
 	}
+	prev_time = t;
 	kc = ictx->kc;
 
 	spin_unlock_irqrestore(&ictx->kc_lock, flags);
@@ -1603,7 +1613,9 @@ static void imon_incoming_packet(struct imon_context *ictx,
 	input_report_key(ictx->idev, kc, 0);
 	input_sync(ictx->idev);
 
+	spin_lock_irqsave(&ictx->kc_lock, flags);
 	ictx->last_keycode = kc;
+	spin_unlock_irqrestore(&ictx->kc_lock, flags);
 
 	return;
 
@@ -1646,7 +1658,7 @@ static void usb_rx_callback_intf0(struct urb *urb)
 		return;
 
 	ictx = (struct imon_context *)urb->context;
-	if (!ictx)
+	if (!ictx || !ictx->dev_present_intf0)
 		return;
 
 	switch (urb->status) {
@@ -1678,7 +1690,7 @@ static void usb_rx_callback_intf1(struct urb *urb)
 		return;
 
 	ictx = (struct imon_context *)urb->context;
-	if (!ictx)
+	if (!ictx || !ictx->dev_present_intf1)
 		return;
 
 	switch (urb->status) {
@@ -1740,6 +1752,8 @@ static void imon_get_ffdc_type(struct imon_context *ictx)
 		detected_display_type = IMON_DISPLAY_TYPE_VFD;
 		break;
 	/* iMON VFD, MCE IR */
+	case 0x46:
+	case 0x7e:
 	case 0x9e:
 		dev_info(ictx->dev, "0xffdc iMON VFD, MCE IR");
 		detected_display_type = IMON_DISPLAY_TYPE_VFD;
@@ -1755,6 +1769,9 @@ static void imon_get_ffdc_type(struct imon_context *ictx)
 		dev_info(ictx->dev, "Unknown 0xffdc device, "
 			 "defaulting to VFD and iMON IR");
 		detected_display_type = IMON_DISPLAY_TYPE_VFD;
+		/* We don't know which one it is, allow user to set the
+		 * RC6 one from userspace if OTHER wasn't correct. */
+		allowed_protos |= RC_TYPE_RC6;
 		break;
 	}
 
@@ -2101,7 +2118,6 @@ static struct imon_context *imon_init_intf0(struct usb_interface *intf)
 
 	ictx->dev = dev;
 	ictx->usbdev_intf0 = usb_get_dev(interface_to_usbdev(intf));
-	ictx->dev_present_intf0 = true;
 	ictx->rx_urb_intf0 = rx_urb;
 	ictx->tx_urb = tx_urb;
 	ictx->rf_device = false;
@@ -2139,6 +2155,8 @@ static struct imon_context *imon_init_intf0(struct usb_interface *intf)
 		dev_err(dev, "%s: rc device setup failed\n", __func__);
 		goto rdev_setup_failed;
 	}
+
+	ictx->dev_present_intf0 = true;
 
 	mutex_unlock(&ictx->lock);
 	return ictx;
@@ -2183,7 +2201,6 @@ static struct imon_context *imon_init_intf1(struct usb_interface *intf,
 	}
 
 	ictx->usbdev_intf1 = usb_get_dev(interface_to_usbdev(intf));
-	ictx->dev_present_intf1 = true;
 	ictx->rx_urb_intf1 = rx_urb;
 
 	ret = -ENODEV;
@@ -2211,6 +2228,8 @@ static struct imon_context *imon_init_intf1(struct usb_interface *intf,
 		pr_err("usb_submit_urb failed for intf1 (%d)\n", ret);
 		goto urb_submit_failed;
 	}
+
+	ictx->dev_present_intf1 = true;
 
 	mutex_unlock(&ictx->lock);
 	return ictx;

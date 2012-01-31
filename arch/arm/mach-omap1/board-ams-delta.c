@@ -11,7 +11,7 @@
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
  */
-
+#include <linux/gpio.h>
 #include <linux/kernel.h>
 #include <linux/init.h>
 #include <linux/input.h>
@@ -19,6 +19,7 @@
 #include <linux/leds.h>
 #include <linux/platform_device.h>
 #include <linux/serial_8250.h>
+#include <linux/export.h>
 
 #include <media/soc_camera.h>
 
@@ -30,7 +31,6 @@
 
 #include <plat/io.h>
 #include <plat/board-ams-delta.h>
-#include <mach/gpio.h>
 #include <plat/keypad.h>
 #include <plat/mux.h>
 #include <plat/usb.h>
@@ -135,12 +135,6 @@ void ams_delta_latch2_write(u16 mask, u16 value)
 	*(volatile __u16 *) AMS_DELTA_LATCH2_VIRT = ams_delta_latch2_reg;
 }
 
-static void __init ams_delta_init_irq(void)
-{
-	omap1_init_common_hw();
-	omap_init_irq();
-}
-
 static struct map_desc ams_delta_io_desc[] __initdata = {
 	/* AMS_DELTA_LATCH1 */
 	{
@@ -215,7 +209,7 @@ static struct omap_kp_platform_data ams_delta_kp_data __initdata = {
 	.delay		= 9,
 };
 
-static struct platform_device ams_delta_kp_device __initdata = {
+static struct platform_device ams_delta_kp_device = {
 	.name		= "omap-keypad",
 	.id		= -1,
 	.dev		= {
@@ -225,12 +219,12 @@ static struct platform_device ams_delta_kp_device __initdata = {
 	.resource	= ams_delta_kp_resources,
 };
 
-static struct platform_device ams_delta_lcd_device __initdata = {
+static struct platform_device ams_delta_lcd_device = {
 	.name	= "lcd_ams_delta",
 	.id	= -1,
 };
 
-static struct platform_device ams_delta_led_device __initdata = {
+static struct platform_device ams_delta_led_device = {
 	.name	= "ams-delta-led",
 	.id	= -1
 };
@@ -267,7 +261,7 @@ static struct soc_camera_link ams_delta_iclink = {
 	.power		= ams_delta_camera_power,
 };
 
-static struct platform_device ams_delta_camera_device __initdata = {
+static struct platform_device ams_delta_camera_device = {
 	.name   = "soc-camera-pdrv",
 	.id     = 0,
 	.dev    = {
@@ -307,8 +301,6 @@ static void __init ams_delta_init(void)
 	omap_cfg_reg(J14_1610_CAM_D5);
 	omap_cfg_reg(J19_1610_CAM_D6);
 	omap_cfg_reg(J18_1610_CAM_D7);
-
-	iotable_init(ams_delta_io_desc, ARRAY_SIZE(ams_delta_io_desc));
 
 	omap_board_config = ams_delta_config;
 	omap_board_config_size = ARRAY_SIZE(ams_delta_config);
@@ -381,17 +373,19 @@ arch_initcall(ams_delta_modem_init);
 
 static void __init ams_delta_map_io(void)
 {
-	omap1_map_common_io();
+	omap15xx_map_io();
+	iotable_init(ams_delta_io_desc, ARRAY_SIZE(ams_delta_io_desc));
 }
 
 MACHINE_START(AMS_DELTA, "Amstrad E3 (Delta)")
 	/* Maintainer: Jonathan McDowell <noodles@earth.li> */
-	.boot_params	= 0x10000100,
+	.atag_offset	= 0x100,
 	.map_io		= ams_delta_map_io,
+	.init_early	= omap1_init_early,
 	.reserve	= omap_reserve,
-	.init_irq	= ams_delta_init_irq,
+	.init_irq	= omap1_init_irq,
 	.init_machine	= ams_delta_init,
-	.timer		= &omap_timer,
+	.timer		= &omap1_timer,
 MACHINE_END
 
 EXPORT_SYMBOL(ams_delta_latch1_write);

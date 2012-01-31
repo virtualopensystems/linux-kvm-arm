@@ -61,26 +61,15 @@ u64 op_x86_get_ctrl(struct op_x86_model_spec const *model,
 }
 
 
-static int profile_exceptions_notify(struct notifier_block *self,
-				     unsigned long val, void *data)
+static int profile_exceptions_notify(unsigned int val, struct pt_regs *regs)
 {
-	struct die_args *args = (struct die_args *)data;
-	int ret = NOTIFY_DONE;
-
-	switch (val) {
-	case DIE_NMI:
-		if (ctr_running)
-			model->check_ctrs(args->regs, &__get_cpu_var(cpu_msrs));
-		else if (!nmi_enabled)
-			break;
-		else
-			model->stop(&__get_cpu_var(cpu_msrs));
-		ret = NOTIFY_STOP;
-		break;
-	default:
-		break;
-	}
-	return ret;
+	if (ctr_running)
+		model->check_ctrs(regs, &__get_cpu_var(cpu_msrs));
+	else if (!nmi_enabled)
+		return NMI_DONE;
+	else
+		model->stop(&__get_cpu_var(cpu_msrs));
+	return NMI_HANDLED;
 }
 
 static void nmi_cpu_save_registers(struct op_msrs *msrs)
@@ -112,8 +101,10 @@ static void nmi_cpu_start(void *dummy)
 static int nmi_start(void)
 {
 	get_online_cpus();
-	on_each_cpu(nmi_cpu_start, NULL, 1);
 	ctr_running = 1;
+	/* make ctr_running visible to the nmi handler: */
+	smp_mb();
+	on_each_cpu(nmi_cpu_start, NULL, 1);
 	put_online_cpus();
 	return 0;
 }
@@ -353,19 +344,13 @@ static void nmi_cpu_setup(void *dummy)
 	int cpu = smp_processor_id();
 	struct op_msrs *msrs = &per_cpu(cpu_msrs, cpu);
 	nmi_cpu_save_registers(msrs);
-	spin_lock(&oprofilefs_lock);
+	raw_spin_lock(&oprofilefs_lock);
 	model->setup_ctrs(model, msrs);
 	nmi_cpu_setup_mux(cpu, msrs);
-	spin_unlock(&oprofilefs_lock);
+	raw_spin_unlock(&oprofilefs_lock);
 	per_cpu(saved_lvtpc, cpu) = apic_read(APIC_LVTPC);
 	apic_write(APIC_LVTPC, APIC_DM_NMI);
 }
-
-static struct notifier_block profile_exceptions_nb = {
-	.notifier_call = profile_exceptions_notify,
-	.next = NULL,
-	.priority = NMI_LOCAL_LOW_PRIOR,
-};
 
 static void nmi_cpu_restore_registers(struct op_msrs *msrs)
 {
@@ -400,8 +385,6 @@ static void nmi_cpu_shutdown(void *dummy)
 	apic_write(APIC_LVTPC, per_cpu(saved_lvtpc, cpu));
 	apic_write(APIC_LVTERR, v);
 	nmi_cpu_restore_registers(msrs);
-	if (model->cpu_down)
-		model->cpu_down();
 }
 
 static void nmi_cpu_up(void *dummy)
@@ -504,15 +487,19 @@ static int nmi_setup(void)
 
 	nmi_enabled = 0;
 	ctr_running = 0;
-	barrier();
-	err = register_die_notifier(&profile_exceptions_nb);
+	/* make variables visible to the nmi handler: */
+	smp_mb();
+	err = register_nmi_handler(NMI_LOCAL, profile_exceptions_notify,
+					0, "oprofile");
 	if (err)
 		goto fail;
 
 	get_online_cpus();
 	register_cpu_notifier(&oprofile_cpu_nb);
-	on_each_cpu(nmi_cpu_setup, NULL, 1);
 	nmi_enabled = 1;
+	/* make nmi_enabled visible to the nmi handler: */
+	smp_mb();
+	on_each_cpu(nmi_cpu_setup, NULL, 1);
 	put_online_cpus();
 
 	return 0;
@@ -531,8 +518,9 @@ static void nmi_shutdown(void)
 	nmi_enabled = 0;
 	ctr_running = 0;
 	put_online_cpus();
-	barrier();
-	unregister_die_notifier(&profile_exceptions_nb);
+	/* make variables visible to the nmi handler: */
+	smp_mb();
+	unregister_nmi_handler(NMI_LOCAL, "oprofile");
 	msrs = &get_cpu_var(cpu_msrs);
 	model->shutdown(msrs);
 	free_msrs();
