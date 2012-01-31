@@ -38,10 +38,10 @@
 #define MEM_MALI_SIZE 	 CONFIG_MALI_MEM_SIZE*1024*1024
 #define MEM_MALI_BASE    0x60000000 - MEM_MALI_SIZE 
 
-#define S5P_IRQ(x)              (x+32)
-#define IRQ_SPI(x)              S5P_IRQ(x+32)
+//#define S5P_IRQ(x)              (x+32)
+//#define IRQ_SPI(x)              S5P_IRQ(x+32)
 #define MAX_IRQ_IN_COMBINER     8
-#define COMBINER_GROUP(x)       ((x) * MAX_IRQ_IN_COMBINER + IRQ_SPI(64))
+//#define COMBINER_GROUP(x)       ((x) * MAX_IRQ_IN_COMBINER + IRQ_SPI(64))
 #define COMBINER_IRQ(x, y)      (COMBINER_GROUP(x) + y)
 
 #define IRQ_PPMMU0_3D    	COMBINER_IRQ(13, 0)

@@ -14,10 +14,12 @@ MALI_FILE_PREFIX := $(srctree)/drivers/gpu/arm/mali
 KBUILDROOT =
 
 # Add platform configuration file for Mali
-ifeq ($(CONFIG_ARCH_EXYNOS4),y)
+#ifeq ($(CONFIG_ARCH_EXYNOS4),y)
 MACHDIR  := $(srctree)/arch/arm/mach-exynos
 MALICONFIGDIR :=$(MACHDIR)/include/mach/mali
-endif
+#endif
+
+USING_DED=0
 
 ifeq ($(CONFIG_USING_MMU),y)
 USING_MMU=1
