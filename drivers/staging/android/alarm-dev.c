@@ -23,6 +23,7 @@
 #include <linux/spinlock.h>
 #include <linux/uaccess.h>
 #include <linux/alarmtimer.h>
+#include <linux/wakelock.h>
 #include "android_alarm.h"
 
 #define ANDROID_ALARM_PRINT_INFO (1U << 0)
