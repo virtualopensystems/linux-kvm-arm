@@ -206,6 +206,7 @@ __dabt_svc:
 ENDPROC(__dabt_svc)
 
 	.align	5
+	.globl __irq_svc
 __irq_svc:
 	svc_entry
 	irq_handler
