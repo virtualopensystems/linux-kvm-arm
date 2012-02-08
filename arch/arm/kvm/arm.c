@@ -290,9 +290,17 @@ int kvm_arch_vcpu_ioctl_set_mpstate(struct kvm_vcpu *vcpu,
 	return -EINVAL;
 }
 
+/**
+ * kvm_arch_vcpu_runnable - determine if the vcpu can be scheduled
+ * @v:		The VCPU pointer
+ *
+ * If the guest CPU is not waiting for interrupts (or waiting and
+ * an interrupt is pending) then it is by definition runnable.
+ */
 int kvm_arch_vcpu_runnable(struct kvm_vcpu *v)
 {
-	return 0;
+	return !!v->arch.irq_lines ||
+		!v->arch.wait_for_interrupts;
 }
 
 int kvm_arch_vcpu_in_guest_mode(struct kvm_vcpu *v)
@@ -455,6 +463,9 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 	for (;;) {
 		run->exit_reason = KVM_EXIT_UNKNOWN;
 
+		if (vcpu->arch.wait_for_interrupts)
+			goto wait_for_interrupts;
+
 		trace_kvm_entry(vcpu->arch.regs.pc);
 
 		update_vttbr(vcpu->kvm);
@@ -482,7 +493,7 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 
 		if (need_resched())
 			kvm_resched(vcpu);
-
+wait_for_interrupts:
 		if (signal_pending(current)) {
 			if (run->exit_reason == KVM_EXIT_UNKNOWN) {
 				ret = -EINTR;
@@ -490,6 +501,9 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 			}
 			break;
 		}
+
+		if (vcpu->arch.wait_for_interrupts)
+			kvm_vcpu_block(vcpu);
 	}
 
 	return ret;
@@ -534,6 +548,8 @@ static int kvm_arch_vm_ioctl_irq_line(struct kvm *kvm,
 	 * trigger a world-switch round on the running physical CPU to set the
 	 * virtual IRQ/FIQ fields in the HCR appropriately.
 	 */
+	if (irq_level->level)
+		vcpu->arch.wait_for_interrupts = 0;
 	kvm_vcpu_kick(vcpu);
 
 	return 0;
