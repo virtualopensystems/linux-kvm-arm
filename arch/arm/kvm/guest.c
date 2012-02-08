@@ -24,10 +24,6 @@
 #include <asm/kvm_asm.h>
 #include <asm/kvm_emulate.h>
 
-
-#define VM_STAT(x) (offsetof(struct kvm, stat.x), KVM_STAT_VM)
-#define VCPU_STAT(x) (offsetof(struct kvm_vcpu, stat.x), KVM_STAT_VCPU)
-
 struct kvm_stats_debugfs_item debugfs_entries[] = {
 	{ NULL }
 };

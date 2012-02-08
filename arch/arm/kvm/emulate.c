@@ -19,7 +19,7 @@
 #define USR_REG_OFFSET(_reg) \
 	offsetof(struct kvm_vcpu_arch, regs.usr_regs[_reg])
 
-static unsigned long vcpu_reg_offsets[MODE_SYS + 1][16] = {
+static const unsigned long vcpu_reg_offsets[MODE_SYS + 1][16] = {
 	/* FIQ Registers */
 	{
 		USR_REG_OFFSET(0), USR_REG_OFFSET(1), USR_REG_OFFSET(2),
