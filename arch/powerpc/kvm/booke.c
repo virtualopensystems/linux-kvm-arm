@@ -321,11 +321,13 @@ int kvmppc_vcpu_run(struct kvm_run *kvm_run, struct kvm_vcpu *vcpu)
 		return -EINVAL;
 	}
 
+	vcpu->mode = IN_GUEST_MODE;
 	local_irq_disable();
 	kvm_guest_enter();
 	ret = __kvmppc_vcpu_run(kvm_run, vcpu);
 	kvm_guest_exit();
 	local_irq_enable();
+	vcpu->mode = OUTSIDE_GUEST_MODE;
 
 	return ret;
 }

@@ -42,6 +42,11 @@ int kvm_arch_vcpu_runnable(struct kvm_vcpu *v)
 	       !!(v->arch.pending_exceptions);
 }
 
+int kvm_arch_vcpu_in_guest_mode(struct kvm_vcpu *vcpu)
+{
+	return kvm_vcpu_exiting_guest_mode(vcpu) == IN_GUEST_MODE;
+}
+
 int kvmppc_kvm_pv(struct kvm_vcpu *vcpu)
 {
 	int nr = kvmppc_get_gpr(vcpu, 11);
@@ -311,10 +316,7 @@ static void kvmppc_decrementer_func(unsigned long data)
 
 	kvmppc_core_queue_dec(vcpu);
 
-	if (waitqueue_active(vcpu->arch.wqp)) {
-		wake_up_interruptible(vcpu->arch.wqp);
-		vcpu->stat.halt_wakeup++;
-	}
+	kvm_vcpu_kick(vcpu);
 }
 
 /*
@@ -572,12 +574,7 @@ int kvm_vcpu_ioctl_interrupt(struct kvm_vcpu *vcpu, struct kvm_interrupt *irq)
 
 	kvmppc_core_queue_external(vcpu, irq);
 
-	if (waitqueue_active(vcpu->arch.wqp)) {
-		wake_up_interruptible(vcpu->arch.wqp);
-		vcpu->stat.halt_wakeup++;
-	} else if (vcpu->cpu != -1) {
-		smp_send_reschedule(vcpu->cpu);
-	}
+	kvm_vcpu_kick(vcpu);
 
 	return 0;
 }

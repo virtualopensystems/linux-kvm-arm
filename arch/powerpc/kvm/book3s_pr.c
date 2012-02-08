@@ -968,6 +968,8 @@ int kvmppc_vcpu_run(struct kvm_run *kvm_run, struct kvm_vcpu *vcpu)
 	if (vcpu->arch.shared->msr & MSR_FP)
 		kvmppc_handle_ext(vcpu, BOOK3S_INTERRUPT_FP_UNAVAIL, MSR_FP);
 
+	vcpu->mode = IN_GUEST_MODE;
+
 	kvm_guest_enter();
 
 	ret = __kvmppc_vcpu_run(kvm_run, vcpu);
@@ -975,6 +977,8 @@ int kvmppc_vcpu_run(struct kvm_run *kvm_run, struct kvm_vcpu *vcpu)
 	kvm_guest_exit();
 
 	local_irq_disable();
+
+	vcpu->mode = OUTSIDE_GUEST_MODE;
 
 	current->thread.regs->msr = ext_msr;
 

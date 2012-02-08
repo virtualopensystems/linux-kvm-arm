@@ -438,4 +438,10 @@ struct kvm_vcpu_arch {
 #define KVMPPC_VCPU_BUSY_IN_HOST	1
 #define KVMPPC_VCPU_RUNNABLE		2
 
+#define __KVM_HAVE_ARCH_VCPU_GET_WQ 1
+static inline wait_queue_head *kvm_arch_vcpu_wq(struct kvm_vcpu *vcpu)
+{
+	return vcpu->arch.wqp;
+}
+
 #endif /* __POWERPC_KVM_HOST_H__ */
