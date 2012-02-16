@@ -1386,7 +1386,6 @@ static int blkif_release(struct gendisk *disk, fmode_t mode)
 	mutex_lock(&blkfront_mutex);
 
 	bdev = bdget_disk(disk, 0);
-	bdput(bdev);
 
 	if (bdev->bd_openers)
 		goto out;
@@ -1417,6 +1416,7 @@ static int blkif_release(struct gendisk *disk, fmode_t mode)
 	}
 
 out:
+	bdput(bdev);
 	mutex_unlock(&blkfront_mutex);
 	return 0;
 }
