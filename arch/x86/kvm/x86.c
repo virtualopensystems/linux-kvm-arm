@@ -978,6 +978,13 @@ static inline u64 nsec_to_cycles(struct kvm_vcpu *vcpu, u64 nsec)
 				   vcpu->arch.virtual_tsc_shift);
 }
 
+static u32 adjust_tsc_khz(u32 khz, s32 ppm)
+{
+	u64 v = (u64)khz * (1000000 + ppm);
+	do_div(v, 1000000);
+	return v;
+}
+
 static void kvm_set_tsc_khz(struct kvm_vcpu *vcpu, u32 this_tsc_khz)
 {
 	u32 thresh_lo, thresh_hi;
@@ -995,8 +1002,8 @@ static void kvm_set_tsc_khz(struct kvm_vcpu *vcpu, u32 this_tsc_khz)
 	 * rate being applied is within that bounds of the hardware
 	 * rate.  If so, no scaling or compensation need be done.
 	 */
-	thresh_lo = (u64)tsc_khz * (1000000 - tsc_tolerance_ppm) / 1000000;
-	thresh_hi = (u64)tsc_khz * (1000000 + tsc_tolerance_ppm) / 1000000;
+	thresh_lo = adjust_tsc_khz(tsc_khz, -tsc_tolerance_ppm);
+	thresh_hi = adjust_tsc_khz(tsc_khz, tsc_tolerance_ppm);
 	if (this_tsc_khz < thresh_lo || this_tsc_khz > thresh_hi) {
 		pr_debug("kvm: requested TSC rate %u falls outside tolerance [%u,%u]\n", this_tsc_khz, thresh_lo, thresh_hi);
 		use_scaling = 1;
