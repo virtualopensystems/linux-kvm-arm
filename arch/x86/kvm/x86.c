@@ -1034,7 +1034,14 @@ void kvm_write_tsc(struct kvm_vcpu *vcpu, u64 data)
 
 	/* n.b - signed multiplication and division required */
 	nsdiff = data - kvm->arch.last_tsc_write;
+#ifdef CONFIG_X86_64
 	nsdiff = (nsdiff * 1000) / vcpu->arch.virtual_tsc_khz;
+#else
+	/* do_div() only does unsigned */
+	asm("idiv %2; xor %%edx, %%edx"
+	    : "=A"(nsdiff)
+	    : "A"(nsdiff * 1000), "rm"(vcpu->arch.virtual_tsc_khz));
+#endif
 	nsdiff -= elapsed;
 	if (nsdiff < 0)
 		nsdiff = -nsdiff;
