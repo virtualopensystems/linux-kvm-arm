@@ -113,6 +113,7 @@ static void hyp_idmap_del_pmd(pgd_t *pgd, unsigned long addr)
 	pud = pud_offset(pgd, addr);
 	pmd = pmd_offset(pud, addr);
 	pmd_free(NULL, pmd);
+	pud_clear(pud);
 }
 
 /*
@@ -122,16 +123,13 @@ static void hyp_idmap_del_pmd(pgd_t *pgd, unsigned long addr)
 void hyp_idmap_del(pgd_t *pgd, unsigned long addr, unsigned long end)
 {
 	unsigned long next;
-	pgd_t *next_pgd;
 
+	pgd += pgd_index(addr);
 	do {
 		next = pgd_addr_end(addr, end);
-		next_pgd = pgd + pgd_index(addr);
-		if (!pgd_none_or_clear_bad(next_pgd)) {
-			hyp_idmap_del_pmd(next_pgd, addr);
-			pgd_clear(next_pgd);
-		}
-	} while (addr = next, addr < end);
+		if (!pgd_none_or_clear_bad(pgd))
+			hyp_idmap_del_pmd(pgd, addr);
+	} while (pgd++, addr = next, addr < end);
 }
 EXPORT_SYMBOL_GPL(hyp_idmap_del);
 #endif
