@@ -20,6 +20,7 @@
 #include <asm/types.h>
 
 #define __KVM_HAVE_IRQ_LINE
+#define __KVM_HAVE_GUEST_DEBUG
 
 /*
  * KVM_IRQ_LINE macros to set/read IRQ/FIQ for specific VCPU index.

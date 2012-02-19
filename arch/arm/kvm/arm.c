@@ -495,9 +495,10 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 		if (run->exit_reason == KVM_EXIT_MMIO)
 			break;
 
+wait_for_interrupts:
 		if (need_resched())
 			kvm_resched(vcpu);
-wait_for_interrupts:
+
 		if (signal_pending(current)) {
 			if (run->exit_reason == KVM_EXIT_UNKNOWN) {
 				ret = -EINTR;
