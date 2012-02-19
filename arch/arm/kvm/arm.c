@@ -453,12 +453,16 @@ static inline int handle_exit(struct kvm_vcpu *vcpu, struct kvm_run *run,
 int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 {
 	int ret;
+	sigset_t sigsaved;
 
 	if (run->exit_reason == KVM_EXIT_MMIO) {
 		ret = kvm_handle_mmio_return(vcpu, vcpu->run);
 		if (ret)
 			return ret;
 	}
+
+	if (vcpu->sigset_active)
+		sigprocmask(SIG_SETMASK, &vcpu->sigset, &sigsaved);
 
 	for (;;) {
 		run->exit_reason = KVM_EXIT_UNKNOWN;
@@ -505,6 +509,9 @@ wait_for_interrupts:
 		if (vcpu->arch.wait_for_interrupts)
 			kvm_vcpu_block(vcpu);
 	}
+
+	if (vcpu->sigset_active)
+		sigprocmask(SIG_SETMASK, &sigsaved, NULL);
 
 	return ret;
 }
