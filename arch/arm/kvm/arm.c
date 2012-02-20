@@ -500,7 +500,7 @@ static int kvm_arch_vm_ioctl_irq_line(struct kvm *kvm,
 	int mask;
 	unsigned int vcpu_idx;
 	struct kvm_vcpu *vcpu;
-	unsigned long irq_lines, new_irq_lines;
+	unsigned long old, new, *ptr;
 
 	vcpu_idx = irq_level->irq >> 1;
 	if (vcpu_idx >= KVM_MAX_VCPUS)
@@ -517,16 +517,17 @@ static int kvm_arch_vm_ioctl_irq_line(struct kvm *kvm,
 
 	trace_kvm_set_irq(irq_level->irq, irq_level->level, 0);
 
+	ptr = (unsigned long *)&vcpu->arch.irq_lines;
 	do {
-		irq_lines = ACCESS_ONCE(vcpu->arch.irq_lines);
+		old = ACCESS_ONCE(*ptr);
 		if (irq_level->level)
-			new_irq_lines = irq_lines | mask;
+			new = old | mask;
 		else
-			new_irq_lines = irq_lines & ~mask;
+			new = old & ~mask;
 
-		if (new_irq_lines == irq_lines)
+		if (new == old)
 			return 0; /* no change */
-	} while (!cmpxchg(&vcpu->arch.irq_lines, irq_lines, new_irq_lines));
+	} while (cmpxchg(ptr, old, new) != old);
 
 	/*
 	 * The vcpu irq_lines field was updated, wake up sleeping VCPUs and
