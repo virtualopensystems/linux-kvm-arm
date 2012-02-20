@@ -60,6 +60,7 @@ struct kvm_regs {
 		__u32 c1_sys;
 		__u32 c2_base0;
 		__u32 c2_base1;
+		__u32 c2_control;
 		__u32 c3_dacr;
 	} cp15;
 
