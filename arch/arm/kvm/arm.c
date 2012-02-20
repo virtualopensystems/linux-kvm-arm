@@ -430,7 +430,7 @@ static inline int handle_exit(struct kvm_vcpu *vcpu, struct kvm_run *run,
  */
 int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 {
-	int ret;
+	int ret = 0;
 	sigset_t sigsaved;
 
 	if (run->exit_reason == KVM_EXIT_MMIO) {
@@ -442,12 +442,26 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 	if (vcpu->sigset_active)
 		sigprocmask(SIG_SETMASK, &vcpu->sigset, &sigsaved);
 
-	for (;;) {
-		run->exit_reason = KVM_EXIT_UNKNOWN;
+	run->exit_reason = KVM_EXIT_UNKNOWN;
+	while (run->exit_reason == KVM_EXIT_UNKNOWN) {
+		/*
+		 * Check conditions before entering the guest
+		 */
+		if (need_resched())
+			kvm_resched(vcpu);
+
+		if (signal_pending(current)) {
+			ret = -EINTR;
+			run->exit_reason = KVM_EXIT_INTR;
+			break;
+		}
 
 		if (vcpu->arch.wait_for_interrupts)
-			goto wait_for_interrupts;
+			kvm_vcpu_block(vcpu);
 
+		/*
+		 * Enter the guest
+		 */
 		trace_kvm_entry(vcpu->arch.regs.pc);
 
 		update_vttbr(vcpu->kvm);
@@ -472,21 +486,6 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 
 		if (run->exit_reason == KVM_EXIT_MMIO)
 			break;
-
-wait_for_interrupts:
-		if (need_resched())
-			kvm_resched(vcpu);
-
-		if (signal_pending(current)) {
-			if (run->exit_reason == KVM_EXIT_UNKNOWN) {
-				ret = -EINTR;
-				run->exit_reason = KVM_EXIT_INTR;
-			}
-			break;
-		}
-
-		if (vcpu->arch.wait_for_interrupts)
-			kvm_vcpu_block(vcpu);
 	}
 
 	if (vcpu->sigset_active)
