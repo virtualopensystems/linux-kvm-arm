@@ -39,28 +39,6 @@
 #include <asm/kvm_mmu.h>
 #include <asm/kvm_emulate.h>
 
-#define TMP_LOG_LEN 512
-static char __tmp_log_data[TMP_LOG_LEN];
-DEFINE_SPINLOCK(__tmp_log_lock);
-void __kvm_print_msg(char *fmt, ...)
-{
-	va_list ap;
-	unsigned int size;
-
-	spin_lock(&__tmp_log_lock);
-
-	va_start(ap, fmt);
-	size = vsnprintf(__tmp_log_data, TMP_LOG_LEN, fmt, ap);
-	va_end(ap);
-
-	if (size >= TMP_LOG_LEN)
-		printk(KERN_ERR "Message exceeded log length!\n");
-	else
-		printk(KERN_INFO "%s", __tmp_log_data);
-
-	spin_unlock(&__tmp_log_lock);
-}
-
 static DEFINE_PER_CPU(void *, kvm_arm_hyp_stack_page);
 
 /* The VMID used in the VTTBR */
