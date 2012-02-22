@@ -409,6 +409,7 @@ void pud_clear_bad(pud_t *pud)
 	pud_ERROR(*pud);
 	pud_clear(pud);
 }
+EXPORT_SYMBOL_GPL(pud_clear_bad);
 
 void pmd_clear_bad(pmd_t *pmd)
 {

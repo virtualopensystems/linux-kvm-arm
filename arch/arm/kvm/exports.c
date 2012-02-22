@@ -26,3 +26,7 @@ EXPORT_SYMBOL_GPL(__kvm_hyp_code_start);
 EXPORT_SYMBOL_GPL(__kvm_hyp_code_end);
 
 EXPORT_SYMBOL_GPL(__kvm_vcpu_run);
+
+EXPORT_SYMBOL_GPL(__kvm_flush_vm_context);
+
+EXPORT_SYMBOL_GPL(smp_send_reschedule);
