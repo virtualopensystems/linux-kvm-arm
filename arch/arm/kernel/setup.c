@@ -45,6 +45,7 @@
 #include <asm/cachetype.h>
 #include <asm/tlbflush.h>
 #include <asm/system.h>
+#include <asm/soc.h>
 
 #include <asm/prom.h>
 #include <asm/mach/arch.h>
@@ -141,6 +142,7 @@ static const char *cpu_name;
 static const char *machine_name;
 static char __initdata cmd_line[COMMAND_LINE_SIZE];
 struct machine_desc *machine_desc __initdata;
+static const struct arm_soc_desc *soc_desc __initdata;
 
 static char default_command_line[COMMAND_LINE_SIZE] __initdata = CONFIG_CMDLINE;
 static union { char c[4]; unsigned long l; } endian_test __initdata = { { 'l', '?', '?', 'b' } };
@@ -922,6 +924,12 @@ void __init setup_arch(char **cmdline_p)
 		mdesc = setup_machine_tags(machine_arch_type);
 	machine_desc = mdesc;
 	machine_name = mdesc->name;
+	if (mdesc->soc) {
+		soc_desc = mdesc->soc;
+		pr_info("SoC: %s\n", soc_desc->name);
+		soc_smp_ops_register(soc_desc->smp_init_ops, soc_desc->smp_ops);
+	} else
+		soc_desc = NULL;
 
 #ifdef CONFIG_ZONE_DMA
 	if (mdesc->dma_zone_size) {

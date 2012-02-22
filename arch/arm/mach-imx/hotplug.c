@@ -14,17 +14,12 @@
 #include <asm/cacheflush.h>
 #include <mach/common.h>
 
-int platform_cpu_kill(unsigned int cpu)
-{
-	return 1;
-}
-
 /*
  * platform-specific code to shutdown a CPU
  *
  * Called with IRQs disabled
  */
-void platform_cpu_die(unsigned int cpu)
+void imx_cpu_die(unsigned int cpu)
 {
 	flush_cache_all();
 	imx_enable_cpu(cpu, false);
@@ -32,13 +27,4 @@ void platform_cpu_die(unsigned int cpu)
 
 	/* We should never return from idle */
 	panic("cpu %d unexpectedly exit from shutdown\n", cpu);
-}
-
-int platform_cpu_disable(unsigned int cpu)
-{
-	/*
-	 * we don't allow CPU 0 to be shutdown (it is still too special
-	 * e.g. clock tick interrupts)
-	 */
-	return cpu == 0 ? -EPERM : 0;
 }

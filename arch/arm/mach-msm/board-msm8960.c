@@ -30,6 +30,7 @@
 #include <mach/board.h>
 #include <mach/msm_iomap.h>
 
+#include "core.h"
 #include "devices.h"
 
 static void __init msm8960_fixup(struct tag *tag, char **cmdline,
@@ -94,6 +95,7 @@ static void __init msm8960_rumi3_init(void)
 }
 
 MACHINE_START(MSM8960_SIM, "QCT MSM8960 SIMULATOR")
+	.soc = &msm_soc_desc,
 	.fixup = msm8960_fixup,
 	.reserve = msm8960_reserve,
 	.map_io = msm8960_map_io,
@@ -104,6 +106,7 @@ MACHINE_START(MSM8960_SIM, "QCT MSM8960 SIMULATOR")
 MACHINE_END
 
 MACHINE_START(MSM8960_RUMI3, "QCT MSM8960 RUMI3")
+	.soc = &msm_soc_desc,
 	.fixup = msm8960_fixup,
 	.reserve = msm8960_reserve,
 	.map_io = msm8960_map_io,

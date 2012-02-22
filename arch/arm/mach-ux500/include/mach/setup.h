@@ -11,6 +11,7 @@
 #ifndef __ASM_ARCH_SETUP_H
 #define __ASM_ARCH_SETUP_H
 
+#include <asm/soc.h>
 #include <asm/mach/time.h>
 #include <linux/init.h>
 
@@ -49,5 +50,11 @@ extern struct sys_timer ux500_timer;
 	.length		= sz,			\
 	.type		= MT_MEMORY,		\
 }
+
+extern struct arm_soc_smp_init_ops ux500_soc_smp_init_ops;
+extern struct arm_soc_smp_ops ux500_soc_smp_ops;
+extern struct arm_soc_desc ux500_soc_desc;
+
+extern void ux500_cpu_die(unsigned int cpu);
 
 #endif /*  __ASM_ARCH_SETUP_H */
