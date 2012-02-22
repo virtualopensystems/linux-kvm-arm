@@ -196,6 +196,41 @@ int kvm_alloc_stage2_pgd(struct kvm *kvm)
 	return 0;
 }
 
+static void free_guest_pages(pte_t *pte, unsigned long addr)
+{
+	unsigned int i;
+	struct page *page;
+	int cnt;
+
+	for (i = 0; i < PTRS_PER_PTE; i++, addr += PAGE_SIZE) {
+		if (!pte_present(*pte))
+			goto next_page;
+		page = pfn_to_page(pte_pfn(*pte));
+		put_page(page);
+next_page:
+		pte++;
+	}
+}
+
+static void free_stage2_ptes(pmd_t *pmd, unsigned long addr)
+{
+	unsigned int i;
+	pte_t *pte;
+	struct page *page;
+
+	for (i = 0; i < PTRS_PER_PMD; i++, addr += PMD_SIZE) {
+		BUG_ON(pmd_sect(*pmd));
+		if (!pmd_none(*pmd) && pmd_table(*pmd)) {
+			pte = pte_offset_kernel(pmd, addr);
+			free_guest_pages(pte, addr);
+			page = virt_to_page((void *)pte);
+			WARN_ON(atomic_read(&page->_count) != 1);
+			pte_free_kernel(NULL, pte);
+		}
+		pmd++;
+	}
+}
+
 /**
  * kvm_free_stage2_pgd - free all stage-2 tables
  * @kvm:	The KVM struct pointer for the VM.
@@ -213,6 +248,7 @@ void kvm_free_stage2_pgd(struct kvm *kvm)
 	pud_t *pud;
 	pmd_t *pmd;
 	unsigned long long i, addr;
+	struct page *page;
 
 	if (kvm->arch.pgd == NULL)
 		return;
@@ -233,7 +269,9 @@ void kvm_free_stage2_pgd(struct kvm *kvm)
 		BUG_ON(pud_bad(*pud));
 
 		pmd = pmd_offset(pud, addr);
-		free_ptes(pmd, addr);
+		free_stage2_ptes(pmd, addr);
+		page = virt_to_page((void *)pmd);
+		WARN_ON(atomic_read(&page->_count) != 1);
 		pmd_free(NULL, pmd);
 	}
 
