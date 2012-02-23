@@ -22,6 +22,7 @@
 #include <linux/fs.h>
 #include <linux/mman.h>
 #include <linux/sched.h>
+#include <linux/kvm.h>
 #include <trace/events/kvm.h>
 
 #define CREATE_TRACE_POINTS
@@ -244,6 +245,7 @@ void kvm_arch_vcpu_uninit(struct kvm_vcpu *vcpu)
 
 void kvm_arch_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
 {
+	vcpu->cpu = cpu;
 }
 
 void kvm_arch_vcpu_put(struct kvm_vcpu *vcpu)
@@ -284,6 +286,51 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 	return -EINVAL;
 }
 
+static int kvm_arch_vm_ioctl_irq_line(struct kvm *kvm,
+				      struct kvm_irq_level *irq_level)
+{
+	int mask;
+	unsigned int vcpu_idx;
+	struct kvm_vcpu *vcpu;
+	unsigned long old, new, *ptr;
+
+	vcpu_idx = irq_level->irq >> 1;
+	if (vcpu_idx >= KVM_MAX_VCPUS)
+		return -EINVAL;
+
+	vcpu = kvm_get_vcpu(kvm, vcpu_idx);
+	if (!vcpu)
+		return -EINVAL;
+
+	if ((irq_level->irq & 1) == KVM_ARM_IRQ_LINE)
+		mask = HCR_VI;
+	else /* KVM_ARM_FIQ_LINE */
+		mask = HCR_VF;
+
+	trace_kvm_set_irq(irq_level->irq, irq_level->level, 0);
+
+	ptr = (unsigned long *)&vcpu->arch.irq_lines;
+	do {
+		old = ACCESS_ONCE(*ptr);
+		if (irq_level->level)
+			new = old | mask;
+		else
+			new = old & ~mask;
+
+		if (new == old)
+			return 0; /* no change */
+	} while (cmpxchg(ptr, old, new) != old);
+
+	/*
+	 * The vcpu irq_lines field was updated, wake up sleeping VCPUs and
+	 * trigger a world-switch round on the running physical CPU to set the
+	 * virtual IRQ/FIQ fields in the HCR appropriately.
+	 */
+	kvm_vcpu_kick(vcpu);
+
+	return 0;
+}
+
 long kvm_arch_vcpu_ioctl(struct file *filp,
 			 unsigned int ioctl, unsigned long arg)
 {
@@ -298,7 +345,20 @@ int kvm_vm_ioctl_get_dirty_log(struct kvm *kvm, struct kvm_dirty_log *log)
 long kvm_arch_vm_ioctl(struct file *filp,
 		       unsigned int ioctl, unsigned long arg)
 {
-	return -EINVAL;
+	struct kvm *kvm = filp->private_data;
+	void __user *argp = (void __user *)arg;
+
+	switch (ioctl) {
+	case KVM_IRQ_LINE: {
+		struct kvm_irq_level irq_event;
+
+		if (copy_from_user(&irq_event, argp, sizeof irq_event))
+			return -EFAULT;
+		return kvm_arch_vm_ioctl_irq_line(kvm, &irq_event);
+	}
+	default:
+		return -EINVAL;
+	}
 }
 
 static void cpu_set_vector(void *vector)
