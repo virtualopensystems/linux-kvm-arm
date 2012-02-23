@@ -24,7 +24,6 @@
 #include <asm/kvm_asm.h>
 #include <asm/kvm_emulate.h>
 
-
 struct kvm_stats_debugfs_item debugfs_entries[] = {
 	{ NULL }
 };
