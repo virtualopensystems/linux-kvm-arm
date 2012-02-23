@@ -407,8 +407,20 @@ int kvm_handle_cp15_32(struct kvm_vcpu *vcpu, struct kvm_run *run)
 	return emulate_cp15(vcpu, &params);
 }
 
+/**
+ * kvm_handle_wfi - handle a wait-for-interrupts instruction executed by a guest
+ * @vcpu:	the vcpu pointer
+ * @run:	the kvm_run structure pointer
+ *
+ * Simply sets the wait_for_interrupts flag on the vcpu structure, which will
+ * halt execution of world-switches and schedule other host processes until
+ * there is an incoming IRQ or FIQ to the VM.
+ */
 int kvm_handle_wfi(struct kvm_vcpu *vcpu, struct kvm_run *run)
 {
+	trace_kvm_wfi(vcpu->arch.regs.pc);
+	if (!vcpu->arch.irq_lines)
+		vcpu->arch.wait_for_interrupts = 1;
 	return 0;
 }
 
