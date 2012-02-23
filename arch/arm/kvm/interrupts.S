@@ -35,6 +35,40 @@ __kvm_hyp_code_start:
 	.globl __kvm_hyp_code_start
 
 @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+@  Flush per-VMID TLBs
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+	/*
+	 * void __kvm_tlb_flush_vmid(struct kvm *kvm);
+	 *
+	 * We rely on the hardware to broadcast the TLB invalidation
+	 * to all CPUs inside the inner-shareable domain (which is
+	 * the case for all v7 implementations).
+	 * If we come across a non-IS SMP implementation, we'll have to
+	 * use an IPI based mechanism. Until then, we stick to the simple
+	 * hardware assisted version.
+	 */
+ENTRY(__kvm_tlb_flush_vmid)
+	hvc	#0			@ Switch to Hyp mode
+	push	{r2, r3}
+
+	ldrd	r2, r3, [r0, #KVM_VTTBR]
+	mcrr	p15, 6, r2, r3, c2	@ Write VTTBR
+	isb
+	mcr     p15, 0, r0, c8, c3, 0	@ TBLIALLIS
+	dsb
+	isb
+	mov	r2, #0
+	mov	r3, #0
+	mcrr	p15, 6, r2, r3, c2	@ Back to VMID #0
+	isb
+
+	pop	{r2, r3}
+	hvc	#0			@ Back to SVC
+	mov	pc, lr
+ENDPROC(__kvm_tlb_flush_vmid)
+
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 @ Flush TLBs and instruction caches of current CPU for all VMIDs
 @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 

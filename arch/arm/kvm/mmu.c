@@ -275,20 +275,22 @@ void kvm_free_stage2_pgd(struct kvm *kvm)
 	kvm->arch.pgd = NULL;
 }
 
-static int __user_mem_abort(struct kvm *kvm, phys_addr_t addr, pfn_t pfn)
+static const pte_t null_pte;
+
+static int stage2_set_pte(struct kvm *kvm, phys_addr_t addr, const pte_t *new_pte)
 {
 	pgd_t *pgd;
 	pud_t *pud;
 	pmd_t *pmd;
-	pte_t *pte, new_pte;
+	pte_t *pte;
 
 	/* Create 2nd stage page table mapping - Level 1 */
 	pgd = kvm->arch.pgd + pgd_index(addr);
 	pud = pud_offset(pgd, addr);
 	if (pud_none(*pud)) {
+		BUG_ON(new_pte == &null_pte);
 		pmd = pmd_alloc_one(NULL, addr);
 		if (!pmd) {
-			put_page(pfn_to_page(pfn));
 			kvm_err("Cannot allocate 2nd stage pmd\n");
 			return -ENOMEM;
 		}
@@ -299,9 +301,9 @@ static int __user_mem_abort(struct kvm *kvm, phys_addr_t addr, pfn_t pfn)
 
 	/* Create 2nd stage page table mapping - Level 2 */
 	if (pmd_none(*pmd)) {
+		BUG_ON(new_pte == &null_pte);
 		pte = pte_alloc_one_kernel(NULL, addr);
 		if (!pte) {
-			put_page(pfn_to_page(pfn));
 			kvm_err("Cannot allocate 2nd stage pte\n");
 			return -ENOMEM;
 		}
@@ -311,8 +313,7 @@ static int __user_mem_abort(struct kvm *kvm, phys_addr_t addr, pfn_t pfn)
 		pte = pte_offset_kernel(pmd, addr);
 
 	/* Create 2nd stage page table mapping - Level 3 */
-	new_pte = pfn_pte(pfn, PAGE_KVM_GUEST);
-	set_pte_ext(pte, new_pte, 0);
+	set_pte_ext(pte, *new_pte, 0);
 
 	return 0;
 }
@@ -320,6 +321,7 @@ static int __user_mem_abort(struct kvm *kvm, phys_addr_t addr, pfn_t pfn)
 static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
 			  gfn_t gfn, struct kvm_memory_slot *memslot)
 {
+	pte_t new_pte;
 	pfn_t pfn;
 	int ret;
 
@@ -335,7 +337,10 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
 	}
 
 	mutex_lock(&vcpu->kvm->arch.pgd_mutex);
-	ret = __user_mem_abort(vcpu->kvm, fault_ipa, pfn);
+	new_pte = pfn_pte(pfn, PAGE_KVM_GUEST);
+	ret = stage2_set_pte(vcpu->kvm, fault_ipa, &new_pte);
+	if (ret)
+		put_page(pfn_to_page(pfn));
 	mutex_unlock(&vcpu->kvm->arch.pgd_mutex);
 
 	return ret;
@@ -542,4 +547,33 @@ int kvm_handle_guest_abort(struct kvm_vcpu *vcpu, struct kvm_run *run)
 	}
 
 	return user_mem_abort(vcpu, fault_ipa, gfn, memslot);
+}
+
+int kvm_unmap_hva(struct kvm *kvm, unsigned long hva)
+{
+	struct kvm_memslots *slots;
+	struct kvm_memory_slot *memslot;
+	int needs_stage2_flush = 0;
+
+	slots = kvm_memslots(kvm);
+
+	/* we only care about the pages that the guest sees */
+	kvm_for_each_memslot(memslot, slots) {
+		unsigned long start = memslot->userspace_addr;
+		unsigned long end;
+
+		end = start + (memslot->npages << PAGE_SHIFT);
+		if (hva >= start && hva < end) {
+			gpa_t gpa_offset = hva - start;
+			gpa_t gpa = (memslot->base_gfn << PAGE_SHIFT) + gpa_offset;
+
+			stage2_set_pte(kvm, gpa, &null_pte);
+			needs_stage2_flush = 1;
+		}
+	}
+
+	if (needs_stage2_flush)
+		__kvm_tlb_flush_vmid(kvm);
+
+	return 0;
 }
