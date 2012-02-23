@@ -24,6 +24,7 @@
 #include <linux/fs.h>
 #include <linux/mman.h>
 #include <linux/sched.h>
+#include <linux/kvm.h>
 #include <trace/events/kvm.h>
 
 #define CREATE_TRACE_POINTS
@@ -256,6 +257,7 @@ void kvm_arch_vcpu_uninit(struct kvm_vcpu *vcpu)
 
 void kvm_arch_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
 {
+	vcpu->cpu = cpu;
 }
 
 void kvm_arch_vcpu_put(struct kvm_vcpu *vcpu)
@@ -294,6 +296,51 @@ int kvm_arch_vcpu_in_guest_mode(struct kvm_vcpu *v)
 int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 {
 	return -EINVAL;
+}
+
+int kvm_vm_ioctl_irq_line(struct kvm *kvm, struct kvm_irq_level *irq_level)
+{
+	unsigned int vcpu_idx;
+	struct kvm_vcpu *vcpu;
+	unsigned long *ptr;
+	bool set;
+	int bit_nr;
+
+	vcpu_idx = irq_level->irq >> 1;
+	if (vcpu_idx >= KVM_MAX_VCPUS)
+		return -EINVAL;
+
+	vcpu = kvm_get_vcpu(kvm, vcpu_idx);
+	if (!vcpu)
+		return -EINVAL;
+
+	trace_kvm_set_irq(irq_level->irq, irq_level->level, 0);
+
+	if ((irq_level->irq & 1) == KVM_ARM_IRQ_LINE)
+		bit_nr = HCR_VI_BIT_NR;
+	else /* KVM_ARM_FIQ_LINE */
+		bit_nr = HCR_VF_BIT_NR;
+
+	ptr = (unsigned long *)&vcpu->arch.irq_lines;
+	if (irq_level->level)
+		set = test_and_set_bit(bit_nr, ptr);
+	else
+		set = test_and_clear_bit(bit_nr, ptr);
+
+	/*
+	 * If we didn't change anything, no need to wake up or kick other CPUs
+	 */
+	if (!!set == !!irq_level->level)
+		return 0;
+
+	/*
+	 * The vcpu irq_lines field was updated, wake up sleeping VCPUs and
+	 * trigger a world-switch round on the running physical CPU to set the
+	 * virtual IRQ/FIQ fields in the HCR appropriately.
+	 */
+	kvm_vcpu_kick(vcpu);
+
+	return 0;
 }
 
 long kvm_arch_vcpu_ioctl(struct file *filp,

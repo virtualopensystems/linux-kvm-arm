@@ -48,8 +48,10 @@
 #define HCR_BSU_IS	(1 << 10)
 #define HCR_FB		(1 << 9)
 #define HCR_VA		(1 << 8)
-#define HCR_VI		(1 << 7)
-#define HCR_VF		(1 << 6)
+#define HCR_VI_BIT_NR	7
+#define HCR_VF_BIT_NR	6
+#define HCR_VI		(1 << HCR_VI_BIT_NR)
+#define HCR_VF		(1 << HCR_VF_BIT_NR)
 #define HCR_AMO		(1 << 5)
 #define HCR_IMO		(1 << 4)
 #define HCR_FMO		(1 << 3)
@@ -73,6 +75,7 @@
 #define HCR_GUEST_MASK (HCR_TSC | HCR_TSW | HCR_TWI | HCR_VM | HCR_BSU_IS | \
 			HCR_FB | HCR_TAC | HCR_AMO | HCR_IMO | HCR_FMO | \
 			HCR_SWIO)
+#define HCR_VIRT_EXCP_MASK (HCR_VA | HCR_VI | HCR_VF)
 
 /* Hyp System Control Register (HSCTLR) bits */
 #define HSCTLR_TE	(1 << 30)
