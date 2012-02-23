@@ -200,12 +200,15 @@ int kvm_alloc_stage2_pgd(struct kvm *kvm)
 static void free_guest_pages(pte_t *pte, unsigned long addr)
 {
 	unsigned int i;
-	struct page *page;
+	struct page *page, *pte_page;
+
+	pte_page = virt_to_page(pte);
 
 	for (i = 0; i < PTRS_PER_PTE; i++) {
 		if (pte_present(*pte)) {
 			page = pfn_to_page(pte_pfn(*pte));
 			put_page(page);
+			put_page(pte_page);
 		}
 		pte++;
 	}
@@ -215,7 +218,9 @@ static void free_stage2_ptes(pmd_t *pmd, unsigned long addr)
 {
 	unsigned int i;
 	pte_t *pte;
-	struct page *page;
+	struct page *page, *pmd_page;
+
+	pmd_page = virt_to_page(pmd);
 
 	for (i = 0; i < PTRS_PER_PMD; i++, addr += PMD_SIZE) {
 		BUG_ON(pmd_sect(*pmd));
@@ -223,8 +228,10 @@ static void free_stage2_ptes(pmd_t *pmd, unsigned long addr)
 			pte = pte_offset_kernel(pmd, addr);
 			free_guest_pages(pte, addr);
 			page = virt_to_page((void *)pte);
-			WARN_ON(atomic_read(&page->_count) != 1);
+			WARN_ON(page_count(page) != 1);
 			pte_free_kernel(NULL, pte);
+
+			put_page(pmd_page);
 		}
 		pmd++;
 	}
@@ -247,6 +254,7 @@ void kvm_free_stage2_pgd(struct kvm *kvm)
 	pud_t *pud;
 	pmd_t *pmd;
 	unsigned long long i, addr;
+	struct page *page, *pud_page;
 
 	if (kvm->arch.pgd == NULL)
 		return;
@@ -260,6 +268,7 @@ void kvm_free_stage2_pgd(struct kvm *kvm)
 		addr = i * (unsigned long long)PGDIR_SIZE;
 		pgd = kvm->arch.pgd + i;
 		pud = pud_offset(pgd, addr);
+		pud_page = virt_to_page(pud);
 
 		if (pud_none(*pud))
 			continue;
@@ -268,14 +277,70 @@ void kvm_free_stage2_pgd(struct kvm *kvm)
 
 		pmd = pmd_offset(pud, addr);
 		free_stage2_ptes(pmd, addr);
+		page = virt_to_page((void *)pmd);
+		WARN_ON(page_count(page) != 1);
 		pmd_free(NULL, pmd);
+		put_page(pud_page);
 	}
 
+	WARN_ON(page_count(pud_page) != 1);
 	free_pages((unsigned long)kvm->arch.pgd, PGD2_ORDER);
 	kvm->arch.pgd = NULL;
 }
 
-static const pte_t null_pte;
+/*
+ * Clear a stage-2 PTE, lowering the various ref-counts. Also takes
+ * care of invalidating the TLBs.  Must be called while holding
+ * pgd_lock, otherwise another faulting VCPU may come in and mess
+ * things behind our back.
+ */
+static void stage2_clear_pte(struct kvm *kvm, phys_addr_t addr)
+{
+	pgd_t *pgd;
+	pud_t *pud;
+	pmd_t *pmd;
+	pte_t *pte;
+	struct page *page;
+
+	pr_info("Clearing PTE&%08llx\n", addr);
+	pgd = kvm->arch.pgd + pgd_index(addr);
+	pud = pud_offset(pgd, addr);
+	BUG_ON(pud_none(*pud));
+
+	pmd = pmd_offset(pud, addr);
+	BUG_ON(pmd_none(*pmd));
+
+	pte = pte_offset_kernel(pmd, addr);
+	set_pte_ext(pte, __pte(0), 0);
+
+	page = virt_to_page(pte);
+	put_page(page);
+	if (page_count(page) != 1) {
+		__kvm_tlb_flush_vmid(kvm);
+		return;
+	}
+
+	/* Need to remove pte page */
+	pmd_clear(pmd);
+	__kvm_tlb_flush_vmid(kvm);
+	pte_free_kernel(NULL, (pte_t *)((unsigned long)pte & PAGE_MASK));
+
+	page = virt_to_page(pmd);
+	put_page(page);
+	if (page_count(page) != 1)
+		return;
+
+	/*
+	 * Need to remove pmd page. This is the worse case, and we end
+	 * up invalidating TLB twice. Should we care, really?
+	 */
+	pud_clear(pud);
+	__kvm_tlb_flush_vmid(kvm);
+	pmd_free(NULL, (pmd_t *)((unsigned long)pmd & PAGE_MASK));
+
+	page = virt_to_page(pud);
+	put_page(page);
+}
 
 static int stage2_set_pte(struct kvm *kvm, phys_addr_t addr,
 			  const pte_t *new_pte)
@@ -289,7 +354,6 @@ static int stage2_set_pte(struct kvm *kvm, phys_addr_t addr,
 	pgd = kvm->arch.pgd + pgd_index(addr);
 	pud = pud_offset(pgd, addr);
 	if (pud_none(*pud)) {
-		BUG_ON(new_pte == &null_pte);
 		pmd = pmd_alloc_one(NULL, addr);
 		if (!pmd) {
 			kvm_err("Cannot allocate 2nd stage pmd\n");
@@ -297,12 +361,12 @@ static int stage2_set_pte(struct kvm *kvm, phys_addr_t addr,
 		}
 		pud_populate(NULL, pud, pmd);
 		pmd += pmd_index(addr);
+		get_page(virt_to_page(pud));
 	} else
 		pmd = pmd_offset(pud, addr);
 
 	/* Create 2nd stage page table mapping - Level 2 */
 	if (pmd_none(*pmd)) {
-		BUG_ON(new_pte == &null_pte);
 		pte = pte_alloc_one_kernel(NULL, addr);
 		if (!pte) {
 			kvm_err("Cannot allocate 2nd stage pte\n");
@@ -310,11 +374,14 @@ static int stage2_set_pte(struct kvm *kvm, phys_addr_t addr,
 		}
 		pmd_populate_kernel(NULL, pmd, pte);
 		pte += pte_index(addr);
+		get_page(virt_to_page(pmd));
 	} else
 		pte = pte_offset_kernel(pmd, addr);
 
 	/* Create 2nd stage page table mapping - Level 3 */
+	BUG_ON(pte_none(pte));
 	set_pte_ext(pte, *new_pte, 0);
+	get_page(virt_to_page(pte));
 
 	return 0;
 }
@@ -597,6 +664,7 @@ static bool hva_to_gpa(struct kvm *kvm, unsigned long hva, gpa_t *gpa)
 			/* no overlapping memslots allowed: break */
 			break;
 		}
+
 	}
 
 	mutex_unlock(&kvm->slots_lock);
@@ -613,10 +681,8 @@ int kvm_unmap_hva(struct kvm *kvm, unsigned long hva)
 
 	spin_lock(&kvm->arch.pgd_lock);
 	found = hva_to_gpa(kvm, hva, &gpa);
-	if (found) {
-		stage2_set_pte(kvm, gpa, &null_pte);
-		__kvm_tlb_flush_vmid(kvm);
-	}
+	if (found)
+		stage2_clear_pte(kvm, gpa);
 	spin_unlock(&kvm->arch.pgd_lock);
 	return 0;
 }
