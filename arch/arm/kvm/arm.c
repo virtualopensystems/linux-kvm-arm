@@ -37,6 +37,7 @@
 #include <asm/kvm_arm.h>
 #include <asm/kvm_asm.h>
 #include <asm/kvm_mmu.h>
+#include <asm/kvm_emulate.h>
 
 static DEFINE_PER_CPU(void *, kvm_arm_hyp_stack_page);
 
@@ -336,6 +337,78 @@ static void update_vttbr(struct kvm *kvm)
 	spin_unlock(&kvm_vmid_lock);
 }
 
+static int handle_svc_hyp(struct kvm_vcpu *vcpu, struct kvm_run *run)
+{
+	/* SVC called from Hyp mode should never get here */
+	kvm_debug("SVC called from Hyp mode shouldn't go here\n");
+	BUG();
+	return -EINVAL; /* Squash warning */
+}
+
+static int handle_hvc(struct kvm_vcpu *vcpu, struct kvm_run *run)
+{
+	/*
+	 * Guest called HVC instruction:
+	 * So far we are not doing anything here, but in the longer run we are
+	 * probably going to have some hypercall interface entry point
+	 * starting from here.
+	 */
+	kvm_debug("hvc: %x (at %08x)", vcpu->arch.hsr & ((1 << 16) - 1),
+				     vcpu->arch.regs.pc);
+	kvm_debug("         HSR: %8x", vcpu->arch.hsr);
+	return 0;
+}
+
+static int handle_dabt_hyp(struct kvm_vcpu *vcpu, struct kvm_run *run)
+{
+	/* The hypervisor should never cause aborts */
+	kvm_debug("The hypervisor itself shouldn't cause aborts\n");
+	BUG();
+	return -EINVAL; /* Squash warning */
+}
+
+static int (*arm_exit_handlers[])(struct kvm_vcpu *vcpu, struct kvm_run *r) = {
+	[HSR_EC_WFI]		= kvm_handle_wfi,
+	[HSR_EC_CP15_32]	= kvm_handle_cp15_access,
+	[HSR_EC_CP15_64]	= kvm_handle_cp15_access,
+	[HSR_EC_CP14_MR]	= kvm_handle_cp14_access,
+	[HSR_EC_CP14_LS]	= kvm_handle_cp14_load_store,
+	[HSR_EC_CP14_64]	= kvm_handle_cp14_access,
+	[HSR_EC_CP_0_13]	= kvm_handle_cp_0_13_access,
+	[HSR_EC_CP10_ID]	= kvm_handle_cp10_id,
+	[HSR_EC_SVC_HYP]	= handle_svc_hyp,
+	[HSR_EC_HVC]		= handle_hvc,
+	[HSR_EC_IABT]		= kvm_handle_guest_abort,
+	[HSR_EC_DABT]		= kvm_handle_guest_abort,
+	[HSR_EC_DABT_HYP]	= handle_dabt_hyp,
+};
+
+static inline int handle_exit(struct kvm_vcpu *vcpu, struct kvm_run *run,
+			      int exception_index)
+{
+	unsigned long hsr_ec;
+
+	if (exception_index == ARM_EXCEPTION_IRQ)
+		return 0;
+
+	if (exception_index != ARM_EXCEPTION_HVC) {
+		kvm_pr_unimpl("Unsupported exception type: %d",
+			      exception_index);
+		return -EINVAL;
+	}
+
+	hsr_ec = (vcpu->arch.hsr & HSR_EC) >> HSR_EC_SHIFT;
+
+	if (hsr_ec >= ARRAY_SIZE(arm_exit_handlers)
+	    || !arm_exit_handlers[hsr_ec]) {
+		kvm_err("Unkown exception class: %08lx, hsr: %08x\n", hsr_ec,
+			(unsigned int)vcpu->arch.hsr);
+		BUG();
+	}
+
+	return arm_exit_handlers[hsr_ec](vcpu, run);
+}
+
 /**
  * kvm_arch_vcpu_ioctl_run - the main VCPU run function to execute guest code
  * @vcpu:	The VCPU pointer
@@ -387,6 +460,12 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 		local_irq_enable();
 
 		trace_kvm_exit(vcpu->arch.regs.pc);
+
+		ret = handle_exit(vcpu, run, ret);
+		if (ret) {
+			kvm_err("Error in handle_exit\n");
+			break;
+		}
 	}
 
 	if (vcpu->sigset_active)
