@@ -206,6 +206,39 @@ int kvm_handle_cp14_access(struct kvm_vcpu *vcpu, struct kvm_run *run)
 }
 
 /**
+ * emulate_cp15_c9_access -- emulates cp15 accesses for CRn == 9
+ * @vcpu: The VCPU pointer
+ * @p:    The coprocessor parameters struct pointer holding trap inst. details
+ */
+static int emulate_cp15_c9_access(struct kvm_vcpu *vcpu,
+				  struct coproc_params *p)
+{
+	BUG_ON(p->CRn != 9);
+	BUG_ON(p->is_64bit);
+
+	if (p->CRm == 0 && p->Op1 == 1 && p->Op2 == 2) {
+		/* Emulate L2CTLR access */
+		u32 l2ctlr, ncores;
+
+		if (p->is_write)
+			return 0;
+
+		asm volatile("mrc p15, 1, %0, c9, c0, 2\n" : "=r" (l2ctlr));
+		l2ctlr &= ~(3 << 24);
+		ncores = atomic_read(&vcpu->kvm->online_vcpus) - 1;
+		l2ctlr |= (ncores & 3) << 24;
+		*vcpu_reg(vcpu, p->Rt1) = l2ctlr;
+
+		return 0;
+	}
+
+	/* hack alert!!! */
+	if (!p->is_write)
+		*vcpu_reg(vcpu, p->Rt1) = 0;
+	return 0;
+}
+
+/**
  * emulate_cp15_c10_access -- emulates cp15 accesses for CRn == 10
  * @vcpu: The VCPU pointer
  * @p:    The coprocessor parameters struct pointer holding trap inst. details
@@ -310,6 +343,9 @@ int kvm_handle_cp15_access(struct kvm_vcpu *vcpu, struct kvm_run *run)
 		goto unsupp_err_out;
 
 	switch (params.CRn) {
+	case 9:
+		ret = emulate_cp15_c9_access(vcpu, &params);
+		break;
 	case 10:
 		ret = emulate_cp15_c10_access(vcpu, &params);
 		break;
