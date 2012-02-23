@@ -31,6 +31,12 @@
 #include <asm/uaccess.h>
 #include <asm/ptrace.h>
 #include <asm/mman.h>
+#include <asm/tlbflush.h>
+#include <asm/kvm_arm.h>
+#include <asm/kvm_asm.h>
+#include <asm/kvm_mmu.h>
+
+static DEFINE_PER_CPU(void *, kvm_arm_hyp_stack_page);
 
 int kvm_arch_hardware_enable(void *garbage)
 {
@@ -232,13 +238,189 @@ long kvm_arch_vm_ioctl(struct file *filp,
 	return -EINVAL;
 }
 
+static void cpu_set_vector(void *vector)
+{
+	unsigned long vector_ptr;
+	unsigned long smc_hyp_nr;
+
+	vector_ptr = (unsigned long)vector;
+	smc_hyp_nr = SMCHYP_HVBAR_W;
+
+	/*
+	 * Set the HVBAR
+	 */
+	asm volatile (
+		"mov	r0, %[vector_ptr]\n\t"
+		"mov	r7, %[smc_hyp_nr]\n\t"
+		"smc	#0\n\t" : :
+		[vector_ptr] "r" (vector_ptr),
+		[smc_hyp_nr] "r" (smc_hyp_nr) :
+		"r0", "r1");
+}
+
+static void cpu_init_hyp_mode(void *vector)
+{
+	unsigned long pgd_ptr;
+	unsigned long hyp_stack_ptr;
+	void *stack_page;
+
+	cpu_set_vector(vector);
+
+	pgd_ptr = virt_to_phys(kvm_hyp_pgd);
+	stack_page = __get_cpu_var(kvm_arm_hyp_stack_page);
+	hyp_stack_ptr = (unsigned long)stack_page + PAGE_SIZE;
+
+	/*
+	 * Call initialization code
+	 */
+	asm volatile (
+		"mov	r0, %[pgd_ptr]\n\t"
+		"mov	r1, %[hyp_stack_ptr]\n\t"
+		"hvc	#0\n\t" : :
+		[pgd_ptr] "r" (pgd_ptr),
+		[hyp_stack_ptr] "r" (hyp_stack_ptr) :
+		"r0", "r1");
+}
+
+/**
+ * Inits Hyp-mode on all online CPUs
+ */
+static int init_hyp_mode(void)
+{
+	phys_addr_t init_phys_addr, init_end_phys_addr;
+	int cpu;
+	int err = 0;
+
+	/*
+	 * Allocate Hyp level-1 page table
+	 */
+	kvm_hyp_pgd = kzalloc(PTRS_PER_PGD * sizeof(pgd_t), GFP_KERNEL);
+	if (!kvm_hyp_pgd)
+		return -ENOMEM;
+
+	/*
+	 * Allocate stack pages for Hypervisor-mode
+	 */
+	for_each_possible_cpu(cpu)
+		per_cpu(kvm_arm_hyp_stack_page, cpu) = NULL;
+	for_each_possible_cpu(cpu) {
+		void *stack_page;
+
+		stack_page = (void *)__get_free_page(GFP_KERNEL);
+		if (!stack_page) {
+			err = -ENOMEM;
+			goto out_free_stack_pages;
+		}
+
+		per_cpu(kvm_arm_hyp_stack_page, cpu) = stack_page;
+	}
+
+	init_phys_addr = virt_to_phys(__kvm_hyp_init);
+	init_end_phys_addr = virt_to_phys(__kvm_hyp_init_end);
+	BUG_ON(init_phys_addr & 0x1f);
+
+	/*
+	 * Create identity mapping for the init code.
+	 */
+	hyp_idmap_add(kvm_hyp_pgd, (unsigned long)init_phys_addr,
+				   (unsigned long)init_end_phys_addr);
+
+	/*
+	 * Execute the init code on each CPU.
+	 *
+	 * Note: The stack is not mapped yet, so don't do anything else than
+	 * initializing the hypervisor mode on each CPU using a local stack
+	 * space for temporary storage.
+	 */
+	for_each_online_cpu(cpu) {
+		smp_call_function_single(cpu, cpu_init_hyp_mode,
+					 (void *)(long)init_phys_addr, 1);
+	}
+
+	/*
+	 * Unmap the identity mapping
+	 */
+	hyp_idmap_del(kvm_hyp_pgd, (unsigned long)init_phys_addr,
+				   (unsigned long)init_end_phys_addr);
+
+	/*
+	 * Map Hyp exception vectors
+	 */
+	err = create_hyp_mappings(kvm_hyp_pgd,
+				  __kvm_hyp_vector, __kvm_hyp_vector_end);
+	if (err) {
+		kvm_err("Cannot map hyp vector\n");
+		goto out_free_mappings;
+	}
+
+	/*
+	 * Map the Hyp-code called directly from the host
+	 */
+	if (__kvm_hyp_code_end - __kvm_hyp_code_start > PAGE_SIZE) {
+		kvm_err("Cannot initialize module, Hyp-code spans two pages\n");
+		return -EFAULT;
+	}
+
+	err = create_hyp_mappings(kvm_hyp_pgd,
+				  __kvm_hyp_code_start, __kvm_hyp_code_end);
+	if (err) {
+		kvm_err("Cannot map world-switch code\n");
+		goto out_free_mappings;
+	}
+
+	/*
+	 * Map the Hyp stack pages
+	 */
+	for_each_possible_cpu(cpu) {
+		char *stack_page = per_cpu(kvm_arm_hyp_stack_page, cpu);
+		err = create_hyp_mappings(kvm_hyp_pgd,
+					  stack_page, stack_page + PAGE_SIZE);
+
+		if (err) {
+			kvm_err("Cannot map hyp stack\n");
+			goto out_free_mappings;
+		}
+	}
+
+	/*
+	 * Set the HVBAR to the virtual kernel address
+	 */
+	for_each_online_cpu(cpu)
+		smp_call_function_single(cpu, cpu_set_vector,
+					 __kvm_hyp_vector, 1);
+
+	return 0;
+out_free_mappings:
+	free_hyp_pmds(kvm_hyp_pgd);
+out_free_stack_pages:
+	for_each_possible_cpu(cpu)
+		free_page((unsigned long)per_cpu(kvm_arm_hyp_stack_page, cpu));
+	kfree(kvm_hyp_pgd);
+	kvm_hyp_pgd = NULL;
+	return err;
+}
+
+/**
+ * Initialize Hyp-mode and memory mappings on all CPUs.
+ */
 int kvm_arch_init(void *opaque)
 {
+	int err;
+
+	err = init_hyp_mode();
+	if (err)
+		goto out_err;
+
 	return 0;
+out_err:
+	return err;
 }
 
 void kvm_arch_exit(void)
 {
+	free_hyp_pmds(kvm_hyp_pgd);
+	kfree(kvm_hyp_pgd);
+	kvm_hyp_pgd = NULL;
 }
 
 static int arm_init(void)
