@@ -38,6 +38,13 @@
 
 static DEFINE_PER_CPU(void *, kvm_arm_hyp_stack_page);
 
+/* The VMID used in the VTTBR */
+#define VMID_BITS               8
+#define VMID_MASK               ((1 << VMID_BITS) - 1)
+#define VMID_FIRST_GENERATION	(1 << VMID_BITS)
+static u64 next_vmid;		/* The next available VMID in the sequence */
+DEFINE_SPINLOCK(kvm_vmid_lock);
+
 int kvm_arch_hardware_enable(void *garbage)
 {
 	return 0;
@@ -65,14 +72,42 @@ void kvm_arch_sync_events(struct kvm *kvm)
 {
 }
 
+/**
+ * kvm_arch_init_vm - initializes a VM data structure
+ * @kvm:	pointer to the KVM struct
+ */
 int kvm_arch_init_vm(struct kvm *kvm)
 {
-	return 0;
+	int ret = 0;
+
+	ret = kvm_alloc_stage2_pgd(kvm);
+	if (ret)
+		goto out_fail_alloc;
+	mutex_init(&kvm->arch.pgd_mutex);
+
+	ret = create_hyp_mappings(kvm_hyp_pgd, kvm, kvm + 1);
+	if (ret)
+		goto out_free_stage2_pgd;
+
+	/* Mark the initial VMID invalid */
+	kvm->arch.vmid = 0;
+
+	return ret;
+out_free_stage2_pgd:
+	kvm_free_stage2_pgd(kvm);
+out_fail_alloc:
+	return ret;
 }
 
+/**
+ * kvm_arch_destroy_vm - destroy the VM data structure
+ * @kvm:	pointer to the KVM struct
+ */
 void kvm_arch_destroy_vm(struct kvm *kvm)
 {
 	int i;
+
+	kvm_free_stage2_pgd(kvm);
 
 	for (i = 0; i < KVM_MAX_VCPUS; ++i) {
 		if (kvm->vcpus[i]) {
@@ -149,6 +184,10 @@ struct kvm_vcpu *kvm_arch_vcpu_create(struct kvm *kvm, unsigned int id)
 	if (err)
 		goto free_vcpu;
 
+	err = create_hyp_mappings(kvm_hyp_pgd, vcpu, vcpu + 1);
+	if (err)
+		goto free_vcpu;
+
 	return vcpu;
 free_vcpu:
 	kmem_cache_free(kvm_vcpu_cache, vcpu);
@@ -158,6 +197,7 @@ out:
 
 void kvm_arch_vcpu_free(struct kvm_vcpu *vcpu)
 {
+	kmem_cache_free(kvm_vcpu_cache, vcpu);
 }
 
 void kvm_arch_vcpu_destroy(struct kvm_vcpu *vcpu)
@@ -410,6 +450,15 @@ int kvm_arch_init(void *opaque)
 	err = init_hyp_mode();
 	if (err)
 		goto out_err;
+
+	/*
+	 * The upper 56 bits of VMIDs are used to identify the generation
+	 * counter, so VMIDs initialized to 0, having generation == 0, will
+	 * never be considered valid and therefor a new VMID must always be
+	 * assigned. Whent he VMID generation rolls over, we start from
+	 * VMID_FIRST_GENERATION again.
+	 */
+	next_vmid = VMID_FIRST_GENERATION;
 
 	return 0;
 out_err:
