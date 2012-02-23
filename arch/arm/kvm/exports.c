@@ -20,7 +20,6 @@ EXPORT_SYMBOL_GPL(__kvm_hyp_init);
 EXPORT_SYMBOL_GPL(__kvm_hyp_init_end);
 
 EXPORT_SYMBOL_GPL(__kvm_hyp_vector);
-EXPORT_SYMBOL_GPL(__kvm_hyp_vector_end);
 
 EXPORT_SYMBOL_GPL(__kvm_hyp_code_start);
 EXPORT_SYMBOL_GPL(__kvm_hyp_code_end);

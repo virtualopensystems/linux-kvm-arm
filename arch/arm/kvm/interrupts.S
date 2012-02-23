@@ -15,6 +15,7 @@
  */
 
 #include <linux/linkage.h>
+#include <linux/const.h>
 #include <asm/unified.h>
 #include <asm/page.h>
 #include <asm/asm-offsets.h>
@@ -28,7 +29,7 @@
 
 	.text
 	.arm
-	.align 12
+	.align	PAGE_SHIFT
 
 __kvm_hyp_code_start:
 	.globl __kvm_hyp_code_start
@@ -370,11 +371,6 @@ return_to_ioctl:
 THUMB(	orr	lr, lr, #1)
 	mov	pc, lr
 
-	.ltorg
-
-
-__kvm_hyp_code_end:
-	.globl __kvm_hyp_code_end
 
 @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 @  Hypervisor exception vector and handlers
@@ -543,5 +539,14 @@ hyp_fiq:
 
 	.ltorg
 
-__kvm_hyp_vector_end:
-	.globl __kvm_hyp_vector_end
+	/*
+	 * The below lines makes sure the HYP mode code fits in a
+	 * single page (the assembler will bark at you if it doesn't).
+	 * Please keep them together. If you plan to restructure
+	 * the code or increase its size over a page, you'll have to
+	 * fix the code in init_hyp_mode().
+	 */
+__kvm_hyp_code_end:
+	.globl	__kvm_hyp_code_end
+
+	.org	__kvm_hyp_code_start + PAGE_SIZE

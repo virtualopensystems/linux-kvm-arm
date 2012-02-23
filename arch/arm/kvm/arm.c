@@ -697,23 +697,8 @@ static int init_hyp_mode(void)
 				   (unsigned long)init_end_phys_addr);
 
 	/*
-	 * Map Hyp exception vectors
-	 */
-	err = create_hyp_mappings(kvm_hyp_pgd,
-				  __kvm_hyp_vector, __kvm_hyp_vector_end);
-	if (err) {
-		kvm_err("Cannot map hyp vector\n");
-		goto out_free_mappings;
-	}
-
-	/*
 	 * Map the Hyp-code called directly from the host
 	 */
-	if (__kvm_hyp_code_end - __kvm_hyp_code_start > PAGE_SIZE) {
-		kvm_err("Cannot initialize module, Hyp-code spans two pages\n");
-		return -EFAULT;
-	}
-
 	err = create_hyp_mappings(kvm_hyp_pgd,
 				  __kvm_hyp_code_start, __kvm_hyp_code_end);
 	if (err) {
