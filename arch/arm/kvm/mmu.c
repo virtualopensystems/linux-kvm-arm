@@ -287,13 +287,15 @@ static void free_guest_pages(pte_t *pte, unsigned long addr)
 		}
 		pte++;
 	}
+
+	WARN_ON(page_count(pte_page) != 1);
 }
 
 static void free_stage2_ptes(pmd_t *pmd, unsigned long addr)
 {
 	unsigned int i;
 	pte_t *pte;
-	struct page *page, *pmd_page;
+	struct page *pmd_page;
 
 	pmd_page = virt_to_page(pmd);
 
@@ -302,14 +304,14 @@ static void free_stage2_ptes(pmd_t *pmd, unsigned long addr)
 		if (!pmd_none(*pmd) && pmd_table(*pmd)) {
 			pte = pte_offset_kernel(pmd, addr);
 			free_guest_pages(pte, addr);
-			page = virt_to_page((void *)pte);
-			WARN_ON(page_count(page) != 1);
 			pte_free_kernel(NULL, pte);
 
 			put_page(pmd_page);
 		}
 		pmd++;
 	}
+
+	WARN_ON(page_count(pmd_page) != 1);
 }
 
 /**
@@ -329,7 +331,7 @@ void kvm_free_stage2_pgd(struct kvm *kvm)
 	pud_t *pud;
 	pmd_t *pmd;
 	unsigned long long i, addr;
-	struct page *page, *pud_page;
+	struct page *pud_page;
 
 	if (kvm->arch.pgd == NULL)
 		return;
@@ -352,8 +354,6 @@ void kvm_free_stage2_pgd(struct kvm *kvm)
 
 		pmd = pmd_offset(pud, addr);
 		free_stage2_ptes(pmd, addr);
-		page = virt_to_page((void *)pmd);
-		WARN_ON(page_count(page) != 1);
 		pmd_free(NULL, pmd);
 		put_page(pud_page);
 	}
@@ -363,7 +363,11 @@ void kvm_free_stage2_pgd(struct kvm *kvm)
 	kvm->arch.pgd = NULL;
 }
 
-/*
+/**
+ * stage2_clear_pte -- Clear a stage-2 PTE.
+ * @kvm:  The VM pointer
+ * @addr: The physical address of the PTE
+ *
  * Clear a stage-2 PTE, lowering the various ref-counts. Also takes
  * care of invalidating the TLBs.  Must be called while holding
  * pgd_lock, otherwise another faulting VCPU may come in and mess
@@ -377,7 +381,6 @@ static void stage2_clear_pte(struct kvm *kvm, phys_addr_t addr)
 	pte_t *pte;
 	struct page *page;
 
-	kvm_debug("Clearing PTE&%08llx\n", addr);
 	pgd = kvm->arch.pgd + pgd_index(addr);
 	pud = pud_offset(pgd, addr);
 	BUG_ON(pud_none(*pud));
@@ -397,24 +400,21 @@ static void stage2_clear_pte(struct kvm *kvm, phys_addr_t addr)
 
 	/* Need to remove pte page */
 	pmd_clear(pmd);
-	__kvm_tlb_flush_vmid(kvm);
 	pte_free_kernel(NULL, (pte_t *)((unsigned long)pte & PAGE_MASK));
 
 	page = virt_to_page(pmd);
 	put_page(page);
-	if (page_count(page) != 1)
+	if (page_count(page) != 1) {
+		__kvm_tlb_flush_vmid(kvm);
 		return;
+	}
 
-	/*
-	 * Need to remove pmd page. This is the worst case, and we end
-	 * up invalidating the TLB twice. No big deal.
-	 */
 	pud_clear(pud);
-	__kvm_tlb_flush_vmid(kvm);
 	pmd_free(NULL, (pmd_t *)((unsigned long)pmd & PAGE_MASK));
 
 	page = virt_to_page(pud);
 	put_page(page);
+	__kvm_tlb_flush_vmid(kvm);
 }
 
 static void stage2_set_pte(struct kvm *kvm, struct kvm_mmu_memory_cache *cache,
