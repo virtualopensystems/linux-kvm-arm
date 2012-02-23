@@ -252,6 +252,7 @@ core-$(CONFIG_VFP)		+= arch/arm/vfp/
 
 # If we have a machine-specific directory, then include it in the build.
 core-y				+= arch/arm/kernel/ arch/arm/mm/ arch/arm/common/
+core-y 				+= arch/arm/kvm/
 core-y				+= $(machdirs) $(platdirs)
 
 drivers-$(CONFIG_OPROFILE)      += arch/arm/oprofile/

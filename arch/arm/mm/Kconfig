@@ -641,6 +641,14 @@ config ARM_LPAE
 
 	  If unsure, say N.
 
+config ARM_VIRT_EXT
+	bool "Support for ARM Virtualization Extensions"
+	depends on ARM_LPAE
+	help
+	  Say Y if you have an ARMv7 processor supporting the ARM hardware
+	  Virtualization extensions. KVM depends on this feature and will
+	  not run without it being selected.
+
 config ARCH_PHYS_ADDR_T_64BIT
 	def_bool ARM_LPAE
 
