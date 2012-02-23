@@ -162,6 +162,109 @@ out:
 	return err;
 }
 
+/**
+ * kvm_alloc_stage2_pgd - allocate level-1 table for stage-2 translation.
+ * @kvm:	The KVM struct pointer for the VM.
+ *
+ * Allocates the 1st level table only of size defined by PGD2_ORDER (can
+ * support either full 40-bit input addresses or limited to 32-bit input
+ * addresses). Clears the allocated pages.
+ */
+int kvm_alloc_stage2_pgd(struct kvm *kvm)
+{
+	pgd_t *pgd;
+
+	if (kvm->arch.pgd != NULL) {
+		kvm_err("kvm_arch already initialized?\n");
+		return -EINVAL;
+	}
+
+	pgd = (pgd_t *)__get_free_pages(GFP_KERNEL, PGD2_ORDER);
+	if (!pgd)
+		return -ENOMEM;
+
+	memset(pgd, 0, PTRS_PER_PGD2 * sizeof(pgd_t));
+	kvm->arch.pgd = pgd;
+
+	return 0;
+}
+
+static void free_guest_pages(pte_t *pte, unsigned long addr)
+{
+	unsigned int i;
+	struct page *page;
+
+	for (i = 0; i < PTRS_PER_PTE; i++, addr += PAGE_SIZE) {
+		if (!pte_present(*pte))
+			goto next_page;
+		page = pfn_to_page(pte_pfn(*pte));
+		put_page(page);
+next_page:
+		pte++;
+	}
+}
+
+static void free_stage2_ptes(pmd_t *pmd, unsigned long addr)
+{
+	unsigned int i;
+	pte_t *pte;
+	struct page *page;
+
+	for (i = 0; i < PTRS_PER_PMD; i++, addr += PMD_SIZE) {
+		BUG_ON(pmd_sect(*pmd));
+		if (!pmd_none(*pmd) && pmd_table(*pmd)) {
+			pte = pte_offset_kernel(pmd, addr);
+			free_guest_pages(pte, addr);
+			page = virt_to_page((void *)pte);
+			WARN_ON(atomic_read(&page->_count) != 1);
+			pte_free_kernel(NULL, pte);
+		}
+		pmd++;
+	}
+}
+
+/**
+ * kvm_free_stage2_pgd - free all stage-2 tables
+ * @kvm:	The KVM struct pointer for the VM.
+ *
+ * Walks the level-1 page table pointed to by kvm->arch.pgd and frees all
+ * underlying level-2 and level-3 tables before freeing the actual level-1 table
+ * and setting the struct pointer to NULL.
+ */
+void kvm_free_stage2_pgd(struct kvm *kvm)
+{
+	pgd_t *pgd;
+	pud_t *pud;
+	pmd_t *pmd;
+	unsigned long long i, addr;
+
+	if (kvm->arch.pgd == NULL)
+		return;
+
+	/*
+	 * We do this slightly different than other places, since we need more
+	 * than 32 bits and for instance pgd_addr_end converts to unsigned long.
+	 */
+	addr = 0;
+	for (i = 0; i < PTRS_PER_PGD2; i++) {
+		addr = i * (unsigned long long)PGDIR_SIZE;
+		pgd = kvm->arch.pgd + i;
+		pud = pud_offset(pgd, addr);
+
+		if (pud_none(*pud))
+			continue;
+
+		BUG_ON(pud_bad(*pud));
+
+		pmd = pmd_offset(pud, addr);
+		free_stage2_ptes(pmd, addr);
+		pmd_free(NULL, pmd);
+	}
+
+	free_pages((unsigned long)kvm->arch.pgd, PGD2_ORDER);
+	kvm->arch.pgd = NULL;
+}
+
 int kvm_handle_guest_abort(struct kvm_vcpu *vcpu, struct kvm_run *run)
 {
 	return -EINVAL;
