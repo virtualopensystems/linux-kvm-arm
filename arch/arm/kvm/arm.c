@@ -362,7 +362,7 @@ static void update_vttbr(struct kvm *kvm)
 		pgd_phys = virt_to_phys(kvm->arch.pgd);
 		kvm->arch.vttbr = pgd_phys & ((1LLU << 40) - 1)
 				  & ~((2 << VTTBR_X) - 1);
-		kvm->arch.vttbr |= kvm->arch.vmid << 48;
+		kvm->arch.vttbr |= (kvm->arch.vmid & VMID_MASK) << 48;
 	}
 
 	spin_unlock(&kvm_vmid_lock);
