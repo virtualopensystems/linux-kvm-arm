@@ -310,6 +310,11 @@ static inline pte_t pte_modify(pte_t pte, pgprot_t newprot)
 
 #define pgtable_cache_init() do { } while (0)
 
+#ifdef CONFIG_KVM_ARM_HOST
+void hyp_idmap_add(pgd_t *, unsigned long, unsigned long);
+void hyp_idmap_del(pgd_t *pgd, unsigned long addr, unsigned long end);
+#endif
+
 #endif /* !__ASSEMBLY__ */
 
 #endif /* CONFIG_MMU */

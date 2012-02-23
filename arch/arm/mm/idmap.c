@@ -1,3 +1,4 @@
+#include <linux/module.h>
 #include <linux/kernel.h>
 
 #include <asm/cputype.h>
@@ -58,11 +59,13 @@ static void idmap_add_pud(pgd_t *pgd, unsigned long addr, unsigned long end,
 	} while (pud++, addr = next, addr != end);
 }
 
-static void identity_mapping_add(pgd_t *pgd, unsigned long addr, unsigned long end)
+static void identity_mapping_add(pgd_t *pgd, unsigned long addr,
+				 unsigned long end, unsigned long prot)
 {
-	unsigned long prot, next;
+	unsigned long next;
 
-	prot = PMD_TYPE_SECT | PMD_SECT_AP_WRITE | PMD_SECT_AF;
+	prot |= PMD_TYPE_SECT | PMD_SECT_AP_WRITE | PMD_SECT_AF;
+
 	if (cpu_architecture() <= CPU_ARCH_ARMv5TEJ && !cpu_is_xscale())
 		prot |= PMD_BIT4;
 
@@ -89,11 +92,47 @@ static int __init init_static_idmap(void)
 
 	pr_info("Setting up static identity map for 0x%llx - 0x%llx\n",
 		(long long)idmap_start, (long long)idmap_end);
-	identity_mapping_add(idmap_pgd, idmap_start, idmap_end);
+	identity_mapping_add(idmap_pgd, idmap_start, idmap_end, 0);
 
 	return 0;
 }
 early_initcall(init_static_idmap);
+
+#ifdef CONFIG_KVM_ARM_HOST
+void hyp_idmap_add(pgd_t *pgd, unsigned long addr, unsigned long end)
+{
+	identity_mapping_add(pgd, addr, end, PMD_SECT_AP1);
+}
+EXPORT_SYMBOL_GPL(hyp_idmap_add);
+
+static void hyp_idmap_del_pmd(pgd_t *pgd, unsigned long addr)
+{
+	pud_t *pud;
+	pmd_t *pmd;
+
+	pud = pud_offset(pgd, addr);
+	pmd = pmd_offset(pud, addr);
+	pmd_free(NULL, pmd);
+	pud_clear(pud);
+}
+
+/*
+ * This version actually frees the underlying pmds for all pgds in range and
+ * clear the pgds themselves afterwards.
+ */
+void hyp_idmap_del(pgd_t *pgd, unsigned long addr, unsigned long end)
+{
+	unsigned long next;
+
+	pgd += pgd_index(addr);
+	do {
+		next = pgd_addr_end(addr, end);
+		if (!pgd_none_or_clear_bad(pgd))
+			hyp_idmap_del_pmd(pgd, addr);
+	} while (pgd++, addr = next, addr < end);
+}
+EXPORT_SYMBOL_GPL(hyp_idmap_del);
+#endif
 
 /*
  * In order to soft-boot, we need to switch to a 1:1 mapping for the
