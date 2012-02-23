@@ -33,6 +33,7 @@
 #include <asm/ptrace.h>
 #include <asm/mman.h>
 #include <asm/tlbflush.h>
+#include <asm/cputype.h>
 #include <asm/kvm_arm.h>
 #include <asm/kvm_asm.h>
 #include <asm/kvm_mmu.h>
@@ -213,6 +214,24 @@ int kvm_cpu_has_pending_timer(struct kvm_vcpu *vcpu)
 
 int kvm_arch_vcpu_init(struct kvm_vcpu *vcpu)
 {
+	unsigned long cpsr;
+	unsigned long sctlr;
+
+
+	/* Init execution CPSR */
+	asm volatile ("mrs	%[cpsr], cpsr" :
+			[cpsr] "=r" (cpsr));
+	vcpu->arch.regs.cpsr = SVC_MODE | PSR_I_BIT | PSR_F_BIT | PSR_A_BIT |
+				(cpsr & PSR_E_BIT);
+
+	/* Init SCTLR with MMU disabled */
+	asm volatile ("mrc	p15, 0, %[sctlr], c1, c0, 0" :
+			[sctlr] "=r" (sctlr));
+	vcpu->arch.cp15[c1_SCTLR] = sctlr & ~1U;
+
+	/* Compute guest MPIDR */
+	vcpu->arch.cp15[c0_MPIDR] = (read_cpuid_mpidr() & ~0xff)
+				    | vcpu->vcpu_id;
 	return 0;
 }
 
@@ -255,12 +274,125 @@ int kvm_arch_vcpu_runnable(struct kvm_vcpu *v)
 
 int kvm_arch_vcpu_in_guest_mode(struct kvm_vcpu *v)
 {
-	return 0;
+	return v->mode == IN_GUEST_MODE;
 }
 
+static void reset_vm_context(void *info)
+{
+	__kvm_flush_vm_context();
+}
+
+/**
+ * update_vttbr - Update the VTTBR with a valid VMID before the guest runs
+ * @kvm	The guest that we are about to run
+ *
+ * Called from kvm_arch_vcpu_ioctl_run before entering the guest to ensure the
+ * VM has a valid VMID, otherwise assigns a new one and flushes corresponding
+ * caches and TLBs.
+ */
+static void update_vttbr(struct kvm *kvm)
+{
+	phys_addr_t pgd_phys;
+
+	spin_lock(&kvm_vmid_lock);
+
+	/*
+	 *  Check that the VMID is still valid.
+	 *  (The hardware supports only 256 values with the value zero
+	 *   reserved for the host, so we check if an assigned value has rolled
+	 *   over a sequence, which requires us to assign a new value and flush
+	 *   necessary caches and TLBs on all CPUs.)
+	 */
+	if (unlikely((kvm->arch.vmid ^ next_vmid) >> VMID_BITS)) {
+		/* Check for a new VMID generation */
+		if (unlikely((next_vmid & VMID_MASK) == 0)) {
+			/* Check for the (very unlikely) 64-bit wrap around */
+			if (unlikely(next_vmid == 0))
+				next_vmid = VMID_FIRST_GENERATION;
+
+			next_vmid++;
+
+			/* This does nothing on UP */
+			smp_call_function(reset_vm_context, NULL, 1);
+
+			/*
+			 * On SMP we know no other CPUs can use this CPU's or
+			 * each other's VMID since the kvm_vmid_lock blocks
+			 * them from reentry to the guest.
+			 */
+
+			reset_vm_context(NULL);
+		}
+
+		kvm->arch.vmid = next_vmid++;
+
+		/* update vttbr to be used with the new vmid */
+		pgd_phys = virt_to_phys(kvm->arch.pgd);
+		kvm->arch.vttbr = pgd_phys & ((1LLU << 40) - 1)
+				  & ~((2 << VTTBR_X) - 1);
+		kvm->arch.vttbr |= kvm->arch.vmid << 48;
+	}
+
+	spin_unlock(&kvm_vmid_lock);
+}
+
+/**
+ * kvm_arch_vcpu_ioctl_run - the main VCPU run function to execute guest code
+ * @vcpu:	The VCPU pointer
+ * @run:	The kvm_run structure pointer used for userspace state exchange
+ *
+ * This function is called through the VCPU_RUN ioctl called from user space. It
+ * will execute VM code in a loop until the time slice for the process is used
+ * or some emulation is needed from user space in which case the function will
+ * return with return value 0 and with the kvm_run structure filled in with the
+ * required data for the requested emulation.
+ */
 int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 {
-	return -EINVAL;
+	int ret = 0;
+	sigset_t sigsaved;
+
+	if (vcpu->sigset_active)
+		sigprocmask(SIG_SETMASK, &vcpu->sigset, &sigsaved);
+
+	run->exit_reason = KVM_EXIT_UNKNOWN;
+	while (run->exit_reason == KVM_EXIT_UNKNOWN) {
+		/*
+		 * Check conditions before entering the guest
+		 */
+		if (need_resched())
+			kvm_resched(vcpu);
+
+		if (signal_pending(current)) {
+			ret = -EINTR;
+			run->exit_reason = KVM_EXIT_INTR;
+			break;
+		}
+
+		/*
+		 * Enter the guest
+		 */
+		trace_kvm_entry(vcpu->arch.regs.pc);
+
+		update_vttbr(vcpu->kvm);
+
+		local_irq_disable();
+		kvm_guest_enter();
+		vcpu->mode = IN_GUEST_MODE;
+
+		ret = __kvm_vcpu_run(vcpu);
+
+		vcpu->mode = OUTSIDE_GUEST_MODE;
+		kvm_guest_exit();
+		local_irq_enable();
+
+		trace_kvm_exit(vcpu->arch.regs.pc);
+	}
+
+	if (vcpu->sigset_active)
+		sigprocmask(SIG_SETMASK, &sigsaved, NULL);
+
+	return ret;
 }
 
 static int kvm_arch_vm_ioctl_irq_line(struct kvm *kvm,
