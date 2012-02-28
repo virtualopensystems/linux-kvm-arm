@@ -786,7 +786,7 @@ static void __init kuser_get_tls_init(unsigned long vectors)
 
 void __init early_trap_init(void)
 {
-#if defined(CONFIG_CPU_USE_DOMAINS)
+#if defined(CONFIG_CPU_USE_DOMAINS) || !defined(CONFIG_MMU)
 	unsigned long vectors = CONFIG_VECTORS_BASE;
 #else
 	unsigned long vectors = (unsigned long)vectors_page;
