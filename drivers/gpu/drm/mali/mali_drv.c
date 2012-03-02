@@ -57,6 +57,16 @@ static int mali_drm_unload(struct drm_device *dev)
 	return 0;
 }
 
+static const struct file_operations drm_fops = {
+	.owner = THIS_MODULE,
+	.open = drm_open,
+	.release = drm_release,
+	.unlocked_ioctl = drm_ioctl,
+	.mmap = drm_mmap,
+	.poll = drm_poll,
+	.fasync = drm_fasync,
+};
+
 static struct drm_driver driver = 
 {
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,39)
@@ -76,15 +86,7 @@ static struct drm_driver driver =
 	.get_reg_ofs = drm_core_get_reg_ofs,
 #endif
 	.ioctls = NULL,
-	.fops = {
-		 .owner = THIS_MODULE,
-		 .open = drm_open,
-		 .release = drm_release,
-		 .unlocked_ioctl = drm_ioctl,
-		 .mmap = drm_mmap,
-		 .poll = drm_poll,
-		 .fasync = drm_fasync,
-	},
+	.fops = &drm_fops,
 	.name = DRIVER_NAME,
 	.desc = DRIVER_DESC,
 	.date = DRIVER_DATE,
