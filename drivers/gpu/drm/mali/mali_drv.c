@@ -29,7 +29,7 @@ static struct pci_driver mali_pci_driver = {
 };
 #endif
 
-void mali_drm_preclose(struct drm_device *dev)
+void mali_drm_preclose(struct drm_device *dev, struct drm_file *file_priv)
 {
 }
 
@@ -37,7 +37,7 @@ void mali_drm_lastclose(struct drm_device *dev)
 {
 }
 
-static int mali_drm_suspend(struct drm_device *dev)
+static int mali_drm_suspend(struct drm_device *dev, pm_message_t state)
 {
 	return 0;
 }
