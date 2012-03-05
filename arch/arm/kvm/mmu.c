@@ -18,6 +18,7 @@
 
 #include <linux/mman.h>
 #include <linux/kvm_host.h>
+#include <linux/io.h>
 #include <trace/events/kvm.h>
 #include <asm/idmap.h>
 #include <asm/pgalloc.h>
@@ -25,6 +26,7 @@
 #include <asm/kvm_mmu.h>
 #include <asm/kvm_asm.h>
 #include <asm/kvm_emulate.h>
+#include <asm/mach/map.h>
 
 #include "trace.h"
 
@@ -74,24 +76,43 @@ void free_hyp_pmds(void)
 	mutex_unlock(&kvm_hyp_pgd_mutex);
 }
 
+/*
+ * Create a HYP pte mapping.
+ *
+ * If pfn_base is NULL, we map kernel pages into HYP with the virtual
+ * address. Otherwise, this is considered an I/O mapping and we map
+ * the physical region starting at *pfn_base to [start, end[.
+ */
 static void create_hyp_pte_mappings(pmd_t *pmd, unsigned long start,
-						unsigned long end)
+				    unsigned long end, unsigned long *pfn_base)
 {
 	pte_t *pte;
-	struct page *page;
 	unsigned long addr;
+	pgprot_t prot;
+
+	if (pfn_base)
+		prot = __pgprot(get_mem_type_prot_pte(MT_DEVICE) | L_PTE_USER);
+	else
+		prot = PAGE_HYP;
 
 	for (addr = start & PAGE_MASK; addr < end; addr += PAGE_SIZE) {
 		pte = pte_offset_kernel(pmd, addr);
-		BUG_ON(!virt_addr_valid(addr));
-		page = virt_to_page(addr);
+		if (pfn_base) {
+			BUG_ON(pfn_valid(*pfn_base));
+			set_pte_ext(pte, pfn_pte(*pfn_base, prot), 0);
+			(*pfn_base)++;
+		} else {
+			struct page *page;
+			BUG_ON(!virt_addr_valid(addr));
+			page = virt_to_page(addr);
+			set_pte_ext(pte, mk_pte(page, prot), 0);
+		}
 
-		set_pte_ext(pte, mk_pte(page, PAGE_HYP), 0);
 	}
 }
 
 static int create_hyp_pmd_mappings(pud_t *pud, unsigned long start,
-					       unsigned long end)
+				   unsigned long end, unsigned long *pfn_base)
 {
 	pmd_t *pmd;
 	pte_t *pte;
@@ -112,23 +133,13 @@ static int create_hyp_pmd_mappings(pud_t *pud, unsigned long start,
 		}
 
 		next = pmd_addr_end(addr, end);
-		create_hyp_pte_mappings(pmd, addr, next);
+		create_hyp_pte_mappings(pmd, addr, next, pfn_base);
 	}
 
 	return 0;
 }
 
-/**
- * create_hyp_mappings - map a kernel virtual address range in Hyp mode
- * @from:	The virtual kernel start address of the range
- * @to:		The virtual kernel end address of the range (exclusive)
- *
- * The same virtual address as the kernel virtual address is also used in
- * Hyp-mode mapping to the same underlying physical pages.
- *
- * Note: Wrapping around zero in the "to" address is not supported.
- */
-int create_hyp_mappings(void *from, void *to)
+static int __create_hyp_mappings(void *from, void *to, unsigned long *pfn_base)
 {
 	unsigned long start = (unsigned long)from;
 	unsigned long end = (unsigned long)to;
@@ -158,13 +169,40 @@ int create_hyp_mappings(void *from, void *to)
 		}
 
 		next = pgd_addr_end(addr, end);
-		err = create_hyp_pmd_mappings(pud, addr, next);
+		err = create_hyp_pmd_mappings(pud, addr, next, pfn_base);
 		if (err)
 			goto out;
 	}
 out:
 	mutex_unlock(&kvm_hyp_pgd_mutex);
 	return err;
+}
+
+/**
+ * create_hyp_mappings - map a kernel virtual address range in Hyp mode
+ * @from:	The virtual kernel start address of the range
+ * @to:		The virtual kernel end address of the range (exclusive)
+ *
+ * The same virtual address as the kernel virtual address is also used in
+ * Hyp-mode mapping to the same underlying physical pages.
+ *
+ * Note: Wrapping around zero in the "to" address is not supported.
+ */
+int create_hyp_mappings(void *from, void *to)
+{
+	return __create_hyp_mappings(from, to, NULL);
+}
+
+/**
+ * create_hyp_io_mappings - map a physical IO range in Hyp mode
+ * @from:	The virtual HYP start address of the range
+ * @to:		The virtual HYP end address of the range (exclusive)
+ * @addr:	The physical start address which gets mapped
+ */
+int create_hyp_io_mappings(void *from, void *to, phys_addr_t addr)
+{
+	unsigned long pfn = __phys_to_pfn(addr);
+	return __create_hyp_mappings(from, to, &pfn);
 }
 
 /**
