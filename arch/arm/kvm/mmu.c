@@ -537,7 +537,7 @@ int kvm_handle_guest_abort(struct kvm_vcpu *vcpu, struct kvm_run *run)
 		}
 
 		/* Adjust page offset */
-		fault_ipa += vcpu->arch.hdfar % PAGE_SIZE;
+		fault_ipa |= vcpu->arch.hdfar & ~PAGE_MASK;
 		return io_mem_abort(vcpu, run, fault_ipa, memslot);
 	}
 
