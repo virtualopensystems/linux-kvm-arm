@@ -244,8 +244,12 @@ static void free_guest_pages(pte_t *pte, unsigned long addr)
 
 	for (i = 0; i < PTRS_PER_PTE; i++) {
 		if (pte_present(*pte)) {
-			page = pfn_to_page(pte_pfn(*pte));
-			put_page(page);
+			unsigned long pfn = pte_pfn(*pte);
+
+			if (pfn_valid(pfn)) { /* Skip over device memory */
+				page = pfn_to_page(pfn);
+				put_page(page);
+			}
 			put_page(pte_page);
 		}
 		pte++;
@@ -467,6 +471,42 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
 	if (ret)
 		put_page(pfn_to_page(pfn));
 	spin_unlock(&vcpu->kvm->arch.pgd_lock);
+
+	return ret;
+}
+
+/*
+ * kvm_phys_addr_ioremap -- Map a device range to guest IPA
+ *
+ * @kvm:	The KVM pointer
+ * @guest_ipa:	The IPA at which to insert the mapping
+ * @pa:		The physical address of the device
+ * @size:	The size of the mapping
+ */
+int kvm_phys_addr_ioremap(struct kvm *kvm, phys_addr_t guest_ipa,
+			  phys_addr_t pa, unsigned long size)
+{
+	phys_addr_t addr, end;
+	pgprot_t prot;
+	int ret = 0;
+	unsigned long pfn;
+
+	end = (guest_ipa + size + PAGE_SIZE - 1) & PAGE_MASK;
+	prot = __pgprot(get_mem_type_prot_pte(MT_DEVICE) | L_PTE_USER |
+			L_PTE2_READ | L_PTE2_WRITE);
+	pfn = __phys_to_pfn(pa);
+
+	spin_lock(&kvm->arch.pgd_lock);
+	for (addr = guest_ipa; addr < end; addr += PAGE_SIZE) {
+		pte_t pte = pfn_pte(pfn, prot);
+
+		ret = stage2_set_pte(kvm, addr, &pte);
+		if (ret)
+			break;
+
+		pfn++;
+	}
+	spin_unlock(&kvm->arch.pgd_lock);
 
 	return ret;
 }
