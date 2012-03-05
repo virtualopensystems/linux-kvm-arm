@@ -1153,9 +1153,9 @@ static int pio_in_emulated(struct x86_emulate_ctxt *ctxt,
 }
 
 static int read_interrupt_descriptor(struct x86_emulate_ctxt *ctxt,
-				     u16 index, struct kvm_desc_struct *desc)
+				     u16 index, struct desc_struct *desc)
 {
-	struct kvm_desc_ptr dt;
+	struct desc_ptr dt;
 	ulong addr;
 
 	ctxt->ops->get_idt(ctxt, &dt);
@@ -2491,7 +2491,7 @@ static int emulator_do_task_switch(struct x86_emulate_ctxt *ctxt,
 	if (reason == TASK_SWITCH_GATE) {
 		if (idt_index != -1) {
 			/* Software interrupts */
-			struct kvm_desc_struct task_gate_desc;
+			struct desc_struct task_gate_desc;
 			int dpl;
 
 			ret = read_interrupt_descriptor(ctxt, idt_index,
