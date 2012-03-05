@@ -22,7 +22,14 @@
 #define AMBA_UART_CR(base)	(*(volatile unsigned char *)((base) + 0x30))
 #define AMBA_UART_FR(base)	(*(volatile unsigned char *)((base) + 0x18))
 
+
+#if defined(CONFIG_DEBUG_VEXPRESS_CA9X4_UART)
 #define get_uart_base()	(0x10000000 + 0x00009000)
+#elif defined(CONFIG_DEBUG_VEXPRESS_RS1_UART)
+#define get_uart_base()	(0x1c000000 + 0x00090000)
+#else
+#define get_uart_base() (0UL)
+#endif
 
 /*
  * This does not append a newline
@@ -30,6 +37,9 @@
 static inline void putc(int c)
 {
 	unsigned long base = get_uart_base();
+
+	if (!base)
+		return;
 
 	while (AMBA_UART_FR(base) & (1 << 5))
 		barrier();
@@ -40,6 +50,9 @@ static inline void putc(int c)
 static inline void flush(void)
 {
 	unsigned long base = get_uart_base();
+
+	if (!base)
+		return;
 
 	while (AMBA_UART_FR(base) & (1 << 3))
 		barrier();
