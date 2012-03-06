@@ -810,7 +810,7 @@ bool kvm_vcpu_compatible(struct kvm_vcpu *vcpu);
 
 #else
 
-static bool kvm_vcpu_compatible(struct kvm_vcpu *vcpu) { return true; }
+static inline bool kvm_vcpu_compatible(struct kvm_vcpu *vcpu) { return true; }
 
 #endif
 
