@@ -75,13 +75,31 @@ void kvm_arch_sync_events(struct kvm *kvm)
 {
 }
 
+int kvm_arch_vcpu_fault(struct kvm_vcpu *vcpu, struct vm_fault *vmf)
+{
+	return VM_FAULT_SIGBUS;
+}
+
+void kvm_arch_free_memslot(struct kvm_memory_slot *free,
+                           struct kvm_memory_slot *dont)
+{
+}
+
+int kvm_arch_create_memslot(struct kvm_memory_slot *slot, unsigned long npages)
+{
+	return 0;
+}
+
 /**
  * kvm_arch_init_vm - initializes a VM data structure
  * @kvm:	pointer to the KVM struct
  */
-int kvm_arch_init_vm(struct kvm *kvm)
+int kvm_arch_init_vm(struct kvm *kvm, unsigned long type)
 {
 	int ret = 0;
+
+	if (type)
+		return -EINVAL;
 
 	ret = kvm_alloc_stage2_pgd(kvm);
 	if (ret)

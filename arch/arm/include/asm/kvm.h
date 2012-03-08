@@ -78,4 +78,10 @@ struct kvm_guest_debug_arch {
 struct kvm_debug_exit_arch {
 };
 
+struct kvm_sync_regs {
+};
+
+struct kvm_arch_memory_slot {
+};
+
 #endif /* __ARM_KVM_H__ */
