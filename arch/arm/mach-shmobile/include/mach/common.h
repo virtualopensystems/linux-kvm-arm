@@ -2,9 +2,10 @@
 #define __ARCH_MACH_COMMON_H
 
 extern struct sys_timer shmobile_timer;
+struct twd_local_timer;
+void shmobile_twd_init(struct twd_local_timer *twd_local_timer);
 extern void shmobile_setup_console(void);
 extern void shmobile_secondary_vector(void);
-extern int shmobile_platform_cpu_kill(unsigned int cpu);
 struct clk;
 extern int clk_init(void);
 extern void shmobile_handle_irq_intc(struct pt_regs *);
@@ -50,11 +51,6 @@ extern struct clk sh73a0_extal2_clk;
 extern struct clk sh73a0_extcki_clk;
 extern struct clk sh73a0_extalr_clk;
 
-extern unsigned int sh73a0_get_core_count(void);
-extern void sh73a0_secondary_init(unsigned int cpu);
-extern int sh73a0_boot_secondary(unsigned int cpu);
-extern void sh73a0_smp_prepare_cpus(void);
-
 extern void r8a7740_init_irq(void);
 extern void r8a7740_add_early_devices(void);
 extern void r8a7740_add_standard_devices(void);
@@ -68,10 +64,10 @@ extern void r8a7779_clock_init(void);
 extern void r8a7779_pinmux_init(void);
 extern void r8a7779_pm_init(void);
 
-extern unsigned int r8a7779_get_core_count(void);
 extern int r8a7779_platform_cpu_kill(unsigned int cpu);
-extern void r8a7779_secondary_init(unsigned int cpu);
-extern int r8a7779_boot_secondary(unsigned int cpu);
-extern void r8a7779_smp_prepare_cpus(void);
+
+extern int shmobile_cpu_kill(unsigned int cpu);
+extern void shmobile_cpu_die(unsigned int cpu);
+extern int shmobile_cpu_disable(unsigned int cpu);
 
 #endif /* __ARCH_MACH_COMMON_H */

@@ -519,4 +519,10 @@ enum {
 #define SH73A0_PINT0_IRQ(irq) ((irq) + 800)
 #define SH73A0_PINT1_IRQ(irq) ((irq) + 832)
 
+#include <asm/soc.h>
+
+extern struct arm_soc_smp_init_ops sh73a0_soc_smp_init_ops;
+extern struct arm_soc_smp_ops sh73a0_soc_smp_ops;
+extern struct arm_soc_desc sh73a0_soc_desc;
+
 #endif /* __ASM_SH73A0_H__ */

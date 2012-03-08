@@ -52,9 +52,6 @@ config MIGHT_HAVE_PCI
 config SYS_SUPPORTS_APM_EMULATION
 	bool
 
-config HAVE_SCHED_CLOCK
-	bool
-
 config GENERIC_GPIO
 	bool
 
@@ -314,6 +311,7 @@ config ARCH_VEXPRESS
 	select ICST
 	select PLAT_VERSATILE
 	select PLAT_VERSATILE_CLCD
+	select NEED_MACH_MEMORY_H
 	help
 	  This enables support for the ARM Ltd Versatile Express boards.
 
@@ -438,7 +436,6 @@ config ARCH_MXC
 	select CLKDEV_LOOKUP
 	select CLKSRC_MMIO
 	select GENERIC_IRQ_CHIP
-	select HAVE_SCHED_CLOCK
 	select MULTI_IRQ_HANDLER
 	help
 	  Support for Freescale MXC/iMX-based family of processors
@@ -530,7 +527,6 @@ config ARCH_IXP4XX
 	select CPU_XSCALE
 	select GENERIC_GPIO
 	select GENERIC_CLOCKEVENTS
-	select HAVE_SCHED_CLOCK
 	select MIGHT_HAVE_PCI
 	select DMABOUNCE if PCI
 	help
@@ -601,7 +597,6 @@ config ARCH_MMP
 	select CLKDEV_LOOKUP
 	select GENERIC_CLOCKEVENTS
 	select GPIO_PXA
-	select HAVE_SCHED_CLOCK
 	select TICK_ONESHOT
 	select PLAT_PXA
 	select SPARSE_IRQ
@@ -642,7 +637,6 @@ config ARCH_TEGRA
 	select GENERIC_CLOCKEVENTS
 	select GENERIC_GPIO
 	select HAVE_CLK
-	select HAVE_SCHED_CLOCK
 	select HAVE_SMP
 	select MIGHT_HAVE_CACHE_L2X0
 	select ARCH_HAS_CPUFREQ
@@ -659,7 +653,6 @@ config ARCH_PICOXCELL
 	select DW_APB_TIMER
 	select GENERIC_CLOCKEVENTS
 	select GENERIC_GPIO
-	select HAVE_SCHED_CLOCK
 	select HAVE_TCM
 	select NO_IOPORT
 	select SPARSE_IRQ
@@ -687,7 +680,6 @@ config ARCH_PXA
 	select ARCH_REQUIRE_GPIOLIB
 	select GENERIC_CLOCKEVENTS
 	select GPIO_PXA
-	select HAVE_SCHED_CLOCK
 	select TICK_ONESHOT
 	select PLAT_PXA
 	select SPARSE_IRQ
@@ -755,7 +747,6 @@ config ARCH_SA1100
 	select CPU_FREQ
 	select GENERIC_CLOCKEVENTS
 	select HAVE_CLK
-	select HAVE_SCHED_CLOCK
 	select TICK_ONESHOT
 	select ARCH_REQUIRE_GPIOLIB
 	select HAVE_IDE
@@ -812,7 +803,6 @@ config ARCH_S5P64X0
 	select CLKSRC_MMIO
 	select HAVE_S3C2410_WATCHDOG if WATCHDOG
 	select GENERIC_CLOCKEVENTS
-	select HAVE_SCHED_CLOCK
 	select HAVE_S3C2410_I2C if I2C
 	select HAVE_S3C_RTC if RTC_CLASS
 	help
@@ -843,7 +833,6 @@ config ARCH_S5PV210
 	select CLKSRC_MMIO
 	select ARCH_HAS_CPUFREQ
 	select GENERIC_CLOCKEVENTS
-	select HAVE_SCHED_CLOCK
 	select HAVE_S3C2410_I2C if I2C
 	select HAVE_S3C_RTC if RTC_CLASS
 	select HAVE_S3C2410_WATCHDOG if WATCHDOG
@@ -886,7 +875,6 @@ config ARCH_U300
 	depends on MMU
 	select CLKSRC_MMIO
 	select CPU_ARM926T
-	select HAVE_SCHED_CLOCK
 	select HAVE_TCM
 	select ARM_AMBA
 	select ARM_PATCH_PHYS_VIRT
@@ -944,7 +932,6 @@ config ARCH_OMAP
 	select ARCH_HAS_CPUFREQ
 	select CLKSRC_MMIO
 	select GENERIC_CLOCKEVENTS
-	select HAVE_SCHED_CLOCK
 	select ARCH_HAS_HOLES_MEMORYMODEL
 	help
 	  Support for TI's OMAP platform (OMAP1/2/3/4).
@@ -1110,13 +1097,11 @@ config ARCH_ACORN
 config PLAT_IOP
 	bool
 	select GENERIC_CLOCKEVENTS
-	select HAVE_SCHED_CLOCK
 
 config PLAT_ORION
 	bool
 	select CLKSRC_MMIO
 	select GENERIC_IRQ_CHIP
-	select HAVE_SCHED_CLOCK
 
 config PLAT_PXA
 	bool
@@ -1519,6 +1504,13 @@ config HAVE_ARM_SCU
 	bool
 	help
 	  This option enables support for the ARM system coherency unit
+
+config ARM_ARCH_TIMER
+	bool "Architected timer support"
+	depends on CPU_V7
+	select TICK_ONESHOT
+	help
+	  This option enables support for the ARM architected timer
 
 config HAVE_ARM_TWD
 	bool

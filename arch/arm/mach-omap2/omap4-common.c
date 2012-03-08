@@ -17,6 +17,7 @@
 #include <linux/platform_device.h>
 #include <linux/memblock.h>
 
+#include <asm/soc.h>
 #include <asm/hardware/gic.h>
 #include <asm/hardware/cache-l2x0.h>
 #include <asm/mach/map.h>
@@ -205,3 +206,9 @@ static int __init omap4_sar_ram_init(void)
 	return 0;
 }
 early_initcall(omap4_sar_ram_init);
+
+struct arm_soc_desc omap4_soc_desc __initdata = {
+	.name		= "TI OMAP4",
+	soc_smp_init_ops(omap4_soc_smp_init_ops)
+	soc_smp_ops(omap4_soc_smp_ops)
+};

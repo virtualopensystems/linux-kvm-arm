@@ -195,7 +195,18 @@ extern void omap_secondary_startup(void);
 extern u32 omap_modify_auxcoreboot0(u32 set_mask, u32 clear_mask);
 extern void omap_auxcoreboot_addr(u32 cpu_addr);
 extern u32 omap_read_auxcoreboot0(void);
+
+extern void omap4_cpu_die(unsigned int cpu);
+
+struct arm_soc_smp_init_ops;
+struct arm_soc_smp_ops;
+
+extern struct arm_soc_smp_init_ops	omap4_soc_smp_init_ops;
+extern struct arm_soc_smp_ops		omap4_soc_smp_ops;
 #endif
+
+struct arm_soc_desc;
+extern struct arm_soc_desc		omap4_soc_desc;
 
 #if defined(CONFIG_SMP) && defined(CONFIG_PM)
 extern int omap4_mpuss_init(void);

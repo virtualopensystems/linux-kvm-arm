@@ -634,6 +634,7 @@ struct sys_timer ag5evm_timer = {
 };
 
 MACHINE_START(AG5EVM, "ag5evm")
+	.soc		= &sh73a0_soc_desc,
 	.map_io		= ag5evm_map_io,
 	.nr_irqs	= NR_IRQS_LEGACY,
 	.init_irq	= sh73a0_init_irq,

@@ -27,6 +27,7 @@
 #include <asm/cacheflush.h>
 #include <asm/smp_plat.h>
 #include <asm/smp_scu.h>
+#include <asm/smp_twd.h>
 #include <asm/hardware/arm_timer.h>
 #include <asm/hardware/timer-sp.h>
 #include <asm/hardware/gic.h>
@@ -111,6 +112,8 @@ static void __init highbank_timer_init(void)
 
 	sp804_clocksource_init(timer_base + 0x20, "timer1");
 	sp804_clockevents_init(timer_base, irq, "timer0");
+
+	twd_local_timer_of_register();
 }
 
 static struct sys_timer highbank_timer = {
@@ -138,7 +141,14 @@ static const char *highbank_match[] __initconst = {
 	NULL,
 };
 
+static struct arm_soc_desc highbank_soc_desc __initdata = {
+	.name	= "Calxeda Highbank",
+	soc_smp_init_ops(highbank_soc_smp_init_ops)
+	soc_smp_ops(highbank_soc_smp_ops)
+};
+
 DT_MACHINE_START(HIGHBANK, "Highbank")
+	.soc		= &highbank_soc_desc,
 	.map_io		= highbank_map_io,
 	.init_irq	= highbank_init_irq,
 	.timer		= &highbank_timer,

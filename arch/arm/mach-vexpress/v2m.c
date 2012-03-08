@@ -4,6 +4,7 @@
 #include <linux/device.h>
 #include <linux/amba/bus.h>
 #include <linux/amba/mmci.h>
+#include <linux/amba/clcd.h>
 #include <linux/io.h>
 #include <linux/init.h>
 #include <linux/platform_device.h>
@@ -13,9 +14,11 @@
 #include <linux/device.h>
 #include <linux/usb/isp1760.h>
 #include <linux/clkdev.h>
+#include <linux/mm.h>
 #include <linux/mtd/physmap.h>
 
 #include <asm/mach-types.h>
+#include <asm/soc.h>
 #include <asm/sizes.h>
 #include <asm/mach/arch.h>
 #include <asm/mach/map.h>
@@ -26,23 +29,24 @@
 #include <asm/hardware/gic.h>
 
 #include <mach/ct-ca9x4.h>
+#include <mach/ct-ca15x4.h>
+#include <mach/ct-ca5s.h>
 #include <mach/motherboard.h>
 
 #include <plat/sched_clock.h>
+#include <plat/platsmp.h>
+#include <plat/clcd.h>
 
 #include "core.h"
 
-#define V2M_PA_CS0	0x40000000
-#define V2M_PA_CS1	0x44000000
-#define V2M_PA_CS2	0x48000000
-#define V2M_PA_CS3	0x4c000000
-#define V2M_PA_CS7	0x10000000
+
+struct ct_desc *ct_desc;
 
 static struct map_desc v2m_io_desc[] __initdata = {
 	{
 		.virtual	= __MMIO_P2V(V2M_PA_CS7),
 		.pfn		= __phys_to_pfn(V2M_PA_CS7),
-		.length		= SZ_128K,
+		.length		= V2M_SIZE_CS7,
 		.type		= MT_DEVICE,
 	},
 };
@@ -63,6 +67,8 @@ static void __init v2m_timer_init(void)
 	sp804_clocksource_init(MMIO_P2V(V2M_TIMER1), "v2m-timer1");
 	sp804_clockevents_init(MMIO_P2V(V2M_TIMER0), IRQ_V2M_TIMER0,
 		"v2m-timer0");
+
+	ct_desc->timer_init();
 }
 
 static struct sys_timer v2m_timer = {
@@ -173,6 +179,31 @@ static struct platform_device v2m_eth_device = {
 	.dev.platform_data = &v2m_eth_config,
 };
 
+static struct platform_device v2m_eth_deprecated_device = {
+	.name		= "smc91x",
+	.id		= -1,
+	.resource	= v2m_eth_resources,
+	.num_resources	= ARRAY_SIZE(v2m_eth_resources),
+};
+
+static struct platform_device *v2m_eth_device_probe(void)
+{
+	u32 idrev;
+	void __iomem *eth_addr = ioremap(V2M_LAN9118, SZ_4K);
+	struct platform_device *eth_dev = NULL;
+
+	if (eth_addr) {
+		idrev = readl(eth_addr + 0x50);
+		if ((idrev & 0xffff0000) == 0x01180000)
+			eth_dev = &v2m_eth_device;
+		else
+			eth_dev = &v2m_eth_deprecated_device;
+		iounmap(eth_addr);
+	}
+
+	return eth_dev;
+}
+
 static struct resource v2m_usb_resources[] = {
 	{
 		.start	= V2M_ISP1761,
@@ -266,6 +297,74 @@ static struct mmci_platform_data v2m_mmci_data = {
 	.status		= v2m_mmci_status,
 };
 
+/*
+ * Motherboard CLCD controller.
+ */
+static void v2m_clcd_enable(struct clcd_fb *fb)
+{
+	v2m_cfg_write(SYS_CFG_MUXFPGA | SYS_CFG_SITE_MB, 0);
+#ifdef CONFIG_ARCH_VEXPRESS_CA15X4
+	/* work around model bug */
+	if (ct_desc == &ct_ca15x4_desc)
+		return;
+#endif
+	v2m_cfg_write(SYS_CFG_DVIMODE | SYS_CFG_SITE_MB, 2);
+}
+
+static int v2m_clcd_setup(struct clcd_fb *fb)
+{
+	unsigned long framesize = 640 * 480 * 2;
+
+	fb->panel = versatile_clcd_get_panel("VGA");
+	if (!fb->panel)
+		return -EINVAL;
+
+	fb->fb.screen_base = ioremap_wc(V2M_VIDEO_SRAM, framesize);
+
+	if (!fb->fb.screen_base) {
+		pr_err("CLCD: unable to map frame buffer\n");
+		return -ENOMEM;
+	}
+
+	fb->fb.fix.smem_start = V2M_VIDEO_SRAM;
+	fb->fb.fix.smem_len = framesize;
+	
+	return 0;
+}
+
+static int v2m_clcd_mmap(struct clcd_fb *fb, struct vm_area_struct *vma)
+{
+	unsigned long off, user_size, kern_size;
+
+	off = vma->vm_pgoff << PAGE_SHIFT;
+	user_size = vma->vm_end - vma->vm_start;
+	kern_size = fb->fb.fix.smem_len;
+
+	if (off >= kern_size || user_size > (kern_size - off))
+		return -ENXIO;
+
+	return remap_pfn_range(vma, vma->vm_start,
+			__phys_to_pfn(fb->fb.fix.smem_start) + vma->vm_pgoff,
+			user_size,
+			pgprot_writecombine(vma->vm_page_prot));
+}
+
+static void v2m_clcd_remove(struct clcd_fb *fb)
+{
+	iounmap(fb->fb.screen_base);
+}
+
+static struct clcd_board v2m_clcd_data = {
+	.name		= "V2M",
+	.caps		= CLCD_CAP_5551 | CLCD_CAP_565,
+	.check		= clcdfb_check,
+	.decode		= clcdfb_decode,
+	.enable		= v2m_clcd_enable,
+	.setup		= v2m_clcd_setup,
+	.mmap		= v2m_clcd_mmap,
+	.remove		= v2m_clcd_remove,
+};
+
 static AMBA_DEVICE(aaci,  "mb:aaci",  V2M_AACI, NULL);
 static AMBA_DEVICE(mmci,  "mb:mmci",  V2M_MMCI, &v2m_mmci_data);
 static AMBA_DEVICE(kmi0,  "mb:kmi0",  V2M_KMI0, NULL);
@@ -276,6 +375,7 @@ static AMBA_DEVICE(uart2, "mb:uart2", V2M_UART2, NULL);
 static AMBA_DEVICE(uart3, "mb:uart3", V2M_UART3, NULL);
 static AMBA_DEVICE(wdt,   "mb:wdt",   V2M_WDT, NULL);
 static AMBA_DEVICE(rtc,   "mb:rtc",   V2M_RTC, NULL);
+static AMBA_DEVICE(clcd,  "mb:clcd",  V2M_CLCD, &v2m_clcd_data);
 
 static struct amba_device *v2m_amba_devs[] __initdata = {
 	&aaci_device,
@@ -369,9 +469,8 @@ static struct clk_lookup v2m_lookups[] = {
 
 static void __init v2m_init_early(void)
 {
-	ct_desc->init_early();
 	clkdev_add_table(v2m_lookups, ARRAY_SIZE(v2m_lookups));
-	versatile_sched_clock_init(MMIO_P2V(V2M_SYS_24MHZ), 24000000);
+	ct_desc->init_early();
 }
 
 static void v2m_power_off(void)
@@ -386,25 +485,39 @@ static void v2m_restart(char str, const char *cmd)
 		printk(KERN_EMERG "Unable to reboot\n");
 }
 
-struct ct_desc *ct_desc;
-
 static struct ct_desc *ct_descs[] __initdata = {
+#ifdef CONFIG_ARCH_VEXPRESS_CA5S
+	&ct_ca5s_desc,
+#endif
 #ifdef CONFIG_ARCH_VEXPRESS_CA9X4
 	&ct_ca9x4_desc,
+#endif
+#ifdef CONFIG_ARCH_VEXPRESS_CA15X4
+	&ct_ca15x4_desc,
 #endif
 };
 
 static void __init v2m_populate_ct_desc(void)
 {
 	int i;
-	u32 current_tile_id;
+	u32 procid_reg, current_tile_id;
 
 	ct_desc = NULL;
-	current_tile_id = readl(MMIO_P2V(V2M_SYS_PROCID0)) & V2M_CT_ID_MASK;
+	procid_reg = readl(MMIO_P2V(V2M_SYS_MISC)) & SYS_MISC_MASTERSITE ?
+			V2M_SYS_PROCID1 : V2M_SYS_PROCID0;
+	current_tile_id = readl(MMIO_P2V(procid_reg));
 
-	for (i = 0; i < ARRAY_SIZE(ct_descs) && !ct_desc; ++i)
-		if (ct_descs[i]->id == current_tile_id)
-			ct_desc = ct_descs[i];
+	for (i = 0; i < ARRAY_SIZE(ct_descs) && !ct_desc; ++i) {
+		const struct ct_id *ct_id = ct_descs[i]->id_table;
+
+		while (ct_id->id) {
+			if ((current_tile_id & ct_id->mask) == ct_id->id) {
+				ct_desc = ct_descs[i];
+				break;
+			}
+			ct_id++;
+		}
+	}
 
 	if (!ct_desc)
 		panic("vexpress: failed to populate core tile description "
@@ -426,13 +539,17 @@ static void __init v2m_init_irq(void)
 static void __init v2m_init(void)
 {
 	int i;
+	struct platform_device *eth_dev;
 
 	platform_device_register(&v2m_pcie_i2c_device);
 	platform_device_register(&v2m_ddc_i2c_device);
 	platform_device_register(&v2m_flash_device);
 	platform_device_register(&v2m_cf_device);
-	platform_device_register(&v2m_eth_device);
 	platform_device_register(&v2m_usb_device);
+
+	eth_dev = v2m_eth_device_probe();
+	if (eth_dev)
+		platform_device_register(eth_dev);
 
 	for (i = 0; i < ARRAY_SIZE(v2m_amba_devs); i++)
 		amba_device_register(v2m_amba_devs[i], &iomem_resource);
@@ -440,10 +557,20 @@ static void __init v2m_init(void)
 	pm_power_off = v2m_power_off;
 
 	ct_desc->init_tile();
+
+	/* Register mb:clcd last to prioritize the tile version */
+	amba_device_register(&clcd_device, &iomem_resource);
 }
+
+static struct arm_soc_desc vexpress_soc_desc __initdata = {
+	.name		= "ARM VE Platform",
+	soc_smp_init_ops(vexpress_soc_smp_init_ops)
+	soc_smp_ops(vexpress_soc_smp_ops)
+};
 
 MACHINE_START(VEXPRESS, "ARM-Versatile Express")
 	.atag_offset	= 0x100,
+	.soc		= &vexpress_soc_desc,
 	.map_io		= v2m_map_io,
 	.init_early	= v2m_init_early,
 	.init_irq	= v2m_init_irq,

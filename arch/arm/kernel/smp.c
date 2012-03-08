@@ -27,6 +27,7 @@
 #include <linux/completion.h>
 
 #include <linux/atomic.h>
+#include <asm/soc.h>
 #include <asm/cacheflush.h>
 #include <asm/cpu.h>
 #include <asm/cputype.h>
@@ -127,13 +128,95 @@ int __cpuinit __cpu_up(unsigned int cpu)
 	return ret;
 }
 
+/* SoC helpers */
+static const struct arm_soc_smp_init_ops *soc_smp_init_ops  __initdata;
+static const struct arm_soc_smp_ops *soc_smp_ops  __cpuinitdata;
+static struct arm_soc_smp_ops __soc_smp_ops __cpuinitdata;
+
+void __init soc_smp_ops_register(struct arm_soc_smp_init_ops *smp_init_ops,
+				 struct arm_soc_smp_ops *smp_ops)
+{
+	if (smp_init_ops)
+		soc_smp_init_ops = smp_init_ops;
+
+	/*
+	 * Warning: we're copying an __initdata structure into a
+	 * __cpuinitdata structure. We *know* it is valid because only
+	 * __cpuinit (or more persistant) functions should be pointed
+	 * to by soc_smp_ops. Still, this is borderline ugly.
+	 */
+	if (smp_ops) {
+		__soc_smp_ops = *smp_ops;
+		soc_smp_ops = &__soc_smp_ops;
+	}
+}
+
+void __init smp_init_cpus(void)
+{
+	if (soc_smp_init_ops && soc_smp_init_ops->smp_init_cpus)
+		soc_smp_init_ops->smp_init_cpus();
+}
+
+static void __init platform_smp_prepare_cpus(unsigned int max_cpus)
+{
+	if (soc_smp_ops && soc_smp_init_ops->smp_prepare_cpus)
+		soc_smp_init_ops->smp_prepare_cpus(max_cpus);
+}
+
+static void __cpuinit platform_secondary_init(unsigned int cpu)
+{
+	if (soc_smp_ops && soc_smp_ops->smp_secondary_init)
+		soc_smp_ops->smp_secondary_init(cpu);
+}
+
+int __cpuinit boot_secondary(unsigned int cpu, struct task_struct *idle)
+{
+	if (soc_smp_ops && soc_smp_ops->smp_boot_secondary)
+		return soc_smp_ops->smp_boot_secondary(cpu, idle);
+	return -ENOSYS;
+}
+
 #ifdef CONFIG_HOTPLUG_CPU
 static void percpu_timer_stop(void);
+
+int dummy_cpu_kill(unsigned int cpu)
+{
+	return 1;
+}
+
+int dummy_cpu_disable(unsigned int cpu)
+{
+	/*
+	 * we don't allow CPU 0 to be shutdown (it is still too special
+	 * e.g. clock tick interrupts)
+	 */
+	return cpu == 0 ? -EPERM : 0;
+}
+
+static int __cpuinit platform_cpu_kill(unsigned int cpu)
+{
+	if (soc_smp_ops && soc_smp_ops->cpu_kill)
+		return soc_smp_ops->cpu_kill(cpu);
+	return 0;
+}
+
+static void __cpuinit platform_cpu_die(unsigned int cpu)
+{
+	if (soc_smp_ops && soc_smp_ops->cpu_die)
+		soc_smp_ops->cpu_die(cpu);
+}
+
+static int __cpuinit platform_cpu_disable(unsigned int cpu)
+{
+	if (soc_smp_ops && soc_smp_ops->cpu_disable)
+		return soc_smp_ops->cpu_disable(cpu);
+	return -EPERM;
+}
 
 /*
  * __cpu_disable runs on the processor to be shutdown.
  */
-int __cpu_disable(void)
+int __cpuinit __cpu_disable(void)
 {
 	unsigned int cpu = smp_processor_id();
 	struct task_struct *p;
@@ -182,7 +265,7 @@ static DECLARE_COMPLETION(cpu_died);
  * called on the thread which is asking for a CPU to be shutdown -
  * waits until shutdown has completed, or it is timed out.
  */
-void __cpu_die(unsigned int cpu)
+void __cpuinit __cpu_die(unsigned int cpu)
 {
 	if (!wait_for_completion_timeout(&cpu_died, msecs_to_jiffies(5000))) {
 		pr_err("CPU%u: cpu didn't die\n", cpu);
@@ -245,6 +328,8 @@ static void __cpuinit smp_store_cpu_info(unsigned int cpuid)
 
 	store_cpu_topology(cpuid);
 }
+
+static void percpu_timer_setup(void);
 
 /*
  * This is the secondary CPU boot entry.  We're using this CPUs
@@ -459,7 +544,23 @@ static void __cpuinit broadcast_timer_setup(struct clock_event_device *evt)
 	clockevents_register_device(evt);
 }
 
-void __cpuinit percpu_timer_setup(void)
+static struct local_timer_ops *lt_ops;
+
+#ifdef CONFIG_LOCAL_TIMERS
+int local_timer_register(struct local_timer_ops *ops)
+{
+	if (!is_smp())
+		return -ENXIO;
+
+	if (lt_ops)
+		return -EBUSY;
+
+	lt_ops = ops;
+	return 0;
+}
+#endif
+
+static void __cpuinit percpu_timer_setup(void)
 {
 	unsigned int cpu = smp_processor_id();
 	struct clock_event_device *evt = &per_cpu(percpu_clockevent, cpu);
@@ -467,7 +568,7 @@ void __cpuinit percpu_timer_setup(void)
 	evt->cpumask = cpumask_of(cpu);
 	evt->broadcast = smp_timer_broadcast;
 
-	if (local_timer_setup(evt))
+	if (!lt_ops || lt_ops->setup(evt))
 		broadcast_timer_setup(evt);
 }
 
@@ -482,7 +583,8 @@ static void percpu_timer_stop(void)
 	unsigned int cpu = smp_processor_id();
 	struct clock_event_device *evt = &per_cpu(percpu_clockevent, cpu);
 
-	local_timer_stop(evt);
+	if (lt_ops)
+		lt_ops->stop(evt);
 }
 #endif
 
