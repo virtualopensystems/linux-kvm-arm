@@ -390,6 +390,13 @@ static int handle_hvc(struct kvm_vcpu *vcpu, struct kvm_run *run)
 	return 0;
 }
 
+static int handle_smc(struct kvm_vcpu *vcpu, struct kvm_run *run)
+{
+	/* We don't support SMC; don't do that. */
+	kvm_debug("smc: at %08x", vcpu->arch.regs.pc);
+	return -EINVAL;
+}
+
 static int handle_dabt_hyp(struct kvm_vcpu *vcpu, struct kvm_run *run)
 {
 	/* The hypervisor should never cause aborts */
@@ -409,6 +416,7 @@ static int (*arm_exit_handlers[])(struct kvm_vcpu *vcpu, struct kvm_run *r) = {
 	[HSR_EC_CP10_ID]	= kvm_handle_cp10_id,
 	[HSR_EC_SVC_HYP]	= handle_svc_hyp,
 	[HSR_EC_HVC]		= handle_hvc,
+	[HSR_EC_SMC]		= handle_smc,
 	[HSR_EC_IABT]		= kvm_handle_guest_abort,
 	[HSR_EC_DABT]		= kvm_handle_guest_abort,
 	[HSR_EC_DABT_HYP]	= handle_dabt_hyp,
