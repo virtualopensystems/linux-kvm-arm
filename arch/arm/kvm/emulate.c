@@ -165,7 +165,7 @@ struct coproc_params {
 	bool is_write;
 };
 
-static void cp15_op(struct kvm_vcpu *vcpu, struct coproc_params *p,
+static void cp15_op(struct kvm_vcpu *vcpu, const struct coproc_params *p,
 			   enum cp15_regs cp15_reg)
 {
 	if (p->is_write)
@@ -174,7 +174,7 @@ static void cp15_op(struct kvm_vcpu *vcpu, struct coproc_params *p,
 		*vcpu_reg(vcpu, p->Rt1) = vcpu->arch.cp15[cp15_reg];
 }
 
-static void print_cp_instr(struct coproc_params *p)
+static void print_cp_instr(const struct coproc_params *p)
 {
 	if (p->is_64bit) {
 		kvm_debug("%s\tp15, %lu, r%lu, r%lu, c%lu",
@@ -213,7 +213,7 @@ int kvm_handle_cp14_access(struct kvm_vcpu *vcpu, struct kvm_run *run)
  * @p:    The coprocessor parameters struct pointer holding trap inst. details
  */
 static int emulate_cp15_c9_access(struct kvm_vcpu *vcpu,
-				  struct coproc_params *p)
+				  const struct coproc_params *p)
 {
 	BUG_ON(p->CRn != 9);
 	BUG_ON(p->is_64bit);
@@ -251,7 +251,7 @@ static int emulate_cp15_c9_access(struct kvm_vcpu *vcpu,
  * to these registers.
  */
 static int emulate_cp15_c10_access(struct kvm_vcpu *vcpu,
-				   struct coproc_params *p)
+				   const struct coproc_params *p)
 {
 	BUG_ON(p->CRn != 10);
 	BUG_ON(p->is_64bit);
@@ -293,7 +293,7 @@ static int emulate_cp15_c10_access(struct kvm_vcpu *vcpu,
  * This may need to be refined.
  */
 static int emulate_cp15_c15_access(struct kvm_vcpu *vcpu,
-				   struct coproc_params *p)
+				   const struct coproc_params *p)
 {
 	trace_kvm_emulate_cp15_imp(p->Op1, p->Rt1, p->CRn, p->CRm,
 				   p->Op2, p->is_write);
