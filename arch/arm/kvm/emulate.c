@@ -304,55 +304,25 @@ static int emulate_cp15_c15_access(struct kvm_vcpu *vcpu,
 	return 0;
 }
 
-/**
- * kvm_handle_cp15_access -- handles a trap on a guest CP15 access
- * @vcpu: The VCPU pointer
- * @run:  The kvm_run struct
- *
- * Investigates the CRn/CRm and wether this was mcr/mrc or mcrr/mrrc and either
- * simply errors out if the operation was not supported (should maybe raise
- * undefined to guest instead?) and otherwise emulated access.
- */
-int kvm_handle_cp15_access(struct kvm_vcpu *vcpu, struct kvm_run *run)
+static int emulate_cp15(struct kvm_vcpu *vcpu,
+			const struct coproc_params *params)
 {
-	unsigned long hsr_ec, instr_len;
-	struct coproc_params params;
-	int ret = 0;
-
-	hsr_ec = vcpu->arch.hsr >> HSR_EC_SHIFT;
-	params.CRm = (vcpu->arch.hsr >> 1) & 0xf;
-	params.Rt1 = (vcpu->arch.hsr >> 5) & 0xf;
-	BUG_ON(params.Rt1 >= 15);
-	params.is_write = ((vcpu->arch.hsr & 1) == 0);
-	params.is_64bit = (hsr_ec == HSR_EC_CP15_64);
-
-	if (params.is_64bit) {
-		/* mrrc, mccr operation */
-		params.Op1 = (vcpu->arch.hsr >> 16) & 0xf;
-		params.Op2 = 0;
-		params.Rt2 = (vcpu->arch.hsr >> 10) & 0xf;
-		BUG_ON(params.Rt2 >= 15);
-		params.CRn = 0;
-	} else {
-		params.CRn = (vcpu->arch.hsr >> 10) & 0xf;
-		params.Op1 = (vcpu->arch.hsr >> 14) & 0x7;
-		params.Op2 = (vcpu->arch.hsr >> 17) & 0x7;
-		params.Rt2 = 0;
-	}
+	unsigned long instr_len;
+	int ret;
 
 	/* So far no mrrc/mcrr accesses are emulated */
-	if (params.is_64bit)
+	if (params->is_64bit)
 		goto unsupp_err_out;
 
-	switch (params.CRn) {
+	switch (params->CRn) {
 	case 9:
-		ret = emulate_cp15_c9_access(vcpu, &params);
+		ret = emulate_cp15_c9_access(vcpu, params);
 		break;
 	case 10:
-		ret = emulate_cp15_c10_access(vcpu, &params);
+		ret = emulate_cp15_c10_access(vcpu, params);
 		break;
 	case 15:
-		ret = emulate_cp15_c15_access(vcpu, &params);
+		ret = emulate_cp15_c15_access(vcpu, params);
 		break;
 	default:
 		ret = -EINVAL;
@@ -367,10 +337,55 @@ int kvm_handle_cp15_access(struct kvm_vcpu *vcpu, struct kvm_run *run)
 	*vcpu_reg(vcpu, 15) += instr_len;
 
 	return ret;
+
 unsupp_err_out:
 	kvm_err("Unsupported guest CP15 access at: %08x\n", vcpu->arch.regs.pc);
-	print_cp_instr(&params);
-	return -EINVAL;
+	print_cp_instr(params);
+	return ret;
+}
+
+/**
+ * kvm_handle_cp15_64 -- handles a mrrc/mcrr trap on a guest CP15 access
+ * @vcpu: The VCPU pointer
+ * @run:  The kvm_run struct
+ */
+int kvm_handle_cp15_64(struct kvm_vcpu *vcpu, struct kvm_run *run)
+{
+	struct coproc_params params;
+
+	params.CRm = (vcpu->arch.hsr >> 1) & 0xf;
+	params.Rt1 = (vcpu->arch.hsr >> 5) & 0xf;
+	params.is_write = ((vcpu->arch.hsr & 1) == 0);
+	params.is_64bit = true;
+
+	params.Op1 = (vcpu->arch.hsr >> 16) & 0xf;
+	params.Op2 = 0;
+	params.Rt2 = (vcpu->arch.hsr >> 10) & 0xf;
+	params.CRn = 0;
+
+	return emulate_cp15(vcpu, &params);
+}
+
+/**
+ * kvm_handle_cp15_32 -- handles a mrc/mcr trap on a guest CP15 access
+ * @vcpu: The VCPU pointer
+ * @run:  The kvm_run struct
+ */
+int kvm_handle_cp15_32(struct kvm_vcpu *vcpu, struct kvm_run *run)
+{
+	struct coproc_params params;
+
+	params.CRm = (vcpu->arch.hsr >> 1) & 0xf;
+	params.Rt1 = (vcpu->arch.hsr >> 5) & 0xf;
+	params.is_write = ((vcpu->arch.hsr & 1) == 0);
+	params.is_64bit = false;
+
+	params.CRn = (vcpu->arch.hsr >> 10) & 0xf;
+	params.Op1 = (vcpu->arch.hsr >> 14) & 0x7;
+	params.Op2 = (vcpu->arch.hsr >> 17) & 0x7;
+	params.Rt2 = 0;
+
+	return emulate_cp15(vcpu, &params);
 }
 
 /**

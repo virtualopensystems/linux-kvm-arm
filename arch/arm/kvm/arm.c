@@ -400,8 +400,8 @@ static int handle_dabt_hyp(struct kvm_vcpu *vcpu, struct kvm_run *run)
 
 static int (*arm_exit_handlers[])(struct kvm_vcpu *vcpu, struct kvm_run *r) = {
 	[HSR_EC_WFI]		= kvm_handle_wfi,
-	[HSR_EC_CP15_32]	= kvm_handle_cp15_access,
-	[HSR_EC_CP15_64]	= kvm_handle_cp15_access,
+	[HSR_EC_CP15_32]	= kvm_handle_cp15_32,
+	[HSR_EC_CP15_64]	= kvm_handle_cp15_64,
 	[HSR_EC_CP14_MR]	= kvm_handle_cp14_access,
 	[HSR_EC_CP14_LS]	= kvm_handle_cp14_load_store,
 	[HSR_EC_CP14_64]	= kvm_handle_cp14_access,
