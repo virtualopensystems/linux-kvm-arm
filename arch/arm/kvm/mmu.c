@@ -521,8 +521,8 @@ int kvm_handle_guest_abort(struct kvm_vcpu *vcpu, struct kvm_run *run)
 	/* Check that the second stage fault is a translation fault */
 	fault_status = vcpu->arch.hsr & HSR_ABT_FS;
 	if ((fault_status & 0x3c) != 0x4) {
-		kvm_err("Unsupported fault status: %lx\n",
-				fault_status & 0x3c);
+		kvm_err("Unsupported fault status: EC=%lx DFCS=%lx\n",
+			hsr_ec, fault_status);
 		return -EFAULT;
 	}
 
