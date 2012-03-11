@@ -608,7 +608,7 @@ static void cpu_set_vector(void *vector)
 		"smc	#0\n\t" : :
 		[vector_ptr] "r" (vector_ptr),
 		[smc_hyp_nr] "r" (smc_hyp_nr) :
-		"r0", "r1", "r7");
+		"r0", "r7");
 }
 
 static void cpu_init_hyp_mode(void *vector)
