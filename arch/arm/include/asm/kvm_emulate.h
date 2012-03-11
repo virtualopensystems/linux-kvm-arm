@@ -59,11 +59,11 @@ static inline u32 *vcpu_spsr_mode(struct kvm_vcpu *vcpu, enum vcpu_mode mode)
 	case MODE_SVC:
 		return &vcpu->arch.regs.svc_regs[2];
 	case MODE_ABT:
-		return &vcpu->arch.regs.svc_regs[2];
+		return &vcpu->arch.regs.abt_regs[2];
 	case MODE_UND:
-		return &vcpu->arch.regs.svc_regs[2];
+		return &vcpu->arch.regs.und_regs[2];
 	case MODE_IRQ:
-		return &vcpu->arch.regs.svc_regs[2];
+		return &vcpu->arch.regs.irq_regs[2];
 	case MODE_FIQ:
 		return &vcpu->arch.regs.fiq_regs[7];
 	default:
