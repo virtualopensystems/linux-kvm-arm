@@ -250,7 +250,8 @@ ENTRY(__kvm_vcpu_run)
 
 	@ Set up guest memory translation
 	ldr	r1, [r0, #VCPU_KVM]	@ r1 points to kvm struct
-	ldrd	r2, r3, [r1, #KVM_VTTBR]
+	add	r1, r1, #KVM_VTTBR
+	ldrd	r2, r3, [r1]
 	mcrr	p15, 6, r2, r3, c2	@ Write VTTBR
 
 	@ Configure Hyp-role
