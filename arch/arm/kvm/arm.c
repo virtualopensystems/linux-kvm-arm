@@ -53,6 +53,11 @@ int kvm_arch_hardware_enable(void *garbage)
 	return 0;
 }
 
+int kvm_arch_vcpu_should_kick(struct kvm_vcpu *vcpu)
+{
+	return 1;
+}
+
 void kvm_arch_hardware_disable(void *garbage)
 {
 }
