@@ -36,7 +36,7 @@ enum KVM_ARM_IRQ_LINE_TYPE {
  *
  * Note: These indices do NOT correspond to the value of the CPSR mode bits!
  */
-enum vcpu_modes {
+enum vcpu_mode {
 	MODE_FIQ = 0,
 	MODE_IRQ,
 	MODE_SVC,

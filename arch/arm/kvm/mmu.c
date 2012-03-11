@@ -486,7 +486,7 @@ static int io_mem_abort(struct kvm_vcpu *vcpu, struct kvm_run *run,
 	 * The MMIO instruction is emulated and should not be re-executed
 	 * in the guest.
 	 */
-	*vcpu_reg(vcpu, 15) += instr_len;
+	*vcpu_pc(vcpu) += instr_len;
 	return 0;
 }
 

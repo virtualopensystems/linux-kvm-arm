@@ -20,9 +20,9 @@
 #include <linux/kvm_host.h>
 #include <asm/kvm_asm.h>
 
-u32 *kvm_vcpu_reg(struct kvm_vcpu *vcpu, u8 reg_num, u32 mode);
+u32 *vcpu_reg_mode(struct kvm_vcpu *vcpu, u8 reg_num, enum vcpu_mode mode);
 
-static inline unsigned char vcpu_mode(struct kvm_vcpu *vcpu)
+static inline enum vcpu_mode vcpu_mode(struct kvm_vcpu *vcpu)
 {
 	u8 modes_table[16] = {
 		MODE_USR,	/* 0x0 */
@@ -53,7 +53,7 @@ int kvm_emulate_mmio_ls(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
 /*
  * Return the SPSR for the specified mode of the virtual CPU.
  */
-static inline u32 *kvm_vcpu_spsr(struct kvm_vcpu *vcpu, u32 mode)
+static inline u32 *vcpu_spsr_mode(struct kvm_vcpu *vcpu, enum vcpu_mode mode)
 {
 	switch (mode) {
 	case MODE_SVC:
@@ -74,7 +74,12 @@ static inline u32 *kvm_vcpu_spsr(struct kvm_vcpu *vcpu, u32 mode)
 /* Get vcpu register for current mode */
 static inline u32 *vcpu_reg(struct kvm_vcpu *vcpu, unsigned long reg_num)
 {
-	return kvm_vcpu_reg(vcpu, reg_num, vcpu_mode(vcpu));
+	return vcpu_reg_mode(vcpu, reg_num, vcpu_mode(vcpu));
+}
+
+static inline u32 *vcpu_pc(struct kvm_vcpu *vcpu)
+{
+	return vcpu_reg(vcpu, 15);
 }
 
 static inline u32 *vcpu_cpsr(struct kvm_vcpu *vcpu)
@@ -85,7 +90,7 @@ static inline u32 *vcpu_cpsr(struct kvm_vcpu *vcpu)
 /* Get vcpu SPSR for current mode */
 static inline u32 *vcpu_spsr(struct kvm_vcpu *vcpu)
 {
-	return kvm_vcpu_spsr(vcpu, vcpu_mode(vcpu));
+	return vcpu_spsr_mode(vcpu, vcpu_mode(vcpu));
 }
 
 static inline bool mode_has_spsr(struct kvm_vcpu *vcpu)

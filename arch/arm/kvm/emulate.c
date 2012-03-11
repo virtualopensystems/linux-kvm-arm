@@ -120,7 +120,7 @@ static const unsigned long vcpu_reg_offsets[MODE_SYS + 1][16] = {
  * Return a pointer to the register number valid in the specified mode of
  * the virtual CPU.
  */
-u32 *kvm_vcpu_reg(struct kvm_vcpu *vcpu, u8 reg_num, u32 mode)
+u32 *vcpu_reg_mode(struct kvm_vcpu *vcpu, u8 reg_num, u32 mode)
 {
 	BUG_ON(reg_num > 15);
 	BUG_ON(mode > MODE_SYS);
@@ -656,6 +656,6 @@ int kvm_emulate_mmio_ls(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
 	 * The MMIO instruction is emulated and should not be re-executed
 	 * in the guest. (XXX We don't support Thumb instructions yet).
 	 */
-	*vcpu_reg(vcpu, 15) += 4;
+	*vcpu_pc(vcpu) += 4;
 	return 0;
 }
