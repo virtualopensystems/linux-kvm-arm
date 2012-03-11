@@ -20,7 +20,6 @@ config KVM
 	tristate "Kernel-based Virtual Machine (KVM) support"
 	select PREEMPT_NOTIFIERS
 	select ANON_INODES
-	select KVM_ARM_HOST
 	select KVM_MMIO
 	depends on CPU_V7 && ARM_VIRT_EXT
 	---help---
