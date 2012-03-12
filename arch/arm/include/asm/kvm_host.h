@@ -86,11 +86,7 @@ enum cp15_regs {
 };
 
 struct kvm_vcpu_arch {
-	/* We sometimes access these as an array for simplicity. */
-	union {
-		struct kvm_vcpu_regs regs;
-		u32 reg_array[sizeof(struct kvm_vcpu_regs) / sizeof(u32)];
-	};
+	struct kvm_vcpu_regs regs;
 
 	/* System control coprocessor (cp15) */
 	u32 cp15[nr_cp15_regs];

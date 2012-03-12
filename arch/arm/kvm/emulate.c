@@ -122,10 +122,12 @@ static const unsigned long vcpu_reg_offsets[MODE_SYS + 1][16] = {
  */
 u32 *vcpu_reg_mode(struct kvm_vcpu *vcpu, u8 reg_num, u32 mode)
 {
+	u32 *reg_array = (u32 *)&vcpu->arch.regs;
+
 	BUG_ON(reg_num > 15);
 	BUG_ON(mode > MODE_SYS);
 
-	return &vcpu->arch.reg_array[vcpu_reg_offsets[mode][reg_num]];
+	return reg_array + vcpu_reg_offsets[mode][reg_num];
 }
 
 /******************************************************************************
