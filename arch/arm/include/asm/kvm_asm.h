@@ -32,6 +32,7 @@
 #define SMCHYP_HVBAR_W 0xfffffff0
 
 #ifndef __ASSEMBLY__
+struct kvm;
 struct kvm_vcpu;
 
 extern char __kvm_hyp_init[];
@@ -41,6 +42,8 @@ extern char __kvm_hyp_vector[];
 
 extern char __kvm_hyp_code_start[];
 extern char __kvm_hyp_code_end[];
+
+extern void __kvm_tlb_flush_vmid(struct kvm *kvm);
 
 extern void __kvm_flush_vm_context(void);
 
