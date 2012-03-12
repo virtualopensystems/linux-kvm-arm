@@ -11,21 +11,26 @@
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, write to the Free Software
  * Foundation, 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+ *
  */
 
-#include <linux/module.h>
-#include <asm/kvm_asm.h>
+#ifndef __ARM_KVM_MMU_H__
+#define __ARM_KVM_MMU_H__
 
-EXPORT_SYMBOL_GPL(__kvm_hyp_init);
-EXPORT_SYMBOL_GPL(__kvm_hyp_init_end);
+/*
+ * The architecture supports 40-bit IPA as input to the 2nd stage translations
+ * and PTRS_PER_PGD2 could therefore be 1024.
+ *
+ * To save a bit of memory and to avoid alignment issues we assume 39-bit IPA
+ * for now, but remember that the level-1 table must be aligned to its size.
+ */
+#define PTRS_PER_PGD2	512
+#define PGD2_ORDER	get_order(PTRS_PER_PGD2 * sizeof(pgd_t))
 
-EXPORT_SYMBOL_GPL(__kvm_hyp_vector);
+extern pgd_t *kvm_hyp_pgd;
+extern struct mutex kvm_hyp_pgd_mutex;
 
-EXPORT_SYMBOL_GPL(__kvm_hyp_code_start);
-EXPORT_SYMBOL_GPL(__kvm_hyp_code_end);
+int create_hyp_mappings(pgd_t *hyp_pgd, void *from, void *to);
+void free_hyp_pmds(pgd_t *hyp_pgd);
 
-EXPORT_SYMBOL_GPL(__kvm_vcpu_run);
-
-EXPORT_SYMBOL_GPL(__kvm_flush_vm_context);
-
-EXPORT_SYMBOL_GPL(smp_send_reschedule);
+#endif /* __ARM_KVM_MMU_H__ */
