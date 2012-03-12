@@ -131,8 +131,30 @@ u32 *vcpu_reg_mode(struct kvm_vcpu *vcpu, u8 reg_num, u32 mode)
 }
 
 /******************************************************************************
- * Co-processor emulation
+ * Utility functions common for all emulation code
+ *****************************************************************************/
+
+/*
+ * This one accepts a matrix where the first element is the
+ * bits as they must be, and the second element is the bitmask.
  */
+#define INSTR_NONE	-1
+static int kvm_instr_index(u32 instr, u32 table[][2], int table_entries)
+{
+	int i;
+	u32 mask;
+
+	for (i = 0; i < table_entries; i++) {
+		mask = table[i][1];
+		if ((table[i][0] & mask) == (instr & mask))
+			return i;
+	}
+	return INSTR_NONE;
+}
+
+/******************************************************************************
+ * Co-processor emulation
+ *****************************************************************************/
 
 struct coproc_params {
 	unsigned long CRn;
@@ -387,5 +409,256 @@ int kvm_handle_cp15_32(struct kvm_vcpu *vcpu, struct kvm_run *run)
 
 int kvm_handle_wfi(struct kvm_vcpu *vcpu, struct kvm_run *run)
 {
+	return 0;
+}
+
+
+/******************************************************************************
+ * Load-Store instruction emulation
+ *****************************************************************************/
+
+/*
+ * Must be ordered with LOADS first and WRITES afterwards
+ * for easy distinction when doing MMIO.
+ */
+#define NUM_LD_INSTR  9
+enum INSTR_LS_INDEXES {
+	INSTR_LS_LDRBT, INSTR_LS_LDRT, INSTR_LS_LDR, INSTR_LS_LDRB,
+	INSTR_LS_LDRD, INSTR_LS_LDREX, INSTR_LS_LDRH, INSTR_LS_LDRSB,
+	INSTR_LS_LDRSH,
+	INSTR_LS_STRBT, INSTR_LS_STRT, INSTR_LS_STR, INSTR_LS_STRB,
+	INSTR_LS_STRD, INSTR_LS_STREX, INSTR_LS_STRH,
+	NUM_LS_INSTR
+};
+
+static u32 ls_instr[NUM_LS_INSTR][2] = {
+	{0x04700000, 0x0d700000}, /* LDRBT */
+	{0x04300000, 0x0d700000}, /* LDRT  */
+	{0x04100000, 0x0c500000}, /* LDR   */
+	{0x04500000, 0x0c500000}, /* LDRB  */
+	{0x000000d0, 0x0e1000f0}, /* LDRD  */
+	{0x01900090, 0x0ff000f0}, /* LDREX */
+	{0x001000b0, 0x0e1000f0}, /* LDRH  */
+	{0x001000d0, 0x0e1000f0}, /* LDRSB */
+	{0x001000f0, 0x0e1000f0}, /* LDRSH */
+	{0x04600000, 0x0d700000}, /* STRBT */
+	{0x04200000, 0x0d700000}, /* STRT  */
+	{0x04000000, 0x0c500000}, /* STR   */
+	{0x04400000, 0x0c500000}, /* STRB  */
+	{0x000000f0, 0x0e1000f0}, /* STRD  */
+	{0x01800090, 0x0ff000f0}, /* STREX */
+	{0x000000b0, 0x0e1000f0}  /* STRH  */
+};
+
+static inline int get_arm_ls_instr_index(u32 instr)
+{
+	return kvm_instr_index(instr, ls_instr, NUM_LS_INSTR);
+}
+
+/*
+ * Load-Store instruction decoding
+ */
+#define INSTR_LS_TYPE_BIT		26
+#define INSTR_LS_RD_MASK		0x0000f000
+#define INSTR_LS_RD_SHIFT		12
+#define INSTR_LS_RN_MASK		0x000f0000
+#define INSTR_LS_RN_SHIFT		16
+#define INSTR_LS_RM_MASK		0x0000000f
+#define INSTR_LS_OFFSET12_MASK		0x00000fff
+
+#define INSTR_LS_BIT_P			24
+#define INSTR_LS_BIT_U			23
+#define INSTR_LS_BIT_B			22
+#define INSTR_LS_BIT_W			21
+#define INSTR_LS_BIT_L			20
+#define INSTR_LS_BIT_S			 6
+#define INSTR_LS_BIT_H			 5
+
+/*
+ * ARM addressing mode defines
+ */
+#define OFFSET_IMM_MASK			0x0e000000
+#define OFFSET_IMM_VALUE		0x04000000
+#define OFFSET_REG_MASK			0x0e000ff0
+#define OFFSET_REG_VALUE		0x06000000
+#define OFFSET_SCALE_MASK		0x0e000010
+#define OFFSET_SCALE_VALUE		0x06000000
+
+#define SCALE_SHIFT_MASK		0x000000a0
+#define SCALE_SHIFT_SHIFT		5
+#define SCALE_SHIFT_LSL			0x0
+#define SCALE_SHIFT_LSR			0x1
+#define SCALE_SHIFT_ASR			0x2
+#define SCALE_SHIFT_ROR_RRX		0x3
+#define SCALE_SHIFT_IMM_MASK		0x00000f80
+#define SCALE_SHIFT_IMM_SHIFT		6
+
+#define PSR_BIT_C			29
+
+static unsigned long ls_word_calc_offset(struct kvm_vcpu *vcpu,
+					 unsigned long instr)
+{
+	int offset = 0;
+
+	if ((instr & OFFSET_IMM_MASK) == OFFSET_IMM_VALUE) {
+		/* Immediate offset/index */
+		offset = instr & INSTR_LS_OFFSET12_MASK;
+
+		if (!(instr & (1U << INSTR_LS_BIT_U)))
+			offset = -offset;
+	}
+
+	if ((instr & OFFSET_REG_MASK) == OFFSET_REG_VALUE) {
+		/* Register offset/index */
+		u8 rm = instr & INSTR_LS_RM_MASK;
+		offset = *vcpu_reg(vcpu, rm);
+
+		if (!(instr & (1U << INSTR_LS_BIT_P)))
+			offset = 0;
+	}
+
+	if ((instr & OFFSET_SCALE_MASK) == OFFSET_SCALE_VALUE) {
+		/* Scaled register offset */
+		u8 rm = instr & INSTR_LS_RM_MASK;
+		u8 shift = (instr & SCALE_SHIFT_MASK) >> SCALE_SHIFT_SHIFT;
+		u32 shift_imm = (instr & SCALE_SHIFT_IMM_MASK)
+				>> SCALE_SHIFT_IMM_SHIFT;
+		offset = *vcpu_reg(vcpu, rm);
+
+		switch (shift) {
+		case SCALE_SHIFT_LSL:
+			offset = offset << shift_imm;
+			break;
+		case SCALE_SHIFT_LSR:
+			if (shift_imm == 0)
+				offset = 0;
+			else
+				offset = ((u32)offset) >> shift_imm;
+			break;
+		case SCALE_SHIFT_ASR:
+			if (shift_imm == 0) {
+				if (offset & (1U << 31))
+					offset = 0xffffffff;
+				else
+					offset = 0;
+			} else {
+				/* Ensure arithmetic shift */
+				asm("mov %[r], %[op], ASR %[s]":
+				    [r] "=r" (offset) :
+				    [op] "r" (offset), [s] "r" (shift_imm));
+			}
+			break;
+		case SCALE_SHIFT_ROR_RRX:
+			if (shift_imm == 0) {
+				u32 C = (vcpu->arch.regs.cpsr &
+						(1U << PSR_BIT_C));
+				offset = (C << 31) | offset >> 1;
+			} else {
+				/* Ensure arithmetic shift */
+				asm("mov %[r], %[op], ASR %[s]":
+				    [r] "=r" (offset) :
+				    [op] "r" (offset), [s] "r" (shift_imm));
+			}
+			break;
+		}
+
+		if (instr & (1U << INSTR_LS_BIT_U))
+			return offset;
+		else
+			return -offset;
+	}
+
+	if (instr & (1U << INSTR_LS_BIT_U))
+		return offset;
+	else
+		return -offset;
+
+	BUG();
+}
+
+static int kvm_ls_length(struct kvm_vcpu *vcpu, u32 instr)
+{
+	int index;
+
+	index = get_arm_ls_instr_index(instr);
+
+	if (instr & (1U << INSTR_LS_TYPE_BIT)) {
+		/* LS word or unsigned byte */
+		if (instr & (1U << INSTR_LS_BIT_B))
+			return sizeof(unsigned char);
+		else
+			return sizeof(u32);
+	} else {
+		/* LS halfword, doubleword or signed byte */
+		u32 H = (instr & (1U << INSTR_LS_BIT_H));
+		u32 S = (instr & (1U << INSTR_LS_BIT_S));
+		u32 L = (instr & (1U << INSTR_LS_BIT_L));
+
+		if (!L && S) {
+			kvm_err("WARNING: d-word for MMIO\n");
+			return 2 * sizeof(u32);
+		} else if (L && S && !H)
+			return sizeof(char);
+		else
+			return sizeof(u16);
+	}
+
+	BUG();
+}
+
+/**
+ * kvm_emulate_mmio_ls - emulates load/store instructions made to I/O memory
+ * @vcpu:	The vcpu pointer
+ * @fault_ipa:	The IPA that caused the 2nd stage fault
+ * @instr:	The instruction that caused the fault
+ *
+ * Handles emulation of load/store instructions which cannot be emulated through
+ * information found in the HSR on faults. It is necessary in this case to
+ * simply decode the offending instruction in software and determine the
+ * required operands.
+ */
+int kvm_emulate_mmio_ls(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
+			unsigned long instr)
+{
+	unsigned long rd, rn, offset, len;
+	int index;
+	bool is_write;
+
+	trace_kvm_mmio_emulate(vcpu->arch.regs.pc, instr, vcpu->arch.regs.cpsr);
+
+	index = get_arm_ls_instr_index(instr);
+	if (index == INSTR_NONE) {
+		kvm_err("Unknown load/store instruction\n");
+		return -EINVAL;
+	}
+
+	is_write = (index < NUM_LD_INSTR) ? false : true;
+	rd = (instr & INSTR_LS_RD_MASK) >> INSTR_LS_RD_SHIFT;
+	len = kvm_ls_length(vcpu, instr);
+
+	vcpu->run->exit_reason = KVM_EXIT_MMIO;
+	vcpu->run->mmio.is_write = is_write;
+	vcpu->run->mmio.phys_addr = fault_ipa;
+	vcpu->run->mmio.len = len;
+	vcpu->arch.mmio_sign_extend = false;
+	vcpu->arch.mmio_rd = rd;
+
+	trace_kvm_mmio((is_write) ? KVM_TRACE_MMIO_WRITE :
+				    KVM_TRACE_MMIO_READ_UNSATISFIED,
+			len, fault_ipa, (is_write) ? *vcpu_reg(vcpu, rd) : 0);
+
+	/* Handle base register writeback */
+	if (!(instr & (1U << INSTR_LS_BIT_P)) ||
+	     (instr & (1U << INSTR_LS_BIT_W))) {
+		rn = (instr & INSTR_LS_RN_MASK) >> INSTR_LS_RN_SHIFT;
+		offset = ls_word_calc_offset(vcpu, instr);
+		*vcpu_reg(vcpu, rn) += offset;
+	}
+
+	/*
+	 * The MMIO instruction is emulated and should not be re-executed
+	 * in the guest. (XXX We don't support Thumb instructions yet).
+	 */
+	*vcpu_pc(vcpu) += 4;
 	return 0;
 }

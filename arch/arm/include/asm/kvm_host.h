@@ -99,6 +99,7 @@ struct kvm_vcpu_arch {
 	u64 pc_ipa;		/* IPA for the current PC (VA to PA result) */
 
 	/* IO related fields */
+	bool mmio_sign_extend;	/* for byte/halfword loads */
 	u32 mmio_rd;
 
 	/* Interrupt related fields */
