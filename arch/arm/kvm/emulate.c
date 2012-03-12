@@ -157,8 +157,8 @@ static int kvm_instr_index(u32 instr, u32 table[][2], int table_entries)
  *****************************************************************************/
 
 struct coproc_params {
-	unsigned long CRm;
 	unsigned long CRn;
+	unsigned long CRm;
 	unsigned long Op1;
 	unsigned long Op2;
 	unsigned long Rt1;
@@ -171,15 +171,14 @@ static void print_cp_instr(const struct coproc_params *p)
 {
 	/* Look, we even formatted it for you to paste into the table! */
 	if (p->is_64bit) {
-		kvm_debug("{ .is_64bit = true, .is_write = %s, .param ="
-			  " { .CRm = %lu, .Op1 = %lu } }",
-			  p->is_write ? "true" : "false", p->CRm, p->Op1);
+		kvm_err("{ CRn(DF), CRm(%2lu), Op1(%2lu), Op2(DF), is64, %-6s"
+			" func, arg},\n",
+			p->CRm, p->Op1, p->is_write ? "WRITE," : "READ,");
 	} else {
-		kvm_debug("{ .is_64bit = false, .is_write = %s, .param ="
-			  " { .CRn = %lu, .CRm = %lu,"
-			  " .Op1 = %lu, .Op2 = %lu } }",
-			  p->is_write ? "true" : "false",
-			  p->CRn, p->CRm, p->Op1, p->Op2);
+		kvm_err("{ CRn(%2lu), CRm(%2lu), Op1(%2lu), Op2(%2lu), is32,"
+			" %-6s func, arg},\n",
+			p->CRn, p->CRm, p->Op1, p->Op2,
+			p->is_write ? "WRITE," : "READ,");
 	}
 }
 
@@ -250,18 +249,15 @@ static bool access_cp15_reg(struct kvm_vcpu *vcpu,
 	return true;
 }
 
-
-/* Any field which is 0xFFFFFFFF == any. */
-#define ANY (-1UL)
+/* Any field which is 0xFFFFFFFF == DF */
 struct coproc_emulate {
+	unsigned long CRn;
+	unsigned long CRm;
+	unsigned long Op1;
+	unsigned long Op2;
+
 	unsigned long is_64;
 	unsigned long is_w;
-	struct {
-		unsigned long CRm;
-		unsigned long CRn;
-		unsigned long Op1;
-		unsigned long Op2;
-	} param;
 
 	bool (*f)(struct kvm_vcpu *,
 		  const struct coproc_params *,
@@ -269,47 +265,64 @@ struct coproc_emulate {
 	unsigned long arg;
 };
 
+#define DF (-1UL) /* Default: If nothing else fits, use this one */
+#define CRn(_x)		.CRn = _x
+#define CRm(_x) 	.CRm = _x
+#define Op1(_x) 	.Op1 = _x
+#define Op2(_x) 	.Op2 = _x
+#define is64		.is_64 = true
+#define is32		.is_64 = false
+#define READ		.is_w  = false
+#define WRITE		.is_w  = true
+#define RW		.is_w  = DF
 
 static const struct coproc_emulate coproc_emulate[] = {
-	/* Ignore writes to L2CTLR access */
-	{ .is_64 = false, .is_w = true, .f = ignore_write,
-	  .param = { .CRn = 9, .CRm = 0, .Op1 = 1, .Op2 = 2 } },
-	{ .is_64 = false, .is_w = false, .f = read_l2ctlr,
-	  .param = { .CRn = 9, .CRm = 0, .Op1 = 1, .Op2 = 2 } },
-	/* Hack alert!!! */
-	{ .is_64 = false, .is_w = true, .f = ignore_write,
-	  .param = { .CRn = 9, .CRm = ANY, .Op1 = ANY, .Op2 = ANY } },
-	{ .is_64 = false, .is_w = false, .f = read_zero,
-	  .param = { .CRn = 9, .CRm = ANY, .Op1 = ANY, .Op2 = ANY } },
+	/*
+	 * L2CTLR access:
+	 *
+	 * Ignore writes completely.
+	 *
+	 * FIXME: Hack Alert: Read zero as default case.
+	 */
+	{ CRn( 9), CRm( 0), Op1( 1), Op2( 2), is32,  WRITE, ignore_write},
+	{ CRn( 9), CRm( 0), Op1( 1), Op2( 2), is32,  READ,  read_l2ctlr},
+	{ CRn( 9), CRm(DF), Op1(DF), Op2(DF), is32,  WRITE, ignore_write},
+	{ CRn( 9), CRm(DF), Op1(DF), Op2(DF), is32,  READ,  read_zero},
 
-	/* These CRn == 10 entries may not need to exist - if we can
+	/*
+	 * These CRn == 10 entries may not need to exist - if we can
 	 * ignore guest attempts to tamper with TLB lockdowns then it
 	 * should be enough to store/restore the host/guest PRRR and
 	 * NMRR memory remap registers and allow guest direct access
-	 * to these registers. */
-	/* TLB Lockdown operations - ignored */
-	{ .is_64 = false, .is_w = true, .f = ignore_write,
-	  .param = { .CRn = 10, .CRm = 0, .Op1 = ANY, .Op2 = ANY } },
-	{ .is_64 = false, .is_w = ANY, .f = access_cp15_reg,
-	  .arg = c10_PRRR,
-	  .param = { .CRn = 10, .CRm = 2, .Op1 = 0, .Op2 = 0 } },
-	{ .is_64 = false, .is_w = ANY, .f = access_cp15_reg,
-	  .arg = c10_NMRR,
-	  .param = { .CRn = 10, .CRm = 2, .Op1 = 0, .Op2 = 1 } },
+	 * to these registers.
+	 *
+	 * TLB Lockdown operations - ignored
+	 */
+	{ CRn(10), CRm( 0), Op1(DF), Op2(DF), is32,  WRITE, ignore_write},
+	{ CRn(10), CRm( 2), Op1( 0), Op2( 0), is32,  RW,    access_cp15_reg,
+							    c10_PRRR},
+	{ CRn(10), CRm( 2), Op1( 0), Op2( 1), is32,  RW,    access_cp15_reg,
+							    c10_NMRR},
 
-	/* The CP15 c15 register is architecturally implementation
+	/*
+	 * The CP15 c15 register is architecturally implementation
 	 * defined, but some guest kernels attempt to read/write a
 	 * diagnostics register here. We always return 0 and ignore
-	 * writes and hope for the best. */
-	{ .is_64 = false, .is_w = true, .f = ignore_write, .arg = 1,
-	  .param = { .CRn = 15, .CRm = ANY, .Op1 = ANY, .Op2 = ANY } },
-	{ .is_64 = false, .is_w = false, .f = read_zero, .arg = 1,
-	  .param = { .CRn = 15, .CRm = ANY, .Op1 = ANY, .Op2 = ANY } },
+	 * writes and hope for the best.
+	 */
+	{ CRn(15), CRm(DF), Op1(DF), Op2(DF), is32,  WRITE, ignore_write, 1},
+	{ CRn(15), CRm(DF), Op1(DF), Op2(DF), is32,  READ,  read_zero,    1},
 };
+
+#undef is64
+#undef is32
+#undef READ
+#undef WRITE
+#undef RW
 
 static inline bool match(unsigned long val, unsigned long param)
 {
-	return param == ANY || val == param;
+	return param == DF || val == param;
 }
 
 static int emulate_cp15(struct kvm_vcpu *vcpu,
@@ -324,13 +337,13 @@ static int emulate_cp15(struct kvm_vcpu *vcpu,
 			continue;
 		if (!match(params->is_write, e->is_w))
 			continue;
-		if (!match(params->CRn, e->param.CRn))
+		if (!match(params->CRn, e->CRn))
 			continue;
-		if (!match(params->CRm, e->param.CRm))
+		if (!match(params->CRm, e->CRm))
 			continue;
-		if (!match(params->Op1, e->param.Op1))
+		if (!match(params->Op1, e->Op1))
 			continue;
-		if (!match(params->Op2, e->param.Op2))
+		if (!match(params->Op2, e->Op2))
 			continue;
 
 		/* If function fails, it should complain. */
