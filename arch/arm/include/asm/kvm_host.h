@@ -96,6 +96,7 @@ struct kvm_vcpu_arch {
 	u32 hdfar;		/* Hyp Data Fault Address Register */
 	u32 hifar;		/* Hyp Inst. Fault Address Register */
 	u32 hpfar;		/* Hyp IPA Fault Address Register */
+	u64 pc_ipa;		/* IPA for the current PC (VA to PA result) */
 
 	/* IO related fields */
 	u32 mmio_rd;
