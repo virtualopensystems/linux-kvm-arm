@@ -76,6 +76,9 @@
 
 #include <trace/events/sched.h>
 
+#define CREATE_TRACE_POINTS
+#include <trace/events/task.h>
+
 /*
  * Protected counters by write_lock_irq(&tasklist_lock)
  */
@@ -870,6 +873,7 @@ static int copy_io(unsigned long clone_flags, struct task_struct *tsk)
 {
 #ifdef CONFIG_BLOCK
 	struct io_context *ioc = current->io_context;
+	struct io_context *new_ioc;
 
 	if (!ioc)
 		return 0;
@@ -881,11 +885,12 @@ static int copy_io(unsigned long clone_flags, struct task_struct *tsk)
 		if (unlikely(!tsk->io_context))
 			return -ENOMEM;
 	} else if (ioprio_valid(ioc->ioprio)) {
-		tsk->io_context = alloc_io_context(GFP_KERNEL, -1);
-		if (unlikely(!tsk->io_context))
+		new_ioc = get_task_io_context(tsk, GFP_KERNEL, NUMA_NO_NODE);
+		if (unlikely(!new_ioc))
 			return -ENOMEM;
 
-		tsk->io_context->ioprio = ioc->ioprio;
+		new_ioc->ioprio = ioc->ioprio;
+		put_io_context(new_ioc, NULL);
 	}
 #endif
 	return 0;
@@ -1291,6 +1296,7 @@ static struct task_struct *copy_process(unsigned long clone_flags,
 
 	p->nr_dirtied = 0;
 	p->nr_dirtied_pause = 128 >> (PAGE_SHIFT - 10);
+	p->dirty_paused_when = 0;
 
 	/*
 	 * Ok, make it visible to the rest of the system.
@@ -1370,6 +1376,9 @@ static struct task_struct *copy_process(unsigned long clone_flags,
 	if (clone_flags & CLONE_THREAD)
 		threadgroup_change_end(current);
 	perf_event_fork(p);
+
+	trace_task_newtask(p, clone_flags);
+
 	return p;
 
 bad_fork_free_pid:
@@ -1517,8 +1526,6 @@ long do_fork(unsigned long clone_flags,
 			p->vfork_done = &vfork;
 			init_completion(&vfork);
 		}
-
-		audit_finish_fork(p);
 
 		/*
 		 * We set PF_STARTING at creation in case tracing wants to
