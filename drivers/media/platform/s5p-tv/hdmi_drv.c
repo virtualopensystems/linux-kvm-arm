@@ -702,8 +702,15 @@ static int hdmi_runtime_suspend(struct device *dev)
 	struct hdmi_device *hdev = sd_to_hdmi_dev(sd);
 
 	dev_dbg(dev, "%s\n", __func__);
+#if 0
+	/*
+	 * Currently we are getting a system-hang during soft-reboot and
+	 * suspend-resume here. Commenting temporarily to fix that issue.
+	 * Also HDMI is not working after resume.
+	 */
 	v4l2_subdev_call(hdev->mhl_sd, core, s_power, 0);
 	hdmi_resource_poweroff(&hdev->res);
+#endif
 	/* flag that device context is lost */
 	hdev->cur_conf_dirty = 1;
 	return 0;
