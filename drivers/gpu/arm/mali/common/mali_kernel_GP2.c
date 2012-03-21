@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010-2011 ARM Limited. All rights reserved.
+ * Copyright (C) 2010-2012 ARM Limited. All rights reserved.
  * 
  * This program is free software and is provided to you under the terms of the GNU General Public License version 2
  * as published by the Free Software Foundation, and any use by you of this program is subject to the terms of such GNU licence.
@@ -16,7 +16,7 @@
 #include "mali_osk.h"
 #include "mali_osk_list.h"
 #if MALI_TIMELINE_PROFILING_ENABLED
-#include "mali_kernel_profiling.h"
+#include "mali_osk_profiling.h"
 #endif
 #if defined(USING_MALI400_L2_CACHE)
 #include "mali_kernel_l2_cache.h"
@@ -628,6 +628,32 @@ static _mali_osk_errcode_t subsystem_maligp_start_job(mali_core_job * job, mali_
 			&(jobgp->user_input.frame_registers[0]),
 			sizeof(jobgp->user_input.frame_registers)/sizeof(jobgp->user_input.frame_registers[0]));
 
+#if MALI_TIMELINE_PROFILING_ENABLED
+    /*
+     * If the hardware counters are not turned on, ask the external profiler
+     * if they should be.
+     */
+    if (jobgp->user_input.perf_counter_flag == 0)
+    {
+        mali_bool src0_enabled = _mali_osk_profiling_query_hw_counter(COUNTER_VP_C0,
+            &(jobgp->user_input.perf_counter_src0));
+        mali_bool src1_enabled = _mali_osk_profiling_query_hw_counter(COUNTER_VP_C1,
+            &(jobgp->user_input.perf_counter_src1));
+
+        if (src0_enabled == MALI_TRUE)
+        {
+            jobgp->user_input.perf_counter_flag |=
+                _MALI_PERFORMANCE_COUNTER_FLAG_SRC0_ENABLE;
+        }
+
+        if (src1_enabled == MALI_TRUE)
+        {
+            jobgp->user_input.perf_counter_flag |=
+                _MALI_PERFORMANCE_COUNTER_FLAG_SRC1_ENABLE;
+        }
+    }
+#endif /* MALI_TIMELINE_PROFILING_ENABLED */
+
 	/* This selects which performance counters we are reading */
 	if ( 0 != jobgp->user_input.perf_counter_flag )
 	{
@@ -716,9 +742,9 @@ static _mali_osk_errcode_t subsystem_maligp_start_job(mali_core_job * job, mali_
 	_mali_osk_write_mem_barrier();
 
 #if MALI_TIMELINE_PROFILING_ENABLED
-	_mali_profiling_add_event(MALI_PROFILING_EVENT_TYPE_SINGLE | MALI_PROFILING_MAKE_EVENT_CHANNEL_GP(core->core_number) | MALI_PROFILING_EVENT_REASON_SINGLE_HW_FLUSH, 
+	_mali_osk_profiling_add_event(MALI_PROFILING_EVENT_TYPE_SINGLE | MALI_PROFILING_MAKE_EVENT_CHANNEL_GP(core->core_number) | MALI_PROFILING_EVENT_REASON_SINGLE_HW_FLUSH,
 	                          jobgp->user_input.frame_builder_id, jobgp->user_input.flush_id, 0, 0, 0); 
-	_mali_profiling_add_event(MALI_PROFILING_EVENT_TYPE_START|MALI_PROFILING_MAKE_EVENT_CHANNEL_GP(core->core_number), jobgp->pid, jobgp->tid, 0, 0, 0);
+	_mali_osk_profiling_add_event(MALI_PROFILING_EVENT_TYPE_START|MALI_PROFILING_MAKE_EVENT_CHANNEL_GP(core->core_number), jobgp->pid, jobgp->tid, 0, 0, 0);
 #endif
 
 	MALI_SUCCESS;
@@ -743,7 +769,7 @@ static u32 subsystem_maligp_irq_handler_upper_half(mali_core_renderunit * core)
 		mali_core_renderunit_register_write(core, MALIGP2_REG_ADDR_MGMT_INT_MASK, MALIGP2_REG_VAL_IRQ_MASK_NONE);
 
 #if MALI_TIMELINE_PROFILING_ENABLED
-		_mali_profiling_add_event(MALI_PROFILING_EVENT_TYPE_SINGLE|MALI_PROFILING_MAKE_EVENT_CHANNEL_GP(core->core_number)|MALI_PROFILING_EVENT_REASON_SINGLE_HW_INTERRUPT, irq_readout, 0, 0, 0, 0);
+		_mali_osk_profiling_add_event(MALI_PROFILING_EVENT_TYPE_SINGLE|MALI_PROFILING_MAKE_EVENT_CHANNEL_GP(core->core_number)|MALI_PROFILING_EVENT_REASON_SINGLE_HW_INTERRUPT, irq_readout, 0, 0, 0, 0);
 #endif
 
 		/* We do need to handle this in a bottom half, return 1 */
@@ -808,6 +834,12 @@ static int subsystem_maligp_irq_handler_bottom_half(mali_core_renderunit* core)
 		{
 			jobgp->perf_counter0 = mali_core_renderunit_register_read(core, MALIGP2_REG_ADDR_MGMT_PERF_CNT_0_VALUE);
 			jobgp->perf_counter1 = mali_core_renderunit_register_read(core, MALIGP2_REG_ADDR_MGMT_PERF_CNT_1_VALUE);
+
+#if MALI_TIMELINE_PROFILING_ENABLED
+            /* Report the hardware counter values to the external profiler */
+            _mali_osk_profiling_report_hw_counter(COUNTER_VP_C0, jobgp->perf_counter0);
+            _mali_osk_profiling_report_hw_counter(COUNTER_VP_C1, jobgp->perf_counter1);
+#endif /* MALI_TIMELINE_PROFILING_ENABLED */
 		}
 
 #if defined(USING_MALI400_L2_CACHE)
@@ -840,7 +872,7 @@ static int subsystem_maligp_irq_handler_bottom_half(mali_core_renderunit* core)
 #endif
 
 #if MALI_TIMELINE_PROFILING_ENABLED
-		_mali_profiling_add_event(MALI_PROFILING_EVENT_TYPE_STOP|MALI_PROFILING_MAKE_EVENT_CHANNEL_GP(core->core_number), 0, 0, 0, 0, 0); /* add GP and L2 counters and return status? */
+		_mali_osk_profiling_add_event(MALI_PROFILING_EVENT_TYPE_STOP|MALI_PROFILING_MAKE_EVENT_CHANNEL_GP(core->core_number), 0, 0, 0, 0, 0); /* add GP and L2 counters and return status? */
 #endif
 
 		MALI_DEBUG_PRINT(2, ("Mali GP: Job aborted - userspace would not provide more heap memory.\n"));
@@ -869,6 +901,12 @@ static int subsystem_maligp_irq_handler_bottom_half(mali_core_renderunit* core)
 			{
 				jobgp->perf_counter0 = mali_core_renderunit_register_read(core, MALIGP2_REG_ADDR_MGMT_PERF_CNT_0_VALUE);
 				jobgp->perf_counter1 = mali_core_renderunit_register_read(core, MALIGP2_REG_ADDR_MGMT_PERF_CNT_1_VALUE);
+
+#if MALI_TIMELINE_PROFILING_ENABLED
+                /* Report the hardware counter values to the external profiler */
+                _mali_osk_profiling_report_hw_counter(COUNTER_VP_C0, jobgp->perf_counter0);
+                _mali_osk_profiling_report_hw_counter(COUNTER_VP_C1, jobgp->perf_counter1);
+#endif /* MALI_TIMELINE_PROFILING_ENABLED */
 			}
 
 #if defined(USING_MALI400_L2_CACHE)
@@ -902,7 +940,7 @@ static int subsystem_maligp_irq_handler_bottom_half(mali_core_renderunit* core)
 		}
 
 #if MALI_TIMELINE_PROFILING_ENABLED
-		_mali_profiling_add_event(MALI_PROFILING_EVENT_TYPE_STOP|MALI_PROFILING_MAKE_EVENT_CHANNEL_GP(core->core_number),
+		_mali_osk_profiling_add_event(MALI_PROFILING_EVENT_TYPE_STOP|MALI_PROFILING_MAKE_EVENT_CHANNEL_GP(core->core_number),
 				jobgp->perf_counter0, jobgp->perf_counter1,
 				jobgp->user_input.perf_counter_src0 | (jobgp->user_input.perf_counter_src1 << 8)
 #if defined(USING_MALI400_L2_CACHE)
@@ -938,7 +976,7 @@ static int subsystem_maligp_irq_handler_bottom_half(mali_core_renderunit* core)
 		/* no progress detected, killed by the watchdog */
 
 #if MALI_TIMELINE_PROFILING_ENABLED
-		_mali_profiling_add_event(MALI_PROFILING_EVENT_TYPE_STOP|MALI_PROFILING_MAKE_EVENT_CHANNEL_GP(core->core_number), 0, 0, 0, 0, 0); /* add GP and L2 counters and return status? */
+		_mali_osk_profiling_add_event(MALI_PROFILING_EVENT_TYPE_STOP|MALI_PROFILING_MAKE_EVENT_CHANNEL_GP(core->core_number), 0, 0, 0, 0, 0); /* add GP and L2 counters and return status? */
 #endif
 
 		MALI_DEBUG_PRINT(1, ("Mali GP: SW-Timeout. Regs:\n"));
@@ -965,7 +1003,7 @@ static int subsystem_maligp_irq_handler_bottom_half(mali_core_renderunit* core)
 		_mali_uk_gp_job_suspended_s * suspended_job;
 
 #if MALI_TIMELINE_PROFILING_ENABLED
-		_mali_profiling_add_event(MALI_PROFILING_EVENT_TYPE_SUSPEND|MALI_PROFILING_MAKE_EVENT_CHANNEL_GP(core->core_number), 0, 0, 0, 0, 0); /* add GP and L2 counters and return status? */
+		_mali_osk_profiling_add_event(MALI_PROFILING_EVENT_TYPE_SUSPEND|MALI_PROFILING_MAKE_EVENT_CHANNEL_GP(core->core_number), 0, 0, 0, 0, 0); /* add GP and L2 counters and return status? */
 #endif
 
 		session = job->session;
@@ -1046,7 +1084,7 @@ static int subsystem_maligp_irq_handler_bottom_half(mali_core_renderunit* core)
 	else
 	{
 #if MALI_TIMELINE_PROFILING_ENABLED
-		_mali_profiling_add_event(MALI_PROFILING_EVENT_TYPE_STOP|MALI_PROFILING_MAKE_EVENT_CHANNEL_GP(core->core_number), 0, 0, 0, 0, 0); /* add GP and L2 counters and return status? */
+		_mali_osk_profiling_add_event(MALI_PROFILING_EVENT_TYPE_STOP|MALI_PROFILING_MAKE_EVENT_CHANNEL_GP(core->core_number), 0, 0, 0, 0, 0); /* add GP and L2 counters and return status? */
 #endif
 
 		MALI_DEBUG_PRINT(1, ("Mali GP: Core crashed? *IRQ: 0x%x Status: 0x%x\n", irq_readout, core_status ));
@@ -1248,7 +1286,7 @@ static _mali_osk_errcode_t subsystem_maligp_suspend_response(struct mali_core_se
 			_mali_osk_write_mem_barrier();
 
 #if MALI_TIMELINE_PROFILING_ENABLED
-			_mali_profiling_add_event(MALI_PROFILING_EVENT_TYPE_RESUME|MALI_PROFILING_MAKE_EVENT_CHANNEL_GP(core->core_number), 0, 0, 0, 0, 0);
+			_mali_osk_profiling_add_event(MALI_PROFILING_EVENT_TYPE_RESUME|MALI_PROFILING_MAKE_EVENT_CHANNEL_GP(core->core_number), 0, 0, 0, 0, 0);
 #endif
 
 			MALI_DEBUG_PRINT(4, ("GP resumed with new heap\n"));

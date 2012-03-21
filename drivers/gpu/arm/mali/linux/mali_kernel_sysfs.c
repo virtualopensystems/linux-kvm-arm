@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2011 ARM Limited. All rights reserved.
+ * Copyright (C) 2011-2012 ARM Limited. All rights reserved.
  * 
  * This program is free software and is provided to you under the terms of the GNU General Public License version 2
  * as published by the Free Software Foundation, and any use by you of this program is subject to the terms of such GNU licence.
@@ -29,7 +29,7 @@
 #include <linux/slab.h>
 #include "mali_kernel_subsystem.h"
 #include "mali_kernel_sysfs.h"
-#include "mali_kernel_profiling.h"
+#include "mali_osk_profiling.h"
 
 static struct dentry *mali_debugfs_dir = NULL;
 
@@ -73,13 +73,13 @@ static const struct file_operations mali_seq_internal_state_fops = {
 #endif /* MALI_STATE_TRACKING */
 
 
-#if MALI_TIMELINE_PROFILING_ENABLED
+#if MALI_INTERNAL_TIMELINE_PROFILING_ENABLED
 static ssize_t profiling_record_read(struct file *filp, char __user *ubuf, size_t cnt, loff_t *ppos)
 {
 	char buf[64];
 	int r;
 
-	r = sprintf(buf, "%u\n", _mali_profiling_is_recording() ? 1 : 0);
+	r = sprintf(buf, "%u\n", _mali_osk_profiling_is_recording() ? 1 : 0);
 	return simple_read_from_buffer(ubuf, cnt, ppos, buf, r);
 }
 
@@ -112,16 +112,16 @@ static ssize_t profiling_record_write(struct file *filp, const char __user *ubuf
 		u32 limit = MALI_PROFILING_MAX_BUFFER_ENTRIES; /* This can be made configurable at a later stage if we need to */
 
 		/* check if we are already recording */
-		if (MALI_TRUE == _mali_profiling_is_recording())
+		if (MALI_TRUE == _mali_osk_profiling_is_recording())
 		{
 			MALI_DEBUG_PRINT(3, ("Recording of profiling events already in progress\n"));
 			return -EFAULT;
 		}
 
 		/* check if we need to clear out an old recording first */
-		if (MALI_TRUE == _mali_profiling_have_recording())
+		if (MALI_TRUE == _mali_osk_profiling_have_recording())
 		{
-			if (_MALI_OSK_ERR_OK != _mali_profiling_clear())
+			if (_MALI_OSK_ERR_OK != _mali_osk_profiling_clear())
 			{
 				MALI_DEBUG_PRINT(3, ("Failed to clear existing recording of profiling events\n"));
 				return -EFAULT;
@@ -129,7 +129,7 @@ static ssize_t profiling_record_write(struct file *filp, const char __user *ubuf
 		}
 
 		/* start recording profiling data */
-		if (_MALI_OSK_ERR_OK != _mali_profiling_start(&limit))
+		if (_MALI_OSK_ERR_OK != _mali_osk_profiling_start(&limit))
 		{
 			MALI_DEBUG_PRINT(3, ("Failed to start recording of profiling events\n"));
 			return -EFAULT;
@@ -141,7 +141,7 @@ static ssize_t profiling_record_write(struct file *filp, const char __user *ubuf
 	{
 		/* stop recording profiling data */
 		u32 count = 0;
-		if (_MALI_OSK_ERR_OK != _mali_profiling_stop(&count))
+		if (_MALI_OSK_ERR_OK != _mali_osk_profiling_stop(&count))
 		{
 			MALI_DEBUG_PRINT(2, ("Failed to stop recording of profiling events\n"));
 			return -EFAULT;
@@ -165,7 +165,7 @@ static void *profiling_events_start(struct seq_file *s, loff_t *pos)
 	loff_t *spos;
 
 	/* check if we have data avaiable */
-	if (MALI_TRUE != _mali_profiling_have_recording())
+	if (MALI_TRUE != _mali_osk_profiling_have_recording())
 	{
 		return NULL;
 	}
@@ -185,13 +185,13 @@ static void *profiling_events_next(struct seq_file *s, void *v, loff_t *pos)
 	loff_t *spos = v;
 
 	/* check if we have data avaiable */
-	if (MALI_TRUE != _mali_profiling_have_recording())
+	if (MALI_TRUE != _mali_osk_profiling_have_recording())
 	{
 		return NULL;
 	}
 
 	/* check if the next entry actually is avaiable */
-	if (_mali_profiling_get_count() <= (u32)(*spos + 1))
+	if (_mali_osk_profiling_get_count() <= (u32)(*spos + 1))
 	{
 		return NULL;
 	}
@@ -216,7 +216,7 @@ static int profiling_events_show(struct seq_file *seq_file, void *v)
 	index = (u32)*spos;
 
 	/* Retrieve all events */
-	if (_MALI_OSK_ERR_OK == _mali_profiling_get_event(index, &timestamp, &event_id, data))
+	if (_MALI_OSK_ERR_OK == _mali_osk_profiling_get_event(index, &timestamp, &event_id, data))
 	{
 		seq_printf(seq_file, "%llu %u %u %u %u %u %u\n", timestamp, event_id, data[0], data[1], data[2], data[3], data[4]);
 		return 0;
@@ -250,7 +250,7 @@ static ssize_t profiling_proc_default_enable_read(struct file *filp, char __user
 	char buf[64];
 	int r;
 
-	r = sprintf(buf, "%u\n", _mali_profiling_get_default_enable_state() ? 1 : 0);
+	r = sprintf(buf, "%u\n", _mali_osk_profiling_get_default_enable_state() ? 1 : 0);
 	return simple_read_from_buffer(ubuf, cnt, ppos, buf, r);
 }
 
@@ -278,7 +278,7 @@ static ssize_t profiling_proc_default_enable_write(struct file *filp, const char
 		return ret;
 	}
 
-	_mali_profiling_set_default_enable_state(val != 0 ? MALI_TRUE : MALI_FALSE);
+	_mali_osk_profiling_set_default_enable_state(val != 0 ? MALI_TRUE : MALI_FALSE);
 
 	*ppos += cnt;
 	return cnt;
@@ -335,7 +335,7 @@ int mali_sysfs_register(struct mali_dev *device, dev_t dev, const char *mali_dev
 		if(NULL != mali_debugfs_dir)
 		{
 			/* Debugfs directory created successfully; create files now */
-#if MALI_TIMELINE_PROFILING_ENABLED
+#if MALI_INTERNAL_TIMELINE_PROFILING_ENABLED
 			struct dentry *mali_profiling_dir = debugfs_create_dir("profiling", mali_debugfs_dir);
 			if (mali_profiling_dir != NULL)
 			{

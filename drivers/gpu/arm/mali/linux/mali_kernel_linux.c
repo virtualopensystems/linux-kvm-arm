@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2010-2011 ARM Limited. All rights reserved.
+ * Copyright (C) 2010-2012 ARM Limited. All rights reserved.
  * 
  * This program is free software and is provided to you under the terms of the GNU General Public License version 2
  * as published by the Free Software Foundation, and any use by you of this program is subject to the terms of such GNU licence.
@@ -37,6 +37,13 @@
 
 /* */
 #include "mali_kernel_license.h"
+
+/* Streamline support for the Mali driver */
+#if defined(CONFIG_TRACEPOINTS)
+/* Ask Linux to create the tracepoints */
+#define CREATE_TRACE_POINTS
+#include "mali_linux_trace.h"
+#endif /* CONFIG_TRACEPOINTS */
 
 /* from the __malidrv_build_info.c file that is generated during build */
 //extern const char *__malidrv_build_info(void);

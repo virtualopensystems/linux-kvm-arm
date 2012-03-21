@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010-2011 ARM Limited. All rights reserved.
+ * Copyright (C) 2010-2012 ARM Limited. All rights reserved.
  * 
  * This program is free software and is provided to you under the terms of the GNU General Public License version 2
  * as published by the Free Software Foundation, and any use by you of this program is subject to the terms of such GNU licence.
@@ -1684,8 +1684,13 @@ u32 _mali_osk_get_pid(void);
  */
 u32 _mali_osk_get_tid(void);
 
-/** @} */ /* end group  _mali_osk_miscellaneous */
+/** @brief Return a handle to the current task.
+ *
+ * @return An OS-specific handle to the current task.
+ */
+void * _mali_osk_get_task(void);
 
+/** @} */ /* end group  _mali_osk_miscellaneous */
 
 /** @} */ /* end group osuapi */
 

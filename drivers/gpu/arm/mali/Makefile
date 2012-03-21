@@ -68,6 +68,7 @@ USING_MALI_RUN_TIME_PM ?= 0
 USING_MALI_PMM_TESTSUITE ?= 0
 OS_MEMORY_KERNEL_BUFFER_SIZE_IN_MB ?= 6
 USING_PROFILING ?= 0
+USING_INTERNAL_PROFILING ?= 0
 TIMESTAMP ?= default
 TARGET_PLATFORM ?= default
 
@@ -85,6 +86,7 @@ DEFINES += -DUSING_MMU=$(USING_MMU)
 DEFINES += -DUSING_UMP=$(USING_UMP)
 DEFINES += -D_MALI_OSK_SPECIFIC_INDIRECT_MMAP
 DEFINES += -DMALI_TIMELINE_PROFILING_ENABLED=$(USING_PROFILING)
+DEFINES += -DMALI_INTERNAL_TIMELINE_PROFILING_ENABLED=$(USING_INTERNAL_PROFILING)
 DEFINES += -DMALI_POWER_MGMT_TEST_SUITE=$(USING_MALI_PMM_TESTSUITE)
 DEFINES += -DMALI_PMM_RUNTIME_JOB_CONTROL_ON=$(USING_MALI_RUN_TIME_PM)
 
@@ -177,10 +179,18 @@ mali-y := \
 	
 ifeq ($(USING_PROFILING),1)
 mali-y += \
-	common/mali_kernel_profiling.o \
+	linux/mali_osk_profiling_gator.o \
 	timestamp-$(TIMESTAMP)/mali_timestamp.o
 EXTRA_CFLAGS += -I$(MALI_FILE_PREFIX)/timestamp-$(TIMESTAMP)
 endif
+
+ifeq ($(USING_INTERNAL_PROFILING),1)
+mali-y += \
+	common/mali_osk_profiling_internal.o \
+	timestamp-$(TIMESTAMP)/mali_timestamp.o
+EXTRA_CFLAGS += -I$(MALI_FILE_PREFIX)/timestamp-$(TIMESTAMP)
+endif
+
 
 # Selecting files to compile by parsing the config file
 

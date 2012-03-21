@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010-2011 ARM Limited. All rights reserved.
+ * Copyright (C) 2010-2012 ARM Limited. All rights reserved.
  * 
  * This program is free software and is provided to you under the terms of the GNU General Public License version 2
  * as published by the Free Software Foundation, and any use by you of this program is subject to the terms of such GNU licence.
@@ -18,7 +18,7 @@
 #include "mali_kernel_utilization.h"
 #endif
 #if MALI_TIMELINE_PROFILING_ENABLED
-#include "mali_kernel_profiling.h"
+#include "mali_osk_profiling.h"
 #endif
 #if USING_MMU
 #include "mali_kernel_mem_mmu.h"
@@ -160,7 +160,7 @@ static _mali_osk_errcode_t rendercore_subsystem_startup(mali_kernel_subsystem_id
 #endif
 
 #if MALI_TIMELINE_PROFILING_ENABLED
-	if (_mali_profiling_init(mali_boot_profiling ? MALI_TRUE : MALI_FALSE) != _MALI_OSK_ERR_OK)
+	if (_mali_osk_profiling_init(mali_boot_profiling ? MALI_TRUE : MALI_FALSE) != _MALI_OSK_ERR_OK)
 	{
 		/* No biggie if we wheren't able to initialize the profiling */
 		MALI_PRINT_ERROR(("Rendercore: Failed to initialize profiling, feature will be unavailable\n")) ;
@@ -190,7 +190,7 @@ static void rendercore_subsystem_terminate(mali_kernel_subsystem_identifier id)
 	MALI_DEBUG_ASSERT_POINTER( rendercores_global_mutex );
 
 #if MALI_TIMELINE_PROFILING_ENABLED
-	_mali_profiling_term();
+	_mali_osk_profiling_term();
 #endif
 
 #if MALI_GPU_UTILIZATION
