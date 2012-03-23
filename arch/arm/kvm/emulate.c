@@ -303,13 +303,10 @@ static const struct coproc_emulate coproc_emulate[] = {
 	{ CRn( 1), CRm( 0), Op1( 0), Op2( 1), is32, WRITE, ignore_write},
 	{ CRn( 1), CRm( 0), Op1( 0), Op2( 1), is32, READ,  read_actlr},
 	/*
-	 * L2CTLR access:
-	 *
-	 * Ignore writes completely.
+	 * L2CTLR access (guest wants to know #CPUs).
 	 *
 	 * FIXME: Hack Alert: Read zero as default case.
 	 */
-	{ CRn( 9), CRm( 0), Op1( 1), Op2( 2), is32,  WRITE, ignore_write},
 	{ CRn( 9), CRm( 0), Op1( 1), Op2( 2), is32,  READ,  read_l2ctlr},
 	{ CRn( 9), CRm(DF), Op1(DF), Op2(DF), is32,  WRITE, ignore_write},
 	{ CRn( 9), CRm(DF), Op1(DF), Op2(DF), is32,  READ,  read_zero},
