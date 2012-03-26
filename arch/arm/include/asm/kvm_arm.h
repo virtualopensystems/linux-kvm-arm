@@ -47,7 +47,7 @@
 #define HCR_PTW		(1 << 2)
 #define HCR_SWIO	(1 << 1)
 #define HCR_VM		1
-#define HCR_GUEST_MASK (HCR_TSC | HCR_TWE | HCR_TWI | HCR_VM | HCR_AMO | \
+#define HCR_GUEST_MASK (HCR_TSC | HCR_TWI | HCR_VM | \
 			HCR_AMO | HCR_IMO | HCR_FMO | HCR_SWIO)
 #define HCR_VIRT_EXCP_MASK (HCR_VA | HCR_VI | HCR_VF)
 

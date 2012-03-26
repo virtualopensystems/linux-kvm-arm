@@ -249,7 +249,7 @@ ENTRY(__kvm_flush_vm_context)
 	mcr	p15, 4, r2, c1, c1, 3
 .endm
 
-/* Enable/Disable: stage-2 trans., trap interrupts, trap wfi/wfe, trap smc */
+/* Enable/Disable: stage-2 trans., trap interrupts, trap wfi, trap smc */
 .macro configure_hyp_role entry, vcpu_ptr
 	mrc	p15, 4, r2, c1, c1, 0	@ HCR
 	bic	r2, r2, #HCR_VIRT_EXCP_MASK
