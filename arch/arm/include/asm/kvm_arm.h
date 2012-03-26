@@ -37,6 +37,7 @@
 #define HCR_TWI		(1 << 13)
 #define HCR_DC		(1 << 12)
 #define HCR_BSU		(3 << 10)
+#define HCR_BSU_IS	(1 << 10)
 #define HCR_FB		(1 << 9)
 #define HCR_VA		(1 << 8)
 #define HCR_VI		(1 << 7)
@@ -47,7 +48,7 @@
 #define HCR_PTW		(1 << 2)
 #define HCR_SWIO	(1 << 1)
 #define HCR_VM		1
-#define HCR_GUEST_MASK (HCR_TSC | HCR_TWI | HCR_VM | \
+#define HCR_GUEST_MASK (HCR_TSC | HCR_TWI | HCR_VM | HCR_BSU_IS | HCR_FB | \
 			HCR_AMO | HCR_IMO | HCR_FMO | HCR_SWIO)
 #define HCR_VIRT_EXCP_MASK (HCR_VA | HCR_VI | HCR_VF)
 
