@@ -185,6 +185,17 @@ int main(void)
   DEFINE(VCPU_PC_IPA,		offsetof(struct kvm_vcpu, arch.pc_ipa));
   DEFINE(VCPU_PC_IPA2,		offsetof(struct kvm_vcpu, arch.pc_ipa2));
   DEFINE(VCPU_HYP_PC,		offsetof(struct kvm_vcpu, arch.hyp_pc));
+#ifdef CONFIG_KVM_ARM_VGIC
+  DEFINE(VCPU_VGIC_HCR,		offsetof(struct kvm_vcpu, arch.vgic_cpu.vgic_hcr));
+  DEFINE(VCPU_VGIC_VMCR,	offsetof(struct kvm_vcpu, arch.vgic_cpu.vgic_vmcr));
+  DEFINE(VCPU_VGIC_MISR,	offsetof(struct kvm_vcpu, arch.vgic_cpu.vgic_misr));
+  DEFINE(VCPU_VGIC_EISR,	offsetof(struct kvm_vcpu, arch.vgic_cpu.vgic_eisr));
+  DEFINE(VCPU_VGIC_ELRSR,	offsetof(struct kvm_vcpu, arch.vgic_cpu.vgic_elrsr));
+  DEFINE(VCPU_VGIC_APR,		offsetof(struct kvm_vcpu, arch.vgic_cpu.vgic_apr));
+  DEFINE(VCPU_VGIC_LR,		offsetof(struct kvm_vcpu, arch.vgic_cpu.vgic_lr));
+  DEFINE(VCPU_VGIC_NR_LR,	offsetof(struct kvm_vcpu, arch.vgic_cpu.nr_lr));
+  DEFINE(KVM_VGIC_VCTRL,	offsetof(struct kvm, arch.vgic.vctrl_base));
+#endif
   DEFINE(KVM_VTTBR,		offsetof(struct kvm, arch.vttbr));
 #endif
   return 0; 
