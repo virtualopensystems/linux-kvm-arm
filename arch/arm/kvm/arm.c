@@ -177,6 +177,9 @@ int kvm_dev_ioctl_check_extension(long ext)
 {
 	int r;
 	switch (ext) {
+#ifdef CONFIG_KVM_ARM_VGIC
+	case KVM_CAP_IRQCHIP:
+#endif
 	case KVM_CAP_USER_MEMORY:
 	case KVM_CAP_DESTROY_MEMORY_REGION_WORKS:
 		r = 1;
@@ -289,6 +292,9 @@ int kvm_arch_vcpu_init(struct kvm_vcpu *vcpu)
 	if (ret < 0)
 		return ret;
 
+	/* Set up VGIC */
+	kvm_vgic_vcpu_init(vcpu);
+
 	return 0;
 }
 
@@ -343,6 +349,7 @@ int kvm_arch_vcpu_ioctl_set_mpstate(struct kvm_vcpu *vcpu,
 int kvm_arch_vcpu_runnable(struct kvm_vcpu *v)
 {
 	return !!v->arch.irq_lines ||
+		kvm_vgic_vcpu_pending_irq(v) ||
 		!v->arch.wait_for_interrupts;
 }
 
@@ -578,6 +585,8 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 
 		update_vttbr(vcpu->kvm);
 
+		kvm_vgic_sync_to_cpu(vcpu);
+
 		/*
 		 * Make sure preemption is disabled while calling handle_exit
 		 * as exit handling touches CPU-specific resources, such as
@@ -626,6 +635,8 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 		} else {
 			exit_reason = ret; /* 0 == KVM_EXIT_UNKNOWN */
 		}
+
+		kvm_vgic_sync_from_cpu(vcpu);
 	}
 
 	if (vcpu->sigset_active)
@@ -806,6 +817,13 @@ static int init_hyp_mode(void)
 			goto out_free_mappings;
 		}
 	}
+
+	/*
+	 * Init HYP view of VGIC
+	 */
+	err = kvm_vgic_hyp_init();
+	if (err)
+		goto out_free_mappings;
 
 	/*
 	 * Set the HVBAR to the virtual kernel address

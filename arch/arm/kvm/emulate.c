@@ -518,7 +518,7 @@ int kvm_handle_wfi(struct kvm_vcpu *vcpu, struct kvm_run *run)
 {
 	trace_kvm_wfi(vcpu->arch.regs.pc);
 	vcpu->stat.wfi_exits++;
-	if (!vcpu->arch.irq_lines)
+	if (!vcpu->arch.irq_lines && !kvm_vgic_vcpu_pending_irq(vcpu))
 		vcpu->arch.wait_for_interrupts = 1;
 	return 0;
 }

@@ -598,6 +598,7 @@ static int io_mem_abort(struct kvm_vcpu *vcpu, struct kvm_run *run,
 {
 	unsigned long rd, len, instr_len;
 	bool is_write, sign_extend;
+	struct kvm_exit_mmio mmio;
 
 	if (!(vcpu->arch.hsr & HSR_ISV))
 		return invalid_io_mem_abort(vcpu, fault_ipa);
@@ -653,6 +654,8 @@ static int io_mem_abort(struct kvm_vcpu *vcpu, struct kvm_run *run,
 
 	if (is_write)
 		memcpy(run->mmio.data, vcpu_reg(vcpu, rd), len);
+
+	run->exit_reason = vgic_handle_mmio(vcpu, run);
 
 	/*
 	 * The MMIO instruction is emulated and should not be re-executed

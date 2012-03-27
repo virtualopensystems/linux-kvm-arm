@@ -24,6 +24,8 @@
 #define KVM_PRIVATE_MEM_SLOTS 4
 #define KVM_COALESCED_MMIO_PAGE_OFFSET 1
 
+#include <asm/kvm_vgic.h>
+
 /* We don't currently support large pages. */
 #define KVM_HPAGE_GFN_SHIFT(x)	0
 #define KVM_NR_PAGE_SIZES	1
@@ -45,6 +47,9 @@ struct kvm_arch {
 
 	/* VTTBR value associated with above pgd and vmid */
 	u64    vttbr;
+
+	/* Interrupt controller */
+	struct vgic_dist	vgic;
 };
 
 #define EXCEPTION_NONE      0
@@ -125,6 +130,9 @@ struct kvm_vcpu_arch {
 
 	/* Hyp exception information */
 	u32 hyp_pc;		/* PC when exception was taken from Hyp mode */
+
+	/* VGIC state */
+	struct vgic_cpu vgic_cpu;
 };
 
 struct kvm_vm_stat {
