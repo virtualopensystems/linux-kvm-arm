@@ -238,6 +238,23 @@ static bool read_l2ctlr(struct kvm_vcpu *vcpu,
 	return true;
 }
 
+static bool read_actlr(struct kvm_vcpu *vcpu,
+		       const struct coproc_params *p,
+		       unsigned long arg)
+{
+	u32 actlr;
+
+	asm volatile("mrc p15, 0, %0, c1, c0, 1\n" : "=r" (actlr));
+	/* Make the SMP bit consistent with the guest configuration */
+	if (atomic_read(&vcpu->kvm->online_vcpus) > 1)
+		actlr |= 1U << 6;
+	else
+		actlr &= ~(1U << 6);
+	*vcpu_reg(vcpu, p->Rt1) = actlr;
+
+	return true;
+}
+
 static bool access_cp15_reg(struct kvm_vcpu *vcpu,
 			    const struct coproc_params *p,
 			    unsigned long cp15_reg)
@@ -277,6 +294,13 @@ struct coproc_emulate {
 #define RW		.is_w  = DF
 
 static const struct coproc_emulate coproc_emulate[] = {
+	/*
+	 * ACTRL access:
+	 *
+	 * Ignore writes, and read returns the host settings.
+	 */
+	{ CRn( 1), CRm( 0), Op1( 0), Op2( 1), is32, WRITE, ignore_write},
+	{ CRn( 1), CRm( 0), Op1( 0), Op2( 1), is32, READ,  read_actlr},
 	/*
 	 * L2CTLR access:
 	 *
