@@ -630,6 +630,7 @@ static int io_mem_abort(struct kvm_vcpu *vcpu, struct kvm_run *run,
 {
 	unsigned long rd, len;
 	bool is_write, sign_extend;
+	struct kvm_exit_mmio mmio;
 
 	if (!(vcpu->arch.hsr & HSR_ISV))
 		return invalid_io_mem_abort(vcpu, fault_ipa);
@@ -688,7 +689,12 @@ static int io_mem_abort(struct kvm_vcpu *vcpu, struct kvm_run *run,
 	 * in the guest.
 	 */
 	kvm_skip_instr(vcpu, (vcpu->arch.hsr >> 25) & 1);
+
+	if (vgic_handle_mmio(vcpu, run, &mmio))
+		return 1;
+
 	run->exit_reason = KVM_EXIT_MMIO;
+	run->mmio = mmio.mmio;
 	return 0;
 }
 

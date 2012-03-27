@@ -306,6 +306,20 @@ ENDPROC(__kvm_flush_vm_context)
 	mcr	p15, 0, r11, c10, c2, 1	@ NMRR
 .endm
 
+/*
+ * Save the VGIC CPU state into memory
+ * @vcpup: Register pointing to VCPU struct
+ */
+.macro save_vgic_state	vcpup
+.endm
+	
+/*
+ * Restore the VGIC CPU state from memory
+ * @vcpup: Register pointing to VCPU struct
+ */
+.macro restore_vgic_state	vcpup
+.endm
+	
 /* Configures the HSTR (Hyp System Trap Register) on entry/return
  * (hardware reset value is 0) */
 .macro set_hstr entry
@@ -375,6 +389,8 @@ ENTRY(__kvm_vcpu_run)
 	store_mode_state sp, und
 	store_mode_state sp, irq
 	store_mode_state sp, fiq
+
+	restore_vgic_state r0
 
 	@ Store hardware CP15 state and load guest state
 	read_cp15_state
@@ -494,6 +510,8 @@ after_vfp_restore:
 	@ Store guest CP15 state and restore host state
 	read_cp15_state 1, r1
 	write_cp15_state
+
+	save_vgic_state	r1
 
 	load_mode_state sp, fiq
 	load_mode_state sp, irq
