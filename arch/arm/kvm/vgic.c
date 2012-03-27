@@ -69,6 +69,7 @@
 #define ACCESS_WRITE_MASK(x)	((x) & (3 << 1))
 
 static void vgic_update_state(struct kvm *kvm);
+static void vgic_kick_vcpus(struct kvm *kvm);
 static void vgic_dispatch_sgi(struct kvm_vcpu *vcpu, u32 reg);
 
 static inline int vgic_irq_is_edge(struct vgic_dist *dist, int irq)
@@ -500,6 +501,8 @@ int vgic_handle_mmio(struct kvm_vcpu *vcpu, struct kvm_run *run, struct kvm_exit
 	kvm_handle_mmio_return(vcpu, run);
 	spin_unlock(&vcpu->kvm->arch.vgic.lock);
 
+	vgic_kick_vcpus(vcpu->kvm);
+
 	return KVM_EXIT_UNKNOWN;
 }
 
@@ -794,4 +797,57 @@ int kvm_vgic_vcpu_pending_irq(struct kvm_vcpu *vcpu)
 		return 0;
 
 	return test_bit(1 << vcpu->vcpu_id, &dist->irq_pending_on_cpu);
+}
+
+static void vgic_kick_vcpus(struct kvm *kvm)
+{
+	struct kvm_vcpu *vcpu;
+	int c;
+
+	/*
+	 * We've injected an interrupt, time to find out who deserves
+	 * a good kick...
+	 */
+	kvm_for_each_vcpu(c, vcpu, kvm) {
+		if (kvm_vgic_vcpu_pending_irq(vcpu)) {
+			vcpu->arch.wait_for_interrupts = 0;
+			kvm_vcpu_kick(vcpu);
+		}
+	}
+}
+
+int kvm_vgic_inject_irq(struct kvm *kvm, int cpuid, const struct kvm_irq_level *irq)
+{
+	struct vgic_dist *dist = &kvm->arch.vgic;
+	int nrcpus = atomic_read(&kvm->online_vcpus);
+	int is_edge, state;
+
+	if (cpuid >= nrcpus)
+		return -EINVAL;
+
+	/* Only PPIs or SPIs */
+	if (irq->irq >= VGIC_NR_IRQS || irq->irq < 16)
+		return -EINVAL;
+
+	kvm_debug("Inject IRQ%d\n", irq->irq);
+	spin_lock(&dist->lock);
+	is_edge = vgic_irq_is_edge(dist, irq->irq);
+	state = vgic_bitmap_get_irq_val(&dist->irq_state, cpuid, irq->irq);
+
+	/*
+	 * Inject an interrupt if:
+	 * - level triggered and we change level
+	 * - edge triggered and we have a rising edge
+	 */
+	if ((!is_edge && (state ^ !!irq->level)) ||
+	    (is_edge && !state && irq->level)) {
+		vgic_bitmap_set_irq_val(&dist->irq_state, cpuid,
+					irq->irq, !!irq->level);
+		vgic_update_state(kvm);
+	}
+	spin_unlock(&dist->lock);
+
+	vgic_kick_vcpus(kvm);
+
+	return 0;
 }
