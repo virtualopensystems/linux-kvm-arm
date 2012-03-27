@@ -670,10 +670,15 @@ static int io_mem_abort(struct kvm_vcpu *vcpu, struct kvm_run *run,
 		return -EFAULT;
 	}
 
-	/* Export MMIO operations to user space */
-	run->mmio.is_write = is_write;
-	run->mmio.phys_addr = fault_ipa;
-	run->mmio.len = len;
+	/*
+	 * Prepare MMIO operation. First stash it in a private
+	 * structure that we can use for in-kernel emulation. If the
+	 * kernel can't handle it, copy it into run->mmio and let user
+	 * space do its magic.
+	 */
+	mmio.is_write = is_write;
+	mmio.phys_addr = fault_ipa;
+	mmio.len = len;
 	vcpu->arch.mmio_sign_extend = sign_extend;
 	vcpu->arch.mmio_rd = rd;
 
@@ -682,7 +687,7 @@ static int io_mem_abort(struct kvm_vcpu *vcpu, struct kvm_run *run,
 			len, fault_ipa, (is_write) ? *vcpu_reg(vcpu, rd) : 0);
 
 	if (is_write)
-		memcpy(run->mmio.data, vcpu_reg(vcpu, rd), len);
+		memcpy(mmio.data, vcpu_reg(vcpu, rd), len);
 
 	/*
 	 * The MMIO instruction is emulated and should not be re-executed
@@ -693,8 +698,7 @@ static int io_mem_abort(struct kvm_vcpu *vcpu, struct kvm_run *run,
 	if (vgic_handle_mmio(vcpu, run, &mmio))
 		return 1;
 
-	run->exit_reason = KVM_EXIT_MMIO;
-	run->mmio = mmio.mmio;
+	kvm_prepare_mmio(run, &mmio);
 	return 0;
 }
 
