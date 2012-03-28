@@ -317,7 +317,6 @@ static void realview_pb11mp_restart(char mode, const char *cmd)
 	 * in the system FPGA
 	 */
 	__raw_writel(REALVIEW_SYS_LOCK_VAL, lock_ctrl);
-	__raw_writel(0x0000, reset_ctrl);
 	__raw_writel(0x0004, reset_ctrl);
 	dsb();
 }
