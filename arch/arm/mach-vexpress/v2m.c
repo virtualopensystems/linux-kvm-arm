@@ -486,6 +486,74 @@ MACHINE_END
 
 #if defined(CONFIG_ARCH_VEXPRESS_DT)
 
+/*
+ * Platform data for the motherboard CLCD. There is an HDLCD on the core
+ * tile but there is no driver for it in mainline. Furthermore, there
+ * aren't any existing bindings for LCD controllers so the whole thing
+ * is a temporary kludge.
+ */
+#include <linux/amba/clcd.h>
+#include <plat/clcd.h>
+
+static void v2m_clcd_enable(struct clcd_fb *fb)
+{
+	v2m_cfg_write(SYS_CFG_MUXFPGA | SYS_CFG_SITE_MB, 0);
+}
+
+static int v2m_clcd_setup(struct clcd_fb *fb)
+{
+	struct device_node *node;
+	void *screen_base;
+
+	node = of_find_compatible_node(NULL, NULL, "arm,vexpress-vram");
+	screen_base = of_iomap(node, 0);
+
+	if (!screen_base)
+		return -ENOMEM;
+
+	fb->panel = versatile_clcd_get_panel("VGA");
+	if (!fb->panel)
+		return -ENXIO;
+
+	fb->fb.screen_base = screen_base;
+	fb->fb.fix.smem_start = of_translate_address(node, of_get_address(node, 0, NULL, NULL));
+	fb->fb.fix.smem_len = fb->panel->mode.xres * fb->panel->mode.yres * 2;
+
+	return 0;
+}
+
+static int v2m_clcd_mmap(struct clcd_fb *fb, struct vm_area_struct *vma)
+{
+	unsigned long off, user_size, kern_size;
+
+	off = vma->vm_pgoff << PAGE_SHIFT;
+	user_size = vma->vm_end - vma->vm_start;
+	kern_size = fb->fb.fix.smem_len;
+
+	if (off >= kern_size || user_size > (kern_size - off))
+		return -ENXIO;
+
+	return remap_pfn_range(vma, vma->vm_start,
+			__phys_to_pfn(fb->fb.fix.smem_start) + vma->vm_pgoff,
+			user_size,
+			pgprot_writecombine(vma->vm_page_prot));
+}
+
+static void v2m_clcd_remove(struct clcd_fb *fb)
+{
+	iounmap(fb->fb.screen_base);
+}
+
+static struct clcd_board v2m_clcd_data = {
+	.name		= "V2M",
+	.check		= clcdfb_check,
+	.decode		= clcdfb_decode,
+	.enable		= v2m_clcd_enable,
+	.setup		= v2m_clcd_setup,
+	.mmap		= v2m_clcd_mmap,
+	.remove		= v2m_clcd_remove,
+};
+
 static struct map_desc v2m_rs1_io_desc __initdata = {
 	.virtual	= V2M_PERIPH,
 	.pfn		= __phys_to_pfn(0x1c000000),
@@ -588,7 +656,7 @@ static struct clk_lookup v2m_dt_lookups[] = {
 		.dev_id		= "1c0f0000.wdt",
 		.clk		= &v2m_ref_clk,
 	}, {	/* PL111 CLCD */
-		.dev_id		= "1c1f0000.clcd",
+		.dev_id		= "mb:clcd", /* 1c1f0000.clcd */
 		.clk		= &osc1_clk,
 	},
 };
@@ -653,10 +721,12 @@ static struct of_dev_auxdata v2m_dt_auxdata_lookup[] __initdata = {
 	OF_DEV_AUXDATA("arm,vexpress-flash", V2M_NOR0, "physmap-flash",
 			&v2m_flash_data),
 	OF_DEV_AUXDATA("arm,primecell", V2M_MMCI, "mb:mmci", &v2m_mmci_data),
+	OF_DEV_AUXDATA("arm,primecell", V2M_CLCD, "mb:clcd", &v2m_clcd_data),
 	/* RS1 memory map */
 	OF_DEV_AUXDATA("arm,vexpress-flash", 0x08000000, "physmap-flash",
 			&v2m_flash_data),
 	OF_DEV_AUXDATA("arm,primecell", 0x1c050000, "mb:mmci", &v2m_mmci_data),
+	OF_DEV_AUXDATA("arm,primecell", 0x1c1f0000, "mb:clcd", &v2m_clcd_data),
 	{}
 };
 
