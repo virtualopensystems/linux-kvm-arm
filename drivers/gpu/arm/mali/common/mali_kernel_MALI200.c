@@ -551,26 +551,35 @@ static _mali_osk_errcode_t subsystem_mali200_start_job(mali_core_job * job, mali
 			&(job200->user_input.frame_registers[0]),
 			MALI200_NUM_REGS_FRAME);
 
-	/* Write Back unit 0. Copy from mem to physical registers*/
-	mali_core_renderunit_register_write_array(
+	/* Write Back unit 0. Copy from mem to physical registers only if the WB unit will be used. */
+	if (job200->user_input.wb0_registers[0])
+	{
+		mali_core_renderunit_register_write_array(
 				core,
 				MALI200_REG_ADDR_WB0,
 				&(job200->user_input.wb0_registers[0]),
 				MALI200_NUM_REGS_WBx);
+	}
 
-	/* Write Back unit 1. Copy from mem to physical registers */
-	mali_core_renderunit_register_write_array(
+	/* Write Back unit 1. Copy from mem to physical registers only if the WB unit will be used. */
+	if (job200->user_input.wb1_registers[0])
+	{
+		mali_core_renderunit_register_write_array(
 				core,
 				MALI200_REG_ADDR_WB1,
 				&(job200->user_input.wb1_registers[0]),
 				MALI200_NUM_REGS_WBx);
+	}
 
-	/* Write Back unit 2. Copy from mem to physical registers */
-	mali_core_renderunit_register_write_array(
-			core,
-			MALI200_REG_ADDR_WB2,
-			&(job200->user_input.wb2_registers[0]),
-			MALI200_NUM_REGS_WBx);
+	/* Write Back unit 2. Copy from mem to physical registers only if the WB unit will be used. */
+	if (job200->user_input.wb2_registers[0])
+	{
+		mali_core_renderunit_register_write_array(
+				core,
+				MALI200_REG_ADDR_WB2,
+				&(job200->user_input.wb2_registers[0]),
+				MALI200_NUM_REGS_WBx);
+	}
 
 #if MALI_TIMELINE_PROFILING_ENABLED
      /*
@@ -675,8 +684,15 @@ static _mali_osk_errcode_t subsystem_mali200_start_job(mali_core_job * job, mali
 	_mali_osk_write_mem_barrier();
 
 #if MALI_TIMELINE_PROFILING_ENABLED
-	_mali_osk_profiling_add_event(MALI_PROFILING_EVENT_TYPE_SINGLE | MALI_PROFILING_MAKE_EVENT_CHANNEL_PP(core->core_number) | MALI_PROFILING_EVENT_REASON_SINGLE_HW_FLUSH, job200->user_input.frame_builder_id, job200->user_input.flush_id, 0, 0, 0);
-	_mali_osk_profiling_add_event(MALI_PROFILING_EVENT_TYPE_START|MALI_PROFILING_MAKE_EVENT_CHANNEL_PP(core->core_number), job200->pid, job200->tid, 0, 0, 0);
+	_mali_profiling_add_event(MALI_PROFILING_EVENT_TYPE_SINGLE | MALI_PROFILING_MAKE_EVENT_CHANNEL_PP(core->core_number) | MALI_PROFILING_EVENT_REASON_SINGLE_HW_FLUSH, job200->user_input.frame_builder_id, job200->user_input.flush_id, 0, 0, 0); 
+	_mali_profiling_add_event(MALI_PROFILING_EVENT_TYPE_START|MALI_PROFILING_MAKE_EVENT_CHANNEL_PP(core->core_number), job200->pid, job200->tid,
+#if defined(USING_MALI400_L2_CACHE)
+				(job200->user_input.perf_counter_l2_src0 << 16) | (job200->user_input.perf_counter_l2_src1 << 24),
+				job200->perf_counter_l2_val0, job200->perf_counter_l2_val1
+#else
+				0, 0, 0
+#endif
+				);
 #endif
 
     MALI_SUCCESS;
@@ -812,7 +828,7 @@ static int subsystem_mali200_irq_handler_bottom_half(struct mali_core_renderunit
 				job200->user_input.perf_counter_src0 | (job200->user_input.perf_counter_src1 << 8)
 #if defined(USING_MALI400_L2_CACHE)
 				| (job200->user_input.perf_counter_l2_src0 << 16) | (job200->user_input.perf_counter_l2_src1 << 24),
-				job200->perf_counter_l2_val0, job200->perf_counter_l2_val1
+				job200->perf_counter_l2_val0_raw, job200->perf_counter_l2_val1_raw
 #else
 				, 0, 0
 #endif
@@ -943,6 +959,7 @@ static _mali_osk_errcode_t subsystem_mali200_get_new_job_from_user(struct mali_c
 	job = GET_JOB_EMBEDDED_PTR(job200);
 
 	job->session = session;
+	job->flags = user_ptr_job_input->flags;
 	job_priority_set(job, job200->user_input.priority);
 	job_watchdog_set(job, job200->user_input.watchdog_msecs );
 
@@ -952,15 +969,10 @@ static _mali_osk_errcode_t subsystem_mali200_get_new_job_from_user(struct mali_c
 #endif
 
 	job->abort_id = job200->user_input.abort_id;
-	if (NULL != session->job_waiting_to_run)
+	if (mali_job_queue_full(session))
 	{
-		/* IF NOT( newjow HAS HIGHER PRIORITY THAN waitingjob) EXIT_NOT_START newjob */
-		if(!job_has_higher_priority(job, session->job_waiting_to_run))
-		{
-			/* The job we try to add does NOT have higher pri than current */
-			user_ptr_job_input->status = _MALI_UK_START_JOB_NOT_STARTED_DO_REQUEUE;
-			goto function_exit;
-		}
+		user_ptr_job_input->status = _MALI_UK_START_JOB_NOT_STARTED_DO_REQUEUE;
+		goto function_exit;
 	}
 
 	/* We now know that we has a job, and a empty session slot to put it in */
@@ -1069,9 +1081,9 @@ static void subsystem_mali200_return_job_to_user( mali_core_job * job, mali_subs
 	job_input= &(job200->user_input);
 	session = job->session;
 
-	MALI_DEBUG_PRINT(4, ("Mali PP: Job: 0x%08x OUTPUT to user. Runtime: %dms\n",
+	MALI_DEBUG_PRINT(4, ("Mali PP: Job: 0x%08x OUTPUT to user. Runtime: %dus\n",
 			(u32)job200->user_input.user_job_ptr,
-			job->render_time_msecs)) ;
+			job->render_time_usecs)) ;
 
 	_mali_osk_memset(job_out, 0 , sizeof(_mali_uk_pp_job_finished_s));
 
@@ -1099,7 +1111,7 @@ static void subsystem_mali200_return_job_to_user( mali_core_job * job, mali_subs
 	job_out->irq_status = job200->irq_status;
 	job_out->perf_counter0 = job200->perf_counter0;
 	job_out->perf_counter1 = job200->perf_counter1;
-	job_out->render_time = job->render_time_msecs;
+	job_out->render_time = job->render_time_usecs;
 
 #if defined(USING_MALI400_L2_CACHE)
 	job_out->perf_counter_l2_src0 = job200->perf_counter_l2_src0;

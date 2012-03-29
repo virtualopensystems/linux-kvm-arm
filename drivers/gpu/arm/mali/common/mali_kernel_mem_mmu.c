@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010-2011 ARM Limited. All rights reserved.
+ * Copyright (C) 2010-2012 ARM Limited. All rights reserved.
  * 
  * This program is free software and is provided to you under the terms of the GNU General Public License version 2
  * as published by the Free Software Foundation, and any use by you of this program is subject to the terms of such GNU licence.
@@ -61,6 +61,11 @@
  * Extract the memory address from an PDE/PTE entry
  */
 #define MALI_MMU_ENTRY_ADDRESS(value) ((value) & 0xFFFFFC00)
+
+/**
+ * Calculate memory address from PDE and PTE
+ */
+#define MALI_MMU_ADDRESS(pde, pte) (((pde)<<22) | ((pte)<<12))
 
 /**
  * Linux kernel version has marked SA_SHIRQ as deprecated, IRQF_SHARED should be used.
@@ -932,7 +937,9 @@ static _mali_osk_errcode_t mali_memory_core_system_info_fill(_mali_system_info* 
 {
 	_mali_mem_info * mem_info;
 
-	/* make sure we won't leak any memory. It could also be that it's an uninitialized variable, but that would be a bug in the caller */
+	/* Make sure we won't leak any memory. It could also be that it's an
+	 * uninitialized variable, but the caller should have zeroed the
+	 * variable. */
 	MALI_DEBUG_ASSERT(NULL == info->mem_info);
 
 	info->has_mmu = 1;
@@ -1196,20 +1203,22 @@ static _mali_osk_errcode_t mali_kernel_memory_mmu_interrupt_handler_upper_half(v
 	mmu = (mali_kernel_memory_mmu *)data;
 
 	MALI_DEBUG_ASSERT_POINTER(mmu);
-
+	
+	/* Pointer to core holding this MMU */
 	core = (mali_core_renderunit *)mmu->core;
-	if(core && (CORE_OFF == core->state))
+
+	if(CORE_OFF == core->state)
 	{
 		MALI_SUCCESS;
 	}
-	
+
+
 	/* check if it was our device which caused the interrupt (we could be sharing the IRQ line) */
 	int_stat = mali_mmu_register_read(mmu, MALI_MMU_REGISTER_INT_STATUS);
 	if (0 == int_stat)
 	{
 		MALI_ERROR(_MALI_OSK_ERR_FAULT); /* no bits set, we are sharing the IRQ line and someone else caused the interrupt */
 	}
-
 
 	mali_mmu_register_write(mmu, MALI_MMU_REGISTER_INT_MASK, 0);
 
@@ -1439,10 +1448,11 @@ void mali_kernel_mmu_force_bus_reset(void * input_mmu)
 
 static void mali_kernel_memory_mmu_interrupt_handler_bottom_half(void * data)
 {
-	mali_kernel_memory_mmu * mmu;
+	mali_kernel_memory_mmu *mmu;
 	u32 raw, fault_address, status;
 	mali_core_renderunit *core;
 
+	MALI_DEBUG_PRINT(1, ("mali_kernel_memory_mmu_interrupt_handler_bottom_half\n"));
 	if (NULL == data)
 	{
 		MALI_PRINT_ERROR(("MMU IRQ work queue: NULL argument"));
@@ -1450,18 +1460,19 @@ static void mali_kernel_memory_mmu_interrupt_handler_bottom_half(void * data)
 	}
 	mmu = (mali_kernel_memory_mmu*)data;
 
+
 	MALI_DEBUG_PRINT(4, ("Locking subsystems\n"));
 	/* lock all subsystems */
 	_mali_kernel_core_broadcast_subsystem_message(MMU_KILL_STEP0_LOCK_SUBSYSTEM, (u32)mmu);
 
 	/* Pointer to core holding this MMU */
-	core = (mali_core_renderunit *)mmu->core;
-
+	core = (mali_core_renderunit *)mmu->core;	
+	
 	if(CORE_OFF == core->state)
-	{
-		_mali_kernel_core_broadcast_subsystem_message(MMU_KILL_STEP4_UNLOCK_SUBSYSTEM, (u32)mmu);
-		return;
-	}
+        {
+                _mali_kernel_core_broadcast_subsystem_message(MMU_KILL_STEP4_UNLOCK_SUBSYSTEM, (u32)mmu);
+                return;
+        }
 
 	raw = mali_mmu_register_read(mmu, MALI_MMU_REGISTER_INT_RAWSTAT);
 	status = mali_mmu_register_read(mmu, MALI_MMU_REGISTER_STATUS);
@@ -2206,17 +2217,6 @@ void mali_mmu_release_table_page(u32 pa)
    	_mali_osk_lock_signal(page_table_cache.lock, _MALI_OSK_LOCKMODE_RW);
 }
 
-void mali_memory_core_mmu_owner(void *core, void *mmu_ptr)
-{
-        mali_kernel_memory_mmu *mmu;
-
-        MALI_DEBUG_ASSERT_POINTER(mmu_ptr);
-        MALI_DEBUG_ASSERT_POINTER(core);
-
-        mmu = (mali_kernel_memory_mmu *)mmu_ptr;
-        mmu->core = core;
-}
-
 void* mali_memory_core_mmu_lookup(u32 id)
 {
 	mali_kernel_memory_mmu * mmu, * temp_mmu;
@@ -2229,6 +2229,17 @@ void* mali_memory_core_mmu_lookup(u32 id)
 
 	/* not found */
 	return NULL;
+}
+
+void mali_memory_core_mmu_owner(void *core, void *mmu_ptr)
+{
+        mali_kernel_memory_mmu *mmu;
+
+        MALI_DEBUG_ASSERT_POINTER(mmu_ptr);
+        MALI_DEBUG_ASSERT_POINTER(core);
+
+        mmu = (mali_kernel_memory_mmu *)mmu_ptr;
+        mmu->core = core;
 }
 
 void mali_mmu_activate_address_space(mali_kernel_memory_mmu * mmu, u32 page_directory)
@@ -2608,11 +2619,22 @@ static void mali_address_manager_release(mali_memory_allocation * descriptor)
 
 	for (i = first_pde_idx; i <= last_pde_idx; i++)
 	{
-		const int size_inside_pte = left < 0x400000 ? left : 0x400000;
+		int size_inside_pte = left < 0x400000 ? left : 0x400000;
+		const int first_pte_idx = MALI_MMU_PTE_ENTRY(mali_address);
+		int last_pte_idx = MALI_MMU_PTE_ENTRY(mali_address + size_inside_pte - 1);
 
-        MALI_DEBUG_ASSERT_POINTER(session_data->page_entries_mapped[i]);
-        MALI_DEBUG_ASSERT(0 != session_data->page_entries_usage_count[i]);
-		MALI_DEBUG_PRINT(4, ("PDE %d\n", i));
+		if (last_pte_idx < first_pte_idx)
+		{
+			/* The last_pte_idx is into the next PTE, crop it to fit into this */
+			last_pte_idx = 1023; /* 1024 PTE entries, so 1023 is the last one */
+			size_inside_pte = MALI_MMU_ADDRESS(i + 1, 0) - mali_address;
+		}
+
+		MALI_DEBUG_ASSERT_POINTER(session_data->page_entries_mapped[i]);
+		MALI_DEBUG_ASSERT(0 != session_data->page_entries_usage_count[i]);
+		MALI_DEBUG_PRINT(4, ("PDE %d: zapping entries %d through %d, address 0x%08X, size 0x%08X, left 0x%08X (page table at 0x%08X)\n",
+		                     i, first_pte_idx, last_pte_idx, mali_address, size_inside_pte, left,
+		                     MALI_MMU_ENTRY_ADDRESS(_mali_osk_mem_ioread32(session_data->page_directory_mapped, i * sizeof(u32)))));
 
 		session_data->page_entries_usage_count[i]--;
 
@@ -2630,19 +2652,11 @@ static void mali_address_manager_release(mali_memory_allocation * descriptor)
 		else
 		{
 			int j;
-			const int first_pte_idx = MALI_MMU_PTE_ENTRY(mali_address);
-			const int last_pte_idx = MALI_MMU_PTE_ENTRY(mali_address + size_inside_pte - 1);
-
-			MALI_DEBUG_PRINT(4, ("Partial page table fill detected, zapping entries %d through %d (page table at 0x%08X)\n", first_pte_idx, last_pte_idx, MALI_MMU_ENTRY_ADDRESS(_mali_osk_mem_ioread32(session_data->page_directory_mapped, i * sizeof(u32)))));
 
 			for (j = first_pte_idx; j <= last_pte_idx; j++)
 			{
 				_mali_osk_mem_iowrite32(session_data->page_entries_mapped[i], j * sizeof(u32), 0);
 			}
-
-			MALI_DEBUG_PRINT(5, ("zap complete\n"));
-
-			mali_address += size_inside_pte;
 
 #if defined USING_MALI400_L2_CACHE
 			if (1 == has_active_mmus)
@@ -2653,6 +2667,7 @@ static void mali_address_manager_release(mali_memory_allocation * descriptor)
 #endif
 		}
 		left -= size_inside_pte;
+		mali_address += size_inside_pte;
 	}
 
 #if defined USING_MALI400_L2_CACHE

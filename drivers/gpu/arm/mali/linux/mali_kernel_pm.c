@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2010-2011 ARM Limited. All rights reserved.
+ * Copyright (C) 2010-2012 ARM Limited. All rights reserved.
  * 
  * This program is free software and is provided to you under the terms of the GNU General Public License version 2
  * as published by the Free Software Foundation, and any use by you of this program is subject to the terms of such GNU licence.
@@ -54,7 +54,6 @@ static int is_os_pmm_thread_waiting = 0;
 /* kernel should be configured with power management support */
 #ifdef CONFIG_PM
 
-/* License should be GPL */
 #if MALI_LICENSE_IS_GPL
 
 /* Linux kernel major version */

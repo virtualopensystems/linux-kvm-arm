@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010-2011 ARM Limited. All rights reserved.
+ * Copyright (C) 2010-2012 ARM Limited. All rights reserved.
  * 
  * This program is free software and is provided to you under the terms of the GNU General Public License version 2
  * as published by the Free Software Foundation, and any use by you of this program is subject to the terms of such GNU licence.
@@ -27,6 +27,11 @@ struct mali_dev
 	struct class *  mali_class;
 #endif
 };
+
+#if MALI_LICENSE_IS_GPL
+/* Defined in mali_osk_irq.h */
+extern struct workqueue_struct * mali_wq;
+#endif
 
 _mali_osk_errcode_t initialize_kernel_device(void);
 void terminate_kernel_device(void);

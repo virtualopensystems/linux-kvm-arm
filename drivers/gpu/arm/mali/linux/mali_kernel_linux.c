@@ -151,12 +151,16 @@ void mali_driver_exit(void)
 {
 	mali_kernel_destructor();
 
-#if USING_MALI_PMM
 #if MALI_LICENSE_IS_GPL
+#if USING_MALI_PMM
 #ifdef CONFIG_PM
 	_mali_dev_platform_unregister();
 #endif
 #endif
+
+	flush_workqueue(mali_wq);
+	destroy_workqueue(mali_wq);
+	mali_wq = NULL;
 #endif
 }
 

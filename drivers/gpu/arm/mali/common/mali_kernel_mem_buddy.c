@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010-2011 ARM Limited. All rights reserved.
+ * Copyright (C) 2010-2012 ARM Limited. All rights reserved.
  * 
  * This program is free software and is provided to you under the terms of the GNU General Public License version 2
  * as published by the Free Software Foundation, and any use by you of this program is subject to the terms of such GNU licence.
@@ -430,7 +430,6 @@ static void mali_memory_core_terminate(mali_kernel_subsystem_identifier id)
 		MALI_DEBUG_CODE(int usage_count = _mali_osk_atomic_read(&bank->num_active_allocations));
  		/*
 			Report leaked memory
-			If this happens we have a bug in our session cleanup code.
 		*/
 		MALI_DEBUG_PRINT_IF(1, 0 != usage_count,  ("%d allocation(s) from memory bank at 0x%X still in use\n", usage_count, bank->base_addr));
 
@@ -897,11 +896,9 @@ static void mali_memory_core_session_end(struct mali_session_data * mali_session
 	 /* clear our slot */
         *slot = NULL;
 
-	/*
-		First free all memory still being used.
-		This can happen if the caller has leaked memory or
-		the application has crashed forcing an auto-session end.
-	*/
+	/* First free all memory still being used. This can happen if the
+	 * caller has leaked memory or the application has crashed forcing an
+	 * auto-session end. */
 	if (0 == _mali_osk_list_empty(&session_data->memory_head))
 	{
 		mali_memory_block * block, * temp;
@@ -958,7 +955,9 @@ static _mali_osk_errcode_t mali_memory_core_system_info_fill(_mali_system_info* 
 	/* check input */
     MALI_CHECK_NON_NULL(info, _MALI_OSK_ERR_INVALID_ARGS);
 
-	/* make sure we won't leak any memory. It could also be that it's an uninitialized variable, but that would be a bug in the caller */
+	/* Make sure we won't leak any memory. It could also be that it's an
+	 * uninitialized variable, but the caller should have zeroed the
+	 * variable. */
 	MALI_DEBUG_ASSERT(NULL == info->mem_info);
 
 	mem_info_tail = &info->mem_info;

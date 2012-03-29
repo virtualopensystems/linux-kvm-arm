@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010-2011 ARM Limited. All rights reserved.
+ * Copyright (C) 2010-2012 ARM Limited. All rights reserved.
  * 
  * This program is free software and is provided to you under the terms of the GNU General Public License version 2
  * as published by the Free Software Foundation, and any use by you of this program is subject to the terms of such GNU licence.
@@ -409,6 +409,8 @@ static int ump_file_mmap(struct file * filp, struct vm_area_struct * vma)
 		vma->vm_flags = vma->vm_flags | VM_SHARED | VM_MAYSHARE  ;
 		DBG_MSG(3, ("UMP Map function: Forcing the CPU to use cache\n"));
 	}
+	/* By setting this flag, during a process fork; the child process will not have the parent UMP mappings */
+	vma->vm_flags |= VM_DONTCOPY;
 
 	DBG_MSG(4, ("UMP vma->flags: %x\n", vma->vm_flags ));
 

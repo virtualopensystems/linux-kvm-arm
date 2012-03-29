@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2010 ARM Limited. All rights reserved.
+# Copyright (C) 2010-2012 ARM Limited. All rights reserved.
 # 
 # This program is free software and is provided to you under the terms of the GNU General Public License version 2
 # as published by the Free Software Foundation, and any use by you of this program is subject to the terms of such GNU licence.
@@ -7,6 +7,8 @@
 # A copy of the licence is included with the program, and can also be obtained from Free Software
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #
+
+USE_UMPV2=0
 
 OSKOS :=linux
 FILES_PREFIX=
@@ -73,7 +75,11 @@ TIMESTAMP ?= default
 TARGET_PLATFORM ?= default
 
 ifeq ($(USING_UMP),1)
-	UMP_SYMVERS_FILE = ../ump/Module.symvers
+ifeq ($(USE_UMPV2),1)
+	UMP_SYMVERS_FILE ?= ../umpv2/Module.symvers
+else
+	UMP_SYMVERS_FILE ?= ../ump/Module.symvers
+endif
 	KBUILD_EXTRA_SYMBOLS = $(KBUILD_EXTMOD)/$(UMP_SYMVERS_FILE)
 endif
 

@@ -386,7 +386,7 @@ int mali_sysfs_unregister(struct mali_dev *device, dev_t dev, const char *mali_d
 
 #else
 
-/* Dummy implementations for non-GPL */
+/* Dummy implementations for when the sysfs API isn't available. */
 
 int mali_sysfs_register(struct mali_dev *device, dev_t dev, const char *mali_dev_name)
 {

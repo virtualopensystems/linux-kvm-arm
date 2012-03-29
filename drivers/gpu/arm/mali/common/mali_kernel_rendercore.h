@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010-2011 ARM Limited. All rights reserved.
+ * Copyright (C) 2010-2012 ARM Limited. All rights reserved.
  * 
  * This program is free software and is provided to you under the terms of the GNU General Public License version 2
  * as published by the Free Software Foundation, and any use by you of this program is subject to the terms of such GNU licence.
@@ -172,13 +172,17 @@ typedef struct mali_core_renderunit
 } mali_core_renderunit;
 
 
+#define MALI_JOB_QUEUE_SIZE 8
 /* Per open FILE data. */
 /* You must held subsystem->mutex before any transactions to this datatype. */
 typedef struct mali_core_session
 {
 	struct mali_core_subsystem * subsystem;	   /* The session belongs to this subsystem */
 	_mali_osk_list_t renderunits_working_head; /* List of renderunits working for this session */
-	struct mali_core_job *job_waiting_to_run;  /* The next job from this session to run */
+	struct mali_core_job *queue[MALI_JOB_QUEUE_SIZE];  /* The next job from this session to run */
+	int queue_head;
+	int queue_tail;
+	int queue_size;
 
 	_mali_osk_list_t awaiting_sessions_list; /* Linked list of sessions with jobs, for each priority */
 	_mali_osk_list_t all_sessions_list;      /* Linked list of all sessions on the system. */
@@ -197,7 +201,6 @@ typedef struct mali_core_session
 #endif
 } mali_core_session;
 
-
 /* This must be embedded into a specific mali_core_job struct */
 /* use this macro to get spesific mali_core_job:  container_of(ptr, type, member)*/
 typedef struct mali_core_job
@@ -207,12 +210,105 @@ typedef struct mali_core_job
 	u32 magic_nr;
 	u32 priority;
 	u32 watchdog_msecs;
-	u32 render_time_msecs ;
-	u32 start_time_jiffies;
+	u32 render_time_usecs ;
+	u64 start_time;
 	unsigned long watchdog_jiffies;
 	u32 abort_id;
 	u32 job_nr;
+	_mali_uk_start_job_flags flags;
 } mali_core_job;
+
+MALI_STATIC_INLINE mali_bool mali_job_queue_empty(mali_core_session *session)
+{
+	if (0 == session->queue_size)
+	{
+		return MALI_TRUE;
+	}
+	return MALI_FALSE;
+}
+
+MALI_STATIC_INLINE mali_bool mali_job_queue_full(mali_core_session *session)
+{
+	if (MALI_JOB_QUEUE_SIZE == session->queue_size)
+	{
+		return MALI_TRUE;
+	}
+	return MALI_FALSE;
+}
+
+
+MALI_STATIC_INLINE _mali_osk_errcode_t mali_job_queue_add_job(mali_core_session *session, struct mali_core_job *job)
+{
+	if (mali_job_queue_full(session))
+	{
+		MALI_ERROR(_MALI_OSK_ERR_FAULT);
+	}
+
+	session->queue[session->queue_tail] = job;
+	session->queue_tail = (session->queue_tail + 1) % MALI_JOB_QUEUE_SIZE;
+	session->queue_size++;
+
+	MALI_SUCCESS;
+}
+
+MALI_STATIC_INLINE struct mali_core_job *mali_job_queue_get_job(mali_core_session *session)
+{
+	struct mali_core_job *job;
+	MALI_DEBUG_ASSERT(!mali_job_queue_empty(session));
+
+	job = session->queue[session->queue_head];
+
+	MALI_DEBUG_ASSERT_POINTER(job);
+
+	session->queue[session->queue_head] = NULL;
+	session->queue_head = (session->queue_head + 1) % MALI_JOB_QUEUE_SIZE;
+	session->queue_size--;
+
+	return job;
+}
+
+MALI_STATIC_INLINE u32 mali_job_queue_size(mali_core_session *session)
+{
+	return (u32)(session->queue_size);
+}
+
+MALI_STATIC_INLINE struct mali_core_job *mali_job_queue_abort_job(mali_core_session *session, u32 abort_id)
+{
+	int i;
+	int n;
+	struct mali_core_job *job = NULL;
+
+	for (i = session->queue_head, n = session->queue_size; n > 0; n--, i = (i+1)%MALI_JOB_QUEUE_SIZE)
+	{
+		if (session->queue[i]->abort_id == abort_id)
+		{
+			/* Remove job from queue */
+			job = session->queue[i];
+			session->queue[i] = NULL;
+
+			session->queue_size -= 1;
+			n--;
+			break;
+		}
+	}
+	if (NULL == job)
+	{
+		return NULL;
+	}
+
+	/* Rearrange queue */
+	while (n > 0)
+	{
+		int next = (i + 1) % MALI_JOB_QUEUE_SIZE;
+		session->queue[i] = session->queue[next];
+		i = next;
+		n--;
+	}
+	session->queue_tail = i;
+
+	return job;
+}
+
 
 /*
  * The rendercode subsystem is included in the subsystems[] array.

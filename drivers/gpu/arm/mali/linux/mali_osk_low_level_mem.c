@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010-2011 ARM Limited. All rights reserved.
+ * Copyright (C) 2010-2012 ARM Limited. All rights reserved.
  * 
  * This program is free software and is provided to you under the terms of the GNU General Public License version 2
  * as published by the Free Software Foundation, and any use by you of this program is subject to the terms of such GNU licence.
@@ -76,7 +76,7 @@ static void _allocation_list_item_release(AllocationList * item);
 
 
 /* Variable declarations */
-spinlock_t allocation_list_spinlock; 
+static DEFINE_SPINLOCK(allocation_list_spinlock);
 static AllocationList * pre_allocated_memory = (AllocationList*) NULL ;
 static int pre_allocated_memory_size_current  = 0;
 #ifdef MALI_OS_MEMORY_KERNEL_BUFFER_SIZE_IN_MB
@@ -99,7 +99,6 @@ static struct vm_operations_struct mali_kernel_vm_ops =
 
 void mali_osk_low_level_mem_init(void)
 {
-	spin_lock_init( &allocation_list_spinlock );
 	pre_allocated_memory = (AllocationList*) NULL ;
 }
 

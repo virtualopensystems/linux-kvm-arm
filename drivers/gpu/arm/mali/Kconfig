@@ -28,35 +28,35 @@ config USING_OS_MEMORY
 config USING_PMM
         bool "Enable Power Management"
         depends on MALI400MP
-        default "0"
+        default n
         ---help---
                 This enables for Mali Power Management.
 
 config USING_GPU_UTILIZATION
 	bool "GPU utilization"
         depends on MALI400MP
-        default "0"
+        default n
         ---help---
                 This enables GPU utilization information.
 
 config USING_MALI_RUN_TIME_PM
         bool "Using Run time Power Management"
         depends on MALI400MP
-        default "0"
+        default n
         ---help---
                 This enables Mali working with run time power management.
 
 config USING_MALI_PMM_TESTSUITE
         bool "Power Management Test Suite"
         depends on MALI400MP
-        default "0"
+        default n
         ---help---
                 This enables Power management Test Suite.
 
 config USING_PROFILING
         bool "Enable Profiling"
         depends on MALI400MP
-        default "0"
+        default n
         ---help---
                 This support Profiling on Mali.
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010-2011 ARM Limited. All rights reserved.
+ * Copyright (C) 2010-2012 ARM Limited. All rights reserved.
  * 
  * This program is free software and is provided to you under the terms of the GNU General Public License version 2
  * as published by the Free Software Foundation, and any use by you of this program is subject to the terms of such GNU licence.
@@ -199,7 +199,7 @@ mali_pmm_core_mask pmm_cores_to_power_down( _mali_pmm_internal_state_t *pmm, mal
 				}
 				else
 				{
-					MALI_DEBUG_PRINT(1,("The error in PMM is ...%x...%x",err,*ppowered));
+					MALI_DEBUG_PRINT(1,("PMM: In pmm_cores_to_power_down, the error and cores powered are..%x....%x",err,*ppowered));
 					MALI_DEBUG_ASSERT( err == _MALI_OSK_ERR_BUSY ||
 										(err == _MALI_OSK_ERR_FAULT &&
 										(*ppowered & cores_list[n]) == 0) );
@@ -407,6 +407,7 @@ mali_bool pmm_invoke_power_up( _mali_pmm_internal_state_t *pmm )
 
 				if( err != _MALI_OSK_ERR_OK )
 				{
+					MALI_DEBUG_PRINT(1,("In pmm_invoke_power_up:: The error and pending cores to be powered up are...%x...%x",err,*ppendup));
 					MALI_DEBUG_ASSERT( (err == _MALI_OSK_ERR_FAULT &&
 										(*ppendup & cores_list[n]) == 0) );
 					/* We only expect this to fail when we are shutting down 
