@@ -11,6 +11,8 @@
  * Boston, MA  02110-1301, USA.
  */
 
+#define DONT_USE_L2_CACHE_COUNTERS /* These traces can cause lock-ups so disable them. */
+
 #include <linux/module.h>
 
 #include "mali_kernel_common.h"
@@ -19,7 +21,7 @@
 #include "mali_osk_profiling.h"
 #include "mali_linux_trace.h"
 
-#if defined(USING_MALI400_L2_CACHE)
+#if defined(USING_MALI400_L2_CACHE) && !defined(DONT_USE_L2_CACHE_COUNTERS)
 #include "mali_kernel_l2_cache.h"
 #endif /* USING_MALI400_L2_CACHE */
 
@@ -180,7 +182,7 @@ _mali_osk_errcode_t _mali_ukk_profiling_get_config(_mali_uk_profiling_get_config
  */
 int _mali_profiling_set_event(u32 counter_id, s32 event_id)
 {
-#if defined(USING_MALI400_L2_CACHE)
+#if defined(USING_MALI400_L2_CACHE) && !defined(DONT_USE_L2_CACHE_COUNTERS)
     /*
      * The L2 cache counters have special handling in the driver. Since we
      * receive new event IDs for each counter one at a time, we need to know
@@ -224,7 +226,7 @@ int _mali_profiling_set_event(u32 counter_id, s32 event_id)
     return 0;
 }
 
-#if defined(USING_MALI400_L2_CACHE)
+#if defined(USING_MALI400_L2_CACHE) && !defined(DONT_USE_L2_CACHE_COUNTERS)
 /**
  * Called by gator.ko to retrieve the L2 cache counter values. The L2 cache
  * counters are unique in that they are polled by gator, rather than being
