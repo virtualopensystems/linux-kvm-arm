@@ -282,6 +282,7 @@ config ARCH_REALVIEW
 	select ARM_TIMER_SP804
 	select GPIO_PL061 if GPIOLIB
 	select NEED_MACH_MEMORY_H
+	select SPARSE_IRQ
 	help
 	  This enables support for ARM Ltd RealView boards.
 

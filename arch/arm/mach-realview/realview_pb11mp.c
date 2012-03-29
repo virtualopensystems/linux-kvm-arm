@@ -373,4 +373,5 @@ MACHINE_START(REALVIEW_PB11MP, "ARM-RealView PB11MPCore")
 	.dma_zone_size	= SZ_256M,
 #endif
 	.restart	= realview_pb11mp_restart,
+	.nr_irqs	= NR_IRQS_LEGACY,
 MACHINE_END

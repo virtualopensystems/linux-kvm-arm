@@ -477,4 +477,5 @@ MACHINE_START(REALVIEW_EB, "ARM-RealView EB")
 	.dma_zone_size	= SZ_256M,
 #endif
 	.restart	= realview_eb_restart,
+	.nr_irqs	= NR_IRQS_LEGACY,
 MACHINE_END

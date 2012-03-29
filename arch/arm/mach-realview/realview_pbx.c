@@ -410,4 +410,5 @@ MACHINE_START(REALVIEW_PBX, "ARM-RealView PBX")
 	.dma_zone_size	= SZ_256M,
 #endif
 	.restart	= realview_pbx_restart,
+	.nr_irqs	= NR_IRQS_LEGACY,
 MACHINE_END

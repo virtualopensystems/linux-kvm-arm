@@ -319,4 +319,5 @@ MACHINE_START(REALVIEW_PBA8, "ARM-RealView PB-A8")
 	.dma_zone_size	= SZ_256M,
 #endif
 	.restart	= realview_pba8_restart,
+	.nr_irqs	= NR_IRQS_LEGACY,
 MACHINE_END
