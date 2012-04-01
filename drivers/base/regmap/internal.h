@@ -22,6 +22,7 @@ struct regcache_ops;
 struct regmap_format {
 	size_t buf_size;
 	size_t reg_bytes;
+	size_t pad_bytes;
 	size_t val_bytes;
 	void (*format_write)(struct regmap *map,
 			     unsigned int reg, unsigned int val);
@@ -65,15 +66,19 @@ struct regmap {
 	unsigned int num_reg_defaults_raw;
 
 	/* if set, only the cache is modified not the HW */
-	unsigned int cache_only:1;
+	u32 cache_only;
 	/* if set, only the HW is modified not the cache */
-	unsigned int cache_bypass:1;
+	u32 cache_bypass;
 	/* if set, remember to free reg_defaults_raw */
-	unsigned int cache_free:1;
+	bool cache_free;
 
 	struct reg_default *reg_defaults;
 	const void *reg_defaults_raw;
 	void *cache;
+	u32 cache_dirty;
+
+	struct reg_default *patch;
+	int patch_regs;
 };
 
 struct regcache_ops {
@@ -83,7 +88,7 @@ struct regcache_ops {
 	int (*exit)(struct regmap *map);
 	int (*read)(struct regmap *map, unsigned int reg, unsigned int *value);
 	int (*write)(struct regmap *map, unsigned int reg, unsigned int value);
-	int (*sync)(struct regmap *map);
+	int (*sync)(struct regmap *map, unsigned int min, unsigned int max);
 };
 
 bool regmap_writeable(struct regmap *map, unsigned int reg);
@@ -105,7 +110,7 @@ static inline void regmap_debugfs_exit(struct regmap *map) { }
 #endif
 
 /* regcache core declarations */
-int regcache_init(struct regmap *map);
+int regcache_init(struct regmap *map, const struct regmap_config *config);
 void regcache_exit(struct regmap *map);
 int regcache_read(struct regmap *map,
 		       unsigned int reg, unsigned int *value);
@@ -118,10 +123,7 @@ unsigned int regcache_get_val(const void *base, unsigned int idx,
 bool regcache_set_val(void *base, unsigned int idx,
 		      unsigned int val, unsigned int word_size);
 int regcache_lookup_reg(struct regmap *map, unsigned int reg);
-int regcache_insert_reg(struct regmap *map, unsigned int reg,
-			unsigned int val);
 
-extern struct regcache_ops regcache_indexed_ops;
 extern struct regcache_ops regcache_rbtree_ops;
 extern struct regcache_ops regcache_lzo_ops;
 

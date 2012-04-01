@@ -332,12 +332,12 @@ static int vbus_is_present(struct usba_udc *udc)
 
 static void toggle_bias(int is_on)
 {
-	unsigned int uckr = at91_sys_read(AT91_CKGR_UCKR);
+	unsigned int uckr = at91_pmc_read(AT91_CKGR_UCKR);
 
 	if (is_on)
-		at91_sys_write(AT91_CKGR_UCKR, uckr | AT91_PMC_BIASEN);
+		at91_pmc_write(AT91_CKGR_UCKR, uckr | AT91_PMC_BIASEN);
 	else
-		at91_sys_write(AT91_CKGR_UCKR, uckr & ~(AT91_PMC_BIASEN));
+		at91_pmc_write(AT91_CKGR_UCKR, uckr & ~(AT91_PMC_BIASEN));
 }
 
 #else
@@ -659,6 +659,7 @@ static int usba_ep_disable(struct usb_ep *_ep)
 		return -EINVAL;
 	}
 	ep->desc = NULL;
+	ep->ep.desc = NULL;
 
 	list_splice_init(&ep->queue, &req_list);
 	if (ep->can_dma) {
@@ -1038,7 +1039,7 @@ static struct usba_udc the_udc = {
 	.gadget	= {
 		.ops		= &usba_udc_ops,
 		.ep_list	= LIST_HEAD_INIT(the_udc.gadget.ep_list),
-		.is_dualspeed	= 1,
+		.max_speed	= USB_SPEED_HIGH,
 		.name		= "atmel_usba_udc",
 		.dev	= {
 			.init_name	= "gadget",

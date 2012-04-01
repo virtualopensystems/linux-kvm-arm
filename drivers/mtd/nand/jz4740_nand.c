@@ -332,6 +332,11 @@ static int __devinit jz_nand_probe(struct platform_device *pdev)
 	chip->ecc.mode		= NAND_ECC_HW_OOB_FIRST;
 	chip->ecc.size		= 512;
 	chip->ecc.bytes		= 9;
+	chip->ecc.strength	= 2;
+	/*
+	 * FIXME: ecc_strength value of 2 bits per 512 bytes of data is a
+	 * conservative guess, given 9 ecc bytes and reed-solomon alg.
+	 */
 
 	if (pdata)
 		chip->ecc.layout = pdata->ecc_layout;
@@ -367,9 +372,9 @@ static int __devinit jz_nand_probe(struct platform_device *pdev)
 		goto err_gpio_free;
 	}
 
-	ret = mtd_device_parse_register(mtd, NULL, 0,
-			pdata ? pdata->partitions : NULL,
-			pdata ? pdata->num_partitions : 0);
+	ret = mtd_device_parse_register(mtd, NULL, NULL,
+					pdata ? pdata->partitions : NULL,
+					pdata ? pdata->num_partitions : 0);
 
 	if (ret) {
 		dev_err(&pdev->dev, "Failed to add mtd device\n");
@@ -423,17 +428,7 @@ static struct platform_driver jz_nand_driver = {
 	},
 };
 
-static int __init jz_nand_init(void)
-{
-	return platform_driver_register(&jz_nand_driver);
-}
-module_init(jz_nand_init);
-
-static void __exit jz_nand_exit(void)
-{
-	platform_driver_unregister(&jz_nand_driver);
-}
-module_exit(jz_nand_exit);
+module_platform_driver(jz_nand_driver);
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Lars-Peter Clausen <lars@metafoo.de>");

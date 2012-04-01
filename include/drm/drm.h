@@ -714,6 +714,10 @@ struct drm_get_cap {
 #define DRM_IOCTL_MODE_CREATE_DUMB DRM_IOWR(0xB2, struct drm_mode_create_dumb)
 #define DRM_IOCTL_MODE_MAP_DUMB    DRM_IOWR(0xB3, struct drm_mode_map_dumb)
 #define DRM_IOCTL_MODE_DESTROY_DUMB    DRM_IOWR(0xB4, struct drm_mode_destroy_dumb)
+#define DRM_IOCTL_MODE_GETPLANERESOURCES DRM_IOWR(0xB5, struct drm_mode_get_plane_res)
+#define DRM_IOCTL_MODE_GETPLANE	DRM_IOWR(0xB6, struct drm_mode_get_plane)
+#define DRM_IOCTL_MODE_SETPLANE	DRM_IOWR(0xB7, struct drm_mode_set_plane)
+#define DRM_IOCTL_MODE_ADDFB2		DRM_IOWR(0xB8, struct drm_mode_fb_cmd2)
 
 /**
  * Device specific ioctls should only be in their respective headers
@@ -757,6 +761,8 @@ struct drm_event_vblank {
 
 #define DRM_CAP_DUMB_BUFFER 0x1
 #define DRM_CAP_VBLANK_HIGH_CRTC 0x2
+#define DRM_CAP_DUMB_PREFERRED_DEPTH 0x3
+#define DRM_CAP_DUMB_PREFER_SHADOW 0x4
 
 /* typedef area */
 #ifndef __KERNEL__

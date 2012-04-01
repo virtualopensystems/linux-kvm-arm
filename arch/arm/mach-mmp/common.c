@@ -14,6 +14,7 @@
 
 #include <asm/page.h>
 #include <asm/mach/map.h>
+#include <asm/system_misc.h>
 #include <mach/addr-map.h>
 #include <mach/cputype.h>
 
@@ -44,4 +45,9 @@ void __init mmp_map_io(void)
 
 	/* this is early, initialize mmp_chip_id here */
 	mmp_chip_id = __raw_readl(MMP_CHIPID);
+}
+
+void mmp_restart(char mode, const char *cmd)
+{
+	soft_restart(0);
 }

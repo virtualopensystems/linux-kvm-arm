@@ -86,11 +86,6 @@ enum MWIFIEX_802_11_PRIVACY_FILTER {
 	MWIFIEX_802_11_PRIV_FILTER_8021X_WEP
 };
 
-enum MWIFIEX_802_11_WEP_STATUS {
-	MWIFIEX_802_11_WEP_ENABLED,
-	MWIFIEX_802_11_WEP_DISABLED,
-};
-
 #define CAL_SNR(RSSI, NF)		((s16)((s16)(RSSI)-(s16)(NF)))
 
 #define PROPRIETARY_TLV_BASE_ID                 0x0100
@@ -122,8 +117,8 @@ enum MWIFIEX_802_11_WEP_STATUS {
 #define BA_STREAM_NOT_ALLOWED   0xff
 
 #define IS_11N_ENABLED(priv) ((priv->adapter->config_bands & BAND_GN || \
-			priv->adapter->config_bands & BAND_AN) \
-			&& priv->curr_bss_params.bss_descriptor.bcn_ht_cap)
+			priv->adapter->config_bands & BAND_AN) && \
+			priv->curr_bss_params.bss_descriptor.bcn_ht_cap)
 #define INITIATOR_BIT(DelBAParamSet) (((DelBAParamSet) &\
 			BIT(DELBA_INITIATOR_POS)) >> DELBA_INITIATOR_POS)
 
@@ -165,6 +160,7 @@ enum MWIFIEX_802_11_WEP_STATUS {
 
 #define GET_RXMCSSUPP(DevMCSSupported) (DevMCSSupported & 0x0f)
 #define SETHT_MCS32(x) (x[4] |= 1)
+#define HT_STREAM_2X2	0x22
 
 #define SET_SECONDARYCHAN(RadioType, SECCHAN) (RadioType |= (SECCHAN << 4))
 
@@ -375,8 +371,6 @@ enum mwifiex_chan_scan_mode_bitmasks {
 	MWIFIEX_DISABLE_CHAN_FILT = BIT(1),
 };
 
-#define SECOND_CHANNEL_BELOW    0x30
-#define SECOND_CHANNEL_ABOVE    0x10
 struct mwifiex_chan_scan_param_set {
 	u8 radio_type;
 	u8 chan_number;
@@ -673,7 +667,7 @@ struct host_cmd_ds_802_11_ad_hoc_start {
 	union ieee_types_phy_param_set phy_param_set;
 	u16 reserved1;
 	__le16 cap_info_bitmap;
-	u8 DataRate[HOSTCMD_SUPPORTED_RATES];
+	u8 data_rate[HOSTCMD_SUPPORTED_RATES];
 } __packed;
 
 struct host_cmd_ds_802_11_ad_hoc_result {
@@ -858,11 +852,6 @@ struct mwifiex_user_scan_chan {
 	u32 scan_time;
 } __packed;
 
-struct mwifiex_user_scan_ssid {
-	u8 ssid[IEEE80211_MAX_SSID_LEN + 1];
-	u8 max_len;
-} __packed;
-
 struct mwifiex_user_scan_cfg {
 	/*
 	 *  BSS mode to be sent in the firmware command
@@ -873,8 +862,9 @@ struct mwifiex_user_scan_cfg {
 	u8 reserved;
 	/* BSSID filter sent in the firmware command to limit the results */
 	u8 specific_bssid[ETH_ALEN];
-	/* SSID filter list used in the to limit the scan results */
-	struct mwifiex_user_scan_ssid ssid_list[MWIFIEX_MAX_SSID_LIST_LENGTH];
+	/* SSID filter list used in the firmware to limit the scan results */
+	struct cfg80211_ssid *ssid_list;
+	u8 num_ssids;
 	/* Variable number (fixed maximum) of channels to scan up */
 	struct mwifiex_user_scan_chan chan_list[MWIFIEX_USER_SCAN_CHAN_MAX];
 } __packed;

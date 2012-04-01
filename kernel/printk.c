@@ -44,6 +44,9 @@
 
 #include <asm/uaccess.h>
 
+#define CREATE_TRACE_POINTS
+#include <trace/events/printk.h>
+
 /*
  * Architectures can override it:
  */
@@ -199,7 +202,7 @@ void __init setup_log_buf(int early)
 		unsigned long mem;
 
 		mem = memblock_alloc(new_log_buf_len, PAGE_SIZE);
-		if (mem == MEMBLOCK_ERROR)
+		if (!mem)
 			return;
 		new_log_buf = __va(mem);
 	} else {
@@ -521,7 +524,7 @@ static void __call_console_drivers(unsigned start, unsigned end)
 	}
 }
 
-static int __read_mostly ignore_loglevel;
+static bool __read_mostly ignore_loglevel;
 
 static int __init ignore_loglevel_setup(char *str)
 {
@@ -532,7 +535,7 @@ static int __init ignore_loglevel_setup(char *str)
 }
 
 early_param("ignore_loglevel", ignore_loglevel_setup);
-module_param_named(ignore_loglevel, ignore_loglevel, bool, S_IRUGO | S_IWUSR);
+module_param(ignore_loglevel, bool, S_IRUGO | S_IWUSR);
 MODULE_PARM_DESC(ignore_loglevel, "ignore loglevel setting, to"
 	"print all kernel messages to the console.");
 
@@ -542,6 +545,8 @@ MODULE_PARM_DESC(ignore_loglevel, "ignore loglevel setting, to"
 static void _call_console_drivers(unsigned start,
 				unsigned end, int msg_log_level)
 {
+	trace_console(&LOG_BUF(0), start, end, log_buf_len);
+
 	if ((msg_log_level < console_loglevel || ignore_loglevel) &&
 			console_drivers && start != end) {
 		if ((start & LOG_BUF_MASK) > (end & LOG_BUF_MASK)) {
@@ -688,6 +693,7 @@ static void zap_locks(void)
 
 	oops_timestamp = jiffies;
 
+	debug_locks_off();
 	/* If a crash is occurring, make sure we can't deadlock */
 	raw_spin_lock_init(&logbuf_lock);
 	/* And make sure that we print immediately */
@@ -695,11 +701,14 @@ static void zap_locks(void)
 }
 
 #if defined(CONFIG_PRINTK_TIME)
-static int printk_time = 1;
+static bool printk_time = 1;
 #else
-static int printk_time = 0;
+static bool printk_time = 0;
 #endif
 module_param_named(time, printk_time, bool, S_IRUGO | S_IWUSR);
+
+static bool always_kmsg_dump;
+module_param_named(always_kmsg_dump, always_kmsg_dump, bool, S_IRUGO | S_IWUSR);
 
 /* Check if we have any console registered that can be called early in boot. */
 static int have_callable_console(void)
@@ -840,9 +849,8 @@ asmlinkage int vprintk(const char *fmt, va_list args)
 	boot_delay_msec();
 	printk_delay();
 
-	preempt_disable();
 	/* This stops the holder of console_sem just where we want him */
-	raw_local_irq_save(flags);
+	local_irq_save(flags);
 	this_cpu = smp_processor_id();
 
 	/*
@@ -856,7 +864,7 @@ asmlinkage int vprintk(const char *fmt, va_list args)
 		 * recursion and return - but flag the recursion so that
 		 * it can be printed at the next appropriate moment:
 		 */
-		if (!oops_in_progress) {
+		if (!oops_in_progress && !lockdep_recursing(current)) {
 			recursion_bug = 1;
 			goto out_restore_irqs;
 		}
@@ -962,9 +970,8 @@ asmlinkage int vprintk(const char *fmt, va_list args)
 
 	lockdep_on();
 out_restore_irqs:
-	raw_local_irq_restore(flags);
+	local_irq_restore(flags);
 
-	preempt_enable();
 	return printed_len;
 }
 EXPORT_SYMBOL(printk);
@@ -1099,7 +1106,7 @@ int update_console_cmdline(char *name, int idx, char *name_new, int idx_new, cha
 	return -1;
 }
 
-int console_suspend_enabled = 1;
+bool console_suspend_enabled = 1;
 EXPORT_SYMBOL(console_suspend_enabled);
 
 static int __init console_suspend_disable(char *str)
@@ -1209,13 +1216,27 @@ int is_console_locked(void)
 	return console_locked;
 }
 
+/*
+ * Delayed printk facility, for scheduler-internal messages:
+ */
+#define PRINTK_BUF_SIZE		512
+
+#define PRINTK_PENDING_WAKEUP	0x01
+#define PRINTK_PENDING_SCHED	0x02
+
 static DEFINE_PER_CPU(int, printk_pending);
+static DEFINE_PER_CPU(char [PRINTK_BUF_SIZE], printk_sched_buf);
 
 void printk_tick(void)
 {
 	if (__this_cpu_read(printk_pending)) {
-		__this_cpu_write(printk_pending, 0);
-		wake_up_interruptible(&log_wait);
+		int pending = __this_cpu_xchg(printk_pending, 0);
+		if (pending & PRINTK_PENDING_SCHED) {
+			char *buf = __get_cpu_var(printk_sched_buf);
+			printk(KERN_WARNING "[sched_delayed] %s", buf);
+		}
+		if (pending & PRINTK_PENDING_WAKEUP)
+			wake_up_interruptible(&log_wait);
 	}
 }
 
@@ -1229,7 +1250,7 @@ int printk_needs_cpu(int cpu)
 void wake_up_klogd(void)
 {
 	if (waitqueue_active(&log_wait))
-		this_cpu_write(printk_pending, 1);
+		this_cpu_or(printk_pending, PRINTK_PENDING_WAKEUP);
 }
 
 /**
@@ -1622,6 +1643,26 @@ late_initcall(printk_late_init);
 
 #if defined CONFIG_PRINTK
 
+int printk_sched(const char *fmt, ...)
+{
+	unsigned long flags;
+	va_list args;
+	char *buf;
+	int r;
+
+	local_irq_save(flags);
+	buf = __get_cpu_var(printk_sched_buf);
+
+	va_start(args, fmt);
+	r = vsnprintf(buf, PRINTK_BUF_SIZE, fmt, args);
+	va_end(args);
+
+	__this_cpu_or(printk_pending, PRINTK_PENDING_SCHED);
+	local_irq_restore(flags);
+
+	return r;
+}
+
 /*
  * printk rate limiting, lifted from the networking subsystem.
  *
@@ -1732,6 +1773,9 @@ void kmsg_dump(enum kmsg_dump_reason reason)
 	const char *s1, *s2;
 	unsigned long l1, l2;
 	unsigned long flags;
+
+	if ((reason > KMSG_DUMP_OOPS) && !always_kmsg_dump)
+		return;
 
 	/* Theoretically, the log could move on after we do this, but
 	   there's not a lot we can do about that. The new messages

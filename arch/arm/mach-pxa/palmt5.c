@@ -205,8 +205,10 @@ MACHINE_START(PALMT5, "Palm Tungsten|T5")
 	.atag_offset	= 0x100,
 	.map_io		= pxa27x_map_io,
 	.reserve	= palmt5_reserve,
+	.nr_irqs	= PXA_NR_IRQS,
 	.init_irq	= pxa27x_init_irq,
 	.handle_irq	= pxa27x_handle_irq,
 	.timer		= &pxa_timer,
-	.init_machine	= palmt5_init
+	.init_machine	= palmt5_init,
+	.restart	= pxa_restart,
 MACHINE_END

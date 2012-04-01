@@ -8,6 +8,8 @@
  */
 
 #include <linux/slab.h>
+#include <linux/etherdevice.h>
+#include <asm/unaligned.h>
 #include "wme.h"
 #include "mesh.h"
 
@@ -113,20 +115,20 @@ static int mesh_path_sel_frame_tx(enum mpath_frame_type action, u8 flags,
 		struct ieee80211_sub_if_data *sdata)
 {
 	struct ieee80211_local *local = sdata->local;
-	struct sk_buff *skb = dev_alloc_skb(local->hw.extra_tx_headroom + 400);
+	struct sk_buff *skb;
 	struct ieee80211_mgmt *mgmt;
-	u8 *pos;
-	int ie_len;
+	u8 *pos, ie_len;
+	int hdr_len = offsetof(struct ieee80211_mgmt, u.action.u.mesh_action) +
+		      sizeof(mgmt->u.action.u.mesh_action);
 
+	skb = dev_alloc_skb(local->tx_headroom +
+			    hdr_len +
+			    2 + 37); /* max HWMP IE */
 	if (!skb)
 		return -1;
-	skb_reserve(skb, local->hw.extra_tx_headroom);
-	/* 25 is the size of the common mgmt part (24) plus the size of the
-	 * common action part (1)
-	 */
-	mgmt = (struct ieee80211_mgmt *)
-		skb_put(skb, 25 + sizeof(mgmt->u.action.u.mesh_action));
-	memset(mgmt, 0, 25 + sizeof(mgmt->u.action.u.mesh_action));
+	skb_reserve(skb, local->tx_headroom);
+	mgmt = (struct ieee80211_mgmt *) skb_put(skb, hdr_len);
+	memset(mgmt, 0, hdr_len);
 	mgmt->frame_control = cpu_to_le16(IEEE80211_FTYPE_MGMT |
 					  IEEE80211_STYPE_ACTION);
 
@@ -240,20 +242,24 @@ int mesh_path_error_tx(u8 ttl, u8 *target, __le32 target_sn,
 		       struct ieee80211_sub_if_data *sdata)
 {
 	struct ieee80211_local *local = sdata->local;
-	struct sk_buff *skb = dev_alloc_skb(local->hw.extra_tx_headroom + 400);
+	struct sk_buff *skb;
+	struct ieee80211_if_mesh *ifmsh = &sdata->u.mesh;
 	struct ieee80211_mgmt *mgmt;
-	u8 *pos;
-	int ie_len;
+	u8 *pos, ie_len;
+	int hdr_len = offsetof(struct ieee80211_mgmt, u.action.u.mesh_action) +
+		      sizeof(mgmt->u.action.u.mesh_action);
 
+	if (time_before(jiffies, ifmsh->next_perr))
+		return -EAGAIN;
+
+	skb = dev_alloc_skb(local->tx_headroom +
+			    hdr_len +
+			    2 + 15 /* PERR IE */);
 	if (!skb)
 		return -1;
-	skb_reserve(skb, local->tx_headroom + local->hw.extra_tx_headroom);
-	/* 25 is the size of the common mgmt part (24) plus the size of the
-	 * common action part (1)
-	 */
-	mgmt = (struct ieee80211_mgmt *)
-		skb_put(skb, 25 + sizeof(mgmt->u.action.u.mesh_action));
-	memset(mgmt, 0, 25 + sizeof(mgmt->u.action.u.mesh_action));
+	skb_reserve(skb, local->tx_headroom);
+	mgmt = (struct ieee80211_mgmt *) skb_put(skb, hdr_len);
+	memset(mgmt, 0, hdr_len);
 	mgmt->frame_control = cpu_to_le16(IEEE80211_FTYPE_MGMT |
 					  IEEE80211_STYPE_ACTION);
 
@@ -290,6 +296,8 @@ int mesh_path_error_tx(u8 ttl, u8 *target, __le32 target_sn,
 
 	/* see note in function header */
 	prepare_frame_for_deferred_tx(sdata, skb);
+	ifmsh->next_perr = TU_TO_EXP_TIME(
+				   ifmsh->mshcfg.dot11MeshHWMPperrMinInterval);
 	ieee80211_add_pending_skb(local, skb);
 	return 0;
 }
@@ -316,6 +324,7 @@ static u32 airtime_link_metric_get(struct ieee80211_local *local,
 				   struct sta_info *sta)
 {
 	struct ieee80211_supported_band *sband;
+	struct rate_info rinfo;
 	/* This should be adjusted for each device */
 	int device_constant = 1 << ARITH_SHIFT;
 	int test_frame_len = TEST_FRAME_LEN << ARITH_SHIFT;
@@ -329,7 +338,9 @@ static u32 airtime_link_metric_get(struct ieee80211_local *local,
 	if (sta->fail_avg >= 100)
 		return MAX_METRIC;
 
-	if (sta->last_tx_rate.flags & IEEE80211_TX_RC_MCS)
+	sta_set_rate_info_tx(sta, &sta->last_tx_rate, &rinfo);
+	rate = cfg80211_calculate_bitrate(&rinfo);
+	if (WARN_ON(!rate))
 		return MAX_METRIC;
 
 	err = (sta->fail_avg << ARITH_SHIFT) / 100;
@@ -337,7 +348,6 @@ static u32 airtime_link_metric_get(struct ieee80211_local *local,
 	/* bitrate is in units of 100 Kbps, while we need rate in units of
 	 * 1Mbps. This will be corrected on tx_time computation.
 	 */
-	rate = sband->bitrates[sta->last_tx_rate.idx].bitrate;
 	tx_time = (device_constant + 10 * test_frame_len / rate);
 	estimated_retx = ((1 << (2 * ARITH_SHIFT)) / (s_unit - err));
 	result = (tx_time * estimated_retx) >> (2 * ARITH_SHIFT) ;
@@ -393,15 +403,13 @@ static u32 hwmp_route_info_get(struct ieee80211_sub_if_data *sdata,
 		orig_metric = PREQ_IE_METRIC(hwmp_ie);
 		break;
 	case MPATH_PREP:
-		/* Originator here refers to the MP that was the destination in
-		 * the Path Request. The draft refers to that MP as the
-		 * destination address, even though usually it is the origin of
-		 * the PREP frame. We divert from the nomenclature in the draft
+		/* Originator here refers to the MP that was the target in the
+		 * Path Request. We divert from the nomenclature in the draft
 		 * so that we can easily use a single function to gather path
 		 * information from both PREQ and PREP frames.
 		 */
-		orig_addr = PREP_IE_ORIG_ADDR(hwmp_ie);
-		orig_sn = PREP_IE_ORIG_SN(hwmp_ie);
+		orig_addr = PREP_IE_TARGET_ADDR(hwmp_ie);
+		orig_sn = PREP_IE_TARGET_SN(hwmp_ie);
 		orig_lifetime = PREP_IE_LIFETIME(hwmp_ie);
 		orig_metric = PREP_IE_METRIC(hwmp_ie);
 		break;
@@ -414,7 +422,7 @@ static u32 hwmp_route_info_get(struct ieee80211_sub_if_data *sdata,
 		new_metric = MAX_METRIC;
 	exp_time = TU_TO_EXP_TIME(orig_lifetime);
 
-	if (memcmp(orig_addr, sdata->vif.addr, ETH_ALEN) == 0) {
+	if (compare_ether_addr(orig_addr, sdata->vif.addr) == 0) {
 		/* This MP is the originator, we are not interested in this
 		 * frame, except for updating transmitter's path info.
 		 */
@@ -464,7 +472,7 @@ static u32 hwmp_route_info_get(struct ieee80211_sub_if_data *sdata,
 
 	/* Update and check transmitter routing info */
 	ta = mgmt->sa;
-	if (memcmp(orig_addr, ta, ETH_ALEN) == 0)
+	if (compare_ether_addr(orig_addr, ta) == 0)
 		fresh_info = false;
 	else {
 		fresh_info = true;
@@ -508,8 +516,9 @@ static void hwmp_preq_frame_process(struct ieee80211_sub_if_data *sdata,
 				    u8 *preq_elem, u32 metric)
 {
 	struct ieee80211_if_mesh *ifmsh = &sdata->u.mesh;
-	struct mesh_path *mpath;
+	struct mesh_path *mpath = NULL;
 	u8 *target_addr, *orig_addr;
+	const u8 *da;
 	u8 target_flags, ttl;
 	u32 orig_sn, target_sn, lifetime;
 	bool reply = false;
@@ -524,7 +533,7 @@ static void hwmp_preq_frame_process(struct ieee80211_sub_if_data *sdata,
 
 	mhwmp_dbg("received PREQ from %pM", orig_addr);
 
-	if (memcmp(target_addr, sdata->vif.addr, ETH_ALEN) == 0) {
+	if (compare_ether_addr(target_addr, sdata->vif.addr) == 0) {
 		mhwmp_dbg("PREQ is for us");
 		forward = false;
 		reply = true;
@@ -562,16 +571,16 @@ static void hwmp_preq_frame_process(struct ieee80211_sub_if_data *sdata,
 		ttl = ifmsh->mshcfg.element_ttl;
 		if (ttl != 0) {
 			mhwmp_dbg("replying to the PREQ");
-			mesh_path_sel_frame_tx(MPATH_PREP, 0, target_addr,
-				cpu_to_le32(target_sn), 0, orig_addr,
-				cpu_to_le32(orig_sn), mgmt->sa, 0, ttl,
+			mesh_path_sel_frame_tx(MPATH_PREP, 0, orig_addr,
+				cpu_to_le32(orig_sn), 0, target_addr,
+				cpu_to_le32(target_sn), mgmt->sa, 0, ttl,
 				cpu_to_le32(lifetime), cpu_to_le32(metric),
 				0, sdata);
 		} else
 			ifmsh->mshstats.dropped_frames_ttl++;
 	}
 
-	if (forward) {
+	if (forward && ifmsh->mshcfg.dot11MeshForwarding) {
 		u32 preq_id;
 		u8 hopcount, flags;
 
@@ -586,9 +595,11 @@ static void hwmp_preq_frame_process(struct ieee80211_sub_if_data *sdata,
 		flags = PREQ_IE_FLAGS(preq_elem);
 		preq_id = PREQ_IE_PREQ_ID(preq_elem);
 		hopcount = PREQ_IE_HOPCOUNT(preq_elem) + 1;
+		da = (mpath && mpath->is_root) ?
+			mpath->rann_snd_addr : broadcast_addr;
 		mesh_path_sel_frame_tx(MPATH_PREQ, flags, orig_addr,
 				cpu_to_le32(orig_sn), target_flags, target_addr,
-				cpu_to_le32(target_sn), broadcast_addr,
+				cpu_to_le32(target_sn), da,
 				hopcount, ttl, cpu_to_le32(lifetime),
 				cpu_to_le32(metric), cpu_to_le32(preq_id),
 				sdata);
@@ -610,6 +621,7 @@ static void hwmp_prep_frame_process(struct ieee80211_sub_if_data *sdata,
 				    struct ieee80211_mgmt *mgmt,
 				    u8 *prep_elem, u32 metric)
 {
+	struct ieee80211_if_mesh *ifmsh = &sdata->u.mesh;
 	struct mesh_path *mpath;
 	u8 *target_addr, *orig_addr;
 	u8 ttl, hopcount, flags;
@@ -618,15 +630,12 @@ static void hwmp_prep_frame_process(struct ieee80211_sub_if_data *sdata,
 
 	mhwmp_dbg("received PREP from %pM", PREP_IE_ORIG_ADDR(prep_elem));
 
-	/* Note that we divert from the draft nomenclature and denominate
-	 * destination to what the draft refers to as origininator. So in this
-	 * function destnation refers to the final destination of the PREP,
-	 * which corresponds with the originator of the PREQ which this PREP
-	 * replies
-	 */
-	target_addr = PREP_IE_TARGET_ADDR(prep_elem);
-	if (memcmp(target_addr, sdata->vif.addr, ETH_ALEN) == 0)
+	orig_addr = PREP_IE_ORIG_ADDR(prep_elem);
+	if (compare_ether_addr(orig_addr, sdata->vif.addr) == 0)
 		/* destination, no forwarding required */
+		return;
+
+	if (!ifmsh->mshcfg.dot11MeshForwarding)
 		return;
 
 	ttl = PREP_IE_TTL(prep_elem);
@@ -636,7 +645,7 @@ static void hwmp_prep_frame_process(struct ieee80211_sub_if_data *sdata,
 	}
 
 	rcu_read_lock();
-	mpath = mesh_path_lookup(target_addr, sdata);
+	mpath = mesh_path_lookup(orig_addr, sdata);
 	if (mpath)
 		spin_lock_bh(&mpath->state_lock);
 	else
@@ -651,7 +660,7 @@ static void hwmp_prep_frame_process(struct ieee80211_sub_if_data *sdata,
 	flags = PREP_IE_FLAGS(prep_elem);
 	lifetime = PREP_IE_LIFETIME(prep_elem);
 	hopcount = PREP_IE_HOPCOUNT(prep_elem) + 1;
-	orig_addr = PREP_IE_ORIG_ADDR(prep_elem);
+	target_addr = PREP_IE_TARGET_ADDR(prep_elem);
 	target_sn = PREP_IE_TARGET_SN(prep_elem);
 	orig_sn = PREP_IE_ORIG_SN(prep_elem);
 
@@ -695,21 +704,26 @@ static void hwmp_perr_frame_process(struct ieee80211_sub_if_data *sdata,
 	rcu_read_lock();
 	mpath = mesh_path_lookup(target_addr, sdata);
 	if (mpath) {
+		struct sta_info *sta;
+
 		spin_lock_bh(&mpath->state_lock);
+		sta = next_hop_deref_protected(mpath);
 		if (mpath->flags & MESH_PATH_ACTIVE &&
-		    memcmp(ta, next_hop_deref_protected(mpath)->sta.addr,
-							ETH_ALEN) == 0 &&
+		    compare_ether_addr(ta, sta->sta.addr) == 0 &&
 		    (!(mpath->flags & MESH_PATH_SN_VALID) ||
 		    SN_GT(target_sn, mpath->sn))) {
 			mpath->flags &= ~MESH_PATH_ACTIVE;
 			mpath->sn = target_sn;
 			spin_unlock_bh(&mpath->state_lock);
+			if (!ifmsh->mshcfg.dot11MeshForwarding)
+				goto endperr;
 			mesh_path_error_tx(ttl, target_addr, cpu_to_le32(target_sn),
 					   cpu_to_le16(target_rcode),
 					   broadcast_addr, sdata);
 		} else
 			spin_unlock_bh(&mpath->state_lock);
 	}
+endperr:
 	rcu_read_unlock();
 }
 
@@ -740,11 +754,11 @@ static void hwmp_rann_frame_process(struct ieee80211_sub_if_data *sdata,
 	metric = rann->rann_metric;
 
 	/*  Ignore our own RANNs */
-	if (memcmp(orig_addr, sdata->vif.addr, ETH_ALEN) == 0)
+	if (compare_ether_addr(orig_addr, sdata->vif.addr) == 0)
 		return;
 
-	mhwmp_dbg("received RANN from %pM (is_gate=%d)", orig_addr,
-			root_is_gate);
+	mhwmp_dbg("received RANN from %pM via neighbour %pM (is_gate=%d)",
+			orig_addr, mgmt->sa, root_is_gate);
 
 	rcu_read_lock();
 	mpath = mesh_path_lookup(orig_addr, sdata);
@@ -766,7 +780,7 @@ static void hwmp_rann_frame_process(struct ieee80211_sub_if_data *sdata,
 		mesh_queue_preq(mpath, PREQ_Q_F_START | PREQ_Q_F_REFRESH);
 	}
 
-	if (mpath->sn < orig_sn) {
+	if (mpath->sn < orig_sn && ifmsh->mshcfg.dot11MeshForwarding) {
 		mesh_path_sel_frame_tx(MPATH_RANN, flags, orig_addr,
 				       cpu_to_le32(orig_sn),
 				       0, NULL, 0, broadcast_addr,
@@ -775,6 +789,11 @@ static void hwmp_rann_frame_process(struct ieee80211_sub_if_data *sdata,
 				       0, sdata);
 		mpath->sn = orig_sn;
 	}
+
+	/* Using individually addressed PREQ for root node */
+	memcpy(mpath->rann_snd_addr, mgmt->sa, ETH_ALEN);
+	mpath->is_root = true;
+
 	if (root_is_gate)
 		mesh_path_add_gate(mpath);
 
@@ -867,8 +886,19 @@ static void mesh_queue_preq(struct mesh_path *mpath, u8 flags)
 		return;
 	}
 
+	spin_lock(&mpath->state_lock);
+	if (mpath->flags & MESH_PATH_REQ_QUEUED) {
+		spin_unlock(&mpath->state_lock);
+		spin_unlock_bh(&ifmsh->mesh_preq_queue_lock);
+		kfree(preq_node);
+		return;
+	}
+
 	memcpy(preq_node->dst, mpath->dst, ETH_ALEN);
 	preq_node->flags = flags;
+
+	mpath->flags |= MESH_PATH_REQ_QUEUED;
+	spin_unlock(&mpath->state_lock);
 
 	list_add_tail(&preq_node->list, &ifmsh->preq_queue.list);
 	++ifmsh->preq_queue_len;
@@ -899,6 +929,7 @@ void mesh_path_start_discovery(struct ieee80211_sub_if_data *sdata)
 	struct mesh_preq_queue *preq_node;
 	struct mesh_path *mpath;
 	u8 ttl, target_flags;
+	const u8 *da;
 	u32 lifetime;
 
 	spin_lock_bh(&ifmsh->mesh_preq_queue_lock);
@@ -921,6 +952,7 @@ void mesh_path_start_discovery(struct ieee80211_sub_if_data *sdata)
 		goto enddiscovery;
 
 	spin_lock_bh(&mpath->state_lock);
+	mpath->flags &= ~MESH_PATH_REQ_QUEUED;
 	if (preq_node->flags & PREQ_Q_F_START) {
 		if (mpath->flags & MESH_PATH_RESOLVING) {
 			spin_unlock_bh(&mpath->state_lock);
@@ -960,9 +992,10 @@ void mesh_path_start_discovery(struct ieee80211_sub_if_data *sdata)
 		target_flags = MP_F_RF;
 
 	spin_unlock_bh(&mpath->state_lock);
+	da = (mpath->is_root) ? mpath->rann_snd_addr : broadcast_addr;
 	mesh_path_sel_frame_tx(MPATH_PREQ, 0, sdata->vif.addr,
 			cpu_to_le32(ifmsh->sn), target_flags, mpath->dst,
-			cpu_to_le32(mpath->sn), broadcast_addr, 0,
+			cpu_to_le32(mpath->sn), da, 0,
 			ttl, cpu_to_le32(lifetime), 0,
 			cpu_to_le32(ifmsh->preq_id++), sdata);
 	mod_timer(&mpath->timer, jiffies + mpath->discovery_timeout);
@@ -972,71 +1005,97 @@ enddiscovery:
 	kfree(preq_node);
 }
 
-/**
- * mesh_nexthop_lookup - put the appropriate next hop on a mesh frame
+/* mesh_nexthop_resolve - lookup next hop for given skb and start path
+ * discovery if no forwarding information is found.
  *
  * @skb: 802.11 frame to be sent
  * @sdata: network subif the frame will be sent through
  *
- * Returns: 0 if the next hop was found. Nonzero otherwise. If no next hop is
- * found, the function will start a path discovery and queue the frame so it is
- * sent when the path is resolved. This means the caller must not free the skb
- * in this case.
+ * Returns: 0 if the next hop was found and -ENOENT if the frame was queued.
+ * skb is freeed here if no mpath could be allocated.
  */
-int mesh_nexthop_lookup(struct sk_buff *skb,
-			struct ieee80211_sub_if_data *sdata)
+int mesh_nexthop_resolve(struct sk_buff *skb,
+			 struct ieee80211_sub_if_data *sdata)
 {
-	struct sk_buff *skb_to_free = NULL;
-	struct mesh_path *mpath;
-	struct sta_info *next_hop;
 	struct ieee80211_hdr *hdr = (struct ieee80211_hdr *) skb->data;
+	struct ieee80211_tx_info *info = IEEE80211_SKB_CB(skb);
+	struct mesh_path *mpath;
+	struct sk_buff *skb_to_free = NULL;
 	u8 *target_addr = hdr->addr3;
 	int err = 0;
 
 	rcu_read_lock();
-	mpath = mesh_path_lookup(target_addr, sdata);
+	err = mesh_nexthop_lookup(skb, sdata);
+	if (!err)
+		goto endlookup;
 
+	/* no nexthop found, start resolving */
+	mpath = mesh_path_lookup(target_addr, sdata);
 	if (!mpath) {
 		mesh_path_add(target_addr, sdata);
 		mpath = mesh_path_lookup(target_addr, sdata);
 		if (!mpath) {
-			sdata->u.mesh.mshstats.dropped_frames_no_route++;
+			mesh_path_discard_frame(skb, sdata);
 			err = -ENOSPC;
 			goto endlookup;
 		}
 	}
 
-	if (mpath->flags & MESH_PATH_ACTIVE) {
-		if (time_after(jiffies,
-			       mpath->exp_time -
-			       msecs_to_jiffies(sdata->u.mesh.mshcfg.path_refresh_time)) &&
-		    !memcmp(sdata->vif.addr, hdr->addr4, ETH_ALEN) &&
-		    !(mpath->flags & MESH_PATH_RESOLVING) &&
-		    !(mpath->flags & MESH_PATH_FIXED)) {
-			mesh_queue_preq(mpath,
-					PREQ_Q_F_START | PREQ_Q_F_REFRESH);
-		}
-		next_hop = rcu_dereference(mpath->next_hop);
-		if (next_hop)
-			memcpy(hdr->addr1, next_hop->sta.addr, ETH_ALEN);
-		else
-			err = -ENOENT;
-	} else {
-		struct ieee80211_tx_info *info = IEEE80211_SKB_CB(skb);
-		if (!(mpath->flags & MESH_PATH_RESOLVING)) {
-			/* Start discovery only if it is not running yet */
-			mesh_queue_preq(mpath, PREQ_Q_F_START);
-		}
+	if (!(mpath->flags & MESH_PATH_RESOLVING))
+		mesh_queue_preq(mpath, PREQ_Q_F_START);
 
-		if (skb_queue_len(&mpath->frame_queue) >=
-				MESH_FRAME_QUEUE_LEN)
-			skb_to_free = skb_dequeue(&mpath->frame_queue);
+	if (skb_queue_len(&mpath->frame_queue) >= MESH_FRAME_QUEUE_LEN)
+		skb_to_free = skb_dequeue(&mpath->frame_queue);
 
-		info->flags |= IEEE80211_TX_INTFL_NEED_TXPROCESSING;
-		skb_queue_tail(&mpath->frame_queue, skb);
-		if (skb_to_free)
-			mesh_path_discard_frame(skb_to_free, sdata);
-		err = -ENOENT;
+	info->flags |= IEEE80211_TX_INTFL_NEED_TXPROCESSING;
+	ieee80211_set_qos_hdr(sdata, skb);
+	skb_queue_tail(&mpath->frame_queue, skb);
+	err = -ENOENT;
+	if (skb_to_free)
+		mesh_path_discard_frame(skb_to_free, sdata);
+
+endlookup:
+	rcu_read_unlock();
+	return err;
+}
+/**
+ * mesh_nexthop_lookup - put the appropriate next hop on a mesh frame. Calling
+ * this function is considered "using" the associated mpath, so preempt a path
+ * refresh if this mpath expires soon.
+ *
+ * @skb: 802.11 frame to be sent
+ * @sdata: network subif the frame will be sent through
+ *
+ * Returns: 0 if the next hop was found. Nonzero otherwise.
+ */
+int mesh_nexthop_lookup(struct sk_buff *skb,
+			struct ieee80211_sub_if_data *sdata)
+{
+	struct mesh_path *mpath;
+	struct sta_info *next_hop;
+	struct ieee80211_hdr *hdr = (struct ieee80211_hdr *) skb->data;
+	u8 *target_addr = hdr->addr3;
+	int err = -ENOENT;
+
+	rcu_read_lock();
+	mpath = mesh_path_lookup(target_addr, sdata);
+
+	if (!mpath || !(mpath->flags & MESH_PATH_ACTIVE))
+		goto endlookup;
+
+	if (time_after(jiffies,
+		       mpath->exp_time -
+		       msecs_to_jiffies(sdata->u.mesh.mshcfg.path_refresh_time)) &&
+	    !compare_ether_addr(sdata->vif.addr, hdr->addr4) &&
+	    !(mpath->flags & MESH_PATH_RESOLVING) &&
+	    !(mpath->flags & MESH_PATH_FIXED))
+		mesh_queue_preq(mpath, PREQ_Q_F_START | PREQ_Q_F_REFRESH);
+
+	next_hop = rcu_dereference(mpath->next_hop);
+	if (next_hop) {
+		memcpy(hdr->addr1, next_hop->sta.addr, ETH_ALEN);
+		memcpy(hdr->addr2, sdata->vif.addr, ETH_ALEN);
+		err = 0;
 	}
 
 endlookup:
@@ -1061,6 +1120,7 @@ void mesh_path_timer(unsigned long data)
 	} else if (mpath->discovery_retries < max_preq_retries(sdata)) {
 		++mpath->discovery_retries;
 		mpath->discovery_timeout *= 2;
+		mpath->flags &= ~MESH_PATH_REQ_QUEUED;
 		spin_unlock_bh(&mpath->state_lock);
 		mesh_queue_preq(mpath, 0);
 	} else {

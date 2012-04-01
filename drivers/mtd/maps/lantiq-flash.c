@@ -45,6 +45,7 @@ struct ltq_mtd {
 };
 
 static char ltq_map_name[] = "ltq_nor";
+static const char *ltq_probe_types[] __devinitconst = { "cmdlinepart", NULL };
 
 static map_word
 ltq_read16(struct map_info *map, unsigned long adr)
@@ -159,7 +160,7 @@ ltq_mtd_probe(struct platform_device *pdev)
 	if (!ltq_mtd->mtd) {
 		dev_err(&pdev->dev, "probing failed\n");
 		err = -ENXIO;
-		goto err_unmap;
+		goto err_free;
 	}
 
 	ltq_mtd->mtd->owner = THIS_MODULE;
@@ -168,8 +169,9 @@ ltq_mtd_probe(struct platform_device *pdev)
 	cfi->addr_unlock1 ^= 1;
 	cfi->addr_unlock2 ^= 1;
 
-	err = mtd_device_parse_register(ltq_mtd->mtd, NULL, 0,
-			ltq_mtd_data->parts, ltq_mtd_data->nr_parts);
+	err = mtd_device_parse_register(ltq_mtd->mtd, ltq_probe_types, NULL,
+					ltq_mtd_data->parts,
+					ltq_mtd_data->nr_parts);
 	if (err) {
 		dev_err(&pdev->dev, "failed to add partitions\n");
 		goto err_destroy;
@@ -179,8 +181,6 @@ ltq_mtd_probe(struct platform_device *pdev)
 
 err_destroy:
 	map_destroy(ltq_mtd->mtd);
-err_unmap:
-	iounmap(ltq_mtd->map->virt);
 err_free:
 	kfree(ltq_mtd->map);
 err_out:
@@ -198,8 +198,6 @@ ltq_mtd_remove(struct platform_device *pdev)
 			mtd_device_unregister(ltq_mtd->mtd);
 			map_destroy(ltq_mtd->mtd);
 		}
-		if (ltq_mtd->map->virt)
-			iounmap(ltq_mtd->map->virt);
 		kfree(ltq_mtd->map);
 		kfree(ltq_mtd);
 	}

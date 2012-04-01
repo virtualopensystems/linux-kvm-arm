@@ -12,21 +12,10 @@
  *        David S. Miller (davem@caip.rutgers.edu), 1995
  */
 
-#include <linux/time.h>
-#include <linux/fs.h>
-#include <linux/jbd.h>
-#include <linux/ext3_fs.h>
-#include <linux/ext3_jbd.h>
-#include <linux/stat.h>
-#include <linux/string.h>
 #include <linux/quotaops.h>
-#include <linux/buffer_head.h>
 #include <linux/random.h>
-#include <linux/bitops.h>
-#include <trace/events/ext3.h>
 
-#include <asm/byteorder.h>
-
+#include "ext3.h"
 #include "xattr.h"
 #include "acl.h"
 
@@ -371,7 +360,7 @@ static int find_group_other(struct super_block *sb, struct inode *parent)
  * group to find a free inode.
  */
 struct inode *ext3_new_inode(handle_t *handle, struct inode * dir,
-			     const struct qstr *qstr, int mode)
+			     const struct qstr *qstr, umode_t mode)
 {
 	struct super_block *sb;
 	struct buffer_head *bitmap_bh = NULL;
@@ -525,8 +514,12 @@ got:
 	if (IS_DIRSYNC(inode))
 		handle->h_sync = 1;
 	if (insert_inode_locked(inode) < 0) {
-		err = -EINVAL;
-		goto fail_drop;
+		/*
+		 * Likely a bitmap corruption causing inode to be allocated
+		 * twice.
+		 */
+		err = -EIO;
+		goto fail;
 	}
 	spin_lock(&sbi->s_next_gen_lock);
 	inode->i_generation = sbi->s_next_generation++;

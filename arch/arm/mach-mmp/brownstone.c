@@ -28,7 +28,7 @@
 
 #include "common.h"
 
-#define BROWNSTONE_NR_IRQS	(IRQ_BOARD_START + 40)
+#define BROWNSTONE_NR_IRQS	(MMP_NR_IRQS + 40)
 
 #define GPIO_5V_ENABLE		(89)
 
@@ -158,7 +158,7 @@ static struct platform_device brownstone_v_5vp_device = {
 };
 
 static struct max8925_platform_data brownstone_max8925_info = {
-	.irq_base		= IRQ_BOARD_START,
+	.irq_base		= MMP_NR_IRQS,
 };
 
 static struct i2c_board_info brownstone_twsi1_info[] = {
@@ -202,6 +202,7 @@ static void __init brownstone_init(void)
 	/* on-chip devices */
 	mmp2_add_uart(1);
 	mmp2_add_uart(3);
+	platform_device_register(&mmp2_device_gpio);
 	mmp2_add_twsi(1, NULL, ARRAY_AND_SIZE(brownstone_twsi1_info));
 	mmp2_add_sdhost(0, &mmp2_sdh_platdata_mmc0); /* SD/MMC */
 	mmp2_add_sdhost(2, &mmp2_sdh_platdata_mmc2); /* eMMC */
@@ -219,4 +220,5 @@ MACHINE_START(BROWNSTONE, "Brownstone Development Platform")
 	.init_irq	= mmp2_init_irq,
 	.timer		= &mmp2_timer,
 	.init_machine	= brownstone_init,
+	.restart	= mmp_restart,
 MACHINE_END

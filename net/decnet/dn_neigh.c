@@ -88,9 +88,9 @@ static const struct neigh_ops dn_phase3_ops = {
 
 static u32 dn_neigh_hash(const void *pkey,
 			 const struct net_device *dev,
-			 __u32 hash_rnd)
+			 __u32 *hash_rnd)
 {
-	return jhash_2words(*(__u16 *)pkey, 0, hash_rnd);
+	return jhash_2words(*(__u16 *)pkey, 0, hash_rnd[0]);
 }
 
 struct neigh_table dn_neigh_table = {
@@ -107,7 +107,7 @@ struct neigh_table dn_neigh_table = {
 		.gc_staletime =	60 * HZ,
 		.reachable_time =		30 * HZ,
 		.delay_probe_time =	5 * HZ,
-		.queue_len =		3,
+		.queue_len_bytes =	64*1024,
 		.ucast_probes =	0,
 		.app_probes =		0,
 		.mcast_probes =	0,
@@ -202,20 +202,26 @@ static int dn_neigh_output_packet(struct sk_buff *skb)
 {
 	struct dst_entry *dst = skb_dst(skb);
 	struct dn_route *rt = (struct dn_route *)dst;
-	struct neighbour *neigh = dst_get_neighbour(dst);
+	struct neighbour *neigh = dst_get_neighbour_noref(dst);
 	struct net_device *dev = neigh->dev;
 	char mac_addr[ETH_ALEN];
+	unsigned int seq;
+	int err;
 
 	dn_dn2eth(mac_addr, rt->rt_local_src);
-	if (dev_hard_header(skb, dev, ntohs(skb->protocol), neigh->ha,
-			    mac_addr, skb->len) >= 0)
-		return dev_queue_xmit(skb);
+	do {
+		seq = read_seqbegin(&neigh->ha_lock);
+		err = dev_hard_header(skb, dev, ntohs(skb->protocol),
+				      neigh->ha, mac_addr, skb->len);
+	} while (read_seqretry(&neigh->ha_lock, seq));
 
-	if (net_ratelimit())
-		printk(KERN_DEBUG "dn_neigh_output_packet: oops, can't send packet\n");
-
-	kfree_skb(skb);
-	return -EINVAL;
+	if (err >= 0)
+		err = dev_queue_xmit(skb);
+	else {
+		kfree_skb(skb);
+		err = -EINVAL;
+	}
+	return err;
 }
 
 static int dn_long_output(struct neighbour *neigh, struct sk_buff *skb)

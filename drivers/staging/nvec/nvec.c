@@ -27,6 +27,8 @@
 #include <linux/interrupt.h>
 #include <linux/io.h>
 #include <linux/irq.h>
+#include <linux/of.h>
+#include <linux/of_gpio.h>
 #include <linux/list.h>
 #include <linux/mfd/core.h>
 #include <linux/mutex.h>
@@ -47,7 +49,7 @@
 #define I2C_CNFG_DEBOUNCE_CNT_SHIFT	12
 
 #define I2C_SL_CNFG		0x20
-#define I2C_SL_NEWL		(1<<2)
+#define I2C_SL_NEWSL		(1<<2)
 #define I2C_SL_NACK		(1<<1)
 #define I2C_SL_RESP		(1<<0)
 #define I2C_SL_IRQ		(1<<3)
@@ -685,7 +687,7 @@ static void tegra_init_i2c_slave(struct nvec_chip *nvec)
 
 	clk_set_rate(nvec->i2c_clk, 8 * 80000);
 
-	writel(I2C_SL_NEWL, nvec->base + I2C_SL_CNFG);
+	writel(I2C_SL_NEWSL, nvec->base + I2C_SL_CNFG);
 	writel(0x1E, nvec->base + I2C_SL_DELAY_COUNT);
 
 	writel(nvec->i2c_addr>>1, nvec->base + I2C_SL_ADDR1);
@@ -699,7 +701,7 @@ static void tegra_init_i2c_slave(struct nvec_chip *nvec)
 static void nvec_disable_i2c_slave(struct nvec_chip *nvec)
 {
 	disable_irq(nvec->irq);
-	writel(I2C_SL_NEWL | I2C_SL_NACK, nvec->base + I2C_SL_CNFG);
+	writel(I2C_SL_NEWSL | I2C_SL_NACK, nvec->base + I2C_SL_CNFG);
 	clk_disable(nvec->i2c_clk);
 }
 
@@ -727,8 +729,24 @@ static int __devinit tegra_nvec_probe(struct platform_device *pdev)
 	}
 	platform_set_drvdata(pdev, nvec);
 	nvec->dev = &pdev->dev;
-	nvec->gpio = pdata->gpio;
-	nvec->i2c_addr = pdata->i2c_addr;
+
+	if (pdata) {
+		nvec->gpio = pdata->gpio;
+		nvec->i2c_addr = pdata->i2c_addr;
+	} else if (nvec->dev->of_node) {
+		nvec->gpio = of_get_named_gpio(nvec->dev->of_node, "request-gpios", 0);
+		if (nvec->gpio < 0) {
+			dev_err(&pdev->dev, "no gpio specified");
+			goto failed;
+		}
+		if (of_property_read_u32(nvec->dev->of_node, "slave-addr", &nvec->i2c_addr)) {
+			dev_err(&pdev->dev, "no i2c address specified");
+			goto failed;
+		}
+	} else {
+		dev_err(&pdev->dev, "no platform data\n");
+		goto failed;
+	}
 
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	if (!res) {
@@ -766,11 +784,6 @@ static int __devinit tegra_nvec_probe(struct platform_device *pdev)
 	nvec->i2c_clk = i2c_clk;
 	nvec->rx = &nvec->msg_pool[0];
 
-	/* Set the gpio to low when we've got something to say */
-	err = gpio_request(nvec->gpio, "nvec gpio");
-	if (err < 0)
-		dev_err(nvec->dev, "couldn't request gpio\n");
-
 	ATOMIC_INIT_NOTIFIER_HEAD(&nvec->notifier_list);
 
 	init_completion(&nvec->sync_write);
@@ -784,6 +797,12 @@ static int __devinit tegra_nvec_probe(struct platform_device *pdev)
 	INIT_WORK(&nvec->tx_work, nvec_request_master);
 	nvec->wq = alloc_workqueue("nvec", WQ_NON_REENTRANT, 2);
 
+	err = gpio_request_one(nvec->gpio, GPIOF_OUT_INIT_HIGH, "nvec gpio");
+	if (err < 0) {
+		dev_err(nvec->dev, "couldn't request gpio\n");
+		goto failed;
+	}
+
 	err = request_irq(nvec->irq, nvec_interrupt, 0, "nvec", nvec);
 	if (err) {
 		dev_err(nvec->dev, "couldn't request irq\n");
@@ -795,8 +814,6 @@ static int __devinit tegra_nvec_probe(struct platform_device *pdev)
 
 	clk_enable(i2c_clk);
 
-	gpio_direction_output(nvec->gpio, 1);
-	gpio_set_value(nvec->gpio, 1);
 
 	/* enable event reporting */
 	nvec_write_async(nvec, EC_ENABLE_EVENT_REPORTING,
@@ -893,6 +910,13 @@ static int tegra_nvec_resume(struct platform_device *pdev)
 #define tegra_nvec_resume NULL
 #endif
 
+/* Match table for of_platform binding */
+static const struct of_device_id nvidia_nvec_of_match[] __devinitconst = {
+	{ .compatible = "nvidia,nvec", },
+	{},
+};
+MODULE_DEVICE_TABLE(of, nvidia_nvec_of_match);
+
 static struct platform_driver nvec_device_driver = {
 	.probe   = tegra_nvec_probe,
 	.remove  = __devexit_p(tegra_nvec_remove),
@@ -901,6 +925,7 @@ static struct platform_driver nvec_device_driver = {
 	.driver  = {
 		.name = "nvec",
 		.owner = THIS_MODULE,
+		.of_match_table = nvidia_nvec_of_match,
 	}
 };
 

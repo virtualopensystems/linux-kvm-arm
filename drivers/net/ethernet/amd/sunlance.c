@@ -95,7 +95,6 @@ static char lancestr[] = "LANCE";
 #include <linux/of_device.h>
 #include <linux/gfp.h>
 
-#include <asm/system.h>
 #include <asm/io.h>
 #include <asm/dma.h>
 #include <asm/pgtable.h>
@@ -534,7 +533,7 @@ static void lance_rx_dvma(struct net_device *dev)
 			if (bits & LE_R1_EOP) dev->stats.rx_errors++;
 		} else {
 			len = (rd->mblength & 0xfff) - 4;
-			skb = dev_alloc_skb(len + 2);
+			skb = netdev_alloc_skb(dev, len + 2);
 
 			if (skb == NULL) {
 				printk(KERN_INFO "%s: Memory squeeze, deferring packet.\n",
@@ -706,7 +705,7 @@ static void lance_rx_pio(struct net_device *dev)
 			if (bits & LE_R1_EOP) dev->stats.rx_errors++;
 		} else {
 			len = (sbus_readw(&rd->mblength) & 0xfff) - 4;
-			skb = dev_alloc_skb(len + 2);
+			skb = netdev_alloc_skb(dev, len + 2);
 
 			if (skb == NULL) {
 				printk(KERN_INFO "%s: Memory squeeze, deferring packet.\n",
@@ -1540,17 +1539,4 @@ static struct platform_driver sunlance_sbus_driver = {
 	.remove		= __devexit_p(sunlance_sbus_remove),
 };
 
-
-/* Find all the lance cards on the system and initialize them */
-static int __init sparc_lance_init(void)
-{
-	return platform_driver_register(&sunlance_sbus_driver);
-}
-
-static void __exit sparc_lance_exit(void)
-{
-	platform_driver_unregister(&sunlance_sbus_driver);
-}
-
-module_init(sparc_lance_init);
-module_exit(sparc_lance_exit);
+module_platform_driver(sunlance_sbus_driver);

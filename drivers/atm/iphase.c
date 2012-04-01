@@ -56,7 +56,6 @@
 #include <linux/interrupt.h>
 #include <linux/wait.h>
 #include <linux/slab.h>
-#include <asm/system.h>  
 #include <asm/io.h>  
 #include <linux/atomic.h>
 #include <asm/uaccess.h>  
@@ -1320,8 +1319,8 @@ static void rx_dle_intr(struct atm_dev *dev)
           if (ia_vcc == NULL)
           {
              atomic_inc(&vcc->stats->rx_err);
+             atm_return(vcc, skb->truesize);
              dev_kfree_skb_any(skb);
-             atm_return(vcc, atm_guess_pdu2truesize(len));
              goto INCR_DLE;
            }
           // get real pkt length  pwang_test
@@ -1334,8 +1333,8 @@ static void rx_dle_intr(struct atm_dev *dev)
              atomic_inc(&vcc->stats->rx_err);
              IF_ERR(printk("rx_dle_intr: Bad  AAL5 trailer %d (skb len %d)", 
                                                             length, skb->len);)
+             atm_return(vcc, skb->truesize);
              dev_kfree_skb_any(skb);
-             atm_return(vcc, atm_guess_pdu2truesize(len));
              goto INCR_DLE;
           }
           skb_trim(skb, length);

@@ -684,10 +684,8 @@ static int iscsi_sw_tcp_conn_set_param(struct iscsi_cls_conn *cls_conn,
 				       int buflen)
 {
 	struct iscsi_conn *conn = cls_conn->dd_data;
-	struct iscsi_session *session = conn->session;
 	struct iscsi_tcp_conn *tcp_conn = conn->dd_data;
 	struct iscsi_sw_tcp_conn *tcp_sw_conn = tcp_conn->dd_data;
-	int value;
 
 	switch(param) {
 	case ISCSI_PARAM_HDRDGST_EN:
@@ -699,16 +697,7 @@ static int iscsi_sw_tcp_conn_set_param(struct iscsi_cls_conn *cls_conn,
 			sock_no_sendpage : tcp_sw_conn->sock->ops->sendpage;
 		break;
 	case ISCSI_PARAM_MAX_R2T:
-		sscanf(buf, "%d", &value);
-		if (value <= 0 || !is_power_of_2(value))
-			return -EINVAL;
-		if (session->max_r2t == value)
-			break;
-		iscsi_tcp_r2tpool_free(session);
-		iscsi_set_param(cls_conn, param, buf, buflen);
-		if (iscsi_tcp_r2tpool_alloc(session))
-			return -ENOMEM;
-		break;
+		return iscsi_tcp_set_max_r2t(conn, buf);
 	default:
 		return iscsi_set_param(cls_conn, param, buf, buflen);
 	}
@@ -873,7 +862,7 @@ static void iscsi_sw_tcp_session_destroy(struct iscsi_cls_session *cls_session)
 	iscsi_host_free(shost);
 }
 
-static mode_t iscsi_sw_tcp_attr_is_visible(int param_type, int param)
+static umode_t iscsi_sw_tcp_attr_is_visible(int param_type, int param)
 {
 	switch (param_type) {
 	case ISCSI_HOST_PARAM:

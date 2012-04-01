@@ -42,7 +42,7 @@ MODULE_LICENSE("GPL");
 { USB_DEVICE_VER(id_vendor, id_product, bcdDeviceMin, bcdDeviceMax), \
 	.driver_info = (flags)|(USB_US_TYPE_STOR<<24) }
 
-struct usb_device_id ene_ub6250_usb_ids[] = {
+static struct usb_device_id ene_ub6250_usb_ids[] = {
 #	include "unusual_ene_ub6250.h"
 	{ }		/* Terminating entry */
 };
@@ -607,8 +607,8 @@ static int sd_scsi_mode_sense(struct us_data *us, struct scsi_cmnd *srb)
 
 static int sd_scsi_read_capacity(struct us_data *us, struct scsi_cmnd *srb)
 {
-	u32   bl_num;
-	u16    bl_len;
+	u32	bl_num;
+	u32	bl_len;
 	unsigned int offset = 0;
 	unsigned char    buf[8];
 	struct scatterlist *sg = NULL;
@@ -622,7 +622,7 @@ static int sd_scsi_read_capacity(struct us_data *us, struct scsi_cmnd *srb)
 		else
 			bl_num = (info->HC_C_SIZE + 1) * 1024 - 1;
 	} else {
-		bl_len = 1<<(info->SD_READ_BL_LEN);
+		bl_len = 1 << (info->SD_READ_BL_LEN);
 		bl_num = info->SD_Block_Mult * (info->SD_C_SIZE + 1)
 				* (1 << (info->SD_C_SIZE_MULT + 2)) - 1;
 	}
@@ -674,7 +674,7 @@ static int sd_scsi_read(struct us_data *us, struct scsi_cmnd *srb)
 	memset(bcb, 0, sizeof(struct bulk_cb_wrap));
 	bcb->Signature = cpu_to_le32(US_BULK_CB_SIGN);
 	bcb->DataTransferLength = blenByte;
-	bcb->Flags  = 0x80;
+	bcb->Flags  = US_BULK_FLAG_IN;
 	bcb->CDB[0] = 0xF1;
 	bcb->CDB[5] = (unsigned char)(bnByte);
 	bcb->CDB[4] = (unsigned char)(bnByte>>8);
@@ -777,7 +777,7 @@ static int ms_lib_free_logicalmap(struct us_data *us)
 	return 0;
 }
 
-int ms_lib_alloc_logicalmap(struct us_data *us)
+static int ms_lib_alloc_logicalmap(struct us_data *us)
 {
 	u32  i;
 	struct ene_ub6250_info *info = (struct ene_ub6250_info *) us->extra;
@@ -858,7 +858,7 @@ static int ms_read_readpage(struct us_data *us, u32 PhyBlockAddr,
 	memset(bcb, 0, sizeof(struct bulk_cb_wrap));
 	bcb->Signature = cpu_to_le32(US_BULK_CB_SIGN);
 	bcb->DataTransferLength = 0x200;
-	bcb->Flags      = 0x80;
+	bcb->Flags      = US_BULK_FLAG_IN;
 	bcb->CDB[0]     = 0xF1;
 
 	bcb->CDB[1]     = 0x02; /* in init.c ENE_MSInit() is 0x01 */
@@ -877,7 +877,7 @@ static int ms_read_readpage(struct us_data *us, u32 PhyBlockAddr,
 	memset(bcb, 0, sizeof(struct bulk_cb_wrap));
 	bcb->Signature = cpu_to_le32(US_BULK_CB_SIGN);
 	bcb->DataTransferLength = 0x4;
-	bcb->Flags      = 0x80;
+	bcb->Flags      = US_BULK_FLAG_IN;
 	bcb->CDB[0]     = 0xF1;
 	bcb->CDB[1]     = 0x03;
 
@@ -1170,7 +1170,7 @@ static int ms_read_eraseblock(struct us_data *us, u32 PhyBlockAddr)
 	memset(bcb, 0, sizeof(struct bulk_cb_wrap));
 	bcb->Signature = cpu_to_le32(US_BULK_CB_SIGN);
 	bcb->DataTransferLength = 0x200;
-	bcb->Flags = 0x80;
+	bcb->Flags = US_BULK_FLAG_IN;
 	bcb->CDB[0] = 0xF2;
 	bcb->CDB[1] = 0x06;
 	bcb->CDB[4] = (unsigned char)(bn);
@@ -1249,7 +1249,7 @@ static int ms_lib_overwrite_extra(struct us_data *us, u32 PhyBlockAddr,
 	memset(bcb, 0, sizeof(struct bulk_cb_wrap));
 	bcb->Signature = cpu_to_le32(US_BULK_CB_SIGN);
 	bcb->DataTransferLength = 0x4;
-	bcb->Flags = 0x80;
+	bcb->Flags = US_BULK_FLAG_IN;
 	bcb->CDB[0] = 0xF2;
 	bcb->CDB[1] = 0x05;
 	bcb->CDB[5] = (unsigned char)(PageNum);
@@ -1331,7 +1331,7 @@ static int ms_lib_read_extra(struct us_data *us, u32 PhyBlock,
 	memset(bcb, 0, sizeof(struct bulk_cb_wrap));
 	bcb->Signature = cpu_to_le32(US_BULK_CB_SIGN);
 	bcb->DataTransferLength = 0x4;
-	bcb->Flags      = 0x80;
+	bcb->Flags      = US_BULK_FLAG_IN;
 	bcb->CDB[0]     = 0xF1;
 	bcb->CDB[1]     = 0x03;
 	bcb->CDB[5]     = (unsigned char)(PageNum);
@@ -1533,7 +1533,7 @@ static int ms_lib_read_extrablock(struct us_data *us, u32 PhyBlock,
 	memset(bcb, 0, sizeof(struct bulk_cb_wrap));
 	bcb->Signature = cpu_to_le32(US_BULK_CB_SIGN);
 	bcb->DataTransferLength = 0x4 * blen;
-	bcb->Flags      = 0x80;
+	bcb->Flags      = US_BULK_FLAG_IN;
 	bcb->CDB[0]     = 0xF1;
 	bcb->CDB[1]     = 0x03;
 	bcb->CDB[5]     = (unsigned char)(PageNum);
@@ -1650,7 +1650,7 @@ static int ms_scsi_read(struct us_data *us, struct scsi_cmnd *srb)
 		memset(bcb, 0, sizeof(struct bulk_cb_wrap));
 		bcb->Signature = cpu_to_le32(US_BULK_CB_SIGN);
 		bcb->DataTransferLength = blenByte;
-		bcb->Flags  = 0x80;
+		bcb->Flags  = US_BULK_FLAG_IN;
 		bcb->CDB[0] = 0xF1;
 		bcb->CDB[1] = 0x02;
 		bcb->CDB[5] = (unsigned char)(bn);
@@ -1694,7 +1694,7 @@ static int ms_scsi_read(struct us_data *us, struct scsi_cmnd *srb)
 			memset(bcb, 0, sizeof(struct bulk_cb_wrap));
 			bcb->Signature = cpu_to_le32(US_BULK_CB_SIGN);
 			bcb->DataTransferLength = 0x200 * len;
-			bcb->Flags  = 0x80;
+			bcb->Flags  = US_BULK_FLAG_IN;
 			bcb->CDB[0] = 0xF1;
 			bcb->CDB[1] = 0x02;
 			bcb->CDB[5] = (unsigned char)(blkno);
@@ -1827,7 +1827,7 @@ static int ene_get_card_type(struct us_data *us, u16 index, void *buf)
 	memset(bcb, 0, sizeof(struct bulk_cb_wrap));
 	bcb->Signature = cpu_to_le32(US_BULK_CB_SIGN);
 	bcb->DataTransferLength	= 0x01;
-	bcb->Flags			= 0x80;
+	bcb->Flags			= US_BULK_FLAG_IN;
 	bcb->CDB[0]			= 0xED;
 	bcb->CDB[2]			= (unsigned char)(index>>8);
 	bcb->CDB[3]			= (unsigned char)index;
@@ -2083,7 +2083,7 @@ static int ene_ms_init(struct us_data *us)
 	memset(bcb, 0, sizeof(struct bulk_cb_wrap));
 	bcb->Signature = cpu_to_le32(US_BULK_CB_SIGN);
 	bcb->DataTransferLength = 0x200;
-	bcb->Flags      = 0x80;
+	bcb->Flags      = US_BULK_FLAG_IN;
 	bcb->CDB[0]     = 0xF1;
 	bcb->CDB[1]     = 0x01;
 
@@ -2134,7 +2134,7 @@ static int ene_sd_init(struct us_data *us)
 
 	memset(bcb, 0, sizeof(struct bulk_cb_wrap));
 	bcb->Signature = cpu_to_le32(US_BULK_CB_SIGN);
-	bcb->Flags = 0x80;
+	bcb->Flags = US_BULK_FLAG_IN;
 	bcb->CDB[0] = 0xF2;
 
 	result = ene_send_scsi_cmd(us, FDIR_READ, NULL, 0);
@@ -2153,7 +2153,7 @@ static int ene_sd_init(struct us_data *us)
 	memset(bcb, 0, sizeof(struct bulk_cb_wrap));
 	bcb->Signature = cpu_to_le32(US_BULK_CB_SIGN);
 	bcb->DataTransferLength = 0x200;
-	bcb->Flags              = 0x80;
+	bcb->Flags              = US_BULK_FLAG_IN;
 	bcb->CDB[0]             = 0xF1;
 
 	result = ene_send_scsi_cmd(us, FDIR_READ, &buf, 0);
@@ -2248,7 +2248,7 @@ static int sd_scsi_irp(struct us_data *us, struct scsi_cmnd *srb)
 /*
  * ms_scsi_irp()
  */
-int ms_scsi_irp(struct us_data *us, struct scsi_cmnd *srb)
+static int ms_scsi_irp(struct us_data *us, struct scsi_cmnd *srb)
 {
 	int result;
 	struct ene_ub6250_info *info = (struct ene_ub6250_info *)us->extra;
@@ -2407,17 +2407,7 @@ static struct usb_driver ene_ub6250_driver = {
 	.post_reset =	usb_stor_post_reset,
 	.id_table =	ene_ub6250_usb_ids,
 	.soft_unbind =	1,
+	.no_dynamic_id = 1,
 };
 
-static int __init ene_ub6250_init(void)
-{
-	return usb_register(&ene_ub6250_driver);
-}
-
-static void __exit ene_ub6250_exit(void)
-{
-	usb_deregister(&ene_ub6250_driver);
-}
-
-module_init(ene_ub6250_init);
-module_exit(ene_ub6250_exit);
+module_usb_driver(ene_ub6250_driver);

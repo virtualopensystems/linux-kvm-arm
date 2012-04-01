@@ -34,7 +34,7 @@
 
 #include <plat/usb.h>
 #include <plat/board.h>
-#include <plat/common.h>
+#include "common.h"
 #include <plat/menelaus.h>
 #include <plat/dma.h>
 #include <plat/gpmc.h>
@@ -348,7 +348,6 @@ static struct at24_platform_data m24c01 = {
 static struct i2c_board_info __initdata h4_i2c_board_info[] = {
 	{
 		I2C_BOARD_INFO("isp1301_omap", 0x2d),
-		.irq		= OMAP_GPIO_IRQ(125),
 	},
 	{	/* EEPROM on mainboard */
 		I2C_BOARD_INFO("24c01", 0x52),
@@ -377,6 +376,7 @@ static void __init omap_h4_init(void)
 	 */
 
 	board_mkp_init();
+	h4_i2c_board_info[0].irq = gpio_to_irq(125);
 	i2c_register_board_info(1, h4_i2c_board_info,
 			ARRAY_SIZE(h4_i2c_board_info));
 
@@ -396,6 +396,8 @@ MACHINE_START(OMAP_H4, "OMAP2420 H4 board")
 	.map_io		= omap242x_map_io,
 	.init_early	= omap2420_init_early,
 	.init_irq	= omap2_init_irq,
+	.handle_irq	= omap2_intc_handle_irq,
 	.init_machine	= omap_h4_init,
 	.timer		= &omap2_timer,
+	.restart	= omap_prcm_restart,
 MACHINE_END

@@ -157,9 +157,10 @@ static int tomoyo_release(struct inode *inode, struct file *file)
  * tomoyo_poll - poll() for /sys/kernel/security/tomoyo/ interface.
  *
  * @file: Pointer to "struct file".
- * @wait: Pointer to "poll_table".
+ * @wait: Pointer to "poll_table". Maybe NULL.
  *
- * Returns 0 on success, negative value otherwise.
+ * Returns POLLIN | POLLRDNORM | POLLOUT | POLLWRNORM if ready to read/write,
+ * POLLOUT | POLLWRNORM otherwise.
  */
 static unsigned int tomoyo_poll(struct file *file, poll_table *wait)
 {
@@ -224,7 +225,7 @@ static const struct file_operations tomoyo_operations = {
  *
  * Returns nothing.
  */
-static void __init tomoyo_create_entry(const char *name, const mode_t mode,
+static void __init tomoyo_create_entry(const char *name, const umode_t mode,
 				       struct dentry *parent, const u8 key)
 {
 	securityfs_create_file(name, mode, parent, ((u8 *) NULL) + key,

@@ -292,17 +292,16 @@ static int multipath_add_disk(struct mddev *mddev, struct md_rdev *rdev)
 	return err;
 }
 
-static int multipath_remove_disk(struct mddev *mddev, int number)
+static int multipath_remove_disk(struct mddev *mddev, struct md_rdev *rdev)
 {
 	struct mpconf *conf = mddev->private;
 	int err = 0;
-	struct md_rdev *rdev;
+	int number = rdev->raid_disk;
 	struct multipath_info *p = conf->multipaths + number;
 
 	print_multipath_conf(conf);
 
-	rdev = p->rdev;
-	if (rdev) {
+	if (rdev == p->rdev) {
 		if (test_bit(In_sync, &rdev->flags) ||
 		    atomic_read(&rdev->nr_pending)) {
 			printk(KERN_ERR "hot-remove-disk, slot %d is identified"
@@ -429,7 +428,7 @@ static int multipath_run (struct mddev *mddev)
 	}
 
 	working_disks = 0;
-	list_for_each_entry(rdev, &mddev->disks, same_set) {
+	rdev_for_each(rdev, mddev) {
 		disk_idx = rdev->raid_disk;
 		if (disk_idx < 0 ||
 		    disk_idx >= mddev->raid_disks)

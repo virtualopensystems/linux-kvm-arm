@@ -238,6 +238,11 @@ struct tcp_sack_block {
 	u32	end_seq;
 };
 
+/*These are used to set the sack_ok field in struct tcp_options_received */
+#define TCP_SACK_SEEN     (1 << 0)   /*1 = peer is SACK capable, */
+#define TCP_FACK_ENABLED  (1 << 1)   /*1 = FACK is enabled locally*/
+#define TCP_DSACK_SEEN    (1 << 2)   /*1 = DSACK was received from peer*/
+
 struct tcp_options_received {
 /*	PAWS/RTTM data	*/
 	long	ts_recent_stamp;/* Time we stored ts_recent (for aging) */
@@ -407,7 +412,8 @@ struct tcp_sock {
 
 	struct tcp_sack_block recv_sack_cache[4];
 
-	struct sk_buff *highest_sack;   /* highest skb with SACK received
+	struct sk_buff *highest_sack;   /* skb just after the highest
+					 * skb with SACKed bit set
 					 * (validity guaranteed only if
 					 * sacked_out > 0)
 					 */
@@ -458,7 +464,7 @@ struct tcp_sock {
 	const struct tcp_sock_af_ops	*af_specific;
 
 /* TCP MD5 Signature Option information */
-	struct tcp_md5sig_info	*md5sig_info;
+	struct tcp_md5sig_info	__rcu *md5sig_info;
 #endif
 
 	/* When the cookie options are generated and exchanged, then this
@@ -481,8 +487,7 @@ struct tcp_timewait_sock {
 	u32			  tw_ts_recent;
 	long			  tw_ts_recent_stamp;
 #ifdef CONFIG_TCP_MD5SIG
-	u16			  tw_md5_keylen;
-	u8			  tw_md5_key[TCP_MD5SIG_MAXKEYLEN];
+	struct tcp_md5sig_key	*tw_md5_key;
 #endif
 	/* Few sockets in timewait have cookies; in that case, then this
 	 * object holds a reference to them (tw_cookie_values->kref).

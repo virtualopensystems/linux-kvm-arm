@@ -46,7 +46,6 @@ static const char version[] = "de600.c: $Revision: 1.41-2.5 $,  Bjorn Ekwall (bj
 #include <linux/interrupt.h>
 #include <linux/ioport.h>
 #include <linux/in.h>
-#include <asm/system.h>
 #include <linux/errno.h>
 #include <linux/init.h>
 #include <linux/delay.h>
@@ -59,7 +58,7 @@ static const char version[] = "de600.c: $Revision: 1.41-2.5 $,  Bjorn Ekwall (bj
 
 #include "de600.h"
 
-static unsigned int check_lost = 1;
+static bool check_lost = true;
 module_param(check_lost, bool, 0);
 MODULE_PARM_DESC(check_lost, "If set then check for unplugged de600");
 
@@ -335,7 +334,7 @@ static void de600_rx_intr(struct net_device *dev)
 		return;
 	}
 
-	skb = dev_alloc_skb(size+2);
+	skb = netdev_alloc_skb(dev, size + 2);
 	if (skb == NULL) {
 		printk("%s: Couldn't allocate a sk_buff of size %d.\n", dev->name, size);
 		return;

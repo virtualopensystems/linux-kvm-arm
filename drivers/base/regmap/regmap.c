@@ -10,8 +10,9 @@
  * published by the Free Software Foundation.
  */
 
+#include <linux/device.h>
 #include <linux/slab.h>
-#include <linux/module.h>
+#include <linux/export.h>
 #include <linux/mutex.h>
 #include <linux/err.h>
 
@@ -36,6 +37,9 @@ bool regmap_readable(struct regmap *map, unsigned int reg)
 	if (map->max_register && reg > map->max_register)
 		return false;
 
+	if (map->format.format_write)
+		return false;
+
 	if (map->readable_reg)
 		return map->readable_reg(map->dev, reg);
 
@@ -44,7 +48,7 @@ bool regmap_readable(struct regmap *map, unsigned int reg)
 
 bool regmap_volatile(struct regmap *map, unsigned int reg)
 {
-	if (map->max_register && reg > map->max_register)
+	if (!regmap_readable(map, reg))
 		return false;
 
 	if (map->volatile_reg)
@@ -55,13 +59,33 @@ bool regmap_volatile(struct regmap *map, unsigned int reg)
 
 bool regmap_precious(struct regmap *map, unsigned int reg)
 {
-	if (map->max_register && reg > map->max_register)
+	if (!regmap_readable(map, reg))
 		return false;
 
 	if (map->precious_reg)
 		return map->precious_reg(map->dev, reg);
 
 	return false;
+}
+
+static bool regmap_volatile_range(struct regmap *map, unsigned int reg,
+	unsigned int num)
+{
+	unsigned int i;
+
+	for (i = 0; i < num; i++)
+		if (!regmap_volatile(map, reg + i))
+			return false;
+
+	return true;
+}
+
+static void regmap_format_2_6_write(struct regmap *map,
+				     unsigned int reg, unsigned int val)
+{
+	u8 *out = map->work_buf;
+
+	*out = (reg << 6) | val;
 }
 
 static void regmap_format_4_12_write(struct regmap *map,
@@ -78,6 +102,16 @@ static void regmap_format_7_9_write(struct regmap *map,
 	*out = cpu_to_be16((reg << 9) | val);
 }
 
+static void regmap_format_10_14_write(struct regmap *map,
+				    unsigned int reg, unsigned int val)
+{
+	u8 *out = map->work_buf;
+
+	out[2] = val;
+	out[1] = (val >> 8) | (reg << 6);
+	out[0] = reg >> 2;
+}
+
 static void regmap_format_8(void *buf, unsigned int val)
 {
 	u8 *b = buf;
@@ -92,6 +126,13 @@ static void regmap_format_16(void *buf, unsigned int val)
 	b[0] = cpu_to_be16(val);
 }
 
+static void regmap_format_32(void *buf, unsigned int val)
+{
+	__be32 *b = buf;
+
+	b[0] = cpu_to_be32(val);
+}
+
 static unsigned int regmap_parse_8(void *buf)
 {
 	u8 *b = buf;
@@ -104,6 +145,15 @@ static unsigned int regmap_parse_16(void *buf)
 	__be16 *b = buf;
 
 	b[0] = be16_to_cpu(b[0]);
+
+	return b[0];
+}
+
+static unsigned int regmap_parse_32(void *buf)
+{
+	__be32 *b = buf;
+
+	b[0] = be32_to_cpu(b[0]);
 
 	return b[0];
 }
@@ -127,7 +177,7 @@ struct regmap *regmap_init(struct device *dev,
 	int ret = -EINVAL;
 
 	if (!bus || !config)
-		return NULL;
+		goto err;
 
 	map = kzalloc(sizeof(*map), GFP_KERNEL);
 	if (map == NULL) {
@@ -137,8 +187,10 @@ struct regmap *regmap_init(struct device *dev,
 
 	mutex_init(&map->lock);
 	map->format.buf_size = (config->reg_bits + config->val_bits) / 8;
-	map->format.reg_bytes = config->reg_bits / 8;
-	map->format.val_bytes = config->val_bits / 8;
+	map->format.reg_bytes = DIV_ROUND_UP(config->reg_bits, 8);
+	map->format.pad_bytes = config->pad_bits / 8;
+	map->format.val_bytes = DIV_ROUND_UP(config->val_bits, 8);
+	map->format.buf_size += map->format.pad_bytes;
 	map->dev = dev;
 	map->bus = bus;
 	map->max_register = config->max_register;
@@ -147,12 +199,6 @@ struct regmap *regmap_init(struct device *dev,
 	map->volatile_reg = config->volatile_reg;
 	map->precious_reg = config->precious_reg;
 	map->cache_type = config->cache_type;
-	map->reg_defaults = config->reg_defaults;
-	map->num_reg_defaults = config->num_reg_defaults;
-	map->num_reg_defaults_raw = config->num_reg_defaults_raw;
-	map->reg_defaults_raw = config->reg_defaults_raw;
-	map->cache_size_raw = (config->val_bits / 8) * config->num_reg_defaults_raw;
-	map->cache_word_size = config->val_bits / 8;
 
 	if (config->read_flag_mask || config->write_flag_mask) {
 		map->read_flag_mask = config->read_flag_mask;
@@ -162,6 +208,16 @@ struct regmap *regmap_init(struct device *dev,
 	}
 
 	switch (config->reg_bits) {
+	case 2:
+		switch (config->val_bits) {
+		case 6:
+			map->format.format_write = regmap_format_2_6_write;
+			break;
+		default:
+			goto err_map;
+		}
+		break;
+
 	case 4:
 		switch (config->val_bits) {
 		case 12:
@@ -182,12 +238,26 @@ struct regmap *regmap_init(struct device *dev,
 		}
 		break;
 
+	case 10:
+		switch (config->val_bits) {
+		case 14:
+			map->format.format_write = regmap_format_10_14_write;
+			break;
+		default:
+			goto err_map;
+		}
+		break;
+
 	case 8:
 		map->format.format_reg = regmap_format_8;
 		break;
 
 	case 16:
 		map->format.format_reg = regmap_format_16;
+		break;
+
+	case 32:
+		map->format.format_reg = regmap_format_32;
 		break;
 
 	default:
@@ -203,32 +273,116 @@ struct regmap *regmap_init(struct device *dev,
 		map->format.format_val = regmap_format_16;
 		map->format.parse_val = regmap_parse_16;
 		break;
+	case 32:
+		map->format.format_val = regmap_format_32;
+		map->format.parse_val = regmap_parse_32;
+		break;
 	}
 
 	if (!map->format.format_write &&
 	    !(map->format.format_reg && map->format.format_val))
 		goto err_map;
 
-	map->work_buf = kmalloc(map->format.buf_size, GFP_KERNEL);
+	map->work_buf = kzalloc(map->format.buf_size, GFP_KERNEL);
 	if (map->work_buf == NULL) {
 		ret = -ENOMEM;
 		goto err_map;
 	}
 
-	ret = regcache_init(map);
-	if (ret < 0)
-		goto err_map;
-
 	regmap_debugfs_init(map);
+
+	ret = regcache_init(map, config);
+	if (ret < 0)
+		goto err_free_workbuf;
 
 	return map;
 
+err_free_workbuf:
+	kfree(map->work_buf);
 err_map:
 	kfree(map);
 err:
 	return ERR_PTR(ret);
 }
 EXPORT_SYMBOL_GPL(regmap_init);
+
+static void devm_regmap_release(struct device *dev, void *res)
+{
+	regmap_exit(*(struct regmap **)res);
+}
+
+/**
+ * devm_regmap_init(): Initialise managed register map
+ *
+ * @dev: Device that will be interacted with
+ * @bus: Bus-specific callbacks to use with device
+ * @config: Configuration for register map
+ *
+ * The return value will be an ERR_PTR() on error or a valid pointer
+ * to a struct regmap.  This function should generally not be called
+ * directly, it should be called by bus-specific init functions.  The
+ * map will be automatically freed by the device management code.
+ */
+struct regmap *devm_regmap_init(struct device *dev,
+				const struct regmap_bus *bus,
+				const struct regmap_config *config)
+{
+	struct regmap **ptr, *regmap;
+
+	ptr = devres_alloc(devm_regmap_release, sizeof(*ptr), GFP_KERNEL);
+	if (!ptr)
+		return ERR_PTR(-ENOMEM);
+
+	regmap = regmap_init(dev, bus, config);
+	if (!IS_ERR(regmap)) {
+		*ptr = regmap;
+		devres_add(dev, ptr);
+	} else {
+		devres_free(ptr);
+	}
+
+	return regmap;
+}
+EXPORT_SYMBOL_GPL(devm_regmap_init);
+
+/**
+ * regmap_reinit_cache(): Reinitialise the current register cache
+ *
+ * @map: Register map to operate on.
+ * @config: New configuration.  Only the cache data will be used.
+ *
+ * Discard any existing register cache for the map and initialize a
+ * new cache.  This can be used to restore the cache to defaults or to
+ * update the cache configuration to reflect runtime discovery of the
+ * hardware.
+ */
+int regmap_reinit_cache(struct regmap *map, const struct regmap_config *config)
+{
+	int ret;
+
+	mutex_lock(&map->lock);
+
+	regcache_exit(map);
+	regmap_debugfs_exit(map);
+
+	map->max_register = config->max_register;
+	map->writeable_reg = config->writeable_reg;
+	map->readable_reg = config->readable_reg;
+	map->volatile_reg = config->volatile_reg;
+	map->precious_reg = config->precious_reg;
+	map->cache_type = config->cache_type;
+
+	regmap_debugfs_init(map);
+
+	map->cache_bypass = false;
+	map->cache_only = false;
+
+	ret = regcache_init(map, config);
+
+	mutex_unlock(&map->lock);
+
+	return ret;
+}
 
 /**
  * regmap_exit(): Free a previously allocated register map
@@ -257,6 +411,26 @@ static int _regmap_raw_write(struct regmap *map, unsigned int reg,
 			if (!map->writeable_reg(map->dev, reg + i))
 				return -EINVAL;
 
+	if (!map->cache_bypass && map->format.parse_val) {
+		unsigned int ival;
+		int val_bytes = map->format.val_bytes;
+		for (i = 0; i < val_len / val_bytes; i++) {
+			memcpy(map->work_buf, val + (i * val_bytes), val_bytes);
+			ival = map->format.parse_val(map->work_buf);
+			ret = regcache_write(map, reg + i, ival);
+			if (ret) {
+				dev_err(map->dev,
+				   "Error in caching of register: %u ret: %d\n",
+					reg + i, ret);
+				return ret;
+			}
+		}
+		if (map->cache_only) {
+			map->cache_dirty = true;
+			return 0;
+		}
+	}
+
 	map->format.format_reg(map->work_buf, reg);
 
 	u8[0] |= map->write_flag_mask;
@@ -268,23 +442,28 @@ static int _regmap_raw_write(struct regmap *map, unsigned int reg,
 	 * send the work_buf directly, otherwise try to do a gather
 	 * write.
 	 */
-	if (val == map->work_buf + map->format.reg_bytes)
+	if (val == (map->work_buf + map->format.pad_bytes +
+		    map->format.reg_bytes))
 		ret = map->bus->write(map->dev, map->work_buf,
-				      map->format.reg_bytes + val_len);
+				      map->format.reg_bytes +
+				      map->format.pad_bytes +
+				      val_len);
 	else if (map->bus->gather_write)
 		ret = map->bus->gather_write(map->dev, map->work_buf,
-					     map->format.reg_bytes,
+					     map->format.reg_bytes +
+					     map->format.pad_bytes,
 					     val, val_len);
 
 	/* If that didn't work fall back on linearising by hand. */
 	if (ret == -ENOTSUPP) {
-		len = map->format.reg_bytes + val_len;
-		buf = kmalloc(len, GFP_KERNEL);
+		len = map->format.reg_bytes + map->format.pad_bytes + val_len;
+		buf = kzalloc(len, GFP_KERNEL);
 		if (!buf)
 			return -ENOMEM;
 
 		memcpy(buf, map->work_buf, map->format.reg_bytes);
-		memcpy(buf + map->format.reg_bytes, val, val_len);
+		memcpy(buf + map->format.reg_bytes + map->format.pad_bytes,
+		       val, val_len);
 		ret = map->bus->write(map->dev, buf, len);
 
 		kfree(buf);
@@ -302,12 +481,14 @@ int _regmap_write(struct regmap *map, unsigned int reg,
 	int ret;
 	BUG_ON(!map->format.format_write && !map->format.format_val);
 
-	if (!map->cache_bypass) {
+	if (!map->cache_bypass && map->format.format_write) {
 		ret = regcache_write(map, reg, val);
 		if (ret != 0)
 			return ret;
-		if (map->cache_only)
+		if (map->cache_only) {
+			map->cache_dirty = true;
 			return 0;
+		}
 	}
 
 	trace_regmap_reg_write(map->dev, reg, val);
@@ -324,10 +505,12 @@ int _regmap_write(struct regmap *map, unsigned int reg,
 
 		return ret;
 	} else {
-		map->format.format_val(map->work_buf + map->format.reg_bytes,
-				       val);
+		map->format.format_val(map->work_buf + map->format.reg_bytes
+				       + map->format.pad_bytes, val);
 		return _regmap_raw_write(map, reg,
-					 map->work_buf + map->format.reg_bytes,
+					 map->work_buf +
+					 map->format.reg_bytes +
+					 map->format.pad_bytes,
 					 map->format.val_bytes);
 	}
 }
@@ -377,8 +560,6 @@ int regmap_raw_write(struct regmap *map, unsigned int reg,
 {
 	int ret;
 
-	WARN_ON(map->cache_type != REGCACHE_NONE);
-
 	mutex_lock(&map->lock);
 
 	ret = _regmap_raw_write(map, reg, val, val_len);
@@ -388,6 +569,56 @@ int regmap_raw_write(struct regmap *map, unsigned int reg,
 	return ret;
 }
 EXPORT_SYMBOL_GPL(regmap_raw_write);
+
+/*
+ * regmap_bulk_write(): Write multiple registers to the device
+ *
+ * @map: Register map to write to
+ * @reg: First register to be write from
+ * @val: Block of data to be written, in native register size for device
+ * @val_count: Number of registers to write
+ *
+ * This function is intended to be used for writing a large block of
+ * data to be device either in single transfer or multiple transfer.
+ *
+ * A value of zero will be returned on success, a negative errno will
+ * be returned in error cases.
+ */
+int regmap_bulk_write(struct regmap *map, unsigned int reg, const void *val,
+		     size_t val_count)
+{
+	int ret = 0, i;
+	size_t val_bytes = map->format.val_bytes;
+	void *wval;
+
+	if (!map->format.parse_val)
+		return -EINVAL;
+
+	mutex_lock(&map->lock);
+
+	/* No formatting is require if val_byte is 1 */
+	if (val_bytes == 1) {
+		wval = (void *)val;
+	} else {
+		wval = kmemdup(val, val_count * val_bytes, GFP_KERNEL);
+		if (!wval) {
+			ret = -ENOMEM;
+			dev_err(map->dev, "Error in memory allocation\n");
+			goto out;
+		}
+		for (i = 0; i < val_count * val_bytes; i += val_bytes)
+			map->format.parse_val(wval + i);
+	}
+	ret = _regmap_raw_write(map, reg, wval, val_bytes * val_count);
+
+	if (val_bytes != 1)
+		kfree(wval);
+
+out:
+	mutex_unlock(&map->lock);
+	return ret;
+}
+EXPORT_SYMBOL_GPL(regmap_bulk_write);
 
 static int _regmap_raw_read(struct regmap *map, unsigned int reg, void *val,
 			    unsigned int val_len)
@@ -408,7 +639,8 @@ static int _regmap_raw_read(struct regmap *map, unsigned int reg, void *val,
 	trace_regmap_hw_read_start(map->dev, reg,
 				   val_len / map->format.val_bytes);
 
-	ret = map->bus->read(map->dev, map->work_buf, map->format.reg_bytes,
+	ret = map->bus->read(map->dev, map->work_buf,
+			     map->format.reg_bytes + map->format.pad_bytes,
 			     val, val_len);
 
 	trace_regmap_hw_read_done(map->dev, reg,
@@ -422,14 +654,14 @@ static int _regmap_read(struct regmap *map, unsigned int reg,
 {
 	int ret;
 
-	if (!map->format.parse_val)
-		return -EINVAL;
-
 	if (!map->cache_bypass) {
 		ret = regcache_read(map, reg, val);
 		if (ret == 0)
 			return 0;
 	}
+
+	if (!map->format.parse_val)
+		return -EINVAL;
 
 	if (map->cache_only)
 		return -EBUSY;
@@ -481,20 +713,32 @@ EXPORT_SYMBOL_GPL(regmap_read);
 int regmap_raw_read(struct regmap *map, unsigned int reg, void *val,
 		    size_t val_len)
 {
-	int ret;
-	int i;
-	bool vol = true;
-
-	for (i = 0; i < val_len / map->format.val_bytes; i++)
-		if (!regmap_volatile(map, reg + i))
-			vol = false;
-
-	WARN_ON(!vol && map->cache_type != REGCACHE_NONE);
+	size_t val_bytes = map->format.val_bytes;
+	size_t val_count = val_len / val_bytes;
+	unsigned int v;
+	int ret, i;
 
 	mutex_lock(&map->lock);
 
-	ret = _regmap_raw_read(map, reg, val, val_len);
+	if (regmap_volatile_range(map, reg, val_count) || map->cache_bypass ||
+	    map->cache_type == REGCACHE_NONE) {
+		/* Physical block read if there's no cache involved */
+		ret = _regmap_raw_read(map, reg, val, val_len);
 
+	} else {
+		/* Otherwise go word by word for the cache; should be low
+		 * cost as we expect to hit the cache.
+		 */
+		for (i = 0; i < val_count; i++) {
+			ret = _regmap_read(map, reg + i, &v);
+			if (ret != 0)
+				goto out;
+
+			map->format.format_val(val + (i * val_bytes), v);
+		}
+	}
+
+ out:
 	mutex_unlock(&map->lock);
 
 	return ret;
@@ -517,15 +761,10 @@ int regmap_bulk_read(struct regmap *map, unsigned int reg, void *val,
 {
 	int ret, i;
 	size_t val_bytes = map->format.val_bytes;
-	bool vol = true;
+	bool vol = regmap_volatile_range(map, reg, val_count);
 
 	if (!map->format.parse_val)
 		return -EINVAL;
-
-	/* Is this a block of volatile registers? */
-	for (i = 0; i < val_count; i++)
-		if (!regmap_volatile(map, reg + i))
-			vol = false;
 
 	if (vol || map->cache_type == REGCACHE_NONE) {
 		ret = regmap_raw_read(map, reg, val, val_bytes * val_count);
@@ -546,8 +785,37 @@ int regmap_bulk_read(struct regmap *map, unsigned int reg, void *val,
 }
 EXPORT_SYMBOL_GPL(regmap_bulk_read);
 
+static int _regmap_update_bits(struct regmap *map, unsigned int reg,
+			       unsigned int mask, unsigned int val,
+			       bool *change)
+{
+	int ret;
+	unsigned int tmp, orig;
+
+	mutex_lock(&map->lock);
+
+	ret = _regmap_read(map, reg, &orig);
+	if (ret != 0)
+		goto out;
+
+	tmp = orig & ~mask;
+	tmp |= val & mask;
+
+	if (tmp != orig) {
+		ret = _regmap_write(map, reg, tmp);
+		*change = true;
+	} else {
+		*change = false;
+	}
+
+out:
+	mutex_unlock(&map->lock);
+
+	return ret;
+}
+
 /**
- * remap_update_bits: Perform a read/modify/write cycle on the register map
+ * regmap_update_bits: Perform a read/modify/write cycle on the register map
  *
  * @map: Register map to update
  * @reg: Register to update
@@ -559,26 +827,103 @@ EXPORT_SYMBOL_GPL(regmap_bulk_read);
 int regmap_update_bits(struct regmap *map, unsigned int reg,
 		       unsigned int mask, unsigned int val)
 {
-	int ret;
-	unsigned int tmp;
+	bool change;
+	return _regmap_update_bits(map, reg, mask, val, &change);
+}
+EXPORT_SYMBOL_GPL(regmap_update_bits);
+
+/**
+ * regmap_update_bits_check: Perform a read/modify/write cycle on the
+ *                           register map and report if updated
+ *
+ * @map: Register map to update
+ * @reg: Register to update
+ * @mask: Bitmask to change
+ * @val: New value for bitmask
+ * @change: Boolean indicating if a write was done
+ *
+ * Returns zero for success, a negative number on error.
+ */
+int regmap_update_bits_check(struct regmap *map, unsigned int reg,
+			     unsigned int mask, unsigned int val,
+			     bool *change)
+{
+	return _regmap_update_bits(map, reg, mask, val, change);
+}
+EXPORT_SYMBOL_GPL(regmap_update_bits_check);
+
+/**
+ * regmap_register_patch: Register and apply register updates to be applied
+ *                        on device initialistion
+ *
+ * @map: Register map to apply updates to.
+ * @regs: Values to update.
+ * @num_regs: Number of entries in regs.
+ *
+ * Register a set of register updates to be applied to the device
+ * whenever the device registers are synchronised with the cache and
+ * apply them immediately.  Typically this is used to apply
+ * corrections to be applied to the device defaults on startup, such
+ * as the updates some vendors provide to undocumented registers.
+ */
+int regmap_register_patch(struct regmap *map, const struct reg_default *regs,
+			  int num_regs)
+{
+	int i, ret;
+	bool bypass;
+
+	/* If needed the implementation can be extended to support this */
+	if (map->patch)
+		return -EBUSY;
 
 	mutex_lock(&map->lock);
 
-	ret = _regmap_read(map, reg, &tmp);
-	if (ret != 0)
-		goto out;
+	bypass = map->cache_bypass;
 
-	tmp &= ~mask;
-	tmp |= val & mask;
+	map->cache_bypass = true;
 
-	ret = _regmap_write(map, reg, tmp);
+	/* Write out first; it's useful to apply even if we fail later. */
+	for (i = 0; i < num_regs; i++) {
+		ret = _regmap_write(map, regs[i].reg, regs[i].def);
+		if (ret != 0) {
+			dev_err(map->dev, "Failed to write %x = %x: %d\n",
+				regs[i].reg, regs[i].def, ret);
+			goto out;
+		}
+	}
+
+	map->patch = kcalloc(num_regs, sizeof(struct reg_default), GFP_KERNEL);
+	if (map->patch != NULL) {
+		memcpy(map->patch, regs,
+		       num_regs * sizeof(struct reg_default));
+		map->patch_regs = num_regs;
+	} else {
+		ret = -ENOMEM;
+	}
 
 out:
+	map->cache_bypass = bypass;
+
 	mutex_unlock(&map->lock);
 
 	return ret;
 }
-EXPORT_SYMBOL_GPL(regmap_update_bits);
+EXPORT_SYMBOL_GPL(regmap_register_patch);
+
+/*
+ * regmap_get_val_bytes(): Report the size of a register value
+ *
+ * Report the size of a register value, mainly intended to for use by
+ * generic infrastructure built on top of regmap.
+ */
+int regmap_get_val_bytes(struct regmap *map)
+{
+	if (map->format.format_write)
+		return -EINVAL;
+
+	return map->format.val_bytes;
+}
+EXPORT_SYMBOL_GPL(regmap_get_val_bytes);
 
 static int __init regmap_initcall(void)
 {

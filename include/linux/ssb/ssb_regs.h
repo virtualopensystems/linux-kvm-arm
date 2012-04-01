@@ -432,6 +432,56 @@
 #define  SSB_SPROM8_RXPO2G		0x00FF	/* 2GHz RX power offset */
 #define  SSB_SPROM8_RXPO5G		0xFF00	/* 5GHz RX power offset */
 #define  SSB_SPROM8_RXPO5G_SHIFT	8
+#define SSB_SPROM8_FEM2G		0x00AE
+#define SSB_SPROM8_FEM5G		0x00B0
+#define  SSB_SROM8_FEM_TSSIPOS		0x0001
+#define  SSB_SROM8_FEM_TSSIPOS_SHIFT	0
+#define  SSB_SROM8_FEM_EXTPA_GAIN	0x0006
+#define  SSB_SROM8_FEM_EXTPA_GAIN_SHIFT	1
+#define  SSB_SROM8_FEM_PDET_RANGE	0x00F8
+#define  SSB_SROM8_FEM_PDET_RANGE_SHIFT	3
+#define  SSB_SROM8_FEM_TR_ISO		0x0700
+#define  SSB_SROM8_FEM_TR_ISO_SHIFT	8
+#define  SSB_SROM8_FEM_ANTSWLUT		0xF800
+#define  SSB_SROM8_FEM_ANTSWLUT_SHIFT	11
+#define SSB_SPROM8_THERMAL		0x00B2
+#define SSB_SPROM8_MPWR_RAWTS		0x00B4
+#define SSB_SPROM8_TS_SLP_OPT_CORRX	0x00B6
+#define SSB_SPROM8_FOC_HWIQ_IQSWP	0x00B8
+#define SSB_SPROM8_PHYCAL_TEMPDELTA	0x00BA
+
+/* There are 4 blocks with power info sharing the same layout */
+#define SSB_SROM8_PWR_INFO_CORE0	0x00C0
+#define SSB_SROM8_PWR_INFO_CORE1	0x00E0
+#define SSB_SROM8_PWR_INFO_CORE2	0x0100
+#define SSB_SROM8_PWR_INFO_CORE3	0x0120
+
+#define SSB_SROM8_2G_MAXP_ITSSI		0x00
+#define  SSB_SPROM8_2G_MAXP		0x00FF
+#define  SSB_SPROM8_2G_ITSSI		0xFF00
+#define  SSB_SPROM8_2G_ITSSI_SHIFT	8
+#define SSB_SROM8_2G_PA_0		0x02	/* 2GHz power amp settings */
+#define SSB_SROM8_2G_PA_1		0x04
+#define SSB_SROM8_2G_PA_2		0x06
+#define SSB_SROM8_5G_MAXP_ITSSI		0x08	/* 5GHz ITSSI and 5.3GHz Max Power */
+#define  SSB_SPROM8_5G_MAXP		0x00FF
+#define  SSB_SPROM8_5G_ITSSI		0xFF00
+#define  SSB_SPROM8_5G_ITSSI_SHIFT	8
+#define SSB_SPROM8_5GHL_MAXP		0x0A	/* 5.2GHz and 5.8GHz Max Power */
+#define  SSB_SPROM8_5GH_MAXP		0x00FF
+#define  SSB_SPROM8_5GL_MAXP		0xFF00
+#define  SSB_SPROM8_5GL_MAXP_SHIFT	8
+#define SSB_SROM8_5G_PA_0		0x0C	/* 5.3GHz power amp settings */
+#define SSB_SROM8_5G_PA_1		0x0E
+#define SSB_SROM8_5G_PA_2		0x10
+#define SSB_SROM8_5GL_PA_0		0x12	/* 5.2GHz power amp settings */
+#define SSB_SROM8_5GL_PA_1		0x14
+#define SSB_SROM8_5GL_PA_2		0x16
+#define SSB_SROM8_5GH_PA_0		0x18	/* 5.8GHz power amp settings */
+#define SSB_SROM8_5GH_PA_1		0x1A
+#define SSB_SROM8_5GH_PA_2		0x1C
+
+/* TODO: Make it deprecated */
 #define SSB_SPROM8_MAXP_BG		0x00C0  /* Max Power 2GHz in path 1 */
 #define  SSB_SPROM8_MAXP_BG_MASK	0x00FF  /* Mask for Max Power 2GHz */
 #define  SSB_SPROM8_ITSSI_BG		0xFF00	/* Mask for path 1 itssi_bg */
@@ -456,6 +506,7 @@
 #define SSB_SPROM8_PA1HIB0		0x00D8	/* 5.8GHz power amp settings */
 #define SSB_SPROM8_PA1HIB1		0x00DA
 #define SSB_SPROM8_PA1HIB2		0x00DC
+
 #define SSB_SPROM8_CCK2GPO		0x0140	/* CCK power offset */
 #define SSB_SPROM8_OFDM2GPO		0x0142	/* 2.4GHz OFDM power offset */
 #define SSB_SPROM8_OFDM5GPO		0x0146	/* 5.3GHz OFDM power offset */

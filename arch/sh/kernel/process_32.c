@@ -24,7 +24,6 @@
 #include <linux/prefetch.h>
 #include <asm/uaccess.h>
 #include <asm/mmu_context.h>
-#include <asm/system.h>
 #include <asm/fpu.h>
 #include <asm/syscalls.h>
 
@@ -70,7 +69,7 @@ void show_regs(struct pt_regs * regs)
 /*
  * Create a kernel thread
  */
-ATTRIB_NORET void kernel_thread_helper(void *arg, int (*fn)(void *))
+__noreturn void kernel_thread_helper(void *arg, int (*fn)(void *))
 {
 	do_exit(fn(arg));
 }

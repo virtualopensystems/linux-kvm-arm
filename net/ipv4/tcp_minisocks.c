@@ -336,15 +336,15 @@ void tcp_time_wait(struct sock *sk, int state, int timeo)
 		tcptw->tw_ts_recent	= tp->rx_opt.ts_recent;
 		tcptw->tw_ts_recent_stamp = tp->rx_opt.ts_recent_stamp;
 
-#if defined(CONFIG_IPV6) || defined(CONFIG_IPV6_MODULE)
+#if IS_ENABLED(CONFIG_IPV6)
 		if (tw->tw_family == PF_INET6) {
 			struct ipv6_pinfo *np = inet6_sk(sk);
 			struct inet6_timewait_sock *tw6;
 
 			tw->tw_ipv6_offset = inet6_tw_offset(sk->sk_prot);
 			tw6 = inet6_twsk((struct sock *)tw);
-			ipv6_addr_copy(&tw6->tw_v6_daddr, &np->daddr);
-			ipv6_addr_copy(&tw6->tw_v6_rcv_saddr, &np->rcv_saddr);
+			tw6->tw_v6_daddr = np->daddr;
+			tw6->tw_v6_rcv_saddr = np->rcv_saddr;
 			tw->tw_tclass = np->tclass;
 			tw->tw_ipv6only = np->ipv6only;
 		}
@@ -359,13 +359,11 @@ void tcp_time_wait(struct sock *sk, int state, int timeo)
 		 */
 		do {
 			struct tcp_md5sig_key *key;
-			memset(tcptw->tw_md5_key, 0, sizeof(tcptw->tw_md5_key));
-			tcptw->tw_md5_keylen = 0;
+			tcptw->tw_md5_key = NULL;
 			key = tp->af_specific->md5_lookup(sk, sk);
 			if (key != NULL) {
-				memcpy(&tcptw->tw_md5_key, key->key, key->keylen);
-				tcptw->tw_md5_keylen = key->keylen;
-				if (tcp_alloc_md5sig_pool(sk) == NULL)
+				tcptw->tw_md5_key = kmemdup(key, sizeof(*key), GFP_ATOMIC);
+				if (tcptw->tw_md5_key && tcp_alloc_md5sig_pool(sk) == NULL)
 					BUG();
 			}
 		} while (0);
@@ -405,8 +403,10 @@ void tcp_twsk_destructor(struct sock *sk)
 {
 #ifdef CONFIG_TCP_MD5SIG
 	struct tcp_timewait_sock *twsk = tcp_twsk(sk);
-	if (twsk->tw_md5_keylen)
+	if (twsk->tw_md5_key) {
 		tcp_free_md5sig_pool();
+		kfree_rcu(twsk->tw_md5_key, rcu);
+	}
 #endif
 }
 EXPORT_SYMBOL_GPL(tcp_twsk_destructor);
@@ -425,7 +425,7 @@ static inline void TCP_ECN_openreq_child(struct tcp_sock *tp,
  */
 struct sock *tcp_create_openreq_child(struct sock *sk, struct request_sock *req, struct sk_buff *skb)
 {
-	struct sock *newsk = inet_csk_clone(sk, req, GFP_ATOMIC);
+	struct sock *newsk = inet_csk_clone_lock(sk, req, GFP_ATOMIC);
 
 	if (newsk != NULL) {
 		const struct inet_request_sock *ireq = inet_rsk(req);
@@ -495,7 +495,9 @@ struct sock *tcp_create_openreq_child(struct sock *sk, struct request_sock *req,
 		newtp->frto_counter = 0;
 		newtp->frto_highmark = 0;
 
-		newicsk->icsk_ca_ops = &tcp_init_congestion_ops;
+		if (newicsk->icsk_ca_ops != &tcp_init_congestion_ops &&
+		    !try_module_get(newicsk->icsk_ca_ops->owner))
+			newicsk->icsk_ca_ops = &tcp_init_congestion_ops;
 
 		tcp_set_ca_state(newsk, TCP_CA_Open);
 		tcp_init_xmit_timers(newsk);

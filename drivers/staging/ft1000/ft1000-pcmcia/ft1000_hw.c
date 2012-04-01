@@ -29,7 +29,6 @@
 #include <linux/interrupt.h>
 #include <linux/in.h>
 #include <asm/io.h>
-#include <asm/system.h>
 #include <asm/bitops.h>
 
 #include <linux/netdevice.h>
@@ -344,10 +343,10 @@ static void ft1000_reset_asic(struct net_device *dev)
 	}
 	mdelay(1);
 	if (info->AsicID == ELECTRABUZZ_ID) {
-		// set watermark to -1 in order to not generate an interrrupt
+		// set watermark to -1 in order to not generate an interrupt
 		ft1000_write_reg(dev, FT1000_REG_WATERMARK, 0xffff);
 	} else {
-		// set watermark to -1 in order to not generate an interrrupt
+		// set watermark to -1 in order to not generate an interrupt
 		ft1000_write_reg(dev, FT1000_REG_MAG_WATERMARK, 0xffff);
 	}
 	// clear interrupts
@@ -2211,11 +2210,8 @@ struct net_device *init_ft1000_card(struct pcmcia_device *link,
 	ft1000InitProc(dev);
 	ft1000_card_present = 1;
 	SET_ETHTOOL_OPS(dev, &ops);
-	printk(KERN_INFO
-		   "ft1000: %s: addr 0x%04lx irq %d, MAC addr %02x:%02x:%02x:%02x:%02x:%02x\n",
-		   dev->name, dev->base_addr, dev->irq, dev->dev_addr[0],
-		   dev->dev_addr[1], dev->dev_addr[2], dev->dev_addr[3],
-		   dev->dev_addr[4], dev->dev_addr[5]);
+	printk(KERN_INFO "ft1000: %s: addr 0x%04lx irq %d, MAC addr %pM\n",
+			dev->name, dev->base_addr, dev->irq, dev->dev_addr);
 	return dev;
 
 err_unreg:

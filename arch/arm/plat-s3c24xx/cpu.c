@@ -32,13 +32,14 @@
 #include <linux/io.h>
 
 #include <mach/hardware.h>
+#include <mach/regs-clock.h>
 #include <asm/irq.h>
 #include <asm/cacheflush.h>
+#include <asm/system_info.h>
+#include <asm/system_misc.h>
 
 #include <asm/mach/arch.h>
 #include <asm/mach/map.h>
-
-#include <mach/system-reset.h>
 
 #include <mach/regs-gpio.h>
 #include <plat/regs-serial.h>
@@ -192,29 +193,34 @@ static unsigned long s3c24xx_read_idcode_v4(void)
 	return __raw_readl(S3C2410_GSTATUS1);
 }
 
-/* Hook for arm_pm_restart to ensure we execute the reset code
- * with the caches enabled. It seems at least the S3C2440 has a problem
- * resetting if there is bus activity interrupted by the reset.
- */
-static void s3c24xx_pm_restart(char mode, const char *cmd)
+static void s3c24xx_default_idle(void)
 {
-	if (mode != 's') {
-		unsigned long flags;
+	unsigned long tmp;
+	int i;
 
-		local_irq_save(flags);
-		__cpuc_flush_kern_all();
-		__cpuc_flush_user_all();
+	/* idle the system by using the idle mode which will wait for an
+	 * interrupt to happen before restarting the system.
+	 */
 
-		arch_reset(mode, cmd);
-		local_irq_restore(flags);
-	}
+	/* Warning: going into idle state upsets jtag scanning */
 
-	/* fallback, or unhandled */
-	arm_machine_restart(mode, cmd);
+	__raw_writel(__raw_readl(S3C2410_CLKCON) | S3C2410_CLKCON_IDLE,
+		     S3C2410_CLKCON);
+
+	/* the samsung port seems to do a loop and then unset idle.. */
+	for (i = 0; i < 50; i++)
+		tmp += __raw_readl(S3C2410_CLKCON); /* ensure loop not optimised out */
+
+	/* this bit is not cleared on re-start... */
+
+	__raw_writel(__raw_readl(S3C2410_CLKCON) & ~S3C2410_CLKCON_IDLE,
+		     S3C2410_CLKCON);
 }
 
 void __init s3c24xx_init_io(struct map_desc *mach_desc, int size)
 {
+	arm_pm_idle = s3c24xx_default_idle;
+
 	/* initialise the io descriptors we need for initialisation */
 	iotable_init(mach_desc, size);
 	iotable_init(s3c_iodesc, ARRAY_SIZE(s3c_iodesc));
@@ -225,8 +231,6 @@ void __init s3c24xx_init_io(struct map_desc *mach_desc, int size)
 		samsung_cpu_id = s3c24xx_read_idcode_v4();
 	}
 	s3c24xx_init_cpu();
-
-	arm_pm_restart = s3c24xx_pm_restart;
 
 	s3c_init_cpu(samsung_cpu_id, cpu_ids, ARRAY_SIZE(cpu_ids));
 }

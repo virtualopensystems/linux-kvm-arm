@@ -125,7 +125,7 @@ static struct platform_device asmb_flash_device = {
 };
 #endif
 
-#if defined(CONFIG_SPI_BFIN) || defined(CONFIG_SPI_BFIN_MODULE)
+#if defined(CONFIG_SPI_BFIN5XX) || defined(CONFIG_SPI_BFIN5XX_MODULE)
 
 #if defined(CONFIG_MMC_SPI) || defined(CONFIG_MMC_SPI_MODULE)
 
@@ -370,7 +370,7 @@ static struct platform_device *dnp5370_devices[] __initdata = {
 	&bfin_mac_device,
 #endif
 
-#if defined(CONFIG_SPI_BFIN) || defined(CONFIG_SPI_BFIN_MODULE)
+#if defined(CONFIG_SPI_BFIN5XX) || defined(CONFIG_SPI_BFIN5XX_MODULE)
 	&spi_bfin_master_device,
 #endif
 
@@ -399,9 +399,10 @@ arch_initcall(dnp5370_init);
 /*
  * Currently the MAC address is saved in Flash by U-Boot
  */
-void bfin_get_ether_addr(char *addr)
+int bfin_get_ether_addr(char *addr)
 {
 	*(u32 *)(&(addr[0])) = bfin_read32(FLASH_MAC);
 	*(u16 *)(&(addr[4])) = bfin_read16(FLASH_MAC + 4);
+	return 0;
 }
 EXPORT_SYMBOL(bfin_get_ether_addr);

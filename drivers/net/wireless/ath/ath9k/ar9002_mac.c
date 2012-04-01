@@ -107,7 +107,7 @@ static bool ar9002_hw_get_isr(struct ath_hw *ah, enum ath9k_int *masked)
 		}
 
 		if (isr & AR_ISR_RXORN) {
-			ath_dbg(common, ATH_DBG_INTERRUPT,
+			ath_dbg(common, INTERRUPT,
 				"receive FIFO overrun interrupt\n");
 		}
 
@@ -143,24 +143,24 @@ static bool ar9002_hw_get_isr(struct ath_hw *ah, enum ath9k_int *masked)
 
 		if (fatal_int) {
 			if (sync_cause & AR_INTR_SYNC_HOST1_FATAL) {
-				ath_dbg(common, ATH_DBG_ANY,
+				ath_dbg(common, ANY,
 					"received PCI FATAL interrupt\n");
 			}
 			if (sync_cause & AR_INTR_SYNC_HOST1_PERR) {
-				ath_dbg(common, ATH_DBG_ANY,
+				ath_dbg(common, ANY,
 					"received PCI PERR interrupt\n");
 			}
 			*masked |= ATH9K_INT_FATAL;
 		}
 		if (sync_cause & AR_INTR_SYNC_RADM_CPL_TIMEOUT) {
-			ath_dbg(common, ATH_DBG_INTERRUPT,
+			ath_dbg(common, INTERRUPT,
 				"AR_INTR_SYNC_RADM_CPL_TIMEOUT\n");
 			REG_WRITE(ah, AR_RC, AR_RC_HOSTIF);
 			REG_WRITE(ah, AR_RC, 0);
 			*masked |= ATH9K_INT_FATAL;
 		}
 		if (sync_cause & AR_INTR_SYNC_LOCAL_TIMEOUT) {
-			ath_dbg(common, ATH_DBG_INTERRUPT,
+			ath_dbg(common, INTERRUPT,
 				"AR_INTR_SYNC_LOCAL_TIMEOUT\n");
 		}
 
@@ -347,15 +347,12 @@ void ath9k_hw_setuprxdesc(struct ath_hw *ah, struct ath_desc *ds,
 			  u32 size, u32 flags)
 {
 	struct ar5416_desc *ads = AR5416DESC(ds);
-	struct ath9k_hw_capabilities *pCap = &ah->caps;
 
 	ads->ds_ctl1 = size & AR_BufLen;
 	if (flags & ATH9K_RXDESC_INTREQ)
 		ads->ds_ctl1 |= AR_RxIntrReq;
 
-	ads->ds_rxstatus8 &= ~AR_RxDone;
-	if (!(pCap->hw_caps & ATH9K_HW_CAP_AUTOSLEEP))
-		memset(&(ads->u), 0, sizeof(ads->u));
+	memset(&ads->u.rx, 0, sizeof(ads->u.rx));
 }
 EXPORT_SYMBOL(ath9k_hw_setuprxdesc);
 

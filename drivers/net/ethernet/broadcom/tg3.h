@@ -4,7 +4,7 @@
  * Copyright (C) 2001, 2002, 2003, 2004 David S. Miller (davem@redhat.com)
  * Copyright (C) 2001 Jeff Garzik (jgarzik@pobox.com)
  * Copyright (C) 2004 Sun Microsystems Inc.
- * Copyright (C) 2007-2011 Broadcom Corporation.
+ * Copyright (C) 2007-2012 Broadcom Corporation.
  */
 
 #ifndef _T3_H
@@ -30,6 +30,8 @@
 #define TG3_RX_RET_MAX_SIZE_5700	1024
 #define TG3_RX_RET_MAX_SIZE_5705	512
 #define TG3_RX_RET_MAX_SIZE_5717	4096
+
+#define TG3_RSS_INDIR_TBL_SIZE		128
 
 /* First 256 bytes are a mirror of PCI config space. */
 #define TG3PCI_VENDOR			0x00000000
@@ -57,6 +59,10 @@
 #define  TG3PCI_DEVICE_TIGON3_57795	 0x16b6
 #define  TG3PCI_DEVICE_TIGON3_5719	 0x1657
 #define  TG3PCI_DEVICE_TIGON3_5720	 0x165f
+#define  TG3PCI_DEVICE_TIGON3_57762	 0x1682
+#define  TG3PCI_DEVICE_TIGON3_57766	 0x1686
+#define  TG3PCI_DEVICE_TIGON3_57786	 0x16b3
+#define  TG3PCI_DEVICE_TIGON3_57782	 0x16b7
 /* 0x04 --> 0x2c unused */
 #define TG3PCI_SUBVENDOR_ID_BROADCOM		PCI_VENDOR_ID_BROADCOM
 #define TG3PCI_SUBDEVICE_ID_BROADCOM_95700A6	0x1644
@@ -168,6 +174,7 @@
 #define   ASIC_REV_57765		 0x57785
 #define   ASIC_REV_5719			 0x5719
 #define   ASIC_REV_5720			 0x5720
+#define   ASIC_REV_57766		 0x57766
 #define  GET_CHIP_REV(CHIP_REV_ID)	((CHIP_REV_ID) >> 8)
 #define   CHIPREV_5700_AX		 0x70
 #define   CHIPREV_5700_BX		 0x71
@@ -1340,6 +1347,7 @@
 #define  RDMAC_MODE_MBUF_SBD_CRPT_ENAB	 0x00002000
 #define  RDMAC_MODE_FIFO_SIZE_128	 0x00020000
 #define  RDMAC_MODE_FIFO_LONG_BURST	 0x00030000
+#define  RDMAC_MODE_JMB_2K_MMRR		 0x00800000
 #define  RDMAC_MODE_MULT_DMA_RD_DIS	 0x01000000
 #define  RDMAC_MODE_IPV4_LSO_EN		 0x08000000
 #define  RDMAC_MODE_IPV6_LSO_EN		 0x10000000
@@ -2174,6 +2182,7 @@
 #define  MII_TG3_EXT_CTRL_TBI		0x8000
 
 #define MII_TG3_EXT_STAT		0x11 /* Extended status register */
+#define  MII_TG3_EXT_STAT_MDIX		0x2000
 #define  MII_TG3_EXT_STAT_LPASS		0x0100
 
 #define MII_TG3_RXR_COUNTERS		0x14 /* Local/Remote Receiver Counts */
@@ -2276,6 +2285,9 @@
 #define  MII_TG3_FET_PTEST_TRIM_2	0x0002
 #define  MII_TG3_FET_PTEST_FRC_TX_LINK	0x1000
 #define  MII_TG3_FET_PTEST_FRC_TX_LOCK	0x0800
+
+#define MII_TG3_FET_GEN_STAT		0x1c
+#define  MII_TG3_FET_GEN_STAT_MDIXSTAT	0x2000
 
 #define MII_TG3_FET_TEST		0x1f
 #define  MII_TG3_FET_SHADOW_EN		0x0080
@@ -2662,9 +2674,13 @@ struct tg3_hw_stats {
 /* 'mapping' is superfluous as the chip does not write into
  * the tx/rx post rings so we could just fetch it from there.
  * But the cache behavior is better how we are doing it now.
+ *
+ * This driver uses new build_skb() API :
+ * RX ring buffer contains pointer to kmalloc() data only,
+ * skb are built only after Hardware filled the frame.
  */
 struct ring_info {
-	struct sk_buff			*skb;
+	u8				*data;
 	DEFINE_DMA_UNMAP_ADDR(mapping);
 };
 
@@ -2686,18 +2702,8 @@ struct tg3_link_config {
 	u8				active_flowctrl;
 
 	u8				active_duplex;
-#define SPEED_INVALID		0xffff
-#define DUPLEX_INVALID		0xff
-#define AUTONEG_INVALID		0xff
 	u16				active_speed;
-
-	/* When we go in and out of low power mode we need
-	 * to swap with this state.
-	 */
-	u16				orig_speed;
-	u8				orig_duplex;
-	u8				orig_autoneg;
-	u32				orig_advertising;
+	u32				rmt_adv;
 };
 
 struct tg3_bufmgr_config {
@@ -2865,6 +2871,8 @@ enum TG3_FLAGS {
 	TG3_FLAG_NVRAM_BUFFERED,
 	TG3_FLAG_SUPPORT_MSI,
 	TG3_FLAG_SUPPORT_MSIX,
+	TG3_FLAG_USING_MSI,
+	TG3_FLAG_USING_MSIX,
 	TG3_FLAG_PCIX_MODE,
 	TG3_FLAG_PCI_HIGH_SPEED,
 	TG3_FLAG_PCI_32BIT,
@@ -2880,7 +2888,6 @@ enum TG3_FLAGS {
 	TG3_FLAG_CHIP_RESETTING,
 	TG3_FLAG_INIT_COMPLETE,
 	TG3_FLAG_TSO_BUG,
-	TG3_FLAG_IS_5788,
 	TG3_FLAG_MAX_RXPEND_64,
 	TG3_FLAG_TSO_CAPABLE,
 	TG3_FLAG_PCI_EXPRESS, /* BCM5785 + pci_is_pcie() */
@@ -2889,14 +2896,9 @@ enum TG3_FLAGS {
 	TG3_FLAG_IS_NIC,
 	TG3_FLAG_FLASH,
 	TG3_FLAG_HW_TSO_1,
-	TG3_FLAG_5705_PLUS,
-	TG3_FLAG_5750_PLUS,
-	TG3_FLAG_HW_TSO_3,
-	TG3_FLAG_USING_MSI,
-	TG3_FLAG_USING_MSIX,
-	TG3_FLAG_ICH_WORKAROUND,
-	TG3_FLAG_5780_CLASS,
 	TG3_FLAG_HW_TSO_2,
+	TG3_FLAG_HW_TSO_3,
+	TG3_FLAG_ICH_WORKAROUND,
 	TG3_FLAG_1SHOT_MSI,
 	TG3_FLAG_NO_FWARE_REPORTED,
 	TG3_FLAG_NO_NVRAM_ADDR_TRANS,
@@ -2910,18 +2912,23 @@ enum TG3_FLAGS {
 	TG3_FLAG_RGMII_EXT_IBND_RX_EN,
 	TG3_FLAG_RGMII_EXT_IBND_TX_EN,
 	TG3_FLAG_CLKREQ_BUG,
-	TG3_FLAG_5755_PLUS,
 	TG3_FLAG_NO_NVRAM,
 	TG3_FLAG_ENABLE_RSS,
 	TG3_FLAG_ENABLE_TSS,
 	TG3_FLAG_SHORT_DMA_BUG,
 	TG3_FLAG_USE_JUMBO_BDFLAG,
 	TG3_FLAG_L1PLLPD_EN,
-	TG3_FLAG_57765_PLUS,
 	TG3_FLAG_APE_HAS_NCSI,
-	TG3_FLAG_5717_PLUS,
 	TG3_FLAG_4K_FIFO_LIMIT,
 	TG3_FLAG_RESET_TASK_PENDING,
+	TG3_FLAG_5705_PLUS,
+	TG3_FLAG_IS_5788,
+	TG3_FLAG_5750_PLUS,
+	TG3_FLAG_5780_CLASS,
+	TG3_FLAG_5755_PLUS,
+	TG3_FLAG_57765_PLUS,
+	TG3_FLAG_57765_CLASS,
+	TG3_FLAG_5717_PLUS,
 
 	/* Add new flags before this comment and TG3_FLAG_NUMBER_OF_FLAGS */
 	TG3_FLAG_NUMBER_OF_FLAGS,	/* Last entry in enum TG3_FLAGS */
@@ -2985,6 +2992,7 @@ struct tg3 {
 	/* begin "tx thread" cacheline section */
 	void				(*write32_tx_mbox) (struct tg3 *, u32,
 							    u32);
+	u32				dma_limit;
 
 	/* begin "rx thread" cacheline section */
 	struct tg3_napi			napi[TG3_IRQ_MAX_VECS];
@@ -2999,13 +3007,13 @@ struct tg3 {
 	u32				rx_std_max_post;
 	u32				rx_offset;
 	u32				rx_pkt_map_sz;
+	bool				rx_refill;
 
 
 	/* begin "everything else" cacheline(s) section */
 	unsigned long			rx_dropped;
 	unsigned long			tx_dropped;
 	struct rtnl_link_stats64	net_stats_prev;
-	struct tg3_ethtool_stats	estats;
 	struct tg3_ethtool_stats	estats_prev;
 
 	DECLARE_BITMAP(tg3_flags, TG3_FLAG_NUMBER_OF_FLAGS);
@@ -3057,6 +3065,7 @@ struct tg3 {
 
 	struct mii_bus			*mdio_bus;
 	int				mdio_irq[PHY_MAX_ADDR];
+	int				old_link;
 
 	u8				phy_addr;
 
@@ -3131,10 +3140,12 @@ struct tg3 {
 #define TG3_PHYFLG_SERDES_PREEMPHASIS	0x00010000
 #define TG3_PHYFLG_PARALLEL_DETECT	0x00020000
 #define TG3_PHYFLG_EEE_CAP		0x00040000
+#define TG3_PHYFLG_MDIX_STATE		0x00200000
 
 	u32				led_ctrl;
 	u32				phy_otp;
 	u32				setlpicnt;
+	u8				rss_ind_tbl[TG3_RSS_INDIR_TBL_SIZE];
 
 #define TG3_BPN_SIZE			24
 	char				board_part_number[TG3_BPN_SIZE];

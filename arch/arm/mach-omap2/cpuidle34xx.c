@@ -25,15 +25,16 @@
 #include <linux/sched.h>
 #include <linux/cpuidle.h>
 #include <linux/export.h>
+#include <linux/cpu_pm.h>
 
 #include <plat/prcm.h>
 #include <plat/irqs.h>
 #include "powerdomain.h"
 #include "clockdomain.h"
-#include <plat/serial.h>
 
 #include "pm.h"
 #include "control.h"
+#include "common.h"
 
 #ifdef CONFIG_CPU_IDLE
 
@@ -86,29 +87,14 @@ static int _cpuidle_deny_idle(struct powerdomain *pwrdm,
 	return 0;
 }
 
-/**
- * omap3_enter_idle - Programs OMAP3 to enter the specified state
- * @dev: cpuidle device
- * @drv: cpuidle driver
- * @index: the index of state to be entered
- *
- * Called from the CPUidle framework to program the device to the
- * specified target state selected by the governor.
- */
-static int omap3_enter_idle(struct cpuidle_device *dev,
+static int __omap3_enter_idle(struct cpuidle_device *dev,
 				struct cpuidle_driver *drv,
 				int index)
 {
 	struct omap3_idle_statedata *cx =
 			cpuidle_get_statedata(&dev->states_usage[index]);
-	struct timespec ts_preidle, ts_postidle, ts_idle;
 	u32 mpu_state = cx->mpu_state, core_state = cx->core_state;
-	int idle_time;
 
-	/* Used to keep track of the total time in idle */
-	getnstimeofday(&ts_preidle);
-
-	local_irq_disable();
 	local_fiq_disable();
 
 	pwrdm_set_next_pwrst(mpu_pd, mpu_state);
@@ -123,8 +109,22 @@ static int omap3_enter_idle(struct cpuidle_device *dev,
 		pwrdm_for_each_clkdm(core_pd, _cpuidle_deny_idle);
 	}
 
+	/*
+	 * Call idle CPU PM enter notifier chain so that
+	 * VFP context is saved.
+	 */
+	if (mpu_state == PWRDM_POWER_OFF)
+		cpu_pm_enter();
+
 	/* Execute ARM wfi */
 	omap_sram_idle();
+
+	/*
+	 * Call idle CPU PM enter notifier chain to restore
+	 * VFP context.
+	 */
+	if (pwrdm_read_prev_pwrst(mpu_pd) == PWRDM_POWER_OFF)
+		cpu_pm_exit();
 
 	/* Re-allow idle for C1 */
 	if (index == 0) {
@@ -133,19 +133,26 @@ static int omap3_enter_idle(struct cpuidle_device *dev,
 	}
 
 return_sleep_time:
-	getnstimeofday(&ts_postidle);
-	ts_idle = timespec_sub(ts_postidle, ts_preidle);
 
-	local_irq_enable();
 	local_fiq_enable();
 
-	idle_time = ts_idle.tv_nsec / NSEC_PER_USEC + ts_idle.tv_sec * \
-								USEC_PER_SEC;
-
-	/* Update cpuidle counters */
-	dev->last_residency = idle_time;
-
 	return index;
+}
+
+/**
+ * omap3_enter_idle - Programs OMAP3 to enter the specified state
+ * @dev: cpuidle device
+ * @drv: cpuidle driver
+ * @index: the index of state to be entered
+ *
+ * Called from the CPUidle framework to program the device to the
+ * specified target state selected by the governor.
+ */
+static inline int omap3_enter_idle(struct cpuidle_device *dev,
+				struct cpuidle_driver *drv,
+				int index)
+{
+	return cpuidle_wrap_enter(dev, drv, index, __omap3_enter_idle);
 }
 
 /**
@@ -243,11 +250,6 @@ static int omap3_enter_idle_bm(struct cpuidle_device *dev,
 	u32 core_next_state, per_next_state = 0, per_saved_state = 0, cam_state;
 	struct omap3_idle_statedata *cx;
 	int ret;
-
-	if (!omap3_can_sleep()) {
-		new_state_idx = drv->safe_state_index;
-		goto select_state;
-	}
 
 	/*
 	 * Prevent idle completely if CAM is active.

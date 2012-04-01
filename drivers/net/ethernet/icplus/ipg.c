@@ -371,16 +371,9 @@ static void mdio_write(struct net_device *dev, int phy_id, int phy_reg, int val)
 	}
 
 	/* The last cycle is a tri-state, so read from the PHY. */
-	for (j = 7; j < 8; j++) {
-		for (i = 0; i < p[j].len; i++) {
-			ipg_write_phy_ctl(ioaddr, IPG_PC_MGMTCLK_LO | polarity);
-
-			p[j].field |= ((ipg_r8(PHY_CTRL) &
-				IPG_PC_MGMTDATA) >> 1) << (p[j].len - 1 - i);
-
-			ipg_write_phy_ctl(ioaddr, IPG_PC_MGMTCLK_HI | polarity);
-		}
-	}
+	ipg_write_phy_ctl(ioaddr, IPG_PC_MGMTCLK_LO | polarity);
+	ipg_r8(PHY_CTRL);
+	ipg_write_phy_ctl(ioaddr, IPG_PC_MGMTCLK_HI | polarity);
 }
 
 static void ipg_set_led_mode(struct net_device *dev)
@@ -750,9 +743,6 @@ static int ipg_get_rxbuff(struct net_device *dev, int entry)
 		sp->rx_buff[entry] = NULL;
 		return -ENOMEM;
 	}
-
-	/* Associate the receive buffer with the IPG NIC. */
-	skb->dev = dev;
 
 	/* Save the address of the sk_buff structure. */
 	sp->rx_buff[entry] = skb;
@@ -2240,7 +2230,6 @@ static int __devinit ipg_probe(struct pci_dev *pdev,
 	 */
 	dev = alloc_etherdev(sizeof(struct ipg_nic_private));
 	if (!dev) {
-		pr_err("%s: alloc_etherdev failed\n", pci_name(pdev));
 		rc = -ENOMEM;
 		goto err_disable_0;
 	}

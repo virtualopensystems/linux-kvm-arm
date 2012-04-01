@@ -545,13 +545,12 @@ static ssize_t lm8323_pwm_store_time(struct device *dev,
 {
 	struct led_classdev *led_cdev = dev_get_drvdata(dev);
 	struct lm8323_pwm *pwm = cdev_to_pwm(led_cdev);
-	int ret;
-	unsigned long time;
+	int ret, time;
 
-	ret = strict_strtoul(buf, 10, &time);
+	ret = kstrtoint(buf, 10, &time);
 	/* Numbers only, please. */
 	if (ret)
-		return -EINVAL;
+		return ret;
 
 	pwm->fade_time = time;
 
@@ -613,9 +612,9 @@ static ssize_t lm8323_set_disable(struct device *dev,
 {
 	struct lm8323_chip *lm = dev_get_drvdata(dev);
 	int ret;
-	unsigned long i;
+	unsigned int i;
 
-	ret = strict_strtoul(buf, 10, &i);
+	ret = kstrtouint(buf, 10, &i);
 
 	mutex_lock(&lm->lock);
 	lm->kp_enabled = !i;
@@ -852,17 +851,7 @@ static struct i2c_driver lm8323_i2c_driver = {
 };
 MODULE_DEVICE_TABLE(i2c, lm8323_id);
 
-static int __init lm8323_init(void)
-{
-	return i2c_add_driver(&lm8323_i2c_driver);
-}
-module_init(lm8323_init);
-
-static void __exit lm8323_exit(void)
-{
-	i2c_del_driver(&lm8323_i2c_driver);
-}
-module_exit(lm8323_exit);
+module_i2c_driver(lm8323_i2c_driver);
 
 MODULE_AUTHOR("Timo O. Karjalainen <timo.o.karjalainen@nokia.com>");
 MODULE_AUTHOR("Daniel Stone");

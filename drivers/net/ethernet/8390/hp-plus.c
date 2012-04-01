@@ -33,7 +33,6 @@ static const char version[] =
 #include <linux/interrupt.h>
 #include <linux/delay.h>
 
-#include <asm/system.h>
 #include <asm/io.h>
 
 #include "8390.h"
@@ -202,7 +201,7 @@ static int __init hpp_probe1(struct net_device *dev, int ioaddr)
 	/* Retrieve and checksum the station address. */
 	outw(MAC_Page, ioaddr + HP_PAGING);
 
-	for(i = 0; i < ETHER_ADDR_LEN; i++) {
+	for(i = 0; i < ETH_ALEN; i++) {
 		unsigned char inval = inb(ioaddr + 8 + i);
 		dev->dev_addr[i] = inval;
 		checksum += inval;

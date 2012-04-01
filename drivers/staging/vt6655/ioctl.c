@@ -300,6 +300,10 @@ int private_ioctl(PSDevice pDevice, struct ifreq *rq)
 			result = -EFAULT;
 			break;
 		}
+		if (sList.uItem > (ULONG_MAX - sizeof(SBSSIDList)) / sizeof(SBSSIDItem)) {
+			result = -EINVAL;
+			break;
+		}
 		pList = (PSBSSIDList)kmalloc(sizeof(SBSSIDList) + (sList.uItem * sizeof(SBSSIDItem)), (int)GFP_ATOMIC);
 		if (pList == NULL) {
 			result = -ENOMEM;
@@ -320,16 +324,16 @@ int private_ioctl(PSDevice pDevice, struct ifreq *rq)
 				pItemSSID = (PWLAN_IE_SSID)pBSS->abySSID;
 				memset(pList->sBSSIDList[ii].abySSID, 0, WLAN_SSID_MAXLEN + 1);
 				memcpy(pList->sBSSIDList[ii].abySSID, pItemSSID->abySSID, pItemSSID->len);
-				if (WLAN_GET_CAP_INFO_ESS(pBSS->wCapInfo)) {
+				if (WLAN_GET_CAP_INFO_ESS(pBSS->wCapInfo))
 					pList->sBSSIDList[ii].byNetType = INFRA;
-				} else {
+				else
 					pList->sBSSIDList[ii].byNetType = ADHOC;
-				}
-				if (WLAN_GET_CAP_INFO_PRIVACY(pBSS->wCapInfo)) {
+
+				if (WLAN_GET_CAP_INFO_PRIVACY(pBSS->wCapInfo))
 					pList->sBSSIDList[ii].bWEPOn = true;
-				} else {
+				else
 					pList->sBSSIDList[ii].bWEPOn = false;
-				}
+
 				ii++;
 				if (ii >= pList->uItem)
 					break;
@@ -363,9 +367,9 @@ int private_ioctl(PSDevice pDevice, struct ifreq *rq)
 		netif_stop_queue(pDevice->dev);
 
 		spin_lock_irq(&pDevice->lock);
-		if (pDevice->bRadioOff == false) {
+		if (pDevice->bRadioOff == false)
 			CARDbRadioPowerOff(pDevice);
-		}
+
 		pDevice->bLinkPass = false;
 		memset(pMgmt->abyCurrBSSID, 0, 6);
 		pMgmt->eCurrState = WMAC_STATE_IDLE;
@@ -485,13 +489,12 @@ int private_ioctl(PSDevice pDevice, struct ifreq *rq)
 			break;
 		}
 
-		if (sStartAPCmd.wBBPType == PHY80211g) {
+		if (sStartAPCmd.wBBPType == PHY80211g)
 			pMgmt->byAPBBType = PHY_TYPE_11G;
-		} else if (sStartAPCmd.wBBPType == PHY80211a) {
+		else if (sStartAPCmd.wBBPType == PHY80211a)
 			pMgmt->byAPBBType = PHY_TYPE_11A;
-		} else {
+		else
 			pMgmt->byAPBBType = PHY_TYPE_11B;
-		}
 
 		pItemSSID = (PWLAN_IE_SSID)sStartAPCmd.ssid;
 		if (pItemSSID->len > WLAN_SSID_MAXLEN + 1)
@@ -569,6 +572,10 @@ int private_ioctl(PSDevice pDevice, struct ifreq *rq)
 	case WLAN_CMD_GET_NODE_LIST:
 		if (copy_from_user(&sNodeList, pReq->data, sizeof(SNodeList))) {
 			result = -EFAULT;
+			break;
+		}
+		if (sNodeList.uItem > (ULONG_MAX - sizeof(SNodeList)) / sizeof(SNodeItem)) {
+			result = -EINVAL;
 			break;
 		}
 		pNodeList = (PSNodeList)kmalloc(sizeof(SNodeList) + (sNodeList.uItem * sizeof(SNodeItem)), (int)GFP_ATOMIC);

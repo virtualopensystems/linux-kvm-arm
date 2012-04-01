@@ -5,7 +5,7 @@
  *
  * GPL LICENSE SUMMARY
  *
- * Copyright(c) 2005 - 2011 Intel Corporation. All rights reserved.
+ * Copyright(c) 2005 - 2012 Intel Corporation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of version 2 of the GNU General Public License as
@@ -30,7 +30,7 @@
  *
  * BSD LICENSE
  *
- * Copyright(c) 2005 - 2011 Intel Corporation. All rights reserved.
+ * Copyright(c) 2005 - 2012 Intel Corporation. All rights reserved.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -284,8 +284,8 @@
 #define CSR_HW_REV_TYPE_6x35	       CSR_HW_REV_TYPE_6x05
 #define CSR_HW_REV_TYPE_2x30	       (0x00000C0)
 #define CSR_HW_REV_TYPE_2x00	       (0x0000100)
-#define CSR_HW_REV_TYPE_200	       (0x0000110)
-#define CSR_HW_REV_TYPE_230	       (0x0000120)
+#define CSR_HW_REV_TYPE_105	       (0x0000110)
+#define CSR_HW_REV_TYPE_135	       (0x0000120)
 #define CSR_HW_REV_TYPE_NONE           (0x00001F0)
 
 /* EEPROM REG */

@@ -325,7 +325,8 @@ static int dnet_mii_init(struct dnet *bp)
 	bp->mii_bus->write = &dnet_mdio_write;
 	bp->mii_bus->reset = &dnet_mdio_reset;
 
-	snprintf(bp->mii_bus->id, MII_BUS_ID_SIZE, "%x", 0);
+	snprintf(bp->mii_bus->id, MII_BUS_ID_SIZE, "%s-%x",
+		bp->pdev->name, bp->pdev->id);
 
 	bp->mii_bus->priv = bp;
 
@@ -420,7 +421,7 @@ static int dnet_poll(struct napi_struct *napi, int budget)
 			printk(KERN_ERR "%s packet receive error %x\n",
 			       __func__, cmd_word);
 
-		skb = dev_alloc_skb(pkt_len + 5);
+		skb = netdev_alloc_skb(dev, pkt_len + 5);
 		if (skb != NULL) {
 			/* Align IP on 16 byte boundaries */
 			skb_reserve(skb, 2);
@@ -804,9 +805,9 @@ static int dnet_ioctl(struct net_device *dev, struct ifreq *rq, int cmd)
 static void dnet_get_drvinfo(struct net_device *dev,
 			     struct ethtool_drvinfo *info)
 {
-	strcpy(info->driver, DRV_NAME);
-	strcpy(info->version, DRV_VERSION);
-	strcpy(info->bus_info, "0");
+	strlcpy(info->driver, DRV_NAME, sizeof(info->driver));
+	strlcpy(info->version, DRV_VERSION, sizeof(info->version));
+	strlcpy(info->bus_info, "0", sizeof(info->bus_info));
 }
 
 static const struct ethtool_ops dnet_ethtool_ops = {
@@ -853,10 +854,8 @@ static int __devinit dnet_probe(struct platform_device *pdev)
 
 	err = -ENOMEM;
 	dev = alloc_etherdev(sizeof(*bp));
-	if (!dev) {
-		dev_err(&pdev->dev, "etherdev alloc failed, aborting.\n");
+	if (!dev)
 		goto err_out_release_mem;
-	}
 
 	/* TODO: Actually, we have some interesting features... */
 	dev->features |= 0;
@@ -896,7 +895,7 @@ static int __devinit dnet_probe(struct platform_device *pdev)
 
 	if (!is_valid_ether_addr(dev->dev_addr)) {
 		/* choose a random ethernet address */
-		random_ether_addr(dev->dev_addr);
+		eth_hw_addr_random(dev);
 		__dnet_set_hwaddr(bp);
 	}
 
@@ -977,18 +976,7 @@ static struct platform_driver dnet_driver = {
 	},
 };
 
-static int __init dnet_init(void)
-{
-	return platform_driver_register(&dnet_driver);
-}
-
-static void __exit dnet_exit(void)
-{
-	platform_driver_unregister(&dnet_driver);
-}
-
-module_init(dnet_init);
-module_exit(dnet_exit);
+module_platform_driver(dnet_driver);
 
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("Dave DNET Ethernet driver");

@@ -13,18 +13,18 @@
 #include <linux/list.h>
 #include <linux/io.h>
 #include <linux/clk.h>
+#include <linux/platform_device.h>
 
 #include <asm/mach/time.h>
+#include <asm/system_misc.h>
 #include <mach/addr-map.h>
 #include <mach/cputype.h>
 #include <mach/regs-apbc.h>
 #include <mach/regs-apmu.h>
 #include <mach/irqs.h>
-#include <mach/gpio-pxa.h>
 #include <mach/dma.h>
 #include <mach/devices.h>
 #include <mach/mfp.h>
-#include <linux/platform_device.h>
 #include <linux/dma-mapping.h>
 #include <mach/pxa168.h>
 
@@ -43,26 +43,9 @@ static struct mfp_addr_map pxa168_mfp_addr_map[] __initdata =
 	MFP_ADDR_END,
 };
 
-#define APMASK(i)	(GPIO_REGS_VIRT + BANK_OFF(i) + 0x09c)
-
-static void __init pxa168_init_gpio(void)
-{
-	int i;
-
-	/* enable GPIO clock */
-	__raw_writel(APBC_APBCLK | APBC_FNCLK, APBC_PXA168_GPIO);
-
-	/* unmask GPIO edge detection for all 4 banks - APMASKx */
-	for (i = 0; i < 4; i++)
-		__raw_writel(0xffffffff, APMASK(i));
-
-	pxa_init_gpio(IRQ_PXA168_GPIOX, 0, 127, NULL);
-}
-
 void __init pxa168_init_irq(void)
 {
 	icu_init_irq();
-	pxa168_init_gpio();
 }
 
 /* APB peripheral clocks */
@@ -80,7 +63,9 @@ static APBC_CLK(ssp2, PXA168_SSP2, 4, 0);
 static APBC_CLK(ssp3, PXA168_SSP3, 4, 0);
 static APBC_CLK(ssp4, PXA168_SSP4, 4, 0);
 static APBC_CLK(ssp5, PXA168_SSP5, 4, 0);
+static APBC_CLK(gpio, PXA168_GPIO, 0, 13000000);
 static APBC_CLK(keypad, PXA168_KPC, 0, 32000);
+static APBC_CLK(rtc, PXA168_RTC, 8, 32768);
 
 static APMU_CLK(nand, NAND, 0x19b, 156000000);
 static APMU_CLK(lcd, LCD, 0x7f, 312000000);
@@ -105,9 +90,11 @@ static struct clk_lookup pxa168_clkregs[] = {
 	INIT_CLKREG(&clk_ssp5, "pxa168-ssp.4", NULL),
 	INIT_CLKREG(&clk_nand, "pxa3xx-nand", NULL),
 	INIT_CLKREG(&clk_lcd, "pxa168-fb", NULL),
+	INIT_CLKREG(&clk_gpio, "pxa-gpio", NULL),
 	INIT_CLKREG(&clk_keypad, "pxa27x-keypad", NULL),
 	INIT_CLKREG(&clk_eth, "pxa168-eth", "MFUCLK"),
 	INIT_CLKREG(&clk_usb, "pxa168-ehci", "PXA168-USBCLK"),
+	INIT_CLKREG(&clk_rtc, "sa1100-rtc", NULL),
 };
 
 static int __init pxa168_init(void)
@@ -174,6 +161,26 @@ PXA168_DEVICE(fb, "pxa168-fb", -1, LCD, 0xd420b000, 0x1c8);
 PXA168_DEVICE(keypad, "pxa27x-keypad", -1, KEYPAD, 0xd4012000, 0x4c);
 PXA168_DEVICE(eth, "pxa168-eth", -1, MFU, 0xc0800000, 0x0fff);
 
+struct resource pxa168_resource_gpio[] = {
+	{
+		.start	= 0xd4019000,
+		.end	= 0xd4019fff,
+		.flags	= IORESOURCE_MEM,
+	}, {
+		.start	= IRQ_PXA168_GPIOX,
+		.end	= IRQ_PXA168_GPIOX,
+		.name	= "gpio_mux",
+		.flags	= IORESOURCE_IRQ,
+	},
+};
+
+struct platform_device pxa168_device_gpio = {
+	.name		= "pxa-gpio",
+	.id		= -1,
+	.num_resources	= ARRAY_SIZE(pxa168_resource_gpio),
+	.resource	= pxa168_resource_gpio,
+};
+
 struct resource pxa168_usb_host_resources[] = {
 	/* USB Host conroller register base */
 	[0] = {
@@ -213,4 +220,9 @@ int __init pxa168_add_usb_host(struct pxa168_usb_pdata *pdata)
 {
 	pxa168_device_usb_host.dev.platform_data = pdata;
 	return platform_device_register(&pxa168_device_usb_host);
+}
+
+void pxa168_restart(char mode, const char *cmd)
+{
+	soft_restart(0xffff0000);
 }

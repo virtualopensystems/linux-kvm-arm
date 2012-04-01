@@ -23,7 +23,7 @@
 #include <linux/spinlock.h>
 #include <linux/cache.h>
 #include <linux/err.h>
-#include <linux/sysdev.h>
+#include <linux/device.h>
 #include <linux/cpu.h>
 
 #include <asm/ptrace.h>
@@ -38,7 +38,6 @@
 #include <asm/machdep.h>
 #include <asm/cputable.h>
 #include <asm/firmware.h>
-#include <asm/system.h>
 #include <asm/rtas.h>
 #include <asm/cputhreads.h>
 

@@ -172,7 +172,7 @@ static void ath9k_iowrite32(void *hw_priv, u32 val, u32 reg_offset)
 	struct ath_common *common = ath9k_hw_common(ah);
 	struct ath_softc *sc = (struct ath_softc *) common->priv;
 
-	if (ah->config.serialize_regmode == SER_REG_MODE_ON) {
+	if (NR_CPUS > 1 && ah->config.serialize_regmode == SER_REG_MODE_ON) {
 		unsigned long flags;
 		spin_lock_irqsave(&sc->sc_serial_rw, flags);
 		iowrite32(val, sc->mem + reg_offset);
@@ -188,7 +188,7 @@ static unsigned int ath9k_ioread32(void *hw_priv, u32 reg_offset)
 	struct ath_softc *sc = (struct ath_softc *) common->priv;
 	u32 val;
 
-	if (ah->config.serialize_regmode == SER_REG_MODE_ON) {
+	if (NR_CPUS > 1 && ah->config.serialize_regmode == SER_REG_MODE_ON) {
 		unsigned long flags;
 		spin_lock_irqsave(&sc->sc_serial_rw, flags);
 		val = ioread32(sc->mem + reg_offset);
@@ -219,7 +219,7 @@ static unsigned int ath9k_reg_rmw(void *hw_priv, u32 reg_offset, u32 set, u32 cl
 	unsigned long uninitialized_var(flags);
 	u32 val;
 
-	if (ah->config.serialize_regmode == SER_REG_MODE_ON) {
+	if (NR_CPUS > 1 && ah->config.serialize_regmode == SER_REG_MODE_ON) {
 		spin_lock_irqsave(&sc->sc_serial_rw, flags);
 		val = __ath9k_reg_rmw(sc, reg_offset, set, clr);
 		spin_unlock_irqrestore(&sc->sc_serial_rw, flags);
@@ -258,6 +258,8 @@ static void setup_ht_cap(struct ath_softc *sc,
 
 	if (AR_SREV_9330(ah) || AR_SREV_9485(ah))
 		max_streams = 1;
+	else if (AR_SREV_9462(ah))
+		max_streams = 2;
 	else if (AR_SREV_9300_20_OR_LATER(ah))
 		max_streams = 3;
 	else
@@ -274,8 +276,7 @@ static void setup_ht_cap(struct ath_softc *sc,
 	tx_streams = ath9k_cmn_count_streams(ah->txchainmask, max_streams);
 	rx_streams = ath9k_cmn_count_streams(ah->rxchainmask, max_streams);
 
-	ath_dbg(common, ATH_DBG_CONFIG,
-		"TX streams %d, RX streams: %d\n",
+	ath_dbg(common, CONFIG, "TX streams %d, RX streams: %d\n",
 		tx_streams, rx_streams);
 
 	if (tx_streams != rx_streams) {
@@ -295,9 +296,22 @@ static int ath9k_reg_notifier(struct wiphy *wiphy,
 {
 	struct ieee80211_hw *hw = wiphy_to_ieee80211_hw(wiphy);
 	struct ath_softc *sc = hw->priv;
-	struct ath_regulatory *reg = ath9k_hw_regulatory(sc->sc_ah);
+	struct ath_hw *ah = sc->sc_ah;
+	struct ath_regulatory *reg = ath9k_hw_regulatory(ah);
+	int ret;
 
-	return ath_reg_notifier_apply(wiphy, request, reg);
+	ret = ath_reg_notifier_apply(wiphy, request, reg);
+
+	/* Set tx power */
+	if (ah->curchan) {
+		sc->config.txpowlimit = 2 * ah->curchan->chan->max_power;
+		ath9k_ps_wakeup(sc);
+		ath9k_hw_set_txpowerlimit(ah, sc->config.txpowlimit, false);
+		sc->curtxpow = ath9k_hw_regulatory(ah)->power_limit;
+		ath9k_ps_restore(sc);
+	}
+
+	return ret;
 }
 
 /*
@@ -314,7 +328,7 @@ int ath_descdma_setup(struct ath_softc *sc, struct ath_descdma *dd,
 	struct ath_buf *bf;
 	int i, bsize, error, desc_len;
 
-	ath_dbg(common, ATH_DBG_CONFIG, "%s DMA: %u buffers %u desc/buf\n",
+	ath_dbg(common, CONFIG, "%s DMA: %u buffers %u desc/buf\n",
 		name, nbuf, ndesc);
 
 	INIT_LIST_HEAD(head);
@@ -360,7 +374,7 @@ int ath_descdma_setup(struct ath_softc *sc, struct ath_descdma *dd,
 		goto fail;
 	}
 	ds = (u8 *) dd->dd_desc;
-	ath_dbg(common, ATH_DBG_CONFIG, "%s DMA map: %p (%u) -> %llx (%u)\n",
+	ath_dbg(common, CONFIG, "%s DMA map: %p (%u) -> %llx (%u)\n",
 		name, ds, (u32) dd->dd_desc_len,
 		ito64(dd->dd_desc_paddr), /*XXX*/(u32) dd->dd_desc_len);
 
@@ -403,34 +417,6 @@ fail2:
 fail:
 	memset(dd, 0, sizeof(*dd));
 	return error;
-}
-
-static int ath9k_init_btcoex(struct ath_softc *sc)
-{
-	struct ath_txq *txq;
-	int r;
-
-	switch (sc->sc_ah->btcoex_hw.scheme) {
-	case ATH_BTCOEX_CFG_NONE:
-		break;
-	case ATH_BTCOEX_CFG_2WIRE:
-		ath9k_hw_btcoex_init_2wire(sc->sc_ah);
-		break;
-	case ATH_BTCOEX_CFG_3WIRE:
-		ath9k_hw_btcoex_init_3wire(sc->sc_ah);
-		r = ath_init_btcoex_timer(sc);
-		if (r)
-			return -1;
-		txq = sc->tx.txq_map[WME_AC_BE];
-		ath9k_hw_init_btcoex_hw(sc->sc_ah, txq->axq_qnum);
-		sc->btcoex.bt_stomp_type = ATH_BTCOEX_STOMP_LOW;
-		break;
-	default:
-		WARN_ON(1);
-		break;
-	}
-
-	return 0;
 }
 
 static int ath9k_init_queues(struct ath_softc *sc)
@@ -498,19 +484,11 @@ static void ath9k_init_misc(struct ath_softc *sc)
 {
 	struct ath_common *common = ath9k_hw_common(sc->sc_ah);
 	int i = 0;
+
 	setup_timer(&common->ani.timer, ath_ani_calibrate, (unsigned long)sc);
 
 	sc->config.txpowlimit = ATH_TXPOWER_MAX;
-
-	if (sc->sc_ah->caps.hw_caps & ATH9K_HW_CAP_HT) {
-		sc->sc_flags |= SC_OP_TXAGGR;
-		sc->sc_flags |= SC_OP_RXAGGR;
-	}
-
-	sc->rx.defant = ath9k_hw_getdefantenna(sc->sc_ah);
-
 	memcpy(common->bssidmask, ath_bcast_mac, ETH_ALEN);
-
 	sc->beacon.slottime = ATH9K_SLOT_TIME_9;
 
 	for (i = 0; i < ARRAY_SIZE(sc->beacon.bslot); i++)
@@ -569,8 +547,10 @@ static int ath9k_init_softc(u16 devid, struct ath_softc *sc,
 	mutex_init(&sc->mutex);
 #ifdef CONFIG_ATH9K_DEBUGFS
 	spin_lock_init(&sc->nodes_lock);
-	spin_lock_init(&sc->debug.samp_lock);
 	INIT_LIST_HEAD(&sc->nodes);
+#endif
+#ifdef CONFIG_ATH9K_MAC_DEBUG
+	spin_lock_init(&sc->debug.samp_lock);
 #endif
 	tasklet_init(&sc->intr_tq, ath9k_tasklet, (unsigned long)sc);
 	tasklet_init(&sc->bcon_tasklet, ath_beacon_tasklet,
@@ -695,6 +675,7 @@ void ath9k_set_hw_capab(struct ath_softc *sc, struct ieee80211_hw *hw)
 		hw->wiphy->flags &= ~WIPHY_FLAG_PS_ON_BY_DEFAULT;
 
 	hw->wiphy->flags |= WIPHY_FLAG_IBSS_RSN;
+	hw->wiphy->flags |= WIPHY_FLAG_SUPPORTS_TDLS;
 
 	hw->queues = 4;
 	hw->max_rates = 4;
@@ -775,6 +756,11 @@ int ath9k_init_device(u16 devid, struct ath_softc *sc,
 		ARRAY_SIZE(ath9k_tpt_blink));
 #endif
 
+	INIT_WORK(&sc->hw_reset_work, ath_reset_work);
+	INIT_WORK(&sc->hw_check_work, ath_hw_check);
+	INIT_WORK(&sc->paprd_work, ath_paprd_calibrate);
+	INIT_DELAYED_WORK(&sc->hw_pll_work, ath_hw_pll_work);
+
 	/* Register with mac80211 */
 	error = ieee80211_register_hw(hw);
 	if (error)
@@ -793,10 +779,6 @@ int ath9k_init_device(u16 devid, struct ath_softc *sc,
 			goto error_world;
 	}
 
-	INIT_WORK(&sc->hw_reset_work, ath_reset_work);
-	INIT_WORK(&sc->hw_check_work, ath_hw_check);
-	INIT_WORK(&sc->paprd_work, ath_paprd_calibrate);
-	INIT_DELAYED_WORK(&sc->hw_pll_work, ath_hw_pll_work);
 	sc->last_rssi = ATH_RSSI_DUMMY_MARKER;
 
 	ath_init_leds(sc);
@@ -832,9 +814,7 @@ static void ath9k_deinit_softc(struct ath_softc *sc)
 	if (sc->sbands[IEEE80211_BAND_5GHZ].channels)
 		kfree(sc->sbands[IEEE80211_BAND_5GHZ].channels);
 
-        if ((sc->btcoex.no_stomp_timer) &&
-	    sc->sc_ah->btcoex_hw.scheme == ATH_BTCOEX_CFG_3WIRE)
-		ath_gen_timer_free(sc->sc_ah, sc->btcoex.no_stomp_timer);
+	ath9k_deinit_btcoex(sc);
 
 	for (i = 0; i < ATH9K_NUM_TX_QUEUES; i++)
 		if (ATH_TXQ_SETUP(sc, i))

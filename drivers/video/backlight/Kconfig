@@ -280,14 +280,6 @@ config BACKLIGHT_WM831X
 	  If you have a backlight driven by the ISINK and DCDC of a
 	  WM831x PMIC say y to enable the backlight driver for it.
 
-config BACKLIGHT_ADX
-	tristate "Avionic Design Xanthos Backlight Driver"
-	depends on ARCH_PXA_ADX
-	default y
-	help
-	  Say Y to enable the backlight driver on Avionic Design Xanthos-based
-	  boards.
-
 config BACKLIGHT_ADP5520
 	tristate "Backlight Driver for ADP5520/ADP5501 using WLED"
 	depends on PMIC_ADP5520
@@ -340,6 +332,27 @@ config BACKLIGHT_AAT2870
 	depends on BACKLIGHT_CLASS_DEVICE && MFD_AAT2870_CORE
 	help
 	  If you have a AnalogicTech AAT2870 say Y to enable the
+	  backlight driver.
+
+config BACKLIGHT_LP855X
+	tristate "Backlight driver for TI LP855X"
+	depends on BACKLIGHT_CLASS_DEVICE && I2C
+	help
+	  This supports TI LP8550, LP8551, LP8552, LP8553 and LP8556
+	  backlight driver.
+
+config BACKLIGHT_OT200
+	tristate "Backlight driver for ot200 visualisation device"
+	depends on BACKLIGHT_CLASS_DEVICE && CS5535_MFGPT && GPIO_CS5535
+	help
+	  To compile this driver as a module, choose M here: the module will be
+	  called ot200_bl.
+
+config BACKLIGHT_PANDORA
+	tristate "Backlight driver for Pandora console"
+	depends on TWL4030_CORE
+	help
+	  If you have a Pandora console, say Y to enable the
 	  backlight driver.
 
 endif # BACKLIGHT_CLASS_DEVICE

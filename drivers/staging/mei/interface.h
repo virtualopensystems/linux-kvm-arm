@@ -1,7 +1,7 @@
 /*
  *
  * Intel Management Engine Interface (Intel MEI) Linux driver
- * Copyright (c) 2003-2011, Intel Corporation.
+ * Copyright (c) 2003-2012, Intel Corporation.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms and conditions of the GNU General Public License,
@@ -33,7 +33,8 @@
 
 
 void mei_read_slots(struct mei_device *dev,
-		     unsigned char *buffer, unsigned long buffer_length);
+		     unsigned char *buffer,
+		     unsigned long buffer_length);
 
 int mei_write_message(struct mei_device *dev,
 			     struct mei_msg_hdr *header,
@@ -52,6 +53,17 @@ int mei_wd_send(struct mei_device *dev);
 int mei_wd_stop(struct mei_device *dev, bool preserve);
 bool mei_wd_host_init(struct mei_device *dev);
 void mei_wd_set_start_timeout(struct mei_device *dev, u16 timeout);
+/*
+ * mei_watchdog_register  - Registering watchdog interface
+ *   once we got connection to the WD Client
+ * @dev - mei device
+ */
+void mei_watchdog_register(struct mei_device *dev);
+/*
+ * mei_watchdog_unregister  - Unregistering watchdog interface
+ * @dev - mei device
+ */
+void mei_watchdog_unregister(struct mei_device *dev);
 
 int mei_flow_ctrl_reduce(struct mei_device *dev, struct mei_cl *cl);
 

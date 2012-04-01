@@ -130,8 +130,12 @@ enum {
 	Opt_nodirstat,
 	Opt_rbytes,
 	Opt_norbytes,
+	Opt_asyncreaddir,
 	Opt_noasyncreaddir,
+	Opt_dcache,
+	Opt_nodcache,
 	Opt_ino32,
+	Opt_noino32,
 };
 
 static match_table_t fsopt_tokens = {
@@ -151,8 +155,12 @@ static match_table_t fsopt_tokens = {
 	{Opt_nodirstat, "nodirstat"},
 	{Opt_rbytes, "rbytes"},
 	{Opt_norbytes, "norbytes"},
+	{Opt_asyncreaddir, "asyncreaddir"},
 	{Opt_noasyncreaddir, "noasyncreaddir"},
+	{Opt_dcache, "dcache"},
+	{Opt_nodcache, "nodcache"},
 	{Opt_ino32, "ino32"},
+	{Opt_noino32, "noino32"},
 	{-1, NULL}
 };
 
@@ -228,11 +236,23 @@ static int parse_fsopt_token(char *c, void *private)
 	case Opt_norbytes:
 		fsopt->flags &= ~CEPH_MOUNT_OPT_RBYTES;
 		break;
+	case Opt_asyncreaddir:
+		fsopt->flags &= ~CEPH_MOUNT_OPT_NOASYNCREADDIR;
+		break;
 	case Opt_noasyncreaddir:
 		fsopt->flags |= CEPH_MOUNT_OPT_NOASYNCREADDIR;
 		break;
+	case Opt_dcache:
+		fsopt->flags |= CEPH_MOUNT_OPT_DCACHE;
+		break;
+	case Opt_nodcache:
+		fsopt->flags &= ~CEPH_MOUNT_OPT_DCACHE;
+		break;
 	case Opt_ino32:
 		fsopt->flags |= CEPH_MOUNT_OPT_INO32;
+		break;
+	case Opt_noino32:
+		fsopt->flags &= ~CEPH_MOUNT_OPT_INO32;
 		break;
 	default:
 		BUG_ON(token);
@@ -324,10 +344,12 @@ static int parse_mount_options(struct ceph_mount_options **pfsopt,
 	*path += 2;
 	dout("server path '%s'\n", *path);
 
-	err = ceph_parse_options(popt, options, dev_name, dev_name_end,
+	*popt = ceph_parse_options(options, dev_name, dev_name_end,
 				 parse_fsopt_token, (void *)fsopt);
-	if (err)
+	if (IS_ERR(*popt)) {
+		err = PTR_ERR(*popt);
 		goto out;
+	}
 
 	/* success */
 	*pfsopt = fsopt;
@@ -341,11 +363,11 @@ out:
 /**
  * ceph_show_options - Show mount options in /proc/mounts
  * @m: seq_file to write to
- * @mnt: mount descriptor
+ * @root: root of that (sub)tree
  */
-static int ceph_show_options(struct seq_file *m, struct vfsmount *mnt)
+static int ceph_show_options(struct seq_file *m, struct dentry *root)
 {
-	struct ceph_fs_client *fsc = ceph_sb_to_client(mnt->mnt_sb);
+	struct ceph_fs_client *fsc = ceph_sb_to_client(root->d_sb);
 	struct ceph_mount_options *fsopt = fsc->mount_options;
 	struct ceph_options *opt = fsc->client->options;
 
@@ -377,6 +399,10 @@ static int ceph_show_options(struct seq_file *m, struct vfsmount *mnt)
 		seq_puts(m, ",norbytes");
 	if (fsopt->flags & CEPH_MOUNT_OPT_NOASYNCREADDIR)
 		seq_puts(m, ",noasyncreaddir");
+	if (fsopt->flags & CEPH_MOUNT_OPT_DCACHE)
+		seq_puts(m, ",dcache");
+	else
+		seq_puts(m, ",nodcache");
 
 	if (fsopt->wsize)
 		seq_printf(m, ",wsize=%d", fsopt->wsize);
@@ -636,19 +662,25 @@ static struct dentry *open_root_dentry(struct ceph_fs_client *fsc,
 	req->r_num_caps = 2;
 	err = ceph_mdsc_do_request(mdsc, NULL, req);
 	if (err == 0) {
-		dout("open_root_inode success\n");
-		if (ceph_ino(req->r_target_inode) == CEPH_INO_ROOT &&
-		    fsc->sb->s_root == NULL) {
-			root = d_alloc_root(req->r_target_inode);
-			ceph_init_dentry(root);
-		} else {
-			root = d_obtain_alias(req->r_target_inode);
-		}
+		struct inode *inode = req->r_target_inode;
 		req->r_target_inode = NULL;
+		dout("open_root_inode success\n");
+		if (ceph_ino(inode) == CEPH_INO_ROOT &&
+		    fsc->sb->s_root == NULL) {
+			root = d_make_root(inode);
+			if (!root) {
+				root = ERR_PTR(-ENOMEM);
+				goto out;
+			}
+		} else {
+			root = d_obtain_alias(inode);
+		}
+		ceph_init_dentry(root);
 		dout("open_root_inode success, root dentry is %p\n", root);
 	} else {
 		root = ERR_PTR(err);
 	}
+out:
 	ceph_mdsc_put_request(req);
 	return root;
 }
@@ -906,6 +938,7 @@ static int __init init_ceph(void)
 	if (ret)
 		goto out;
 
+	ceph_xattr_init();
 	ret = register_filesystem(&ceph_fs_type);
 	if (ret)
 		goto out_icache;
@@ -915,6 +948,7 @@ static int __init init_ceph(void)
 	return 0;
 
 out_icache:
+	ceph_xattr_exit();
 	destroy_caches();
 out:
 	return ret;
@@ -924,6 +958,7 @@ static void __exit exit_ceph(void)
 {
 	dout("exit_ceph\n");
 	unregister_filesystem(&ceph_fs_type);
+	ceph_xattr_exit();
 	destroy_caches();
 }
 

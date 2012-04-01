@@ -1,6 +1,6 @@
 /* bnx2x_reg.h: Broadcom Everest network driver.
  *
- * Copyright (c) 2007-2011 Broadcom Corporation
+ * Copyright (c) 2007-2012 Broadcom Corporation
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -160,8 +160,11 @@
 #define BRB1_REG_PAUSE_HIGH_THRESHOLD_1 			 0x6007c
 /* [RW 10] Write client 0: Assert pause threshold. */
 #define BRB1_REG_PAUSE_LOW_THRESHOLD_0				 0x60068
-#define BRB1_REG_PAUSE_LOW_THRESHOLD_1				 0x6006c
-/* [R 24] The number of full blocks occupied by port. */
+/* [RW 1] Indicates if to use per-class guaranty mode (new mode) or per-MAC
+ * guaranty mode (backwards-compatible mode). 0=per-MAC guaranty mode (BC
+ * mode). 1=per-class guaranty mode (new mode). */
+#define BRB1_REG_PER_CLASS_GUARANTY_MODE			 0x60268
+/* [R 24] The number of full blocks occpied by port. */
 #define BRB1_REG_PORT_NUM_OCC_BLOCKS_0				 0x60094
 /* [RW 1] Reset the design by software. */
 #define BRB1_REG_SOFT_RESET					 0x600dc
@@ -1619,6 +1622,14 @@
    register bits. */
 #define MISC_REG_LCPLL_CTRL_1					 0xa2a4
 #define MISC_REG_LCPLL_CTRL_REG_2				 0xa2a8
+/* [RW 1] LCPLL power down. Global register. Active High. Reset on POR
+ * reset. */
+#define MISC_REG_LCPLL_E40_PWRDWN				 0xaa74
+/* [RW 1] LCPLL VCO reset. Global register. Active Low Reset on POR reset. */
+#define MISC_REG_LCPLL_E40_RESETB_ANA				 0xaa78
+/* [RW 1] LCPLL post-divider reset. Global register. Active Low Reset on POR
+ * reset. */
+#define MISC_REG_LCPLL_E40_RESETB_DIG				 0xaa7c
 /* [RW 4] Interrupt mask register #0 read/write */
 #define MISC_REG_MISC_INT_MASK					 0xa388
 /* [RW 1] Parity mask register #0 read/write */
@@ -1754,6 +1765,7 @@
  * is compared to the value on ctrl_md_devad. Drives output
  * misc_xgxs0_phy_addr. Global register. */
 #define MISC_REG_WC0_CTRL_PHY_ADDR				 0xa9cc
+#define MISC_REG_WC0_RESET					 0xac30
 /* [RW 2] XMAC Core port mode. Indicates the number of ports on the system
    side. This should be less than or equal to phy_port_mode; if some of the
    ports are not used. This enables reduction of frequency on the core side.
@@ -2164,6 +2176,7 @@
  * set to 0x345678021. This is a new register (with 2_) added in E3 B0 to
  * accommodate the 9 input clients to ETS arbiter. */
 #define NIG_REG_P0_TX_ARB_PRIORITY_CLIENT2_MSB			 0x18684
+#define NIG_REG_P1_HWPFC_ENABLE					 0x181d0
 #define NIG_REG_P1_MAC_IN_EN					 0x185c0
 /* [RW 1] Output enable for TX MAC interface */
 #define NIG_REG_P1_MAC_OUT_EN					 0x185c4
@@ -4799,6 +4812,7 @@
    The fields are: [4:0] - tail pointer; 10:5] - Link List size; 15:11] -
    header pointer. */
 #define UCM_REG_XX_TABLE					 0xe0300
+#define UMAC_COMMAND_CONFIG_REG_HD_ENA				 (0x1<<10)
 #define UMAC_COMMAND_CONFIG_REG_IGNORE_TX_PAUSE			 (0x1<<28)
 #define UMAC_COMMAND_CONFIG_REG_LOOP_ENA			 (0x1<<15)
 #define UMAC_COMMAND_CONFIG_REG_NO_LGTH_CHECK			 (0x1<<24)
@@ -5718,6 +5732,7 @@
 #define MISC_REGISTERS_GPIO_PORT_SHIFT				 4
 #define MISC_REGISTERS_GPIO_SET_POS				 8
 #define MISC_REGISTERS_RESET_REG_1_CLEAR			 0x588
+#define MISC_REGISTERS_RESET_REG_1_RST_DORQ			 (0x1<<19)
 #define MISC_REGISTERS_RESET_REG_1_RST_HC			 (0x1<<29)
 #define MISC_REGISTERS_RESET_REG_1_RST_NIG			 (0x1<<7)
 #define MISC_REGISTERS_RESET_REG_1_RST_PXP			 (0x1<<26)
@@ -5770,15 +5785,17 @@
 #define MISC_REGISTERS_SPIO_OUTPUT_HIGH 			 1
 #define MISC_REGISTERS_SPIO_OUTPUT_LOW				 0
 #define MISC_REGISTERS_SPIO_SET_POS				 8
-#define HW_LOCK_DRV_FLAGS					 10
 #define HW_LOCK_MAX_RESOURCE_VALUE				 31
+#define HW_LOCK_RESOURCE_DRV_FLAGS				 10
 #define HW_LOCK_RESOURCE_GPIO					 1
 #define HW_LOCK_RESOURCE_MDIO					 0
+#define HW_LOCK_RESOURCE_NVRAM					 12
 #define HW_LOCK_RESOURCE_PORT0_ATT_MASK				 3
 #define HW_LOCK_RESOURCE_RECOVERY_LEADER_0			 8
 #define HW_LOCK_RESOURCE_RECOVERY_LEADER_1			 9
-#define HW_LOCK_RESOURCE_SPIO					 2
+#define HW_LOCK_RESOURCE_RECOVERY_REG				 11
 #define HW_LOCK_RESOURCE_RESET					 5
+#define HW_LOCK_RESOURCE_SPIO					 2
 #define AEU_INPUTS_ATTN_BITS_ATC_HW_INTERRUPT			 (0x1<<4)
 #define AEU_INPUTS_ATTN_BITS_ATC_PARITY_ERROR			 (0x1<<5)
 #define AEU_INPUTS_ATTN_BITS_BRB_PARITY_ERROR			 (0x1<<18)
@@ -6010,7 +6027,8 @@
 #define PCICFG_MSI_CONTROL_64_BIT_ADDR_CAP	(0x1<<23)
 #define PCICFG_MSI_CONTROL_MSI_PVMASK_CAPABLE	(0x1<<24)
 #define PCICFG_GRC_ADDRESS				0x78
-#define PCICFG_GRC_DATA 				0x80
+#define PCICFG_GRC_DATA				0x80
+#define PCICFG_ME_REGISTER				0x98
 #define PCICFG_MSIX_CAP_ID_OFFSET			0xa0
 #define PCICFG_MSIX_CONTROL_TABLE_SIZE		(0x7ff<<16)
 #define PCICFG_MSIX_CONTROL_RESERVED		(0x7<<27)
@@ -6388,6 +6406,7 @@
 #define MDIO_CL73_IEEEB1_AN_LP_ADV1_ASYMMETRIC		0x0800
 #define MDIO_CL73_IEEEB1_AN_LP_ADV1_PAUSE_BOTH		0x0C00
 #define MDIO_CL73_IEEEB1_AN_LP_ADV1_PAUSE_MASK		0x0C00
+#define MDIO_CL73_IEEEB1_AN_LP_ADV2			0x04
 
 #define MDIO_REG_BANK_RX0				0x80b0
 #define MDIO_RX0_RX_STATUS				0x10
@@ -6781,14 +6800,16 @@ Theotherbitsarereservedandshouldbezero*/
 #define MDIO_AN_REG_ADV_PAUSE_MASK		0x0C00
 #define MDIO_AN_REG_ADV 		0x0011
 #define MDIO_AN_REG_ADV2		0x0012
-#define MDIO_AN_REG_LP_AUTO_NEG 	0x0013
+#define MDIO_AN_REG_LP_AUTO_NEG		0x0013
+#define MDIO_AN_REG_LP_AUTO_NEG2	0x0014
 #define MDIO_AN_REG_MASTER_STATUS	0x0021
 /*bcm*/
 #define MDIO_AN_REG_LINK_STATUS 	0x8304
 #define MDIO_AN_REG_CL37_CL73		0x8370
 #define MDIO_AN_REG_CL37_AN		0xffe0
 #define MDIO_AN_REG_CL37_FC_LD		0xffe4
-#define MDIO_AN_REG_CL37_FC_LP		0xffe5
+#define		MDIO_AN_REG_CL37_FC_LP		0xffe5
+#define		MDIO_AN_REG_1000T_STATUS	0xffea
 
 #define MDIO_AN_REG_8073_2_5G		0x8329
 #define MDIO_AN_REG_8073_BAM		0x8350
@@ -6823,11 +6844,13 @@ Theotherbitsarereservedandshouldbezero*/
 #define MDIO_CTL_REG_84823_MEDIA_PRIORITY_COPPER	0x0000
 #define MDIO_CTL_REG_84823_MEDIA_PRIORITY_FIBER		0x0100
 #define MDIO_CTL_REG_84823_MEDIA_FIBER_1G			0x1000
-#define MDIO_CTL_REG_84823_USER_CTRL_REG		0x4005
-#define MDIO_CTL_REG_84823_USER_CTRL_CMS		0x0080
-
-#define MDIO_PMA_REG_84823_CTL_LED_CTL_1		0xa8e3
-#define MDIO_PMA_REG_84823_LED3_STRETCH_EN		0x0080
+#define MDIO_CTL_REG_84823_USER_CTRL_REG			0x4005
+#define MDIO_CTL_REG_84823_USER_CTRL_CMS			0x0080
+#define MDIO_PMA_REG_84823_CTL_SLOW_CLK_CNT_HIGH		0xa82b
+#define MDIO_PMA_REG_84823_BLINK_RATE_VAL_15P9HZ	0x2f
+#define MDIO_PMA_REG_84823_CTL_LED_CTL_1			0xa8e3
+#define MDIO_PMA_REG_84833_CTL_LED_CTL_1			0xa8ec
+#define MDIO_PMA_REG_84823_LED3_STRETCH_EN			0x0080
 
 /* BCM84833 only */
 #define MDIO_84833_TOP_CFG_XGPHY_STRAP1			0x401a
@@ -6838,26 +6861,35 @@ Theotherbitsarereservedandshouldbezero*/
 #define MDIO_84833_TOP_CFG_SCRATCH_REG2			0x4007
 #define MDIO_84833_TOP_CFG_SCRATCH_REG3			0x4008
 #define MDIO_84833_TOP_CFG_SCRATCH_REG4			0x4009
-#define MDIO_84833_TOP_CFG_DATA3_REG			0x4011
-#define MDIO_84833_TOP_CFG_DATA4_REG			0x4012
+#define MDIO_84833_TOP_CFG_SCRATCH_REG26		0x4037
+#define MDIO_84833_TOP_CFG_SCRATCH_REG27		0x4038
+#define MDIO_84833_TOP_CFG_SCRATCH_REG28		0x4039
+#define MDIO_84833_TOP_CFG_SCRATCH_REG29		0x403a
+#define MDIO_84833_TOP_CFG_SCRATCH_REG30		0x403b
+#define MDIO_84833_TOP_CFG_SCRATCH_REG31		0x403c
+#define MDIO_84833_CMD_HDLR_COMMAND	MDIO_84833_TOP_CFG_SCRATCH_REG0
+#define MDIO_84833_CMD_HDLR_STATUS	MDIO_84833_TOP_CFG_SCRATCH_REG26
+#define MDIO_84833_CMD_HDLR_DATA1	MDIO_84833_TOP_CFG_SCRATCH_REG27
+#define MDIO_84833_CMD_HDLR_DATA2	MDIO_84833_TOP_CFG_SCRATCH_REG28
+#define MDIO_84833_CMD_HDLR_DATA3	MDIO_84833_TOP_CFG_SCRATCH_REG29
+#define MDIO_84833_CMD_HDLR_DATA4	MDIO_84833_TOP_CFG_SCRATCH_REG30
+#define MDIO_84833_CMD_HDLR_DATA5	MDIO_84833_TOP_CFG_SCRATCH_REG31
 
 /* Mailbox command set used by 84833. */
-#define PHY84833_DIAG_CMD_PAIR_SWAP_CHANGE		0x2
+#define PHY84833_CMD_SET_PAIR_SWAP			0x8001
+#define PHY84833_CMD_GET_EEE_MODE			0x8008
+#define PHY84833_CMD_SET_EEE_MODE			0x8009
 /* Mailbox status set used by 84833. */
-#define PHY84833_CMD_RECEIVED				0x0001
-#define PHY84833_CMD_IN_PROGRESS			0x0002
-#define PHY84833_CMD_COMPLETE_PASS			0x0004
-#define PHY84833_CMD_COMPLETE_ERROR			0x0008
-#define PHY84833_CMD_OPEN_FOR_CMDS			0x0010
-#define PHY84833_CMD_SYSTEM_BOOT			0x0020
-#define PHY84833_CMD_NOT_OPEN_FOR_CMDS			0x0040
-#define PHY84833_CMD_CLEAR_COMPLETE			0x0080
-#define PHY84833_CMD_OPEN_OVERRIDE			0xa5a5
+#define PHY84833_STATUS_CMD_RECEIVED			0x0001
+#define PHY84833_STATUS_CMD_IN_PROGRESS			0x0002
+#define PHY84833_STATUS_CMD_COMPLETE_PASS		0x0004
+#define PHY84833_STATUS_CMD_COMPLETE_ERROR		0x0008
+#define PHY84833_STATUS_CMD_OPEN_FOR_CMDS		0x0010
+#define PHY84833_STATUS_CMD_SYSTEM_BOOT			0x0020
+#define PHY84833_STATUS_CMD_NOT_OPEN_FOR_CMDS		0x0040
+#define PHY84833_STATUS_CMD_CLEAR_COMPLETE		0x0080
+#define PHY84833_STATUS_CMD_OPEN_OVERRIDE		0xa5a5
 
-
-/* 84833 F/W Feature Commands */
-#define PHY84833_DIAG_CMD_GET_EEE_MODE			0x27
-#define PHY84833_DIAG_CMD_SET_EEE_MODE			0x28
 
 /* Warpcore clause 45 addressing */
 #define MDIO_WC_DEVAD					0x3
@@ -6942,6 +6974,7 @@ Theotherbitsarereservedandshouldbezero*/
 #define MDIO_WC_REG_SERDESDIGITAL_MISC1			0x8308
 #define MDIO_WC_REG_SERDESDIGITAL_MISC2			0x8309
 #define MDIO_WC_REG_DIGITAL3_UP1			0x8329
+#define MDIO_WC_REG_DIGITAL3_LP_UP1			 0x832c
 #define MDIO_WC_REG_DIGITAL4_MISC3			0x833c
 #define MDIO_WC_REG_DIGITAL5_MISC6			0x8345
 #define MDIO_WC_REG_DIGITAL5_MISC7			0x8349

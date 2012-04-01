@@ -41,9 +41,10 @@
 /* MAS registers bit definitions */
 
 #define MAS0_TLBSEL(x)		(((x) << 28) & 0x30000000)
-#define MAS0_ESEL(x)		(((x) << 16) & 0x0FFF0000)
-#define MAS0_NV(x)		((x) & 0x00000FFF)
 #define MAS0_ESEL_MASK		0x0FFF0000
+#define MAS0_ESEL_SHIFT		16
+#define MAS0_ESEL(x)		(((x) << MAS0_ESEL_SHIFT) & MAS0_ESEL_MASK)
+#define MAS0_NV(x)		((x) & 0x00000FFF)
 #define MAS0_HES		0x00004000
 #define MAS0_WQ_ALLWAYS		0x00000000
 #define MAS0_WQ_COND		0x00001000
@@ -167,6 +168,7 @@
 #define TLBnCFG_MAXSIZE		0x000f0000	/* Maximum Page Size (v1.0) */
 #define TLBnCFG_MAXSIZE_SHIFT	16
 #define TLBnCFG_ASSOC		0xff000000	/* Associativity */
+#define TLBnCFG_ASSOC_SHIFT	24
 
 /* TLBnPS encoding */
 #define TLBnPS_4K		0x00000004
@@ -214,6 +216,10 @@ typedef struct {
 	unsigned int	id;
 	unsigned int	active;
 	unsigned long	vdso_base;
+#ifdef CONFIG_PPC_ICSWX
+	struct spinlock *cop_lockp;	/* guard cop related stuff */
+	unsigned long acop;		/* mask of enabled coprocessor types */
+#endif /* CONFIG_PPC_ICSWX */
 #ifdef CONFIG_PPC_MM_SLICES
 	u64 low_slices_psize;   /* SLB page size encodings */
 	u64 high_slices_psize;  /* 4 bits per slice for now */
@@ -254,6 +260,13 @@ extern int mmu_vmemmap_psize;
 
 #ifdef CONFIG_PPC64
 extern unsigned long linear_map_top;
+
+/*
+ * 64-bit booke platforms don't load the tlb in the tlb miss handler code.
+ * HUGETLB_NEED_PRELOAD handles this - it causes huge_ptep_set_access_flags to
+ * return 1, indicating that the tlb requires preloading.
+ */
+#define HUGETLB_NEED_PRELOAD
 #endif
 
 #endif /* !__ASSEMBLY__ */

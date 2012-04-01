@@ -33,7 +33,6 @@ static const char version[] =
 #include <linux/interrupt.h>
 #include <linux/delay.h>
 
-#include <asm/system.h>
 #include <asm/io.h>
 
 #include "8390.h"
@@ -156,7 +155,7 @@ static int __init hp_probe1(struct net_device *dev, int ioaddr)
 
 	printk("%s: %s (ID %02x) at %#3x,", dev->name, name, board_id, ioaddr);
 
-	for(i = 0; i < ETHER_ADDR_LEN; i++)
+	for(i = 0; i < ETH_ALEN; i++)
 		dev->dev_addr[i] = inb(ioaddr + i);
 
 	printk(" %pM", dev->dev_addr);

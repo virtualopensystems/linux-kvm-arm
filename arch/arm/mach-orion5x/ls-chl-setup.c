@@ -22,7 +22,6 @@
 #include <linux/gpio.h>
 #include <asm/mach-types.h>
 #include <asm/mach/arch.h>
-#include <asm/system.h>
 #include <mach/orion5x.h>
 #include "common.h"
 #include "mpp.h"
@@ -140,7 +139,7 @@ static struct mv_sata_platform_data lschl_sata_data = {
 
 static void lschl_power_off(void)
 {
-	arm_machine_restart('h', NULL);
+	orion5x_restart('h', NULL);
 }
 
 /*****************************************************************************
@@ -325,4 +324,5 @@ MACHINE_START(LINKSTATION_LSCHL, "Buffalo Linkstation LiveV3 (LS-CHL)")
 	.init_irq	= orion5x_init_irq,
 	.timer		= &orion5x_timer,
 	.fixup		= tag_fixup_mem32,
+	.restart	= orion5x_restart,
 MACHINE_END

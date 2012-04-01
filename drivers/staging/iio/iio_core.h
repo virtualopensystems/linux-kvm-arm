@@ -33,9 +33,6 @@ int __iio_add_chan_devattr(const char *postfix,
 #ifdef CONFIG_IIO_BUFFER
 struct poll_table_struct;
 
-int iio_chrdev_buffer_open(struct iio_dev *indio_dev);
-void iio_chrdev_buffer_release(struct iio_dev *indio_dev);
-
 unsigned int iio_buffer_poll(struct file *filp,
 			     struct poll_table_struct *wait);
 ssize_t iio_buffer_read_first_n_outer(struct file *filp, char __user *buf,
@@ -47,17 +44,13 @@ ssize_t iio_buffer_read_first_n_outer(struct file *filp, char __user *buf,
 
 #else
 
-static inline int iio_chrdev_buffer_open(struct iio_dev *indio_dev)
-{
-	return -EINVAL;
-}
-
-static inline void iio_chrdev_buffer_release(struct iio_dev *indio_dev)
-{}
-
 #define iio_buffer_poll_addr NULL
 #define iio_buffer_read_first_n_outer_addr NULL
 
 #endif
+
+int iio_device_register_eventset(struct iio_dev *indio_dev);
+void iio_device_unregister_eventset(struct iio_dev *indio_dev);
+int iio_event_getfd(struct iio_dev *indio_dev);
 
 #endif

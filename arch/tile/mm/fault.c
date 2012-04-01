@@ -35,7 +35,6 @@
 #include <linux/syscalls.h>
 #include <linux/uaccess.h>
 
-#include <asm/system.h>
 #include <asm/pgalloc.h>
 #include <asm/sections.h>
 #include <asm/traps.h>
@@ -54,7 +53,7 @@ static noinline void force_sig_info_fault(const char *type, int si_signo,
 	if (unlikely(tsk->pid < 2)) {
 		panic("Signal %d (code %d) at %#lx sent to %s!",
 		      si_signo, si_code & 0xffff, address,
-		      tsk->pid ? "init" : "the idle task");
+		      is_idle_task(tsk) ? "the idle task" : "init");
 	}
 
 	info.si_signo = si_signo;
@@ -515,7 +514,7 @@ no_context:
 
 	if (unlikely(tsk->pid < 2)) {
 		panic("Kernel page fault running %s!",
-		      tsk->pid ? "init" : "the idle task");
+		      is_idle_task(tsk) ? "the idle task" : "init");
 	}
 
 	/*

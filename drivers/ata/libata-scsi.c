@@ -3381,6 +3381,7 @@ int ata_scsi_add_hosts(struct ata_host *host, struct scsi_host_template *sht)
 		if (!shost)
 			goto err_alloc;
 
+		shost->eh_noresume = 1;
 		*(struct ata_port **)&shost->hostdata[0] = ap;
 		ap->scsi_host = shost;
 
@@ -3398,7 +3399,7 @@ int ata_scsi_add_hosts(struct ata_host *host, struct scsi_host_template *sht)
 		 */
 		shost->max_host_blocked = 1;
 
-		rc = scsi_add_host(ap->scsi_host, ap->host->dev);
+		rc = scsi_add_host(ap->scsi_host, &ap->tdev);
 		if (rc)
 			goto err_add;
 	}
@@ -3836,6 +3837,19 @@ void ata_sas_port_stop(struct ata_port *ap)
 {
 }
 EXPORT_SYMBOL_GPL(ata_sas_port_stop);
+
+int ata_sas_async_port_init(struct ata_port *ap)
+{
+	int rc = ap->ops->port_start(ap);
+
+	if (!rc) {
+		ap->print_id = ata_print_id++;
+		__ata_port_probe(ap);
+	}
+
+	return rc;
+}
+EXPORT_SYMBOL_GPL(ata_sas_async_port_init);
 
 /**
  *	ata_sas_port_init - Initialize a SATA device

@@ -22,23 +22,12 @@
  *  Assorted race fixes, rewrite of ext3_get_block() by Al Viro, 2000
  */
 
-#include <linux/module.h>
-#include <linux/fs.h>
-#include <linux/time.h>
-#include <linux/ext3_jbd.h>
-#include <linux/jbd.h>
 #include <linux/highuid.h>
-#include <linux/pagemap.h>
 #include <linux/quotaops.h>
-#include <linux/string.h>
-#include <linux/buffer_head.h>
 #include <linux/writeback.h>
 #include <linux/mpage.h>
-#include <linux/uio.h>
-#include <linux/bio.h>
-#include <linux/fiemap.h>
 #include <linux/namei.h>
-#include <trace/events/ext3.h>
+#include "ext3.h"
 #include "xattr.h"
 #include "acl.h"
 
@@ -223,8 +212,12 @@ void ext3_evict_inode (struct inode *inode)
 	 *
 	 * Note that directories do not have this problem because they don't
 	 * use page cache.
+	 *
+	 * The s_journal check handles the case when ext3_get_journal() fails
+	 * and puts the journal inode.
 	 */
 	if (inode->i_nlink && ext3_should_journal_data(inode) &&
+	    EXT3_SB(inode->i_sb)->s_journal &&
 	    (S_ISLNK(inode->i_mode) || S_ISREG(inode->i_mode))) {
 		tid_t commit_tid = atomic_read(&ei->i_datasync_tid);
 		journal_t *journal = EXT3_SB(inode->i_sb)->s_journal;
@@ -753,6 +746,7 @@ static int ext3_splice_branch(handle_t *handle, struct inode *inode,
 	struct ext3_block_alloc_info *block_i;
 	ext3_fsblk_t current_block;
 	struct ext3_inode_info *ei = EXT3_I(inode);
+	struct timespec now;
 
 	block_i = ei->i_block_alloc_info;
 	/*
@@ -792,9 +786,11 @@ static int ext3_splice_branch(handle_t *handle, struct inode *inode,
 	}
 
 	/* We are done with atomic stuff, now do the rest of housekeeping */
-
-	inode->i_ctime = CURRENT_TIME_SEC;
-	ext3_mark_inode_dirty(handle, inode);
+	now = CURRENT_TIME_SEC;
+	if (!timespec_equal(&inode->i_ctime, &now) || !where->bh) {
+		inode->i_ctime = now;
+		ext3_mark_inode_dirty(handle, inode);
+	}
 	/* ext3_mark_inode_dirty already updated i_sync_tid */
 	atomic_set(&ei->i_datasync_tid, handle->h_transaction->t_tid);
 
@@ -1132,9 +1128,11 @@ struct buffer_head *ext3_bread(handle_t *handle, struct inode *inode,
 	bh = ext3_getblk(handle, inode, block, create, err);
 	if (!bh)
 		return bh;
-	if (buffer_uptodate(bh))
+	if (bh_uptodate_or_lock(bh))
 		return bh;
-	ll_rw_block(READ | REQ_META | REQ_PRIO, 1, &bh);
+	get_bh(bh);
+	bh->b_end_io = end_buffer_read_sync;
+	submit_bh(READ | REQ_META | REQ_PRIO, bh);
 	wait_on_buffer(bh);
 	if (buffer_uptodate(bh))
 		return bh;
@@ -1617,7 +1615,13 @@ static int ext3_ordered_writepage(struct page *page,
 	int err;
 
 	J_ASSERT(PageLocked(page));
-	WARN_ON_ONCE(IS_RDONLY(inode));
+	/*
+	 * We don't want to warn for emergency remount. The condition is
+	 * ordered to avoid dereferencing inode->i_sb in non-error case to
+	 * avoid slow-downs.
+	 */
+	WARN_ON_ONCE(IS_RDONLY(inode) &&
+		     !(EXT3_SB(inode->i_sb)->s_mount_state & EXT3_ERROR_FS));
 
 	/*
 	 * We give up here if we're reentered, because it might be for a
@@ -1692,7 +1696,13 @@ static int ext3_writeback_writepage(struct page *page,
 	int err;
 
 	J_ASSERT(PageLocked(page));
-	WARN_ON_ONCE(IS_RDONLY(inode));
+	/*
+	 * We don't want to warn for emergency remount. The condition is
+	 * ordered to avoid dereferencing inode->i_sb in non-error case to
+	 * avoid slow-downs.
+	 */
+	WARN_ON_ONCE(IS_RDONLY(inode) &&
+		     !(EXT3_SB(inode->i_sb)->s_mount_state & EXT3_ERROR_FS));
 
 	if (ext3_journal_current_handle())
 		goto out_fail;
@@ -1735,7 +1745,13 @@ static int ext3_journalled_writepage(struct page *page,
 	int err;
 
 	J_ASSERT(PageLocked(page));
-	WARN_ON_ONCE(IS_RDONLY(inode));
+	/*
+	 * We don't want to warn for emergency remount. The condition is
+	 * ordered to avoid dereferencing inode->i_sb in non-error case to
+	 * avoid slow-downs.
+	 */
+	WARN_ON_ONCE(IS_RDONLY(inode) &&
+		     !(EXT3_SB(inode->i_sb)->s_mount_state & EXT3_ERROR_FS));
 
 	if (ext3_journal_current_handle())
 		goto no_write;
@@ -2064,12 +2080,10 @@ static int ext3_block_truncate_page(struct inode *inode, loff_t from)
 	if (PageUptodate(page))
 		set_buffer_uptodate(bh);
 
-	if (!buffer_uptodate(bh)) {
-		err = -EIO;
-		ll_rw_block(READ, 1, &bh);
-		wait_on_buffer(bh);
+	if (!bh_uptodate_or_lock(bh)) {
+		err = bh_submit_read(bh);
 		/* Uhhuh. Read error. Complain and punt. */
-		if (!buffer_uptodate(bh))
+		if (err)
 			goto unlock;
 	}
 
@@ -2490,7 +2504,7 @@ int ext3_can_truncate(struct inode *inode)
  * transaction, and VFS/VM ensures that ext3_truncate() cannot run
  * simultaneously on behalf of the same inode.
  *
- * As we work through the truncate and commmit bits of it to the journal there
+ * As we work through the truncate and commit bits of it to the journal there
  * is one core, guiding principle: the file's tree must always be consistent on
  * disk.  We must be able to restart the truncate after a crash.
  *

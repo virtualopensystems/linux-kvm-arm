@@ -33,7 +33,6 @@
 #include <linux/kdebug.h>
 #include <linux/export.h>
 
-#include <asm/system.h>
 #include <asm/io.h>
 #include <asm/processor.h>
 #include <asm/oplib.h>
@@ -46,6 +45,7 @@
 #include <asm/machines.h>
 #include <asm/cpudata.h>
 #include <asm/setup.h>
+#include <asm/cacheflush.h>
 
 #include "kernel.h"
 
@@ -84,7 +84,7 @@ static void prom_sync_me(void)
 
 	prom_printf("PROM SYNC COMMAND...\n");
 	show_free_areas(0);
-	if(current->pid != 0) {
+	if (!is_idle_task(current)) {
 		local_irq_enable();
 		sys_sync();
 		local_irq_disable();

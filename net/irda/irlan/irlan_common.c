@@ -40,7 +40,6 @@
 #include <linux/moduleparam.h>
 #include <linux/bitops.h>
 
-#include <asm/system.h>
 #include <asm/byteorder.h>
 
 #include <net/irda/irda.h>
@@ -67,7 +66,7 @@ static void *ckey;
 static void *skey;
 
 /* Module parameters */
-static int eth;   /* Use "eth" or "irlan" name for devices */
+static bool eth;   /* Use "eth" or "irlan" name for devices */
 static int access = ACCESS_PEER; /* PEER, DIRECT or HOSTED */
 
 #ifdef CONFIG_PROC_FS

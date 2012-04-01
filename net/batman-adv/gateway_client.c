@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2009-2011 B.A.T.M.A.N. contributors:
+ * Copyright (C) 2009-2012 B.A.T.M.A.N. contributors:
  *
  * Marek Lindner
  *
@@ -25,6 +25,7 @@
 #include "gateway_common.h"
 #include "hard-interface.h"
 #include "originator.h"
+#include "translation-table.h"
 #include "routing.h"
 #include <linux/ip.h>
 #include <linux/ipv6.h>
@@ -223,16 +224,13 @@ void gw_election(struct bat_priv *bat_priv)
 	} else if ((!curr_gw) && (next_gw)) {
 		bat_dbg(DBG_BATMAN, bat_priv,
 			"Adding route to gateway %pM (gw_flags: %i, tq: %i)\n",
-			next_gw->orig_node->orig,
-			next_gw->orig_node->gw_flags,
+			next_gw->orig_node->orig, next_gw->orig_node->gw_flags,
 			router->tq_avg);
 		throw_uevent(bat_priv, UEV_GW, UEV_ADD, gw_addr);
 	} else {
 		bat_dbg(DBG_BATMAN, bat_priv,
-			"Changing route to gateway %pM "
-			"(gw_flags: %i, tq: %i)\n",
-			next_gw->orig_node->orig,
-			next_gw->orig_node->gw_flags,
+			"Changing route to gateway %pM (gw_flags: %i, tq: %i)\n",
+			next_gw->orig_node->orig, next_gw->orig_node->gw_flags,
 			router->tq_avg);
 		throw_uevent(bat_priv, UEV_GW, UEV_CHANGE, gw_addr);
 	}
@@ -286,8 +284,7 @@ void gw_check_election(struct bat_priv *bat_priv, struct orig_node *orig_node)
 		goto out;
 
 	bat_dbg(DBG_BATMAN, bat_priv,
-		"Restarting gateway selection: better gateway found (tq curr: "
-		"%i, tq new: %i)\n",
+		"Restarting gateway selection: better gateway found (tq curr: %i, tq new: %i)\n",
 		gw_tq_avg, orig_tq_avg);
 
 deselect:
@@ -351,8 +348,7 @@ void gw_node_update(struct bat_priv *bat_priv,
 			continue;
 
 		bat_dbg(DBG_BATMAN, bat_priv,
-			"Gateway class of originator %pM changed from "
-			"%i to %i\n",
+			"Gateway class of originator %pM changed from %i to %i\n",
 			orig_node->orig, gw_node->orig_node->gw_flags,
 			new_gwflags);
 
@@ -395,7 +391,7 @@ void gw_node_purge(struct bat_priv *bat_priv)
 {
 	struct gw_node *gw_node, *curr_gw;
 	struct hlist_node *node, *node_tmp;
-	unsigned long timeout = 2 * PURGE_TIMEOUT * HZ;
+	unsigned long timeout = msecs_to_jiffies(2 * PURGE_TIMEOUT);
 	int do_deselect = 0;
 
 	curr_gw = gw_get_selected_gw_node(bat_priv);
@@ -473,23 +469,23 @@ int gw_client_seq_print_text(struct seq_file *seq, void *offset)
 
 	primary_if = primary_if_get_selected(bat_priv);
 	if (!primary_if) {
-		ret = seq_printf(seq, "BATMAN mesh %s disabled - please "
-				 "specify interfaces to enable it\n",
+		ret = seq_printf(seq,
+				 "BATMAN mesh %s disabled - please specify interfaces to enable it\n",
 				 net_dev->name);
 		goto out;
 	}
 
 	if (primary_if->if_status != IF_ACTIVE) {
-		ret = seq_printf(seq, "BATMAN mesh %s disabled - "
-				 "primary interface not active\n",
+		ret = seq_printf(seq,
+				 "BATMAN mesh %s disabled - primary interface not active\n",
 				 net_dev->name);
 		goto out;
 	}
 
-	seq_printf(seq, "      %-12s (%s/%i) %17s [%10s]: gw_class ... "
-		   "[B.A.T.M.A.N. adv %s, MainIF/MAC: %s/%pM (%s)]\n",
-		   "Gateway", "#", TQ_MAX_VALUE, "Nexthop",
-		   "outgoingIF", SOURCE_VERSION, primary_if->net_dev->name,
+	seq_printf(seq,
+		   "      %-12s (%s/%i) %17s [%10s]: gw_class ... [B.A.T.M.A.N. adv %s, MainIF/MAC: %s/%pM (%s)]\n",
+		   "Gateway", "#", TQ_MAX_VALUE, "Nexthop", "outgoingIF",
+		   SOURCE_VERSION, primary_if->net_dev->name,
 		   primary_if->net_dev->dev_addr, net_dev->name);
 
 	rcu_read_lock();
@@ -572,108 +568,142 @@ out:
 	return ret;
 }
 
-int gw_is_target(struct bat_priv *bat_priv, struct sk_buff *skb,
-		 struct orig_node *old_gw)
+bool gw_is_dhcp_target(struct sk_buff *skb, unsigned int *header_len)
 {
 	struct ethhdr *ethhdr;
 	struct iphdr *iphdr;
 	struct ipv6hdr *ipv6hdr;
 	struct udphdr *udphdr;
-	struct gw_node *curr_gw;
-	struct neigh_node *neigh_curr = NULL, *neigh_old = NULL;
-	unsigned int header_len = 0;
-	int ret = 1;
-
-	if (atomic_read(&bat_priv->gw_mode) == GW_MODE_OFF)
-		return 0;
 
 	/* check for ethernet header */
-	if (!pskb_may_pull(skb, header_len + ETH_HLEN))
-		return 0;
+	if (!pskb_may_pull(skb, *header_len + ETH_HLEN))
+		return false;
 	ethhdr = (struct ethhdr *)skb->data;
-	header_len += ETH_HLEN;
+	*header_len += ETH_HLEN;
 
 	/* check for initial vlan header */
 	if (ntohs(ethhdr->h_proto) == ETH_P_8021Q) {
-		if (!pskb_may_pull(skb, header_len + VLAN_HLEN))
-			return 0;
+		if (!pskb_may_pull(skb, *header_len + VLAN_HLEN))
+			return false;
 		ethhdr = (struct ethhdr *)(skb->data + VLAN_HLEN);
-		header_len += VLAN_HLEN;
+		*header_len += VLAN_HLEN;
 	}
 
 	/* check for ip header */
 	switch (ntohs(ethhdr->h_proto)) {
 	case ETH_P_IP:
-		if (!pskb_may_pull(skb, header_len + sizeof(*iphdr)))
-			return 0;
-		iphdr = (struct iphdr *)(skb->data + header_len);
-		header_len += iphdr->ihl * 4;
+		if (!pskb_may_pull(skb, *header_len + sizeof(*iphdr)))
+			return false;
+		iphdr = (struct iphdr *)(skb->data + *header_len);
+		*header_len += iphdr->ihl * 4;
 
 		/* check for udp header */
 		if (iphdr->protocol != IPPROTO_UDP)
-			return 0;
+			return false;
 
 		break;
 	case ETH_P_IPV6:
-		if (!pskb_may_pull(skb, header_len + sizeof(*ipv6hdr)))
-			return 0;
-		ipv6hdr = (struct ipv6hdr *)(skb->data + header_len);
-		header_len += sizeof(*ipv6hdr);
+		if (!pskb_may_pull(skb, *header_len + sizeof(*ipv6hdr)))
+			return false;
+		ipv6hdr = (struct ipv6hdr *)(skb->data + *header_len);
+		*header_len += sizeof(*ipv6hdr);
 
 		/* check for udp header */
 		if (ipv6hdr->nexthdr != IPPROTO_UDP)
-			return 0;
+			return false;
 
 		break;
 	default:
-		return 0;
+		return false;
 	}
 
-	if (!pskb_may_pull(skb, header_len + sizeof(*udphdr)))
-		return 0;
-	udphdr = (struct udphdr *)(skb->data + header_len);
-	header_len += sizeof(*udphdr);
+	if (!pskb_may_pull(skb, *header_len + sizeof(*udphdr)))
+		return false;
+	udphdr = (struct udphdr *)(skb->data + *header_len);
+	*header_len += sizeof(*udphdr);
 
 	/* check for bootp port */
 	if ((ntohs(ethhdr->h_proto) == ETH_P_IP) &&
-	     (ntohs(udphdr->dest) != 67))
-		return 0;
+	    (ntohs(udphdr->dest) != 67))
+		return false;
 
 	if ((ntohs(ethhdr->h_proto) == ETH_P_IPV6) &&
 	    (ntohs(udphdr->dest) != 547))
-		return 0;
+		return false;
 
-	if (atomic_read(&bat_priv->gw_mode) == GW_MODE_SERVER)
-		return -1;
+	return true;
+}
 
-	curr_gw = gw_get_selected_gw_node(bat_priv);
-	if (!curr_gw)
-		return 0;
+bool gw_out_of_range(struct bat_priv *bat_priv,
+		     struct sk_buff *skb, struct ethhdr *ethhdr)
+{
+	struct neigh_node *neigh_curr = NULL, *neigh_old = NULL;
+	struct orig_node *orig_dst_node = NULL;
+	struct gw_node *curr_gw = NULL;
+	bool ret, out_of_range = false;
+	unsigned int header_len = 0;
+	uint8_t curr_tq_avg;
 
-	/* If old_gw != NULL then this packet is unicast.
-	 * So, at this point we have to check the message type: if it is a
-	 * DHCPREQUEST we have to decide whether to drop it or not */
-	if (old_gw && curr_gw->orig_node != old_gw) {
-		if (is_type_dhcprequest(skb, header_len)) {
-			/* If the dhcp packet has been sent to a different gw,
-			 * we have to evaluate whether the old gw is still
-			 * reliable enough */
-			neigh_curr = find_router(bat_priv, curr_gw->orig_node,
-						 NULL);
-			neigh_old = find_router(bat_priv, old_gw, NULL);
-			if (!neigh_curr || !neigh_old)
-				goto free_neigh;
-			if (neigh_curr->tq_avg - neigh_old->tq_avg <
-								GW_THRESHOLD)
-				ret = -1;
-		}
+	ret = gw_is_dhcp_target(skb, &header_len);
+	if (!ret)
+		goto out;
+
+	orig_dst_node = transtable_search(bat_priv, ethhdr->h_source,
+					  ethhdr->h_dest);
+	if (!orig_dst_node)
+		goto out;
+
+	if (!orig_dst_node->gw_flags)
+		goto out;
+
+	ret = is_type_dhcprequest(skb, header_len);
+	if (!ret)
+		goto out;
+
+	switch (atomic_read(&bat_priv->gw_mode)) {
+	case GW_MODE_SERVER:
+		/* If we are a GW then we are our best GW. We can artificially
+		 * set the tq towards ourself as the maximum value */
+		curr_tq_avg = TQ_MAX_VALUE;
+		break;
+	case GW_MODE_CLIENT:
+		curr_gw = gw_get_selected_gw_node(bat_priv);
+		if (!curr_gw)
+			goto out;
+
+		/* packet is going to our gateway */
+		if (curr_gw->orig_node == orig_dst_node)
+			goto out;
+
+		/* If the dhcp packet has been sent to a different gw,
+		 * we have to evaluate whether the old gw is still
+		 * reliable enough */
+		neigh_curr = find_router(bat_priv, curr_gw->orig_node, NULL);
+		if (!neigh_curr)
+			goto out;
+
+		curr_tq_avg = neigh_curr->tq_avg;
+		break;
+	case GW_MODE_OFF:
+	default:
+		goto out;
 	}
-free_neigh:
+
+	neigh_old = find_router(bat_priv, orig_dst_node, NULL);
+	if (!neigh_old)
+		goto out;
+
+	if (curr_tq_avg - neigh_old->tq_avg > GW_THRESHOLD)
+		out_of_range = true;
+
+out:
+	if (orig_dst_node)
+		orig_node_free_ref(orig_dst_node);
+	if (curr_gw)
+		gw_node_free_ref(curr_gw);
 	if (neigh_old)
 		neigh_node_free_ref(neigh_old);
 	if (neigh_curr)
 		neigh_node_free_ref(neigh_curr);
-	if (curr_gw)
-		gw_node_free_ref(curr_gw);
-	return ret;
+	return out_of_range;
 }

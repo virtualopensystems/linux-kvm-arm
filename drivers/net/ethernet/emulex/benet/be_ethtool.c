@@ -37,20 +37,46 @@ enum {DRVSTAT_TX, DRVSTAT_RX, DRVSTAT};
 					FIELDINFO(struct be_drv_stats, field)
 
 static const struct be_ethtool_stat et_stats[] = {
-	{DRVSTAT_INFO(tx_events)},
 	{DRVSTAT_INFO(rx_crc_errors)},
 	{DRVSTAT_INFO(rx_alignment_symbol_errors)},
 	{DRVSTAT_INFO(rx_pause_frames)},
 	{DRVSTAT_INFO(rx_control_frames)},
+	/* Received packets dropped when the Ethernet length field
+	 * is not equal to the actual Ethernet data length.
+	 */
 	{DRVSTAT_INFO(rx_in_range_errors)},
+	/* Received packets dropped when their length field is >= 1501 bytes
+	 * and <= 1535 bytes.
+	 */
 	{DRVSTAT_INFO(rx_out_range_errors)},
+	/* Received packets dropped when they are longer than 9216 bytes */
 	{DRVSTAT_INFO(rx_frame_too_long)},
-	{DRVSTAT_INFO(rx_address_match_errors)},
+	/* Received packets dropped when they don't pass the unicast or
+	 * multicast address filtering.
+	 */
+	{DRVSTAT_INFO(rx_address_mismatch_drops)},
+	/* Received packets dropped when IP packet length field is less than
+	 * the IP header length field.
+	 */
 	{DRVSTAT_INFO(rx_dropped_too_small)},
+	/* Received packets dropped when IP length field is greater than
+	 * the actual packet length.
+	 */
 	{DRVSTAT_INFO(rx_dropped_too_short)},
+	/* Received packets dropped when the IP header length field is less
+	 * than 5.
+	 */
 	{DRVSTAT_INFO(rx_dropped_header_too_small)},
+	/* Received packets dropped when the TCP header length field is less
+	 * than 5 or the TCP header length + IP header length is more
+	 * than IP packet length.
+	 */
 	{DRVSTAT_INFO(rx_dropped_tcp_length)},
 	{DRVSTAT_INFO(rx_dropped_runt)},
+	/* Number of received packets dropped when a fifo for descriptors going
+	 * into the packet demux block overflows. In normal operation, this
+	 * fifo must never overflow.
+	 */
 	{DRVSTAT_INFO(rxpp_fifo_overflow_drop)},
 	{DRVSTAT_INFO(rx_input_fifo_overflow_drop)},
 	{DRVSTAT_INFO(rx_ip_checksum_errs)},
@@ -59,16 +85,35 @@ static const struct be_ethtool_stat et_stats[] = {
 	{DRVSTAT_INFO(tx_pauseframes)},
 	{DRVSTAT_INFO(tx_controlframes)},
 	{DRVSTAT_INFO(rx_priority_pause_frames)},
+	/* Received packets dropped when an internal fifo going into
+	 * main packet buffer tank (PMEM) overflows.
+	 */
 	{DRVSTAT_INFO(pmem_fifo_overflow_drop)},
 	{DRVSTAT_INFO(jabber_events)},
+	/* Received packets dropped due to lack of available HW packet buffers
+	 * used to temporarily hold the received packets.
+	 */
 	{DRVSTAT_INFO(rx_drops_no_pbuf)},
-	{DRVSTAT_INFO(rx_drops_no_txpb)},
+	/* Received packets dropped due to input receive buffer
+	 * descriptor fifo overflowing.
+	 */
 	{DRVSTAT_INFO(rx_drops_no_erx_descr)},
+	/* Packets dropped because the internal FIFO to the offloaded TCP
+	 * receive processing block is full. This could happen only for
+	 * offloaded iSCSI or FCoE trarffic.
+	 */
 	{DRVSTAT_INFO(rx_drops_no_tpre_descr)},
+	/* Received packets dropped when they need more than 8
+	 * receive buffers. This cannot happen as the driver configures
+	 * 2048 byte receive buffers.
+	 */
 	{DRVSTAT_INFO(rx_drops_too_many_frags)},
-	{DRVSTAT_INFO(rx_drops_invalid_ring)},
 	{DRVSTAT_INFO(forwarded_packets)},
+	/* Received packets dropped when the frame length
+	 * is more than 9018 bytes
+	 */
 	{DRVSTAT_INFO(rx_drops_mtu)},
+	/* Number of packets dropped due to random early drop function */
 	{DRVSTAT_INFO(eth_red_drops)},
 	{DRVSTAT_INFO(be_on_die_temperature)}
 };
@@ -80,12 +125,17 @@ static const struct be_ethtool_stat et_stats[] = {
 static const struct be_ethtool_stat et_rx_stats[] = {
 	{DRVSTAT_RX_INFO(rx_bytes)},/* If moving this member see above note */
 	{DRVSTAT_RX_INFO(rx_pkts)}, /* If moving this member see above note */
-	{DRVSTAT_RX_INFO(rx_polls)},
-	{DRVSTAT_RX_INFO(rx_events)},
 	{DRVSTAT_RX_INFO(rx_compl)},
 	{DRVSTAT_RX_INFO(rx_mcast_pkts)},
+	/* Number of page allocation failures while posting receive buffers
+	 * to HW.
+	 */
 	{DRVSTAT_RX_INFO(rx_post_fail)},
+	/* Recevied packets dropped due to skb allocation failure */
 	{DRVSTAT_RX_INFO(rx_drops_no_skbs)},
+	/* Received packets dropped due to lack of available fetched buffers
+	 * posted by the driver.
+	 */
 	{DRVSTAT_RX_INFO(rx_drops_no_frags)}
 };
 #define ETHTOOL_RXSTATS_NUM (ARRAY_SIZE(et_rx_stats))
@@ -97,9 +147,13 @@ static const struct be_ethtool_stat et_tx_stats[] = {
 	{DRVSTAT_TX_INFO(tx_compl)}, /* If moving this member see above note */
 	{DRVSTAT_TX_INFO(tx_bytes)},
 	{DRVSTAT_TX_INFO(tx_pkts)},
+	/* Number of skbs queued for trasmission by the driver */
 	{DRVSTAT_TX_INFO(tx_reqs)},
+	/* Number of TX work request blocks DMAed to HW */
 	{DRVSTAT_TX_INFO(tx_wrbs)},
-	{DRVSTAT_TX_INFO(tx_compl)},
+	/* Number of times the TX queue was stopped due to lack
+	 * of spaces in the TXQ.
+	 */
 	{DRVSTAT_TX_INFO(tx_stops)}
 };
 #define ETHTOOL_TXSTATS_NUM (ARRAY_SIZE(et_tx_stats))
@@ -127,8 +181,8 @@ static void be_get_drvinfo(struct net_device *netdev,
 	memset(fw_on_flash, 0 , sizeof(fw_on_flash));
 	be_cmd_get_fw_ver(adapter, adapter->fw_ver, fw_on_flash);
 
-	strcpy(drvinfo->driver, DRV_NAME);
-	strcpy(drvinfo->version, DRV_VER);
+	strlcpy(drvinfo->driver, DRV_NAME, sizeof(drvinfo->driver));
+	strlcpy(drvinfo->version, DRV_VER, sizeof(drvinfo->version));
 	strncpy(drvinfo->fw_version, adapter->fw_ver, FW_VER_LEN);
 	if (memcmp(adapter->fw_ver, fw_on_flash, FW_VER_LEN) != 0) {
 		strcat(drvinfo->fw_version, " [");
@@ -136,10 +190,69 @@ static void be_get_drvinfo(struct net_device *netdev,
 		strcat(drvinfo->fw_version, "]");
 	}
 
-	strcpy(drvinfo->bus_info, pci_name(adapter->pdev));
+	strlcpy(drvinfo->bus_info, pci_name(adapter->pdev),
+		sizeof(drvinfo->bus_info));
 	drvinfo->testinfo_len = 0;
 	drvinfo->regdump_len = 0;
 	drvinfo->eedump_len = 0;
+}
+
+static u32
+lancer_cmd_get_file_len(struct be_adapter *adapter, u8 *file_name)
+{
+	u32 data_read = 0, eof;
+	u8 addn_status;
+	struct be_dma_mem data_len_cmd;
+	int status;
+
+	memset(&data_len_cmd, 0, sizeof(data_len_cmd));
+	/* data_offset and data_size should be 0 to get reg len */
+	status = lancer_cmd_read_object(adapter, &data_len_cmd, 0, 0,
+				file_name, &data_read, &eof, &addn_status);
+
+	return data_read;
+}
+
+static int
+lancer_cmd_read_file(struct be_adapter *adapter, u8 *file_name,
+		u32 buf_len, void *buf)
+{
+	struct be_dma_mem read_cmd;
+	u32 read_len = 0, total_read_len = 0, chunk_size;
+	u32 eof = 0;
+	u8 addn_status;
+	int status = 0;
+
+	read_cmd.size = LANCER_READ_FILE_CHUNK;
+	read_cmd.va = pci_alloc_consistent(adapter->pdev, read_cmd.size,
+			&read_cmd.dma);
+
+	if (!read_cmd.va) {
+		dev_err(&adapter->pdev->dev,
+				"Memory allocation failure while reading dump\n");
+		return -ENOMEM;
+	}
+
+	while ((total_read_len < buf_len) && !eof) {
+		chunk_size = min_t(u32, (buf_len - total_read_len),
+				LANCER_READ_FILE_CHUNK);
+		chunk_size = ALIGN(chunk_size, 4);
+		status = lancer_cmd_read_object(adapter, &read_cmd, chunk_size,
+				total_read_len, file_name, &read_len,
+				&eof, &addn_status);
+		if (!status) {
+			memcpy(buf + total_read_len, read_cmd.va, read_len);
+			total_read_len += read_len;
+			eof &= LANCER_READ_FILE_EOF_MASK;
+		} else {
+			status = -EIO;
+			break;
+		}
+	}
+	pci_free_consistent(adapter->pdev, read_cmd.size, read_cmd.va,
+			read_cmd.dma);
+
+	return status;
 }
 
 static int
@@ -148,9 +261,13 @@ be_get_reg_len(struct net_device *netdev)
 	struct be_adapter *adapter = netdev_priv(netdev);
 	u32 log_size = 0;
 
-	if (be_physfn(adapter))
-		be_cmd_get_reg_len(adapter, &log_size);
-
+	if (be_physfn(adapter)) {
+		if (lancer_chip(adapter))
+			log_size = lancer_cmd_get_file_len(adapter,
+					LANCER_FW_DUMP_FILE);
+		else
+			be_cmd_get_reg_len(adapter, &log_size);
+	}
 	return log_size;
 }
 
@@ -161,90 +278,50 @@ be_get_regs(struct net_device *netdev, struct ethtool_regs *regs, void *buf)
 
 	if (be_physfn(adapter)) {
 		memset(buf, 0, regs->len);
-		be_cmd_get_regs(adapter, regs->len, buf);
+		if (lancer_chip(adapter))
+			lancer_cmd_read_file(adapter, LANCER_FW_DUMP_FILE,
+					regs->len, buf);
+		else
+			be_cmd_get_regs(adapter, regs->len, buf);
 	}
 }
 
-static int
-be_get_coalesce(struct net_device *netdev, struct ethtool_coalesce *coalesce)
+static int be_get_coalesce(struct net_device *netdev,
+			   struct ethtool_coalesce *et)
 {
 	struct be_adapter *adapter = netdev_priv(netdev);
-	struct be_eq_obj *rx_eq = &adapter->rx_obj[0].rx_eq;
-	struct be_eq_obj *tx_eq = &adapter->tx_eq;
+	struct be_eq_obj *eqo = &adapter->eq_obj[0];
 
-	coalesce->rx_coalesce_usecs = rx_eq->cur_eqd;
-	coalesce->rx_coalesce_usecs_high = rx_eq->max_eqd;
-	coalesce->rx_coalesce_usecs_low = rx_eq->min_eqd;
 
-	coalesce->tx_coalesce_usecs = tx_eq->cur_eqd;
-	coalesce->tx_coalesce_usecs_high = tx_eq->max_eqd;
-	coalesce->tx_coalesce_usecs_low = tx_eq->min_eqd;
+	et->rx_coalesce_usecs = eqo->cur_eqd;
+	et->rx_coalesce_usecs_high = eqo->max_eqd;
+	et->rx_coalesce_usecs_low = eqo->min_eqd;
 
-	coalesce->use_adaptive_rx_coalesce = rx_eq->enable_aic;
-	coalesce->use_adaptive_tx_coalesce = tx_eq->enable_aic;
+	et->tx_coalesce_usecs = eqo->cur_eqd;
+	et->tx_coalesce_usecs_high = eqo->max_eqd;
+	et->tx_coalesce_usecs_low = eqo->min_eqd;
+
+	et->use_adaptive_rx_coalesce = eqo->enable_aic;
+	et->use_adaptive_tx_coalesce = eqo->enable_aic;
 
 	return 0;
 }
 
-/*
- * This routine is used to set interrup coalescing delay
+/* TX attributes are ignored. Only RX attributes are considered
+ * eqd cmd is issued in the worker thread.
  */
-static int
-be_set_coalesce(struct net_device *netdev, struct ethtool_coalesce *coalesce)
+static int be_set_coalesce(struct net_device *netdev,
+			   struct ethtool_coalesce *et)
 {
 	struct be_adapter *adapter = netdev_priv(netdev);
-	struct be_rx_obj *rxo;
-	struct be_eq_obj *rx_eq;
-	struct be_eq_obj *tx_eq = &adapter->tx_eq;
-	u32 rx_max, rx_min, rx_cur;
-	int status = 0, i;
-	u32 tx_cur;
+	struct be_eq_obj *eqo;
+	int i;
 
-	if (coalesce->use_adaptive_tx_coalesce == 1)
-		return -EINVAL;
-
-	for_all_rx_queues(adapter, rxo, i) {
-		rx_eq = &rxo->rx_eq;
-
-		if (!rx_eq->enable_aic && coalesce->use_adaptive_rx_coalesce)
-			rx_eq->cur_eqd = 0;
-		rx_eq->enable_aic = coalesce->use_adaptive_rx_coalesce;
-
-		rx_max = coalesce->rx_coalesce_usecs_high;
-		rx_min = coalesce->rx_coalesce_usecs_low;
-		rx_cur = coalesce->rx_coalesce_usecs;
-
-		if (rx_eq->enable_aic) {
-			if (rx_max > BE_MAX_EQD)
-				rx_max = BE_MAX_EQD;
-			if (rx_min > rx_max)
-				rx_min = rx_max;
-			rx_eq->max_eqd = rx_max;
-			rx_eq->min_eqd = rx_min;
-			if (rx_eq->cur_eqd > rx_max)
-				rx_eq->cur_eqd = rx_max;
-			if (rx_eq->cur_eqd < rx_min)
-				rx_eq->cur_eqd = rx_min;
-		} else {
-			if (rx_cur > BE_MAX_EQD)
-				rx_cur = BE_MAX_EQD;
-			if (rx_eq->cur_eqd != rx_cur) {
-				status = be_cmd_modify_eqd(adapter, rx_eq->q.id,
-						rx_cur);
-				if (!status)
-					rx_eq->cur_eqd = rx_cur;
-			}
-		}
-	}
-
-	tx_cur = coalesce->tx_coalesce_usecs;
-
-	if (tx_cur > BE_MAX_EQD)
-		tx_cur = BE_MAX_EQD;
-	if (tx_eq->cur_eqd != tx_cur) {
-		status = be_cmd_modify_eqd(adapter, tx_eq->q.id, tx_cur);
-		if (!status)
-			tx_eq->cur_eqd = tx_cur;
+	for_all_evt_queues(adapter, eqo, i) {
+		eqo->enable_aic = et->use_adaptive_rx_coalesce;
+		eqo->max_eqd = min(et->rx_coalesce_usecs_high, BE_MAX_EQD);
+		eqo->min_eqd = min(et->rx_coalesce_usecs_low, eqo->max_eqd);
+		eqo->eqd = et->rx_coalesce_usecs;
 	}
 
 	return 0;
@@ -362,11 +439,14 @@ static int be_get_settings(struct net_device *netdev, struct ethtool_cmd *ecmd)
 	struct be_phy_info phy_info;
 	u8 mac_speed = 0;
 	u16 link_speed = 0;
+	u8 link_status;
 	int status;
 
 	if ((adapter->link_speed < 0) || (!(netdev->flags & IFF_UP))) {
 		status = be_cmd_link_status_query(adapter, &mac_speed,
-						&link_speed, 0);
+						  &link_speed, &link_status, 0);
+		if (!status)
+			be_link_status_update(adapter, link_status);
 
 		/* link_speed is in units of 10 Mbps */
 		if (link_speed) {
@@ -453,16 +533,13 @@ static int be_get_settings(struct net_device *netdev, struct ethtool_cmd *ecmd)
 	return 0;
 }
 
-static void
-be_get_ringparam(struct net_device *netdev, struct ethtool_ringparam *ring)
+static void be_get_ringparam(struct net_device *netdev,
+			     struct ethtool_ringparam *ring)
 {
 	struct be_adapter *adapter = netdev_priv(netdev);
 
-	ring->rx_max_pending = adapter->rx_obj[0].q.len;
-	ring->tx_max_pending = adapter->tx_obj[0].q.len;
-
-	ring->rx_pending = atomic_read(&adapter->rx_obj[0].q.used);
-	ring->tx_pending = atomic_read(&adapter->tx_obj[0].q.used);
+	ring->rx_max_pending = ring->rx_pending = adapter->rx_obj[0].q.len;
+	ring->tx_max_pending = ring->tx_pending = adapter->tx_obj[0].q.len;
 }
 
 static void
@@ -523,26 +600,16 @@ be_set_phys_id(struct net_device *netdev,
 	return 0;
 }
 
-static bool
-be_is_wol_supported(struct be_adapter *adapter)
-{
-	if (!be_physfn(adapter))
-		return false;
-	else
-		return true;
-}
 
 static void
 be_get_wol(struct net_device *netdev, struct ethtool_wolinfo *wol)
 {
 	struct be_adapter *adapter = netdev_priv(netdev);
 
-	if (be_is_wol_supported(adapter))
-		wol->supported = WAKE_MAGIC;
-
-	if (adapter->wol)
-		wol->wolopts = WAKE_MAGIC;
-	else
+	if (be_is_wol_supported(adapter)) {
+		wol->supported |= WAKE_MAGIC;
+		wol->wolopts |= WAKE_MAGIC;
+	} else
 		wol->wolopts = 0;
 	memset(&wol->sopass, 0, sizeof(wol->sopass));
 }
@@ -553,9 +620,14 @@ be_set_wol(struct net_device *netdev, struct ethtool_wolinfo *wol)
 	struct be_adapter *adapter = netdev_priv(netdev);
 
 	if (wol->wolopts & ~WAKE_MAGIC)
-		return -EINVAL;
+		return -EOPNOTSUPP;
 
-	if ((wol->wolopts & WAKE_MAGIC) && be_is_wol_supported(adapter))
+	if (!be_is_wol_supported(adapter)) {
+		dev_warn(&adapter->pdev->dev, "WOL not supported\n");
+		return -EOPNOTSUPP;
+	}
+
+	if (wol->wolopts & WAKE_MAGIC)
 		adapter->wol = true;
 	else
 		adapter->wol = false;
@@ -636,7 +708,7 @@ be_self_test(struct net_device *netdev, struct ethtool_test *test, u64 *data)
 	}
 
 	if (be_cmd_link_status_query(adapter, &mac_speed,
-				&qos_link_speed, 0) != 0) {
+				     &qos_link_speed, NULL, 0) != 0) {
 		test->flags |= ETH_TEST_FL_FAILED;
 		data[4] = -1;
 	} else if (!mac_speed) {
@@ -649,18 +721,24 @@ static int
 be_do_flash(struct net_device *netdev, struct ethtool_flash *efl)
 {
 	struct be_adapter *adapter = netdev_priv(netdev);
-	char file_name[ETHTOOL_FLASH_MAX_FILENAME];
 
-	file_name[ETHTOOL_FLASH_MAX_FILENAME - 1] = 0;
-	strcpy(file_name, efl->data);
-
-	return be_load_fw(adapter, file_name);
+	return be_load_fw(adapter, efl->data);
 }
 
 static int
 be_get_eeprom_len(struct net_device *netdev)
 {
-	return BE_READ_SEEPROM_LEN;
+	struct be_adapter *adapter = netdev_priv(netdev);
+	if (lancer_chip(adapter)) {
+		if (be_physfn(adapter))
+			return lancer_cmd_get_file_len(adapter,
+					LANCER_VPD_PF_FILE);
+		else
+			return lancer_cmd_get_file_len(adapter,
+					LANCER_VPD_VF_FILE);
+	} else {
+		return BE_READ_SEEPROM_LEN;
+	}
 }
 
 static int
@@ -674,6 +752,15 @@ be_read_eeprom(struct net_device *netdev, struct ethtool_eeprom *eeprom,
 
 	if (!eeprom->len)
 		return -EINVAL;
+
+	if (lancer_chip(adapter)) {
+		if (be_physfn(adapter))
+			return lancer_cmd_read_file(adapter, LANCER_VPD_PF_FILE,
+					eeprom->len, data);
+		else
+			return lancer_cmd_read_file(adapter, LANCER_VPD_VF_FILE,
+					eeprom->len, data);
+	}
 
 	eeprom->magic = BE_VENDOR_ID | (adapter->pdev->device<<16);
 

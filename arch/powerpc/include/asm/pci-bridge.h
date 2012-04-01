@@ -153,16 +153,13 @@ struct pci_dn {
 
 	int	pci_ext_config_space;	/* for pci devices */
 
-#ifdef CONFIG_EEH
 	struct	pci_dev *pcidev;	/* back-pointer to the pci device */
-	int	class_code;		/* pci device class */
-	int	eeh_mode;		/* See eeh.h for possible EEH_MODEs */
-	int	eeh_config_addr;
-	int	eeh_pe_config_addr; /* new-style partition endpoint address */
-	int	eeh_check_count;	/* # times driver ignored error */
-	int	eeh_freeze_count;	/* # times this device froze up. */
-	int	eeh_false_positives;	/* # times this device reported #ff's */
-	u32	config_space[16];	/* saved PCI config space */
+#ifdef CONFIG_EEH
+	struct eeh_dev *edev;		/* eeh device */
+#endif
+#define IODA_INVALID_PE		(-1)
+#ifdef CONFIG_PPC_POWERNV
+	int	pe_number;
 #endif
 };
 
@@ -180,6 +177,13 @@ static inline int pci_device_from_OF_node(struct device_node *np,
 	*devfn = PCI_DN(np)->devfn;
 	return 0;
 }
+
+#if defined(CONFIG_EEH)
+static inline struct eeh_dev *of_node_to_eeh_dev(struct device_node *dn)
+{
+	return PCI_DN(dn)->edev;
+}
+#endif
 
 /** Find the bus corresponding to the indicated device node */
 extern struct pci_bus *pcibios_find_pci_bus(struct device_node *dn);
@@ -222,7 +226,6 @@ extern void pci_process_bridge_OF_ranges(struct pci_controller *hose,
 /* Allocate & free a PCI host bridge structure */
 extern struct pci_controller *pcibios_alloc_controller(struct device_node *dev);
 extern void pcibios_free_controller(struct pci_controller *phb);
-extern void pcibios_setup_phb_resources(struct pci_controller *hose);
 
 #ifdef CONFIG_PCI
 extern int pcibios_vaddr_is_ioport(void __iomem *address);

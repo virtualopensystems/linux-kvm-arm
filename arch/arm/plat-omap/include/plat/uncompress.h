@@ -99,9 +99,9 @@ static inline void flush(void)
 #define DEBUG_LL_ZOOM(mach)						\
 	_DEBUG_LL_ENTRY(mach, ZOOM_UART_BASE, ZOOM_PORT_SHIFT, ZOOM_UART)
 
-#define DEBUG_LL_TI816X(p, mach)					\
-	_DEBUG_LL_ENTRY(mach, TI816X_UART##p##_BASE, OMAP_PORT_SHIFT,	\
-		TI816XUART##p)
+#define DEBUG_LL_TI81XX(p, mach)					\
+	_DEBUG_LL_ENTRY(mach, TI81XX_UART##p##_BASE, OMAP_PORT_SHIFT,	\
+		TI81XXUART##p)
 
 static inline void __arch_decomp_setup(unsigned long arch_id)
 {
@@ -160,6 +160,7 @@ static inline void __arch_decomp_setup(unsigned long arch_id)
 		DEBUG_LL_OMAP3(3, igep0020);
 		DEBUG_LL_OMAP3(3, igep0030);
 		DEBUG_LL_OMAP3(3, nokia_rm680);
+		DEBUG_LL_OMAP3(3, nokia_rm696);
 		DEBUG_LL_OMAP3(3, nokia_rx51);
 		DEBUG_LL_OMAP3(3, omap3517evm);
 		DEBUG_LL_OMAP3(3, omap3_beagle);
@@ -177,7 +178,10 @@ static inline void __arch_decomp_setup(unsigned long arch_id)
 		DEBUG_LL_ZOOM(omap_zoom3);
 
 		/* TI8168 base boards using UART3 */
-		DEBUG_LL_TI816X(3, ti8168evm);
+		DEBUG_LL_TI81XX(3, ti8168evm);
+
+		/* TI8148 base boards using UART1 */
+		DEBUG_LL_TI81XX(1, ti8148evm);
 
 	} while (0);
 }

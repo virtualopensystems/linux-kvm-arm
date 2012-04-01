@@ -34,8 +34,10 @@
 
 #include "drmP.h"
 #include "drm_crtc.h"
+#include "drm_fourcc.h"
 #include "drm_crtc_helper.h"
 #include "drm_fb_helper.h"
+#include "drm_edid.h"
 
 static bool drm_kms_helper_poll = true;
 module_param_named(poll, drm_kms_helper_poll, bool, 0600);
@@ -43,12 +45,12 @@ module_param_named(poll, drm_kms_helper_poll, bool, 0600);
 static void drm_mode_validate_flag(struct drm_connector *connector,
 				   int flags)
 {
-	struct drm_display_mode *mode, *t;
+	struct drm_display_mode *mode;
 
 	if (flags == (DRM_MODE_FLAG_DBLSCAN | DRM_MODE_FLAG_INTERLACE))
 		return;
 
-	list_for_each_entry_safe(mode, t, &connector->modes, head) {
+	list_for_each_entry(mode, &connector->modes, head) {
 		if ((mode->flags & DRM_MODE_FLAG_INTERLACE) &&
 				!(flags & DRM_MODE_FLAG_INTERLACE))
 			mode->status = MODE_NO_INTERLACE;
@@ -86,7 +88,7 @@ int drm_helper_probe_single_connector_modes(struct drm_connector *connector,
 					    uint32_t maxX, uint32_t maxY)
 {
 	struct drm_device *dev = connector->dev;
-	struct drm_display_mode *mode, *t;
+	struct drm_display_mode *mode;
 	struct drm_connector_helper_funcs *connector_funcs =
 		connector->helper_private;
 	int count = 0;
@@ -95,7 +97,7 @@ int drm_helper_probe_single_connector_modes(struct drm_connector *connector,
 	DRM_DEBUG_KMS("[CONNECTOR:%d:%s]\n", connector->base.id,
 			drm_get_connector_name(connector));
 	/* set all modes to the unverified state */
-	list_for_each_entry_safe(mode, t, &connector->modes, head)
+	list_for_each_entry(mode, &connector->modes, head)
 		mode->status = MODE_UNVERIFIED;
 
 	if (connector->force) {
@@ -117,7 +119,12 @@ int drm_helper_probe_single_connector_modes(struct drm_connector *connector,
 		goto prune;
 	}
 
-	count = (*connector_funcs->get_modes)(connector);
+#ifdef CONFIG_DRM_LOAD_EDID_FIRMWARE
+	count = drm_load_edid_firmware(connector);
+	if (count == 0)
+#endif
+		count = (*connector_funcs->get_modes)(connector);
+
 	if (count == 0 && connector->status == connector_status_connected)
 		count = drm_add_modes_noedid(connector, 1024, 768);
 	if (count == 0)
@@ -135,7 +142,7 @@ int drm_helper_probe_single_connector_modes(struct drm_connector *connector,
 		mode_flags |= DRM_MODE_FLAG_DBLSCAN;
 	drm_mode_validate_flag(connector, mode_flags);
 
-	list_for_each_entry_safe(mode, t, &connector->modes, head) {
+	list_for_each_entry(mode, &connector->modes, head) {
 		if (mode->status == MODE_OK)
 			mode->status = connector_funcs->mode_valid(connector,
 								   mode);
@@ -151,7 +158,7 @@ prune:
 
 	DRM_DEBUG_KMS("[CONNECTOR:%d:%s] probed modes :\n", connector->base.id,
 			drm_get_connector_name(connector));
-	list_for_each_entry_safe(mode, t, &connector->modes, head) {
+	list_for_each_entry(mode, &connector->modes, head) {
 		mode->vrefresh = drm_mode_vrefresh(mode);
 
 		drm_mode_set_crtcinfo(mode, CRTC_INTERLACE_HALVE_V);
@@ -351,6 +358,8 @@ bool drm_crtc_helper_set_mode(struct drm_crtc *crtc,
 		return true;
 
 	adjusted_mode = drm_mode_duplicate(dev, mode);
+	if (!adjusted_mode)
+		return false;
 
 	saved_hwmode = crtc->hwmode;
 	saved_mode = crtc->mode;
@@ -710,7 +719,7 @@ int drm_crtc_helper_set_config(struct drm_mode_set *set)
 			for (i = 0; i < set->num_connectors; i++) {
 				DRM_DEBUG_KMS("\t[CONNECTOR:%d:%s] set DPMS on\n", set->connectors[i]->base.id,
 					      drm_get_connector_name(set->connectors[i]));
-				set->connectors[i]->dpms = DRM_MODE_DPMS_ON;
+				set->connectors[i]->funcs->dpms(set->connectors[i], DRM_MODE_DPMS_ON);
 			}
 		}
 		drm_helper_disable_unused_functions(dev);
@@ -847,13 +856,19 @@ void drm_helper_connector_dpms(struct drm_connector *connector, int mode)
 EXPORT_SYMBOL(drm_helper_connector_dpms);
 
 int drm_helper_mode_fill_fb_struct(struct drm_framebuffer *fb,
-				   struct drm_mode_fb_cmd *mode_cmd)
+				   struct drm_mode_fb_cmd2 *mode_cmd)
 {
+	int i;
+
 	fb->width = mode_cmd->width;
 	fb->height = mode_cmd->height;
-	fb->pitch = mode_cmd->pitch;
-	fb->bits_per_pixel = mode_cmd->bpp;
-	fb->depth = mode_cmd->depth;
+	for (i = 0; i < 4; i++) {
+		fb->pitches[i] = mode_cmd->pitches[i];
+		fb->offsets[i] = mode_cmd->offsets[i];
+	}
+	drm_fb_get_bpp_depth(mode_cmd->pixel_format, &fb->depth,
+				    &fb->bits_per_pixel);
+	fb->pixel_format = mode_cmd->pixel_format;
 
 	return 0;
 }
@@ -1008,3 +1023,36 @@ void drm_helper_hpd_irq_event(struct drm_device *dev)
 		queue_delayed_work(system_nrt_wq, &dev->mode_config.output_poll_work, 0);
 }
 EXPORT_SYMBOL(drm_helper_hpd_irq_event);
+
+
+/**
+ * drm_format_num_planes - get the number of planes for format
+ * @format: pixel format (DRM_FORMAT_*)
+ *
+ * RETURNS:
+ * The number of planes used by the specified pixel format.
+ */
+int drm_format_num_planes(uint32_t format)
+{
+	switch (format) {
+	case DRM_FORMAT_YUV410:
+	case DRM_FORMAT_YVU410:
+	case DRM_FORMAT_YUV411:
+	case DRM_FORMAT_YVU411:
+	case DRM_FORMAT_YUV420:
+	case DRM_FORMAT_YVU420:
+	case DRM_FORMAT_YUV422:
+	case DRM_FORMAT_YVU422:
+	case DRM_FORMAT_YUV444:
+	case DRM_FORMAT_YVU444:
+		return 3;
+	case DRM_FORMAT_NV12:
+	case DRM_FORMAT_NV21:
+	case DRM_FORMAT_NV16:
+	case DRM_FORMAT_NV61:
+		return 2;
+	default:
+		return 1;
+	}
+}
+EXPORT_SYMBOL(drm_format_num_planes);

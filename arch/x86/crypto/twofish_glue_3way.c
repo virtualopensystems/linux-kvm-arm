@@ -25,6 +25,7 @@
  *
  */
 
+#include <asm/processor.h>
 #include <linux/crypto.h>
 #include <linux/init.h>
 #include <linux/module.h>
@@ -32,6 +33,8 @@
 #include <crypto/algapi.h>
 #include <crypto/twofish.h>
 #include <crypto/b128ops.h>
+#include <crypto/lrw.h>
+#include <crypto/xts.h>
 
 /* regular block cipher functions from twofish_x86_64 module */
 asmlinkage void twofish_enc_blk(struct twofish_ctx *ctx, u8 *dst,
@@ -119,28 +122,6 @@ static int ecb_decrypt(struct blkcipher_desc *desc, struct scatterlist *dst,
 	blkcipher_walk_init(&walk, dst, src, nbytes);
 	return ecb_crypt(desc, &walk, twofish_dec_blk, twofish_dec_blk_3way);
 }
-
-static struct crypto_alg blk_ecb_alg = {
-	.cra_name		= "ecb(twofish)",
-	.cra_driver_name	= "ecb-twofish-3way",
-	.cra_priority		= 300,
-	.cra_flags		= CRYPTO_ALG_TYPE_BLKCIPHER,
-	.cra_blocksize		= TF_BLOCK_SIZE,
-	.cra_ctxsize		= sizeof(struct twofish_ctx),
-	.cra_alignmask		= 0,
-	.cra_type		= &crypto_blkcipher_type,
-	.cra_module		= THIS_MODULE,
-	.cra_list		= LIST_HEAD_INIT(blk_ecb_alg.cra_list),
-	.cra_u = {
-		.blkcipher = {
-			.min_keysize	= TF_MIN_KEY_SIZE,
-			.max_keysize	= TF_MAX_KEY_SIZE,
-			.setkey		= twofish_setkey,
-			.encrypt	= ecb_encrypt,
-			.decrypt	= ecb_decrypt,
-		},
-	},
-};
 
 static unsigned int __cbc_encrypt(struct blkcipher_desc *desc,
 				  struct blkcipher_walk *walk)
@@ -265,29 +246,6 @@ static int cbc_decrypt(struct blkcipher_desc *desc, struct scatterlist *dst,
 	return err;
 }
 
-static struct crypto_alg blk_cbc_alg = {
-	.cra_name		= "cbc(twofish)",
-	.cra_driver_name	= "cbc-twofish-3way",
-	.cra_priority		= 300,
-	.cra_flags		= CRYPTO_ALG_TYPE_BLKCIPHER,
-	.cra_blocksize		= TF_BLOCK_SIZE,
-	.cra_ctxsize		= sizeof(struct twofish_ctx),
-	.cra_alignmask		= 0,
-	.cra_type		= &crypto_blkcipher_type,
-	.cra_module		= THIS_MODULE,
-	.cra_list		= LIST_HEAD_INIT(blk_cbc_alg.cra_list),
-	.cra_u = {
-		.blkcipher = {
-			.min_keysize	= TF_MIN_KEY_SIZE,
-			.max_keysize	= TF_MAX_KEY_SIZE,
-			.ivsize		= TF_BLOCK_SIZE,
-			.setkey		= twofish_setkey,
-			.encrypt	= cbc_encrypt,
-			.decrypt	= cbc_decrypt,
-		},
-	},
-};
-
 static inline void u128_to_be128(be128 *dst, const u128 *src)
 {
 	dst->a = cpu_to_be64(src->a);
@@ -409,7 +367,204 @@ static int ctr_crypt(struct blkcipher_desc *desc, struct scatterlist *dst,
 	return err;
 }
 
-static struct crypto_alg blk_ctr_alg = {
+static void encrypt_callback(void *priv, u8 *srcdst, unsigned int nbytes)
+{
+	const unsigned int bsize = TF_BLOCK_SIZE;
+	struct twofish_ctx *ctx = priv;
+	int i;
+
+	if (nbytes == 3 * bsize) {
+		twofish_enc_blk_3way(ctx, srcdst, srcdst);
+		return;
+	}
+
+	for (i = 0; i < nbytes / bsize; i++, srcdst += bsize)
+		twofish_enc_blk(ctx, srcdst, srcdst);
+}
+
+static void decrypt_callback(void *priv, u8 *srcdst, unsigned int nbytes)
+{
+	const unsigned int bsize = TF_BLOCK_SIZE;
+	struct twofish_ctx *ctx = priv;
+	int i;
+
+	if (nbytes == 3 * bsize) {
+		twofish_dec_blk_3way(ctx, srcdst, srcdst);
+		return;
+	}
+
+	for (i = 0; i < nbytes / bsize; i++, srcdst += bsize)
+		twofish_dec_blk(ctx, srcdst, srcdst);
+}
+
+struct twofish_lrw_ctx {
+	struct lrw_table_ctx lrw_table;
+	struct twofish_ctx twofish_ctx;
+};
+
+static int lrw_twofish_setkey(struct crypto_tfm *tfm, const u8 *key,
+			      unsigned int keylen)
+{
+	struct twofish_lrw_ctx *ctx = crypto_tfm_ctx(tfm);
+	int err;
+
+	err = __twofish_setkey(&ctx->twofish_ctx, key, keylen - TF_BLOCK_SIZE,
+			       &tfm->crt_flags);
+	if (err)
+		return err;
+
+	return lrw_init_table(&ctx->lrw_table, key + keylen - TF_BLOCK_SIZE);
+}
+
+static int lrw_encrypt(struct blkcipher_desc *desc, struct scatterlist *dst,
+		       struct scatterlist *src, unsigned int nbytes)
+{
+	struct twofish_lrw_ctx *ctx = crypto_blkcipher_ctx(desc->tfm);
+	be128 buf[3];
+	struct lrw_crypt_req req = {
+		.tbuf = buf,
+		.tbuflen = sizeof(buf),
+
+		.table_ctx = &ctx->lrw_table,
+		.crypt_ctx = &ctx->twofish_ctx,
+		.crypt_fn = encrypt_callback,
+	};
+
+	return lrw_crypt(desc, dst, src, nbytes, &req);
+}
+
+static int lrw_decrypt(struct blkcipher_desc *desc, struct scatterlist *dst,
+		       struct scatterlist *src, unsigned int nbytes)
+{
+	struct twofish_lrw_ctx *ctx = crypto_blkcipher_ctx(desc->tfm);
+	be128 buf[3];
+	struct lrw_crypt_req req = {
+		.tbuf = buf,
+		.tbuflen = sizeof(buf),
+
+		.table_ctx = &ctx->lrw_table,
+		.crypt_ctx = &ctx->twofish_ctx,
+		.crypt_fn = decrypt_callback,
+	};
+
+	return lrw_crypt(desc, dst, src, nbytes, &req);
+}
+
+static void lrw_exit_tfm(struct crypto_tfm *tfm)
+{
+	struct twofish_lrw_ctx *ctx = crypto_tfm_ctx(tfm);
+
+	lrw_free_table(&ctx->lrw_table);
+}
+
+struct twofish_xts_ctx {
+	struct twofish_ctx tweak_ctx;
+	struct twofish_ctx crypt_ctx;
+};
+
+static int xts_twofish_setkey(struct crypto_tfm *tfm, const u8 *key,
+			      unsigned int keylen)
+{
+	struct twofish_xts_ctx *ctx = crypto_tfm_ctx(tfm);
+	u32 *flags = &tfm->crt_flags;
+	int err;
+
+	/* key consists of keys of equal size concatenated, therefore
+	 * the length must be even
+	 */
+	if (keylen % 2) {
+		*flags |= CRYPTO_TFM_RES_BAD_KEY_LEN;
+		return -EINVAL;
+	}
+
+	/* first half of xts-key is for crypt */
+	err = __twofish_setkey(&ctx->crypt_ctx, key, keylen / 2, flags);
+	if (err)
+		return err;
+
+	/* second half of xts-key is for tweak */
+	return __twofish_setkey(&ctx->tweak_ctx, key + keylen / 2, keylen / 2,
+				flags);
+}
+
+static int xts_encrypt(struct blkcipher_desc *desc, struct scatterlist *dst,
+		       struct scatterlist *src, unsigned int nbytes)
+{
+	struct twofish_xts_ctx *ctx = crypto_blkcipher_ctx(desc->tfm);
+	be128 buf[3];
+	struct xts_crypt_req req = {
+		.tbuf = buf,
+		.tbuflen = sizeof(buf),
+
+		.tweak_ctx = &ctx->tweak_ctx,
+		.tweak_fn = XTS_TWEAK_CAST(twofish_enc_blk),
+		.crypt_ctx = &ctx->crypt_ctx,
+		.crypt_fn = encrypt_callback,
+	};
+
+	return xts_crypt(desc, dst, src, nbytes, &req);
+}
+
+static int xts_decrypt(struct blkcipher_desc *desc, struct scatterlist *dst,
+		       struct scatterlist *src, unsigned int nbytes)
+{
+	struct twofish_xts_ctx *ctx = crypto_blkcipher_ctx(desc->tfm);
+	be128 buf[3];
+	struct xts_crypt_req req = {
+		.tbuf = buf,
+		.tbuflen = sizeof(buf),
+
+		.tweak_ctx = &ctx->tweak_ctx,
+		.tweak_fn = XTS_TWEAK_CAST(twofish_enc_blk),
+		.crypt_ctx = &ctx->crypt_ctx,
+		.crypt_fn = decrypt_callback,
+	};
+
+	return xts_crypt(desc, dst, src, nbytes, &req);
+}
+
+static struct crypto_alg tf_algs[5] = { {
+	.cra_name		= "ecb(twofish)",
+	.cra_driver_name	= "ecb-twofish-3way",
+	.cra_priority		= 300,
+	.cra_flags		= CRYPTO_ALG_TYPE_BLKCIPHER,
+	.cra_blocksize		= TF_BLOCK_SIZE,
+	.cra_ctxsize		= sizeof(struct twofish_ctx),
+	.cra_alignmask		= 0,
+	.cra_type		= &crypto_blkcipher_type,
+	.cra_module		= THIS_MODULE,
+	.cra_list		= LIST_HEAD_INIT(tf_algs[0].cra_list),
+	.cra_u = {
+		.blkcipher = {
+			.min_keysize	= TF_MIN_KEY_SIZE,
+			.max_keysize	= TF_MAX_KEY_SIZE,
+			.setkey		= twofish_setkey,
+			.encrypt	= ecb_encrypt,
+			.decrypt	= ecb_decrypt,
+		},
+	},
+}, {
+	.cra_name		= "cbc(twofish)",
+	.cra_driver_name	= "cbc-twofish-3way",
+	.cra_priority		= 300,
+	.cra_flags		= CRYPTO_ALG_TYPE_BLKCIPHER,
+	.cra_blocksize		= TF_BLOCK_SIZE,
+	.cra_ctxsize		= sizeof(struct twofish_ctx),
+	.cra_alignmask		= 0,
+	.cra_type		= &crypto_blkcipher_type,
+	.cra_module		= THIS_MODULE,
+	.cra_list		= LIST_HEAD_INIT(tf_algs[1].cra_list),
+	.cra_u = {
+		.blkcipher = {
+			.min_keysize	= TF_MIN_KEY_SIZE,
+			.max_keysize	= TF_MAX_KEY_SIZE,
+			.ivsize		= TF_BLOCK_SIZE,
+			.setkey		= twofish_setkey,
+			.encrypt	= cbc_encrypt,
+			.decrypt	= cbc_decrypt,
+		},
+	},
+}, {
 	.cra_name		= "ctr(twofish)",
 	.cra_driver_name	= "ctr-twofish-3way",
 	.cra_priority		= 300,
@@ -419,7 +574,7 @@ static struct crypto_alg blk_ctr_alg = {
 	.cra_alignmask		= 0,
 	.cra_type		= &crypto_blkcipher_type,
 	.cra_module		= THIS_MODULE,
-	.cra_list		= LIST_HEAD_INIT(blk_ctr_alg.cra_list),
+	.cra_list		= LIST_HEAD_INIT(tf_algs[2].cra_list),
 	.cra_u = {
 		.blkcipher = {
 			.min_keysize	= TF_MIN_KEY_SIZE,
@@ -430,37 +585,105 @@ static struct crypto_alg blk_ctr_alg = {
 			.decrypt	= ctr_crypt,
 		},
 	},
-};
+}, {
+	.cra_name		= "lrw(twofish)",
+	.cra_driver_name	= "lrw-twofish-3way",
+	.cra_priority		= 300,
+	.cra_flags		= CRYPTO_ALG_TYPE_BLKCIPHER,
+	.cra_blocksize		= TF_BLOCK_SIZE,
+	.cra_ctxsize		= sizeof(struct twofish_lrw_ctx),
+	.cra_alignmask		= 0,
+	.cra_type		= &crypto_blkcipher_type,
+	.cra_module		= THIS_MODULE,
+	.cra_list		= LIST_HEAD_INIT(tf_algs[3].cra_list),
+	.cra_exit		= lrw_exit_tfm,
+	.cra_u = {
+		.blkcipher = {
+			.min_keysize	= TF_MIN_KEY_SIZE + TF_BLOCK_SIZE,
+			.max_keysize	= TF_MAX_KEY_SIZE + TF_BLOCK_SIZE,
+			.ivsize		= TF_BLOCK_SIZE,
+			.setkey		= lrw_twofish_setkey,
+			.encrypt	= lrw_encrypt,
+			.decrypt	= lrw_decrypt,
+		},
+	},
+}, {
+	.cra_name		= "xts(twofish)",
+	.cra_driver_name	= "xts-twofish-3way",
+	.cra_priority		= 300,
+	.cra_flags		= CRYPTO_ALG_TYPE_BLKCIPHER,
+	.cra_blocksize		= TF_BLOCK_SIZE,
+	.cra_ctxsize		= sizeof(struct twofish_xts_ctx),
+	.cra_alignmask		= 0,
+	.cra_type		= &crypto_blkcipher_type,
+	.cra_module		= THIS_MODULE,
+	.cra_list		= LIST_HEAD_INIT(tf_algs[4].cra_list),
+	.cra_u = {
+		.blkcipher = {
+			.min_keysize	= TF_MIN_KEY_SIZE * 2,
+			.max_keysize	= TF_MAX_KEY_SIZE * 2,
+			.ivsize		= TF_BLOCK_SIZE,
+			.setkey		= xts_twofish_setkey,
+			.encrypt	= xts_encrypt,
+			.decrypt	= xts_decrypt,
+		},
+	},
+} };
 
-int __init init(void)
+static bool is_blacklisted_cpu(void)
 {
-	int err;
+	if (boot_cpu_data.x86_vendor != X86_VENDOR_INTEL)
+		return false;
 
-	err = crypto_register_alg(&blk_ecb_alg);
-	if (err)
-		goto ecb_err;
-	err = crypto_register_alg(&blk_cbc_alg);
-	if (err)
-		goto cbc_err;
-	err = crypto_register_alg(&blk_ctr_alg);
-	if (err)
-		goto ctr_err;
+	if (boot_cpu_data.x86 == 0x06 &&
+		(boot_cpu_data.x86_model == 0x1c ||
+		 boot_cpu_data.x86_model == 0x26 ||
+		 boot_cpu_data.x86_model == 0x36)) {
+		/*
+		 * On Atom, twofish-3way is slower than original assembler
+		 * implementation. Twofish-3way trades off some performance in
+		 * storing blocks in 64bit registers to allow three blocks to
+		 * be processed parallel. Parallel operation then allows gaining
+		 * more performance than was trade off, on out-of-order CPUs.
+		 * However Atom does not benefit from this parallellism and
+		 * should be blacklisted.
+		 */
+		return true;
+	}
 
-	return 0;
+	if (boot_cpu_data.x86 == 0x0f) {
+		/*
+		 * On Pentium 4, twofish-3way is slower than original assembler
+		 * implementation because excessive uses of 64bit rotate and
+		 * left-shifts (which are really slow on P4) needed to store and
+		 * handle 128bit block in two 64bit registers.
+		 */
+		return true;
+	}
 
-ctr_err:
-	crypto_unregister_alg(&blk_cbc_alg);
-cbc_err:
-	crypto_unregister_alg(&blk_ecb_alg);
-ecb_err:
-	return err;
+	return false;
 }
 
-void __exit fini(void)
+static int force;
+module_param(force, int, 0);
+MODULE_PARM_DESC(force, "Force module load, ignore CPU blacklist");
+
+static int __init init(void)
 {
-	crypto_unregister_alg(&blk_ctr_alg);
-	crypto_unregister_alg(&blk_cbc_alg);
-	crypto_unregister_alg(&blk_ecb_alg);
+	if (!force && is_blacklisted_cpu()) {
+		printk(KERN_INFO
+			"twofish-x86_64-3way: performance on this CPU "
+			"would be suboptimal: disabling "
+			"twofish-x86_64-3way.\n");
+		return -ENODEV;
+	}
+
+	return crypto_register_algs(tf_algs, ARRAY_SIZE(tf_algs));
+}
+
+static void __exit fini(void)
+{
+	crypto_unregister_algs(tf_algs, ARRAY_SIZE(tf_algs));
 }
 
 module_init(init);

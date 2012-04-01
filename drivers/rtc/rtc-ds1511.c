@@ -532,7 +532,7 @@ ds1511_rtc_probe(struct platform_device *pdev)
 	if (pdata->irq > 0) {
 		rtc_read(RTC_CMD1);
 		if (devm_request_irq(&pdev->dev, pdata->irq, ds1511_interrupt,
-			IRQF_DISABLED | IRQF_SHARED, pdev->name, pdev) < 0) {
+			IRQF_SHARED, pdev->name, pdev) < 0) {
 
 			dev_warn(&pdev->dev, "interrupt not available.\n");
 			pdata->irq = 0;
@@ -580,20 +580,7 @@ static struct platform_driver ds1511_rtc_driver = {
 	},
 };
 
- static int __init
-ds1511_rtc_init(void)
-{
-	return platform_driver_register(&ds1511_rtc_driver);
-}
-
- static void __exit
-ds1511_rtc_exit(void)
-{
-	platform_driver_unregister(&ds1511_rtc_driver);
-}
-
-module_init(ds1511_rtc_init);
-module_exit(ds1511_rtc_exit);
+module_platform_driver(ds1511_rtc_driver);
 
 MODULE_AUTHOR("Andrew Sharp <andy.sharp@lsi.com>");
 MODULE_DESCRIPTION("Dallas DS1511 RTC driver");

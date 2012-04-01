@@ -233,7 +233,7 @@ static struct regulator_init_data sdhc1_data = {
 
 static struct regulator_consumer_supply cam_consumers[] = {
 	{
-		.dev	= NULL,
+		.dev_name = NULL,
 		.supply	= "imx_cam_vcc",
 	},
 };
@@ -357,4 +357,5 @@ MACHINE_START(PCM038, "phyCORE-i.MX27")
 	.handle_irq = imx27_handle_irq,
 	.timer = &pcm038_timer,
 	.init_machine = pcm038_init,
+	.restart	= mxc_restart,
 MACHINE_END

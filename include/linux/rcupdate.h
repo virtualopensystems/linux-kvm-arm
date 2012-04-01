@@ -42,6 +42,7 @@
 #include <linux/lockdep.h>
 #include <linux/completion.h>
 #include <linux/debugobjects.h>
+#include <linux/bug.h>
 #include <linux/compiler.h>
 
 #ifdef CONFIG_RCU_TORTURE_TEST
@@ -51,6 +52,8 @@ extern int rcutorture_runnable; /* for sysctl */
 #if defined(CONFIG_TREE_RCU) || defined(CONFIG_TREE_PREEMPT_RCU)
 extern void rcutorture_record_test_transition(void);
 extern void rcutorture_record_progress(unsigned long vernum);
+extern void do_trace_rcu_torture_read(char *rcutorturename,
+				      struct rcu_head *rhp);
 #else
 static inline void rcutorture_record_test_transition(void)
 {
@@ -58,6 +61,12 @@ static inline void rcutorture_record_test_transition(void)
 static inline void rcutorture_record_progress(unsigned long vernum)
 {
 }
+#ifdef CONFIG_RCU_TRACE
+extern void do_trace_rcu_torture_read(char *rcutorturename,
+				      struct rcu_head *rhp);
+#else
+#define do_trace_rcu_torture_read(rcutorturename, rhp) do { } while (0)
+#endif
 #endif
 
 #define UINT_CMP_GE(a, b)	(UINT_MAX / 2 >= (a) - (b))
@@ -177,23 +186,37 @@ extern void rcu_sched_qs(int cpu);
 extern void rcu_bh_qs(int cpu);
 extern void rcu_check_callbacks(int cpu, int user);
 struct notifier_block;
+extern void rcu_idle_enter(void);
+extern void rcu_idle_exit(void);
+extern void rcu_irq_enter(void);
+extern void rcu_irq_exit(void);
 
-#ifdef CONFIG_NO_HZ
-
-extern void rcu_enter_nohz(void);
-extern void rcu_exit_nohz(void);
-
-#else /* #ifdef CONFIG_NO_HZ */
-
-static inline void rcu_enter_nohz(void)
-{
-}
-
-static inline void rcu_exit_nohz(void)
-{
-}
-
-#endif /* #else #ifdef CONFIG_NO_HZ */
+/**
+ * RCU_NONIDLE - Indicate idle-loop code that needs RCU readers
+ * @a: Code that RCU needs to pay attention to.
+ *
+ * RCU, RCU-bh, and RCU-sched read-side critical sections are forbidden
+ * in the inner idle loop, that is, between the rcu_idle_enter() and
+ * the rcu_idle_exit() -- RCU will happily ignore any such read-side
+ * critical sections.  However, things like powertop need tracepoints
+ * in the inner idle loop.
+ *
+ * This macro provides the way out:  RCU_NONIDLE(do_something_with_RCU())
+ * will tell RCU that it needs to pay attending, invoke its argument
+ * (in this example, a call to the do_something_with_RCU() function),
+ * and then tell RCU to go back to ignoring this CPU.  It is permissible
+ * to nest RCU_NONIDLE() wrappers, but the nesting level is currently
+ * quite limited.  If deeper nesting is required, it will be necessary
+ * to adjust DYNTICK_TASK_NESTING_VALUE accordingly.
+ *
+ * This macro may be used from process-level code only.
+ */
+#define RCU_NONIDLE(a) \
+	do { \
+		rcu_idle_exit(); \
+		do { a; } while (0); \
+		rcu_idle_enter(); \
+	} while (0)
 
 /*
  * Infrastructure to implement the synchronize_() primitives in
@@ -231,24 +254,39 @@ static inline void destroy_rcu_head_on_stack(struct rcu_head *head)
 }
 #endif	/* #else !CONFIG_DEBUG_OBJECTS_RCU_HEAD */
 
+#if defined(CONFIG_HOTPLUG_CPU) && defined(CONFIG_PROVE_RCU)
+bool rcu_lockdep_current_cpu_online(void);
+#else /* #if defined(CONFIG_HOTPLUG_CPU) && defined(CONFIG_PROVE_RCU) */
+static inline bool rcu_lockdep_current_cpu_online(void)
+{
+	return 1;
+}
+#endif /* #else #if defined(CONFIG_HOTPLUG_CPU) && defined(CONFIG_PROVE_RCU) */
+
 #ifdef CONFIG_DEBUG_LOCK_ALLOC
 
+#ifdef CONFIG_PROVE_RCU
+extern int rcu_is_cpu_idle(void);
+#else /* !CONFIG_PROVE_RCU */
+static inline int rcu_is_cpu_idle(void)
+{
+	return 0;
+}
+#endif /* else !CONFIG_PROVE_RCU */
+
+static inline void rcu_lock_acquire(struct lockdep_map *map)
+{
+	lock_acquire(map, 0, 0, 2, 1, NULL, _THIS_IP_);
+}
+
+static inline void rcu_lock_release(struct lockdep_map *map)
+{
+	lock_release(map, 1, _THIS_IP_);
+}
+
 extern struct lockdep_map rcu_lock_map;
-# define rcu_read_acquire() \
-		lock_acquire(&rcu_lock_map, 0, 0, 2, 1, NULL, _THIS_IP_)
-# define rcu_read_release()	lock_release(&rcu_lock_map, 1, _THIS_IP_)
-
 extern struct lockdep_map rcu_bh_lock_map;
-# define rcu_read_acquire_bh() \
-		lock_acquire(&rcu_bh_lock_map, 0, 0, 2, 1, NULL, _THIS_IP_)
-# define rcu_read_release_bh()	lock_release(&rcu_bh_lock_map, 1, _THIS_IP_)
-
 extern struct lockdep_map rcu_sched_lock_map;
-# define rcu_read_acquire_sched() \
-		lock_acquire(&rcu_sched_lock_map, 0, 0, 2, 1, NULL, _THIS_IP_)
-# define rcu_read_release_sched() \
-		lock_release(&rcu_sched_lock_map, 1, _THIS_IP_)
-
 extern int debug_lockdep_rcu_enabled(void);
 
 /**
@@ -262,11 +300,23 @@ extern int debug_lockdep_rcu_enabled(void);
  *
  * Checks debug_lockdep_rcu_enabled() to prevent false positives during boot
  * and while lockdep is disabled.
+ *
+ * Note that rcu_read_lock() and the matching rcu_read_unlock() must
+ * occur in the same context, for example, it is illegal to invoke
+ * rcu_read_unlock() in process context if the matching rcu_read_lock()
+ * was invoked from within an irq handler.
+ *
+ * Note that rcu_read_lock() is disallowed if the CPU is either idle or
+ * offline from an RCU perspective, so check for those as well.
  */
 static inline int rcu_read_lock_held(void)
 {
 	if (!debug_lockdep_rcu_enabled())
 		return 1;
+	if (rcu_is_cpu_idle())
+		return 0;
+	if (!rcu_lockdep_current_cpu_online())
+		return 0;
 	return lock_is_held(&rcu_lock_map);
 }
 
@@ -290,6 +340,22 @@ extern int rcu_read_lock_bh_held(void);
  *
  * Check debug_lockdep_rcu_enabled() to prevent false positives during boot
  * and while lockdep is disabled.
+ *
+ * Note that if the CPU is in the idle loop from an RCU point of
+ * view (ie: that we are in the section between rcu_idle_enter() and
+ * rcu_idle_exit()) then rcu_read_lock_held() returns false even if the CPU
+ * did an rcu_read_lock().  The reason for this is that RCU ignores CPUs
+ * that are in such a section, considering these as in extended quiescent
+ * state, so such a CPU is effectively never in an RCU read-side critical
+ * section regardless of what RCU primitives it invokes.  This state of
+ * affairs is required --- we need to keep an RCU-free window in idle
+ * where the CPU may possibly enter into low power mode. This way we can
+ * notice an extended quiescent state to other CPUs that started a grace
+ * period. Otherwise we would delay any grace period as long as we run in
+ * the idle task.
+ *
+ * Similarly, we avoid claiming an SRCU read lock held if the current
+ * CPU is offline.
  */
 #ifdef CONFIG_PREEMPT_COUNT
 static inline int rcu_read_lock_sched_held(void)
@@ -298,6 +364,10 @@ static inline int rcu_read_lock_sched_held(void)
 
 	if (!debug_lockdep_rcu_enabled())
 		return 1;
+	if (rcu_is_cpu_idle())
+		return 0;
+	if (!rcu_lockdep_current_cpu_online())
+		return 0;
 	if (debug_locks)
 		lockdep_opinion = lock_is_held(&rcu_sched_lock_map);
 	return lockdep_opinion || preempt_count() != 0 || irqs_disabled();
@@ -311,12 +381,8 @@ static inline int rcu_read_lock_sched_held(void)
 
 #else /* #ifdef CONFIG_DEBUG_LOCK_ALLOC */
 
-# define rcu_read_acquire()		do { } while (0)
-# define rcu_read_release()		do { } while (0)
-# define rcu_read_acquire_bh()		do { } while (0)
-# define rcu_read_release_bh()		do { } while (0)
-# define rcu_read_acquire_sched()	do { } while (0)
-# define rcu_read_release_sched()	do { } while (0)
+# define rcu_lock_acquire(a)		do { } while (0)
+# define rcu_lock_release(a)		do { } while (0)
 
 static inline int rcu_read_lock_held(void)
 {
@@ -353,15 +419,29 @@ extern int rcu_my_thread_group_empty(void);
  */
 #define rcu_lockdep_assert(c, s)					\
 	do {								\
-		static bool __warned;					\
+		static bool __section(.data.unlikely) __warned;		\
 		if (debug_lockdep_rcu_enabled() && !__warned && !(c)) {	\
 			__warned = true;				\
 			lockdep_rcu_suspicious(__FILE__, __LINE__, s);	\
 		}							\
 	} while (0)
 
+#if defined(CONFIG_PROVE_RCU) && !defined(CONFIG_PREEMPT_RCU)
+static inline void rcu_preempt_sleep_check(void)
+{
+	rcu_lockdep_assert(!lock_is_held(&rcu_lock_map),
+			   "Illegal context switch in RCU read-side "
+			   "critical section");
+}
+#else /* #ifdef CONFIG_PROVE_RCU */
+static inline void rcu_preempt_sleep_check(void)
+{
+}
+#endif /* #else #ifdef CONFIG_PROVE_RCU */
+
 #define rcu_sleep_check()						\
 	do {								\
+		rcu_preempt_sleep_check();				\
 		rcu_lockdep_assert(!lock_is_held(&rcu_bh_lock_map),	\
 				   "Illegal context switch in RCU-bh"	\
 				   " read-side critical section");	\
@@ -449,6 +529,13 @@ extern int rcu_my_thread_group_empty(void);
  * NULL.  Although rcu_access_pointer() may also be used in cases where
  * update-side locks prevent the value of the pointer from changing, you
  * should instead use rcu_dereference_protected() for this use case.
+ *
+ * It is also permissible to use rcu_access_pointer() when read-side
+ * access to the pointer was removed at least one grace period ago, as
+ * is the case in the context of the RCU callback that is freeing up
+ * the data, or after a synchronize_rcu() returns.  This can be useful
+ * when tearing down multi-linked structures after a grace period
+ * has elapsed.
  */
 #define rcu_access_pointer(p) __rcu_access_pointer((p), __rcu)
 
@@ -637,7 +724,9 @@ static inline void rcu_read_lock(void)
 {
 	__rcu_read_lock();
 	__acquire(RCU);
-	rcu_read_acquire();
+	rcu_lock_acquire(&rcu_lock_map);
+	rcu_lockdep_assert(!rcu_is_cpu_idle(),
+			   "rcu_read_lock() used illegally while idle");
 }
 
 /*
@@ -657,7 +746,9 @@ static inline void rcu_read_lock(void)
  */
 static inline void rcu_read_unlock(void)
 {
-	rcu_read_release();
+	rcu_lockdep_assert(!rcu_is_cpu_idle(),
+			   "rcu_read_unlock() used illegally while idle");
+	rcu_lock_release(&rcu_lock_map);
 	__release(RCU);
 	__rcu_read_unlock();
 }
@@ -673,12 +764,19 @@ static inline void rcu_read_unlock(void)
  * critical sections in interrupt context can use just rcu_read_lock(),
  * though this should at least be commented to avoid confusing people
  * reading the code.
+ *
+ * Note that rcu_read_lock_bh() and the matching rcu_read_unlock_bh()
+ * must occur in the same context, for example, it is illegal to invoke
+ * rcu_read_unlock_bh() from one task if the matching rcu_read_lock_bh()
+ * was invoked from some other task.
  */
 static inline void rcu_read_lock_bh(void)
 {
 	local_bh_disable();
 	__acquire(RCU_BH);
-	rcu_read_acquire_bh();
+	rcu_lock_acquire(&rcu_bh_lock_map);
+	rcu_lockdep_assert(!rcu_is_cpu_idle(),
+			   "rcu_read_lock_bh() used illegally while idle");
 }
 
 /*
@@ -688,7 +786,9 @@ static inline void rcu_read_lock_bh(void)
  */
 static inline void rcu_read_unlock_bh(void)
 {
-	rcu_read_release_bh();
+	rcu_lockdep_assert(!rcu_is_cpu_idle(),
+			   "rcu_read_unlock_bh() used illegally while idle");
+	rcu_lock_release(&rcu_bh_lock_map);
 	__release(RCU_BH);
 	local_bh_enable();
 }
@@ -700,12 +800,19 @@ static inline void rcu_read_unlock_bh(void)
  * are being done using call_rcu_sched() or synchronize_rcu_sched().
  * Read-side critical sections can also be introduced by anything that
  * disables preemption, including local_irq_disable() and friends.
+ *
+ * Note that rcu_read_lock_sched() and the matching rcu_read_unlock_sched()
+ * must occur in the same context, for example, it is illegal to invoke
+ * rcu_read_unlock_sched() from process context if the matching
+ * rcu_read_lock_sched() was invoked from an NMI handler.
  */
 static inline void rcu_read_lock_sched(void)
 {
 	preempt_disable();
 	__acquire(RCU_SCHED);
-	rcu_read_acquire_sched();
+	rcu_lock_acquire(&rcu_sched_lock_map);
+	rcu_lockdep_assert(!rcu_is_cpu_idle(),
+			   "rcu_read_lock_sched() used illegally while idle");
 }
 
 /* Used by lockdep and tracing: cannot be traced, cannot call lockdep. */
@@ -722,7 +829,9 @@ static inline notrace void rcu_read_lock_sched_notrace(void)
  */
 static inline void rcu_read_unlock_sched(void)
 {
-	rcu_read_release_sched();
+	rcu_lockdep_assert(!rcu_is_cpu_idle(),
+			   "rcu_read_unlock_sched() used illegally while idle");
+	rcu_lock_release(&rcu_sched_lock_map);
 	__release(RCU_SCHED);
 	preempt_enable();
 }
@@ -810,7 +919,7 @@ void __kfree_rcu(struct rcu_head *head, unsigned long offset)
 	/* See the kfree_rcu() header comment. */
 	BUILD_BUG_ON(!__is_kfree_rcu_offset(offset));
 
-	call_rcu(head, (rcu_callback)offset);
+	kfree_call_rcu(head, (rcu_callback)offset);
 }
 
 /**

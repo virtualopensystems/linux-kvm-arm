@@ -31,16 +31,19 @@
 
 #include "sram.h"
 
-/* XXX These "sideways" includes are a sign that something is wrong */
-#if defined(CONFIG_ARCH_OMAP2) || defined(CONFIG_ARCH_OMAP3)
-# include "../mach-omap2/prm2xxx_3xxx.h"
-# include "../mach-omap2/sdrc.h"
-#endif
+/* XXX These "sideways" includes will disappear when sram.c becomes a driver */
+#include "../mach-omap2/iomap.h"
+#include "../mach-omap2/prm2xxx_3xxx.h"
+#include "../mach-omap2/sdrc.h"
 
 #define OMAP1_SRAM_PA		0x20000000
 #define OMAP2_SRAM_PUB_PA	(OMAP2_SRAM_PA + 0xf800)
 #define OMAP3_SRAM_PUB_PA       (OMAP3_SRAM_PA + 0x8000)
+#ifdef CONFIG_OMAP4_ERRATA_I688
+#define OMAP4_SRAM_PUB_PA	OMAP4_SRAM_PA
+#else
 #define OMAP4_SRAM_PUB_PA	(OMAP4_SRAM_PA + 0x4000)
+#endif
 
 #if defined(CONFIG_ARCH_OMAP2PLUS)
 #define SRAM_BOOTLOADER_SZ	0x00
@@ -82,7 +85,7 @@ static int is_sram_locked(void)
 			__raw_writel(0xCFDE, OMAP24XX_VA_READPERM0);  /* all i-read */
 			__raw_writel(0xCFDE, OMAP24XX_VA_WRITEPERM0); /* all i-write */
 		}
-		if (cpu_is_omap34xx()) {
+		if (cpu_is_omap34xx() && !cpu_is_am33xx()) {
 			__raw_writel(0xFFFF, OMAP34XX_VA_REQINFOPERM0); /* all q-vects */
 			__raw_writel(0xFFFF, OMAP34XX_VA_READPERM0);  /* all i-read */
 			__raw_writel(0xFFFF, OMAP34XX_VA_WRITEPERM0); /* all i-write */
@@ -120,7 +123,10 @@ static void __init omap_detect_sram(void)
 				omap_sram_size = 0x800; /* 2K */
 			}
 		} else {
-			if (cpu_is_omap34xx()) {
+			if (cpu_is_am33xx()) {
+				omap_sram_start = AM33XX_SRAM_PA;
+				omap_sram_size = 0x10000; /* 64K */
+			} else if (cpu_is_omap34xx()) {
 				omap_sram_start = OMAP3_SRAM_PA;
 				omap_sram_size = 0x10000; /* 64K */
 			} else if (cpu_is_omap44xx()) {
@@ -141,11 +147,9 @@ static void __init omap_detect_sram(void)
 			omap_sram_size = 0x32000;	/* 200K */
 		else if (cpu_is_omap15xx())
 			omap_sram_size = 0x30000;	/* 192K */
-		else if (cpu_is_omap1610() || cpu_is_omap1621() ||
-		     cpu_is_omap1710())
+		else if (cpu_is_omap1610() || cpu_is_omap1611() ||
+				cpu_is_omap1621() || cpu_is_omap1710())
 			omap_sram_size = 0x4000;	/* 16K */
-		else if (cpu_is_omap1611())
-			omap_sram_size = SZ_256K;
 		else {
 			pr_err("Could not detect SRAM size\n");
 			omap_sram_size = 0x4000;
@@ -163,6 +167,10 @@ static void __init omap_map_sram(void)
 	if (omap_sram_size == 0)
 		return;
 
+#ifdef CONFIG_OMAP4_ERRATA_I688
+		omap_sram_start += PAGE_SIZE;
+		omap_sram_size -= SZ_16K;
+#endif
 	if (cpu_is_omap34xx()) {
 		/*
 		 * SRAM must be marked as non-cached on OMAP3 since the
@@ -224,6 +232,9 @@ static void (*_omap_sram_reprogram_clock)(u32 dpllctl, u32 ckctl);
 void omap_sram_reprogram_clock(u32 dpllctl, u32 ckctl)
 {
 	BUG_ON(!_omap_sram_reprogram_clock);
+	/* On 730, bit 13 must always be 1 */
+	if (cpu_is_omap7xx())
+		ckctl |= 0x2000;
 	_omap_sram_reprogram_clock(dpllctl, ckctl);
 }
 
@@ -359,6 +370,11 @@ static inline int omap34xx_sram_init(void)
 	return 0;
 }
 
+static inline int am33xx_sram_init(void)
+{
+	return 0;
+}
+
 int __init omap_sram_init(void)
 {
 	omap_detect_sram();
@@ -370,6 +386,8 @@ int __init omap_sram_init(void)
 		omap242x_sram_init();
 	else if (cpu_is_omap2430())
 		omap243x_sram_init();
+	else if (cpu_is_am33xx())
+		am33xx_sram_init();
 	else if (cpu_is_omap34xx())
 		omap34xx_sram_init();
 

@@ -411,7 +411,7 @@ static void atl1c_set_multi(struct net_device *netdev)
 	}
 }
 
-static void __atl1c_vlan_mode(u32 features, u32 *mac_ctrl_data)
+static void __atl1c_vlan_mode(netdev_features_t features, u32 *mac_ctrl_data)
 {
 	if (features & NETIF_F_HW_VLAN_RX) {
 		/* enable VLAN tag insert/strip */
@@ -422,7 +422,8 @@ static void __atl1c_vlan_mode(u32 features, u32 *mac_ctrl_data)
 	}
 }
 
-static void atl1c_vlan_mode(struct net_device *netdev, u32 features)
+static void atl1c_vlan_mode(struct net_device *netdev,
+	netdev_features_t features)
 {
 	struct atl1c_adapter *adapter = netdev_priv(netdev);
 	struct pci_dev *pdev = adapter->pdev;
@@ -467,6 +468,7 @@ static int atl1c_set_mac_addr(struct net_device *netdev, void *p)
 
 	memcpy(netdev->dev_addr, addr->sa_data, netdev->addr_len);
 	memcpy(adapter->hw.mac_addr, addr->sa_data, netdev->addr_len);
+	netdev->addr_assign_type &= ~NET_ADDR_RANDOM;
 
 	atl1c_hw_set_mac_addr(&adapter->hw);
 
@@ -482,7 +484,8 @@ static void atl1c_set_rxbufsize(struct atl1c_adapter *adapter,
 		roundup(mtu + ETH_HLEN + ETH_FCS_LEN + VLAN_HLEN, 8) : AT_RX_BUF_SIZE;
 }
 
-static u32 atl1c_fix_features(struct net_device *netdev, u32 features)
+static netdev_features_t atl1c_fix_features(struct net_device *netdev,
+	netdev_features_t features)
 {
 	/*
 	 * Since there is no support for separate rx/tx vlan accel
@@ -499,9 +502,10 @@ static u32 atl1c_fix_features(struct net_device *netdev, u32 features)
 	return features;
 }
 
-static int atl1c_set_features(struct net_device *netdev, u32 features)
+static int atl1c_set_features(struct net_device *netdev,
+	netdev_features_t features)
 {
-	u32 changed = netdev->features ^ features;
+	netdev_features_t changed = netdev->features ^ features;
 
 	if (changed & NETIF_F_HW_VLAN_RX)
 		atl1c_vlan_mode(netdev, features);
@@ -1707,7 +1711,7 @@ static irqreturn_t atl1c_intr(int irq, void *data)
 					"atl1c hardware error (status = 0x%x)\n",
 					status & ISR_ERROR);
 			/* reset MAC */
-			adapter->work_event |= ATL1C_WORK_EVENT_RESET;
+			set_bit(ATL1C_WORK_EVENT_RESET, &adapter->work_event);
 			schedule_work(&adapter->common_task);
 			return IRQ_HANDLED;
 		}
@@ -1762,7 +1766,7 @@ static int atl1c_alloc_rx_buffer(struct atl1c_adapter *adapter, const int ringid
 	while (next_info->flags & ATL1C_BUFFER_FREE) {
 		rfd_desc = ATL1C_RFD_DESC(rfd_ring, rfd_next_to_use);
 
-		skb = dev_alloc_skb(adapter->rx_buffer_len);
+		skb = netdev_alloc_skb(adapter->netdev, adapter->rx_buffer_len);
 		if (unlikely(!skb)) {
 			if (netif_msg_rx_err(adapter))
 				dev_warn(&pdev->dev, "alloc rx buffer failed\n");
@@ -2241,10 +2245,6 @@ static netdev_tx_t atl1c_xmit_frame(struct sk_buff *skb,
 			dev_info(&adapter->pdev->dev, "tx locked\n");
 		return NETDEV_TX_LOCKED;
 	}
-	if (skb->mark == 0x01)
-		type = atl1c_trans_high;
-	else
-		type = atl1c_trans_normal;
 
 	if (atl1c_tpd_avail(adapter, type) < tpd_req) {
 		/* no enough descriptor, just stop queue */
@@ -2686,7 +2686,6 @@ static int __devinit atl1c_probe(struct pci_dev *pdev,
 	netdev = alloc_etherdev(sizeof(struct atl1c_adapter));
 	if (netdev == NULL) {
 		err = -ENOMEM;
-		dev_err(&pdev->dev, "etherdev alloc failed\n");
 		goto err_alloc_etherdev;
 	}
 
@@ -2743,10 +2742,9 @@ static int __devinit atl1c_probe(struct pci_dev *pdev,
 		err = -EIO;
 		goto err_reset;
 	}
-	if (atl1c_read_mac_addr(&adapter->hw) != 0) {
-		err = -EIO;
-		dev_err(&pdev->dev, "get mac address failed\n");
-		goto err_eeprom;
+	if (atl1c_read_mac_addr(&adapter->hw)) {
+		/* got a random MAC address, set NET_ADDR_RANDOM to netdev */
+		netdev->addr_assign_type |= NET_ADDR_RANDOM;
 	}
 	memcpy(netdev->dev_addr, adapter->hw.mac_addr, netdev->addr_len);
 	memcpy(netdev->perm_addr, adapter->hw.mac_addr, netdev->addr_len);
@@ -2771,7 +2769,6 @@ static int __devinit atl1c_probe(struct pci_dev *pdev,
 err_reset:
 err_register:
 err_sw_init:
-err_eeprom:
 	iounmap(adapter->hw.hw_addr);
 err_init_netdev:
 err_ioremap:

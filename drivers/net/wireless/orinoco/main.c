@@ -121,7 +121,7 @@ module_param(orinoco_debug, int, 0644);
 MODULE_PARM_DESC(orinoco_debug, "Debug level");
 #endif
 
-static int suppress_linkstatus; /* = 0 */
+static bool suppress_linkstatus; /* = 0 */
 module_param(suppress_linkstatus, bool, 0644);
 MODULE_PARM_DESC(suppress_linkstatus, "Don't log link status changes");
 
@@ -941,11 +941,9 @@ void __orinoco_ev_rx(struct net_device *dev, struct hermes *hw)
 
 	/* Add desc and skb to rx queue */
 	rx_data = kzalloc(sizeof(*rx_data), GFP_ATOMIC);
-	if (!rx_data) {
-		printk(KERN_WARNING "%s: Can't allocate RX packet\n",
-			dev->name);
+	if (!rx_data)
 		goto drop;
-	}
+
 	rx_data->desc = desc;
 	rx_data->skb = skb;
 	list_add_tail(&rx_data->list, &priv->rx_list);

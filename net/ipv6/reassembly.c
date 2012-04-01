@@ -153,8 +153,8 @@ void ip6_frag_init(struct inet_frag_queue *q, void *a)
 
 	fq->id = arg->id;
 	fq->user = arg->user;
-	ipv6_addr_copy(&fq->saddr, arg->src);
-	ipv6_addr_copy(&fq->daddr, arg->dst);
+	fq->saddr = *arg->src;
+	fq->daddr = *arg->dst;
 }
 EXPORT_SYMBOL(ip6_frag_init);
 
@@ -336,12 +336,11 @@ static int ip6_frag_queue(struct frag_queue *fq, struct sk_buff *skb,
 	}
 
 found:
-	/* RFC5722, Section 4:
-	 *                                  When reassembling an IPv6 datagram, if
+	/* RFC5722, Section 4, amended by Errata ID : 3089
+	 *                          When reassembling an IPv6 datagram, if
 	 *   one or more its constituent fragments is determined to be an
 	 *   overlapping fragment, the entire datagram (and any constituent
-	 *   fragments, including those not yet received) MUST be silently
-	 *   discarded.
+	 *   fragments) MUST be silently discarded.
 	 */
 
 	/* Check for overlap with preceding fragment. */

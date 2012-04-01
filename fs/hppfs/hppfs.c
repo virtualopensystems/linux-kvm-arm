@@ -622,7 +622,6 @@ void hppfs_evict_inode(struct inode *ino)
 static void hppfs_i_callback(struct rcu_head *head)
 {
 	struct inode *inode = container_of(head, struct inode, i_rcu);
-	INIT_LIST_HEAD(&inode->i_dentry);
 	kfree(HPPFS_I(inode));
 }
 
@@ -726,18 +725,13 @@ static int hppfs_fill_super(struct super_block *sb, void *d, int silent)
 	sb->s_fs_info = proc_mnt;
 
 	err = -ENOMEM;
-	root_inode = get_inode(sb, dget(proc_mnt->mnt_sb->s_root));
-	if (!root_inode)
-		goto out_mntput;
-
-	sb->s_root = d_alloc_root(root_inode);
+	root_inode = get_inode(sb, dget(proc_mnt->mnt_root));
+	sb->s_root = d_make_root(root_inode);
 	if (!sb->s_root)
-		goto out_iput;
+		goto out_mntput;
 
 	return 0;
 
- out_iput:
-	iput(root_inode);
  out_mntput:
 	mntput(proc_mnt);
  out:

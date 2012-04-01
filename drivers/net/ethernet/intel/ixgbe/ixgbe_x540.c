@@ -1,7 +1,7 @@
 /*******************************************************************************
 
   Intel 10 Gigabit PCI Express Linux driver
-  Copyright(c) 1999 - 2011 Intel Corporation.
+  Copyright(c) 1999 - 2012 Intel Corporation.
 
   This program is free software; you can redistribute it and/or modify it
   under the terms and conditions of the GNU General Public License,
@@ -751,16 +751,20 @@ static s32 ixgbe_blink_led_start_X540(struct ixgbe_hw *hw, u32 index)
 {
 	u32 macc_reg;
 	u32 ledctl_reg;
+	ixgbe_link_speed speed;
+	bool link_up;
 
 	/*
-	 * In order for the blink bit in the LED control register
-	 * to work, link and speed must be forced in the MAC. We
-	 * will reverse this when we stop the blinking.
+	 * Link should be up in order for the blink bit in the LED control
+	 * register to work. Force link and speed in the MAC if link is down.
+	 * This will be reversed when we stop the blinking.
 	 */
-	macc_reg = IXGBE_READ_REG(hw, IXGBE_MACC);
-	macc_reg |= IXGBE_MACC_FLU | IXGBE_MACC_FSV_10G | IXGBE_MACC_FS;
-	IXGBE_WRITE_REG(hw, IXGBE_MACC, macc_reg);
-
+	hw->mac.ops.check_link(hw, &speed, &link_up, false);
+	if (!link_up) {
+		macc_reg = IXGBE_READ_REG(hw, IXGBE_MACC);
+		macc_reg |= IXGBE_MACC_FLU | IXGBE_MACC_FSV_10G | IXGBE_MACC_FS;
+		IXGBE_WRITE_REG(hw, IXGBE_MACC, macc_reg);
+	}
 	/* Set the LED to LINK_UP + BLINK. */
 	ledctl_reg = IXGBE_READ_REG(hw, IXGBE_LEDCTL);
 	ledctl_reg &= ~IXGBE_LED_MODE_MASK(index);
@@ -843,6 +847,8 @@ static struct ixgbe_mac_operations mac_ops_X540 = {
 	.set_vlan_anti_spoofing = &ixgbe_set_vlan_anti_spoofing,
 	.acquire_swfw_sync      = &ixgbe_acquire_swfw_sync_X540,
 	.release_swfw_sync      = &ixgbe_release_swfw_sync_X540,
+	.disable_rx_buff	= &ixgbe_disable_rx_buff_generic,
+	.enable_rx_buff		= &ixgbe_enable_rx_buff_generic,
 };
 
 static struct ixgbe_eeprom_operations eeprom_ops_X540 = {

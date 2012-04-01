@@ -39,9 +39,9 @@
 
 #include <asm/mach/time.h>
 #include <plat/dmtimer.h>
-#include <asm/localtimer.h>
+#include <asm/smp_twd.h>
 #include <asm/sched_clock.h>
-#include <plat/common.h>
+#include "common.h"
 #include <plat/omap_hwmod.h>
 #include <plat/omap_device.h>
 #include <plat/omap-pm.h>
@@ -254,7 +254,6 @@ static struct omap_dm_timer clksrc;
 /*
  * clocksource
  */
-static DEFINE_CLOCK_DATA(cd);
 static cycle_t clocksource_read_cycles(struct clocksource *cs)
 {
 	return (cycle_t)__omap_dm_timer_read_counter(&clksrc, 1);
@@ -268,23 +267,12 @@ static struct clocksource clocksource_gpt = {
 	.flags		= CLOCK_SOURCE_IS_CONTINUOUS,
 };
 
-static void notrace dmtimer_update_sched_clock(void)
+static u32 notrace dmtimer_read_sched_clock(void)
 {
-	u32 cyc;
-
-	cyc = __omap_dm_timer_read_counter(&clksrc, 1);
-
-	update_sched_clock(&cd, cyc, (u32)~0);
-}
-
-unsigned long long notrace sched_clock(void)
-{
-	u32 cyc = 0;
-
 	if (clksrc.reserved)
-		cyc = __omap_dm_timer_read_counter(&clksrc, 1);
+		return __omap_dm_timer_read_counter(&clksrc, 1);
 
-	return cyc_to_sched_clock(&cd, cyc, (u32)~0);
+	return 0;
 }
 
 /* Setup free-running counter for clocksource */
@@ -301,7 +289,7 @@ static void __init omap2_gp_clocksource_init(int gptimer_id,
 
 	__omap_dm_timer_load_start(&clksrc,
 			OMAP_TIMER_CTRL_ST | OMAP_TIMER_CTRL_AR, 0, 1);
-	init_sched_clock(&cd, dmtimer_update_sched_clock, 32, clksrc.rate);
+	setup_sched_clock(dmtimer_read_sched_clock, 32, clksrc.rate);
 
 	if (clocksource_register_hz(&clocksource_gpt, clksrc.rate))
 		pr_err("Could not register clocksource %s\n",
@@ -336,14 +324,26 @@ OMAP_SYS_TIMER(3_secure)
 #endif
 
 #ifdef CONFIG_ARCH_OMAP4
+#ifdef CONFIG_LOCAL_TIMERS
+static DEFINE_TWD_LOCAL_TIMER(twd_local_timer,
+			      OMAP44XX_LOCAL_TWD_BASE,
+			      OMAP44XX_IRQ_LOCALTIMER);
+#endif
+
 static void __init omap4_timer_init(void)
 {
-#ifdef CONFIG_LOCAL_TIMERS
-	twd_base = ioremap(OMAP44XX_LOCAL_TWD_BASE, SZ_256);
-	BUG_ON(!twd_base);
-#endif
 	omap2_gp_clockevent_init(1, OMAP4_CLKEV_SOURCE);
 	omap2_gp_clocksource_init(2, OMAP4_MPU_SOURCE);
+#ifdef CONFIG_LOCAL_TIMERS
+	/* Local timers are not supprted on OMAP4430 ES1.0 */
+	if (omap_rev() != OMAP4430_REV_ES1_0) {
+		int err;
+
+		err = twd_local_timer_register(&twd_local_timer);
+		if (err)
+			pr_err("twd_local_timer_register failed %d\n", err);
+	}
+#endif
 }
 OMAP_SYS_TIMER(4)
 #endif

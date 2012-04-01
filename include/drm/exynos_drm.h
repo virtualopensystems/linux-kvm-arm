@@ -74,9 +74,37 @@ struct drm_exynos_gem_mmap {
 	uint64_t mapped;
 };
 
+/**
+ * A structure for user connection request of virtual display.
+ *
+ * @connection: indicate whether doing connetion or not by user.
+ * @extensions: if this value is 1 then the vidi driver would need additional
+ *	128bytes edid data.
+ * @edid: the edid data pointer from user side.
+ */
+struct drm_exynos_vidi_connection {
+	unsigned int connection;
+	unsigned int extensions;
+	uint64_t *edid;
+};
+
+struct drm_exynos_plane_set_zpos {
+	__u32 plane_id;
+	__s32 zpos;
+};
+
+/* memory type definitions. */
+enum e_drm_exynos_gem_mem_type {
+	/* Physically Non-Continuous memory. */
+	EXYNOS_BO_NONCONTIG	= 1 << 0
+};
+
 #define DRM_EXYNOS_GEM_CREATE		0x00
 #define DRM_EXYNOS_GEM_MAP_OFFSET	0x01
 #define DRM_EXYNOS_GEM_MMAP		0x02
+/* Reserved 0x03 ~ 0x05 for exynos specific gem ioctl */
+#define DRM_EXYNOS_PLANE_SET_ZPOS	0x06
+#define DRM_EXYNOS_VIDI_CONNECTION	0x07
 
 #define DRM_IOCTL_EXYNOS_GEM_CREATE		DRM_IOWR(DRM_COMMAND_BASE + \
 		DRM_EXYNOS_GEM_CREATE, struct drm_exynos_gem_create)
@@ -87,19 +115,70 @@ struct drm_exynos_gem_mmap {
 #define DRM_IOCTL_EXYNOS_GEM_MMAP	DRM_IOWR(DRM_COMMAND_BASE + \
 		DRM_EXYNOS_GEM_MMAP, struct drm_exynos_gem_mmap)
 
+#define DRM_IOCTL_EXYNOS_PLANE_SET_ZPOS	DRM_IOWR(DRM_COMMAND_BASE + \
+		DRM_EXYNOS_PLANE_SET_ZPOS, struct drm_exynos_plane_set_zpos)
+
+#define DRM_IOCTL_EXYNOS_VIDI_CONNECTION	DRM_IOWR(DRM_COMMAND_BASE + \
+		DRM_EXYNOS_VIDI_CONNECTION, struct drm_exynos_vidi_connection)
+
+#ifdef __KERNEL__
+
+/**
+ * A structure for lcd panel information.
+ *
+ * @timing: default video mode for initializing
+ * @width_mm: physical size of lcd width.
+ * @height_mm: physical size of lcd height.
+ */
+struct exynos_drm_panel_info {
+	struct fb_videomode timing;
+	u32 width_mm;
+	u32 height_mm;
+};
+
 /**
  * Platform Specific Structure for DRM based FIMD.
  *
- * @timing: default video mode for initializing
+ * @panel: default panel info for initializing
  * @default_win: default window layer number to be used for UI.
  * @bpp: default bit per pixel.
  */
 struct exynos_drm_fimd_pdata {
-	struct fb_videomode		timing;
+	struct exynos_drm_panel_info panel;
 	u32				vidcon0;
 	u32				vidcon1;
 	unsigned int			default_win;
 	unsigned int			bpp;
 };
 
-#endif
+/**
+ * Platform Specific Structure for DRM based HDMI.
+ *
+ * @hdmi_dev: device point to specific hdmi driver.
+ * @mixer_dev: device point to specific mixer driver.
+ *
+ * this structure is used for common hdmi driver and each device object
+ * would be used to access specific device driver(hdmi or mixer driver)
+ */
+struct exynos_drm_common_hdmi_pd {
+	struct device *hdmi_dev;
+	struct device *mixer_dev;
+};
+
+/**
+ * Platform Specific Structure for DRM based HDMI core.
+ *
+ * @timing: default video mode for initializing
+ * @default_win: default window layer number to be used for UI.
+ * @bpp: default bit per pixel.
+ * @is_v13: set if hdmi version 13 is.
+ */
+struct exynos_drm_hdmi_pdata {
+	struct fb_videomode		timing;
+	unsigned int			default_win;
+	unsigned int			bpp;
+	unsigned int			is_v13:1;
+};
+
+#endif	/* __KERNEL__ */
+#endif	/* _EXYNOS_DRM_H_ */

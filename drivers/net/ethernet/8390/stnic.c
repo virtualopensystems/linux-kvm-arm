@@ -17,7 +17,6 @@
 #include <linux/init.h>
 #include <linux/delay.h>
 
-#include <asm/system.h>
 #include <asm/io.h>
 #include <mach-se/mach/se.h>
 #include <asm/machvec.h>
@@ -114,7 +113,7 @@ static int __init stnic_probe(void)
 #ifdef CONFIG_SH_STANDARD_BIOS
   sh_bios_get_node_addr (stnic_eadr);
 #endif
-  for (i = 0; i < ETHER_ADDR_LEN; i++)
+  for (i = 0; i < ETH_ALEN; i++)
     dev->dev_addr[i] = stnic_eadr[i];
 
   /* Set the base address to point to the NIC, not the "real" base! */

@@ -18,6 +18,7 @@
 #include <linux/kernel.h>
 #include <linux/errno.h>
 #include <linux/gpio.h>
+#include <linux/of.h>
 
 struct device_node;
 
@@ -49,7 +50,8 @@ static inline struct of_mm_gpio_chip *to_of_mm_gpio_chip(struct gpio_chip *gc)
 extern int of_get_named_gpio_flags(struct device_node *np,
 		const char *list_name, int index, enum of_gpio_flags *flags);
 
-extern unsigned int of_gpio_count(struct device_node *np);
+extern unsigned int of_gpio_named_count(struct device_node *np,
+					const char* propname);
 
 extern int of_mm_gpiochip_add(struct device_node *np,
 			      struct of_mm_gpio_chip *mm_gc);
@@ -57,8 +59,9 @@ extern int of_mm_gpiochip_add(struct device_node *np,
 extern void of_gpiochip_add(struct gpio_chip *gc);
 extern void of_gpiochip_remove(struct gpio_chip *gc);
 extern struct gpio_chip *of_node_to_gpiochip(struct device_node *np);
-extern int of_gpio_simple_xlate(struct gpio_chip *gc, struct device_node *np,
-				const void *gpio_spec, u32 *flags);
+extern int of_gpio_simple_xlate(struct gpio_chip *gc,
+				const struct of_phandle_args *gpiospec,
+				u32 *flags);
 
 #else /* CONFIG_OF_GPIO */
 
@@ -69,14 +72,15 @@ static inline int of_get_named_gpio_flags(struct device_node *np,
 	return -ENOSYS;
 }
 
-static inline unsigned int of_gpio_count(struct device_node *np)
+static inline unsigned int of_gpio_named_count(struct device_node *np,
+					const char* propname)
 {
 	return 0;
 }
 
 static inline int of_gpio_simple_xlate(struct gpio_chip *gc,
-				       struct device_node *np,
-				       const void *gpio_spec, u32 *flags)
+				       const struct of_phandle_args *gpiospec,
+				       u32 *flags)
 {
 	return -ENOSYS;
 }
@@ -85,6 +89,27 @@ static inline void of_gpiochip_add(struct gpio_chip *gc) { }
 static inline void of_gpiochip_remove(struct gpio_chip *gc) { }
 
 #endif /* CONFIG_OF_GPIO */
+
+/**
+ * of_gpio_count - Count GPIOs for a device
+ * @np:		device node to count GPIOs for
+ *
+ * The function returns the count of GPIOs specified for a node.
+ *
+ * Note that the empty GPIO specifiers counts too. For example,
+ *
+ * gpios = <0
+ *          &pio1 1 2
+ *          0
+ *          &pio2 3 4>;
+ *
+ * defines four GPIOs (so this function will return 4), two of which
+ * are not specified.
+ */
+static inline unsigned int of_gpio_count(struct device_node *np)
+{
+	return of_gpio_named_count(np, "gpios");
+}
 
 /**
  * of_get_gpio_flags() - Get a GPIO number and flags to use with GPIO API

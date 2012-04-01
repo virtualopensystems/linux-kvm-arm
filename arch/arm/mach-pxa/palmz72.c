@@ -401,8 +401,10 @@ static void __init palmz72_init(void)
 MACHINE_START(PALMZ72, "Palm Zire72")
 	.atag_offset	= 0x100,
 	.map_io		= pxa27x_map_io,
+	.nr_irqs	= PXA_NR_IRQS,
 	.init_irq	= pxa27x_init_irq,
 	.handle_irq	= pxa27x_handle_irq,
 	.timer		= &pxa_timer,
-	.init_machine	= palmz72_init
+	.init_machine	= palmz72_init,
+	.restart	= pxa_restart,
 MACHINE_END

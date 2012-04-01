@@ -34,7 +34,9 @@ config AMD_IOMMU
 	bool "AMD IOMMU support"
 	select SWIOTLB
 	select PCI_MSI
-	select PCI_IOV
+	select PCI_ATS
+	select PCI_PRI
+	select PCI_PASID
 	select IOMMU_API
 	depends on X86_64 && PCI && ACPI
 	---help---
@@ -57,6 +59,15 @@ config AMD_IOMMU_STATS
 	  statistics about whats happening in the driver and exports that
 	  information to userspace via debugfs.
 	  If unsure, say N.
+
+config AMD_IOMMU_V2
+	tristate "AMD IOMMU Version 2 driver (EXPERIMENTAL)"
+	depends on AMD_IOMMU && PROFILING && EXPERIMENTAL
+	select MMU_NOTIFIER
+	---help---
+	  This option enables support for the AMD IOMMUv2 features of the IOMMU
+	  hardware. Select this option if you want to use devices that support
+	  the the PCI PRI and PASID interface.
 
 # Intel IOMMU support
 config DMAR_TABLE
@@ -130,5 +141,25 @@ config OMAP_IOMMU_DEBUG
          the internal state of OMAP IOMMU/IOVMM in debugfs.
 
          Say N unless you know you need this.
+
+config TEGRA_IOMMU_GART
+	bool "Tegra GART IOMMU Support"
+	depends on ARCH_TEGRA_2x_SOC
+	select IOMMU_API
+	help
+	  Enables support for remapping discontiguous physical memory
+	  shared with the operating system into contiguous I/O virtual
+	  space through the GART (Graphics Address Relocation Table)
+	  hardware included on Tegra SoCs.
+
+config TEGRA_IOMMU_SMMU
+	bool "Tegra SMMU IOMMU Support"
+	depends on ARCH_TEGRA_3x_SOC
+	select IOMMU_API
+	help
+	  Enables support for remapping discontiguous physical memory
+	  shared with the operating system into contiguous I/O virtual
+	  space through the SMMU (System Memory Management Unit)
+	  hardware included on Tegra SoCs.
 
 endif # IOMMU_SUPPORT

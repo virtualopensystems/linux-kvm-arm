@@ -1098,13 +1098,7 @@ err_fw:
 	dev_info(&intf->dev, "Statistics collection: %x\n", kaweth->configuration.statistics_mask);
 	dev_info(&intf->dev, "Multicast filter limit: %x\n", kaweth->configuration.max_multicast_filters & ((1 << 15) - 1));
 	dev_info(&intf->dev, "MTU: %d\n", le16_to_cpu(kaweth->configuration.segment_size));
-	dev_info(&intf->dev, "Read MAC address %2.2x:%2.2x:%2.2x:%2.2x:%2.2x:%2.2x\n",
-		 (int)kaweth->configuration.hw_addr[0],
-		 (int)kaweth->configuration.hw_addr[1],
-		 (int)kaweth->configuration.hw_addr[2],
-		 (int)kaweth->configuration.hw_addr[3],
-		 (int)kaweth->configuration.hw_addr[4],
-		 (int)kaweth->configuration.hw_addr[5]);
+	dev_info(&intf->dev, "Read MAC address %pM\n", kaweth->configuration.hw_addr);
 
 	if(!memcmp(&kaweth->configuration.hw_addr,
                    &bcast_addr,
@@ -1324,32 +1318,4 @@ static int kaweth_internal_control_msg(struct usb_device *usb_dev,
 	}
 }
 
-
-/****************************************************************
- *     kaweth_init
- ****************************************************************/
-static int __init kaweth_init(void)
-{
-	dbg("Driver loading");
-	return usb_register(&kaweth_driver);
-}
-
-/****************************************************************
- *     kaweth_exit
- ****************************************************************/
-static void __exit kaweth_exit(void)
-{
-	usb_deregister(&kaweth_driver);
-}
-
-module_init(kaweth_init);
-module_exit(kaweth_exit);
-
-
-
-
-
-
-
-
-
+module_usb_driver(kaweth_driver);

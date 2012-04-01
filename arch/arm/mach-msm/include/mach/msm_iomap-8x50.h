@@ -83,18 +83,6 @@
 #define MSM_UART3_PHYS        0xA9C00000
 #define MSM_UART3_SIZE        SZ_4K
 
-#ifdef CONFIG_MSM_DEBUG_UART
-#define MSM_DEBUG_UART_BASE   0xE1000000
-#if CONFIG_MSM_DEBUG_UART == 1
-#define MSM_DEBUG_UART_PHYS   MSM_UART1_PHYS
-#elif CONFIG_MSM_DEBUG_UART == 2
-#define MSM_DEBUG_UART_PHYS   MSM_UART2_PHYS
-#elif CONFIG_MSM_DEBUG_UART == 3
-#define MSM_DEBUG_UART_PHYS   MSM_UART3_PHYS
-#endif
-#define MSM_DEBUG_UART_SIZE   SZ_4K
-#endif
-
 #define MSM_MDC_BASE	      IOMEM(0xE0200000)
 #define MSM_MDC_PHYS	      0xAA500000
 #define MSM_MDC_SIZE	      SZ_1M
@@ -133,5 +121,9 @@
 
 #define MSM_SDC4_PHYS          0xA0600000
 #define MSM_SDC4_SIZE          SZ_4K
+
+#ifndef __ASSEMBLY__
+extern void msm_map_qsd8x50_io(void);
+#endif
 
 #endif

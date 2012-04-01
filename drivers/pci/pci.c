@@ -88,6 +88,15 @@ enum pcie_bus_config_types pcie_bus_config = PCIE_BUS_TUNE_OFF;
 u8 pci_dfl_cache_line_size __devinitdata = L1_CACHE_BYTES >> 2;
 u8 pci_cache_line_size;
 
+/*
+ * If we set up a device for bus mastering, we need to check the latency
+ * timer as certain BIOSes forget to set it properly.
+ */
+unsigned int pcibios_max_latency = 255;
+
+/* If set, the PCIe ARI capability will not be used. */
+static bool pcie_ari_disabled;
+
 /**
  * pci_bus_max_busnr - returns maximum PCI bus number of given bus' children
  * @bus: pointer to PCI bus structure to search
@@ -819,6 +828,19 @@ EXPORT_SYMBOL(pci_choose_state);
 #define pcie_cap_has_sltctl2(type, flags)		\
 		((flags & PCI_EXP_FLAGS_VERS) > 1)
 
+static struct pci_cap_saved_state *pci_find_saved_cap(
+	struct pci_dev *pci_dev, char cap)
+{
+	struct pci_cap_saved_state *tmp;
+	struct hlist_node *pos;
+
+	hlist_for_each_entry(tmp, pos, &pci_dev->saved_cap_space, next) {
+		if (tmp->cap.cap_nr == cap)
+			return tmp;
+	}
+	return NULL;
+}
+
 static int pci_save_pcie_state(struct pci_dev *dev)
 {
 	int pos, i = 0;
@@ -953,12 +975,14 @@ void pci_restore_state(struct pci_dev *dev)
 {
 	int i;
 	u32 val;
+	int tries;
 
 	if (!dev->state_saved)
 		return;
 
 	/* PCI Express register must be restored first */
 	pci_restore_pcie_state(dev);
+	pci_restore_ats_state(dev);
 
 	/*
 	 * The Base Address register should be programmed before the command
@@ -966,12 +990,16 @@ void pci_restore_state(struct pci_dev *dev)
 	 */
 	for (i = 15; i >= 0; i--) {
 		pci_read_config_dword(dev, i * 4, &val);
-		if (val != dev->saved_config_space[i]) {
-			dev_printk(KERN_DEBUG, &dev->dev, "restoring config "
+		tries = 10;		
+		while (tries && val != dev->saved_config_space[i]) {
+			dev_dbg(&dev->dev, "restoring config "
 				"space at offset %#x (was %#x, writing %#x)\n",
 				i, val, (int)dev->saved_config_space[i]);
 			pci_write_config_dword(dev,i * 4,
 				dev->saved_config_space[i]);
+			pci_read_config_dword(dev, i * 4, &val);
+			mdelay(10);
+			tries--;
 		}
 	}
 	pci_restore_pcix_state(dev);
@@ -1536,8 +1564,7 @@ void pci_pme_active(struct pci_dev *dev, bool enable)
 	}
 
 out:
-	dev_printk(KERN_DEBUG, &dev->dev, "PME# %s\n",
-			enable ? "enabled" : "disabled");
+	dev_dbg(&dev->dev, "PME# %s\n", enable ? "enabled" : "disabled");
 }
 
 /**
@@ -1858,6 +1885,12 @@ void platform_pci_wakeup_init(struct pci_dev *dev)
 	platform_pci_sleep_wake(dev, false);
 }
 
+static void pci_add_saved_cap(struct pci_dev *pci_dev,
+	struct pci_cap_saved_state *new_cap)
+{
+	hlist_add_head(&new_cap->next, &pci_dev->saved_cap_space);
+}
+
 /**
  * pci_add_save_buffer - allocate buffer for saving given capability registers
  * @dev: the PCI device
@@ -1905,6 +1938,15 @@ void pci_allocate_cap_save_buffers(struct pci_dev *dev)
 			"unable to preallocate PCI-X save buffer\n");
 }
 
+void pci_free_cap_save_buffers(struct pci_dev *dev)
+{
+	struct pci_cap_saved_state *tmp;
+	struct hlist_node *pos, *n;
+
+	hlist_for_each_entry_safe(tmp, pos, n, &dev->saved_cap_space, next)
+		kfree(tmp);
+}
+
 /**
  * pci_enable_ari - enable ARI forwarding if hardware support it
  * @dev: the PCI device
@@ -1916,7 +1958,7 @@ void pci_enable_ari(struct pci_dev *dev)
 	u16 flags, ctrl;
 	struct pci_dev *bridge;
 
-	if (!pci_is_pcie(dev) || dev->devfn)
+	if (pcie_ari_disabled || !pci_is_pcie(dev) || dev->devfn)
 		return;
 
 	pos = pci_find_ext_capability(dev, PCI_EXT_CAP_ID_ARI);
@@ -2596,6 +2638,33 @@ static void __pci_set_master(struct pci_dev *dev, bool enable)
 }
 
 /**
+ * pcibios_set_master - enable PCI bus-mastering for device dev
+ * @dev: the PCI device to enable
+ *
+ * Enables PCI bus-mastering for the device.  This is the default
+ * implementation.  Architecture specific implementations can override
+ * this if necessary.
+ */
+void __weak pcibios_set_master(struct pci_dev *dev)
+{
+	u8 lat;
+
+	/* The latency timer doesn't apply to PCIe (either Type 0 or Type 1) */
+	if (pci_is_pcie(dev))
+		return;
+
+	pci_read_config_byte(dev, PCI_LATENCY_TIMER, &lat);
+	if (lat < 16)
+		lat = (64 <= pcibios_max_latency) ? 64 : pcibios_max_latency;
+	else if (lat > pcibios_max_latency)
+		lat = pcibios_max_latency;
+	else
+		return;
+	dev_printk(KERN_DEBUG, &dev->dev, "setting latency timer to %d\n", lat);
+	pci_write_config_byte(dev, PCI_LATENCY_TIMER, lat);
+}
+
+/**
  * pci_set_master - enables bus-mastering for device dev
  * @dev: the PCI device to enable
  *
@@ -2766,6 +2835,116 @@ pci_intx(struct pci_dev *pdev, int enable)
 		}
 	}
 }
+
+/**
+ * pci_intx_mask_supported - probe for INTx masking support
+ * @dev: the PCI device to operate on
+ *
+ * Check if the device dev support INTx masking via the config space
+ * command word.
+ */
+bool pci_intx_mask_supported(struct pci_dev *dev)
+{
+	bool mask_supported = false;
+	u16 orig, new;
+
+	pci_cfg_access_lock(dev);
+
+	pci_read_config_word(dev, PCI_COMMAND, &orig);
+	pci_write_config_word(dev, PCI_COMMAND,
+			      orig ^ PCI_COMMAND_INTX_DISABLE);
+	pci_read_config_word(dev, PCI_COMMAND, &new);
+
+	/*
+	 * There's no way to protect against hardware bugs or detect them
+	 * reliably, but as long as we know what the value should be, let's
+	 * go ahead and check it.
+	 */
+	if ((new ^ orig) & ~PCI_COMMAND_INTX_DISABLE) {
+		dev_err(&dev->dev, "Command register changed from "
+			"0x%x to 0x%x: driver or hardware bug?\n", orig, new);
+	} else if ((new ^ orig) & PCI_COMMAND_INTX_DISABLE) {
+		mask_supported = true;
+		pci_write_config_word(dev, PCI_COMMAND, orig);
+	}
+
+	pci_cfg_access_unlock(dev);
+	return mask_supported;
+}
+EXPORT_SYMBOL_GPL(pci_intx_mask_supported);
+
+static bool pci_check_and_set_intx_mask(struct pci_dev *dev, bool mask)
+{
+	struct pci_bus *bus = dev->bus;
+	bool mask_updated = true;
+	u32 cmd_status_dword;
+	u16 origcmd, newcmd;
+	unsigned long flags;
+	bool irq_pending;
+
+	/*
+	 * We do a single dword read to retrieve both command and status.
+	 * Document assumptions that make this possible.
+	 */
+	BUILD_BUG_ON(PCI_COMMAND % 4);
+	BUILD_BUG_ON(PCI_COMMAND + 2 != PCI_STATUS);
+
+	raw_spin_lock_irqsave(&pci_lock, flags);
+
+	bus->ops->read(bus, dev->devfn, PCI_COMMAND, 4, &cmd_status_dword);
+
+	irq_pending = (cmd_status_dword >> 16) & PCI_STATUS_INTERRUPT;
+
+	/*
+	 * Check interrupt status register to see whether our device
+	 * triggered the interrupt (when masking) or the next IRQ is
+	 * already pending (when unmasking).
+	 */
+	if (mask != irq_pending) {
+		mask_updated = false;
+		goto done;
+	}
+
+	origcmd = cmd_status_dword;
+	newcmd = origcmd & ~PCI_COMMAND_INTX_DISABLE;
+	if (mask)
+		newcmd |= PCI_COMMAND_INTX_DISABLE;
+	if (newcmd != origcmd)
+		bus->ops->write(bus, dev->devfn, PCI_COMMAND, 2, newcmd);
+
+done:
+	raw_spin_unlock_irqrestore(&pci_lock, flags);
+
+	return mask_updated;
+}
+
+/**
+ * pci_check_and_mask_intx - mask INTx on pending interrupt
+ * @dev: the PCI device to operate on
+ *
+ * Check if the device dev has its INTx line asserted, mask it and
+ * return true in that case. False is returned if not interrupt was
+ * pending.
+ */
+bool pci_check_and_mask_intx(struct pci_dev *dev)
+{
+	return pci_check_and_set_intx_mask(dev, true);
+}
+EXPORT_SYMBOL_GPL(pci_check_and_mask_intx);
+
+/**
+ * pci_check_and_mask_intx - unmask INTx of no interrupt is pending
+ * @dev: the PCI device to operate on
+ *
+ * Check if the device dev has its INTx line asserted, unmask it if not
+ * and return true. False is returned and the mask remains active if
+ * there was still an interrupt pending.
+ */
+bool pci_check_and_unmask_intx(struct pci_dev *dev)
+{
+	return pci_check_and_set_intx_mask(dev, false);
+}
+EXPORT_SYMBOL_GPL(pci_check_and_unmask_intx);
 
 /**
  * pci_msi_off - disables any msi or msix capabilities
@@ -2965,7 +3144,7 @@ static int pci_dev_reset(struct pci_dev *dev, int probe)
 	might_sleep();
 
 	if (!probe) {
-		pci_block_user_cfg_access(dev);
+		pci_cfg_access_lock(dev);
 		/* block PM suspend, driver probe, etc. */
 		device_lock(&dev->dev);
 	}
@@ -2990,7 +3169,7 @@ static int pci_dev_reset(struct pci_dev *dev, int probe)
 done:
 	if (!probe) {
 		device_unlock(&dev->dev);
-		pci_unblock_user_cfg_access(dev);
+		pci_cfg_access_unlock(dev);
 	}
 
 	return rc;
@@ -3018,6 +3197,31 @@ int __pci_reset_function(struct pci_dev *dev)
 	return pci_dev_reset(dev, 0);
 }
 EXPORT_SYMBOL_GPL(__pci_reset_function);
+
+/**
+ * __pci_reset_function_locked - reset a PCI device function while holding
+ * the @dev mutex lock.
+ * @dev: PCI device to reset
+ *
+ * Some devices allow an individual function to be reset without affecting
+ * other functions in the same device.  The PCI device must be responsive
+ * to PCI config space in order to use this function.
+ *
+ * The device function is presumed to be unused and the caller is holding
+ * the device mutex lock when this function is called.
+ * Resetting the device will make the contents of PCI configuration space
+ * random, so any caller of this must be prepared to reinitialise the
+ * device including MSI, bus mastering, BARs, decoding IO and memory spaces,
+ * etc.
+ *
+ * Returns 0 if the device function was successfully reset or negative if the
+ * device doesn't support resetting a single function.
+ */
+int __pci_reset_function_locked(struct pci_dev *dev)
+{
+	return pci_dev_reset(dev, 1);
+}
+EXPORT_SYMBOL_GPL(__pci_reset_function_locked);
 
 /**
  * pci_probe_reset_function - check whether the device can be safely reset
@@ -3493,6 +3697,68 @@ int pci_is_reassigndev(struct pci_dev *dev)
 	return (pci_specified_resource_alignment(dev) != 0);
 }
 
+/*
+ * This function disables memory decoding and releases memory resources
+ * of the device specified by kernel's boot parameter 'pci=resource_alignment='.
+ * It also rounds up size to specified alignment.
+ * Later on, the kernel will assign page-aligned memory resource back
+ * to the device.
+ */
+void pci_reassigndev_resource_alignment(struct pci_dev *dev)
+{
+	int i;
+	struct resource *r;
+	resource_size_t align, size;
+	u16 command;
+
+	if (!pci_is_reassigndev(dev))
+		return;
+
+	if (dev->hdr_type == PCI_HEADER_TYPE_NORMAL &&
+	    (dev->class >> 8) == PCI_CLASS_BRIDGE_HOST) {
+		dev_warn(&dev->dev,
+			"Can't reassign resources to host bridge.\n");
+		return;
+	}
+
+	dev_info(&dev->dev,
+		"Disabling memory decoding and releasing memory resources.\n");
+	pci_read_config_word(dev, PCI_COMMAND, &command);
+	command &= ~PCI_COMMAND_MEMORY;
+	pci_write_config_word(dev, PCI_COMMAND, command);
+
+	align = pci_specified_resource_alignment(dev);
+	for (i = 0; i < PCI_BRIDGE_RESOURCES; i++) {
+		r = &dev->resource[i];
+		if (!(r->flags & IORESOURCE_MEM))
+			continue;
+		size = resource_size(r);
+		if (size < align) {
+			size = align;
+			dev_info(&dev->dev,
+				"Rounding up size of resource #%d to %#llx.\n",
+				i, (unsigned long long)size);
+		}
+		r->end = size - 1;
+		r->start = 0;
+	}
+	/* Need to disable bridge's resource window,
+	 * to enable the kernel to reassign new resource
+	 * window later on.
+	 */
+	if (dev->hdr_type == PCI_HEADER_TYPE_BRIDGE &&
+	    (dev->class >> 8) == PCI_CLASS_BRIDGE_PCI) {
+		for (i = PCI_BRIDGE_RESOURCES; i < PCI_NUM_RESOURCES; i++) {
+			r = &dev->resource[i];
+			if (!(r->flags & IORESOURCE_MEM))
+				continue;
+			r->end = resource_size(r) - 1;
+			r->start = 0;
+		}
+		pci_disable_bridge_window(dev);
+	}
+}
+
 ssize_t pci_set_resource_alignment_param(const char *buf, size_t count)
 {
 	if (count > RESOURCE_ALIGNMENT_PARAM_SIZE - 1)
@@ -3571,10 +3837,14 @@ static int __init pci_setup(char *str)
 				pci_no_msi();
 			} else if (!strcmp(str, "noaer")) {
 				pci_no_aer();
+			} else if (!strncmp(str, "realloc=", 8)) {
+				pci_realloc_get_opt(str + 8);
 			} else if (!strncmp(str, "realloc", 7)) {
-				pci_realloc();
+				pci_realloc_get_opt("on");
 			} else if (!strcmp(str, "nodomains")) {
 				pci_no_domains();
+			} else if (!strncmp(str, "noari", 5)) {
+				pcie_ari_disabled = true;
 			} else if (!strncmp(str, "cbiosize=", 9)) {
 				pci_cardbus_io_size = memparse(str + 9, &str);
 			} else if (!strncmp(str, "cbmemsize=", 10)) {

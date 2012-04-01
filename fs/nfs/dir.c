@@ -47,13 +47,13 @@ static int nfs_opendir(struct inode *, struct file *);
 static int nfs_closedir(struct inode *, struct file *);
 static int nfs_readdir(struct file *, void *, filldir_t);
 static struct dentry *nfs_lookup(struct inode *, struct dentry *, struct nameidata *);
-static int nfs_create(struct inode *, struct dentry *, int, struct nameidata *);
-static int nfs_mkdir(struct inode *, struct dentry *, int);
+static int nfs_create(struct inode *, struct dentry *, umode_t, struct nameidata *);
+static int nfs_mkdir(struct inode *, struct dentry *, umode_t);
 static int nfs_rmdir(struct inode *, struct dentry *);
 static int nfs_unlink(struct inode *, struct dentry *);
 static int nfs_symlink(struct inode *, struct dentry *, const char *);
 static int nfs_link(struct dentry *, struct inode *, struct dentry *);
-static int nfs_mknod(struct inode *, struct dentry *, int, dev_t);
+static int nfs_mknod(struct inode *, struct dentry *, umode_t, dev_t);
 static int nfs_rename(struct inode *, struct dentry *,
 		      struct inode *, struct dentry *);
 static int nfs_fsync_dir(struct file *, loff_t, loff_t, int);
@@ -112,7 +112,7 @@ const struct inode_operations nfs3_dir_inode_operations = {
 #ifdef CONFIG_NFS_V4
 
 static struct dentry *nfs_atomic_lookup(struct inode *, struct dentry *, struct nameidata *);
-static int nfs_open_create(struct inode *dir, struct dentry *dentry, int mode, struct nameidata *nd);
+static int nfs_open_create(struct inode *dir, struct dentry *dentry, umode_t mode, struct nameidata *nd);
 const struct inode_operations nfs4_dir_inode_operations = {
 	.create		= nfs_open_create,
 	.lookup		= nfs_atomic_lookup,
@@ -207,7 +207,7 @@ struct nfs_cache_array_entry {
 };
 
 struct nfs_cache_array {
-	unsigned int size;
+	int size;
 	int eof_index;
 	u64 last_cookie;
 	struct nfs_cache_array_entry array[0];
@@ -260,10 +260,10 @@ void nfs_readdir_clear_array(struct page *page)
 	struct nfs_cache_array *array;
 	int i;
 
-	array = kmap_atomic(page, KM_USER0);
+	array = kmap_atomic(page);
 	for (i = 0; i < array->size; i++)
 		kfree(array->array[i].string.name);
-	kunmap_atomic(array, KM_USER0);
+	kunmap_atomic(array);
 }
 
 /*
@@ -1368,18 +1368,7 @@ static fmode_t flags_to_mode(int flags)
 
 static struct nfs_open_context *create_nfs_open_context(struct dentry *dentry, int open_flags)
 {
-	struct nfs_open_context *ctx;
-	struct rpc_cred *cred;
-	fmode_t fmode = flags_to_mode(open_flags);
-
-	cred = rpc_lookup_cred();
-	if (IS_ERR(cred))
-		return ERR_CAST(cred);
-	ctx = alloc_nfs_open_context(dentry, cred, fmode);
-	put_rpccred(cred);
-	if (ctx == NULL)
-		return ERR_PTR(-ENOMEM);
-	return ctx;
+	return alloc_nfs_open_context(dentry, flags_to_mode(open_flags));
 }
 
 static int do_open(struct inode *inode, struct file *filp)
@@ -1440,6 +1429,7 @@ static struct dentry *nfs_atomic_lookup(struct inode *dir, struct dentry *dentry
 	}
 
 	open_flags = nd->intent.open.flags;
+	attr.ia_valid = 0;
 
 	ctx = create_nfs_open_context(dentry, open_flags);
 	res = ERR_CAST(ctx);
@@ -1448,11 +1438,14 @@ static struct dentry *nfs_atomic_lookup(struct inode *dir, struct dentry *dentry
 
 	if (nd->flags & LOOKUP_CREATE) {
 		attr.ia_mode = nd->intent.open.create_mode;
-		attr.ia_valid = ATTR_MODE;
+		attr.ia_valid |= ATTR_MODE;
 		attr.ia_mode &= ~current_umask();
-	} else {
+	} else
 		open_flags &= ~(O_EXCL | O_CREAT);
-		attr.ia_valid = 0;
+
+	if (open_flags & O_TRUNC) {
+		attr.ia_valid |= ATTR_SIZE;
+		attr.ia_size = 0;
 	}
 
 	/* Open the file on the server */
@@ -1506,6 +1499,7 @@ static int nfs_open_revalidate(struct dentry *dentry, struct nameidata *nd)
 	struct inode *inode;
 	struct inode *dir;
 	struct nfs_open_context *ctx;
+	struct iattr attr;
 	int openflags, ret = 0;
 
 	if (nd->flags & LOOKUP_RCU)
@@ -1534,19 +1528,27 @@ static int nfs_open_revalidate(struct dentry *dentry, struct nameidata *nd)
 	/* We cannot do exclusive creation on a positive dentry */
 	if ((openflags & (O_CREAT|O_EXCL)) == (O_CREAT|O_EXCL))
 		goto no_open_dput;
-	/* We can't create new files, or truncate existing ones here */
-	openflags &= ~(O_CREAT|O_EXCL|O_TRUNC);
+	/* We can't create new files here */
+	openflags &= ~(O_CREAT|O_EXCL);
 
 	ctx = create_nfs_open_context(dentry, openflags);
 	ret = PTR_ERR(ctx);
 	if (IS_ERR(ctx))
 		goto out;
+
+	attr.ia_valid = 0;
+	if (openflags & O_TRUNC) {
+		attr.ia_valid |= ATTR_SIZE;
+		attr.ia_size = 0;
+		nfs_wb_all(inode);
+	}
+
 	/*
 	 * Note: we're not holding inode->i_mutex and so may be racing with
 	 * operations that change the directory. We therefore save the
 	 * change attribute *before* we do the RPC call.
 	 */
-	inode = NFS_PROTO(dir)->open_context(dir, ctx, openflags, NULL);
+	inode = NFS_PROTO(dir)->open_context(dir, ctx, openflags, &attr);
 	if (IS_ERR(inode)) {
 		ret = PTR_ERR(inode);
 		switch (ret) {
@@ -1584,8 +1586,8 @@ no_open:
 	return nfs_lookup_revalidate(dentry, nd);
 }
 
-static int nfs_open_create(struct inode *dir, struct dentry *dentry, int mode,
-		struct nameidata *nd)
+static int nfs_open_create(struct inode *dir, struct dentry *dentry,
+		umode_t mode, struct nameidata *nd)
 {
 	struct nfs_open_context *ctx = NULL;
 	struct iattr attr;
@@ -1675,8 +1677,8 @@ out_error:
  * that the operation succeeded on the server, but an error in the
  * reply path made it appear to have failed.
  */
-static int nfs_create(struct inode *dir, struct dentry *dentry, int mode,
-		struct nameidata *nd)
+static int nfs_create(struct inode *dir, struct dentry *dentry,
+		umode_t mode, struct nameidata *nd)
 {
 	struct iattr attr;
 	int error;
@@ -1704,7 +1706,7 @@ out_err:
  * See comments for nfs_proc_create regarding failed operations.
  */
 static int
-nfs_mknod(struct inode *dir, struct dentry *dentry, int mode, dev_t rdev)
+nfs_mknod(struct inode *dir, struct dentry *dentry, umode_t mode, dev_t rdev)
 {
 	struct iattr attr;
 	int status;
@@ -1730,7 +1732,7 @@ out_err:
 /*
  * See comments for nfs_proc_create regarding failed operations.
  */
-static int nfs_mkdir(struct inode *dir, struct dentry *dentry, int mode)
+static int nfs_mkdir(struct inode *dir, struct dentry *dentry, umode_t mode)
 {
 	struct iattr attr;
 	int error;
@@ -1881,11 +1883,11 @@ static int nfs_symlink(struct inode *dir, struct dentry *dentry, const char *sym
 	if (!page)
 		return -ENOMEM;
 
-	kaddr = kmap_atomic(page, KM_USER0);
+	kaddr = kmap_atomic(page);
 	memcpy(kaddr, symname, pathlen);
 	if (pathlen < PAGE_SIZE)
 		memset(kaddr + pathlen, 0, PAGE_SIZE - pathlen);
-	kunmap_atomic(kaddr, KM_USER0);
+	kunmap_atomic(kaddr);
 
 	error = NFS_PROTO(dir)->symlink(dir, dentry, page, pathlen, &attr);
 	if (error != 0) {

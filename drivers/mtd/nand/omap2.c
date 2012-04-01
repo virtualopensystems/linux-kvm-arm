@@ -1058,6 +1058,7 @@ static int __devinit omap_nand_probe(struct platform_device *pdev)
 		(pdata->ecc_opt == OMAP_ECC_HAMMING_CODE_HW_ROMCODE)) {
 		info->nand.ecc.bytes            = 3;
 		info->nand.ecc.size             = 512;
+		info->nand.ecc.strength         = 1;
 		info->nand.ecc.calculate        = omap_calculate_ecc;
 		info->nand.ecc.hwctl            = omap_enable_hwecc;
 		info->nand.ecc.correct          = omap_correct_data;
@@ -1101,8 +1102,8 @@ static int __devinit omap_nand_probe(struct platform_device *pdev)
 		goto out_release_mem_region;
 	}
 
-	mtd_device_parse_register(&info->mtd, NULL, 0,
-			pdata->parts, pdata->nr_parts);
+	mtd_device_parse_register(&info->mtd, NULL, NULL, pdata->parts,
+				  pdata->nr_parts);
 
 	platform_set_drvdata(pdev, &info->mtd);
 
@@ -1145,20 +1146,7 @@ static struct platform_driver omap_nand_driver = {
 	},
 };
 
-static int __init omap_nand_init(void)
-{
-	pr_info("%s driver initializing\n", DRIVER_NAME);
-
-	return platform_driver_register(&omap_nand_driver);
-}
-
-static void __exit omap_nand_exit(void)
-{
-	platform_driver_unregister(&omap_nand_driver);
-}
-
-module_init(omap_nand_init);
-module_exit(omap_nand_exit);
+module_platform_driver(omap_nand_driver);
 
 MODULE_ALIAS("platform:" DRIVER_NAME);
 MODULE_LICENSE("GPL");

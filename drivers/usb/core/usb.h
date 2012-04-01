@@ -56,6 +56,7 @@ extern void usb_major_cleanup(void);
 
 extern int usb_suspend(struct device *dev, pm_message_t msg);
 extern int usb_resume(struct device *dev, pm_message_t msg);
+extern int usb_resume_complete(struct device *dev);
 
 extern int usb_port_suspend(struct usb_device *dev, pm_message_t msg);
 extern int usb_port_resume(struct usb_device *dev, pm_message_t msg);
@@ -131,20 +132,6 @@ static inline int is_usb_device_driver(struct device_driver *drv)
 	return container_of(drv, struct usbdrv_wrap, driver)->
 			for_devices;
 }
-
-/* translate USB error codes to codes user space understands */
-static inline int usb_translate_errors(int error_code)
-{
-	switch (error_code) {
-	case 0:
-	case -ENOMEM:
-	case -ENODEV:
-		return error_code;
-	default:
-		return -EIO;
-	}
-}
-
 
 /* for labeling diagnostics */
 extern const char *usbcore_name;

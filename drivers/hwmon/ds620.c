@@ -161,7 +161,7 @@ static ssize_t set_temp(struct device *dev, struct device_attribute *da,
 	struct i2c_client *client = to_i2c_client(dev);
 	struct ds620_data *data = i2c_get_clientdata(client);
 
-	res = strict_strtol(buf, 10, &val);
+	res = kstrtol(buf, 10, &val);
 
 	if (res)
 		return res;
@@ -297,19 +297,8 @@ static struct i2c_driver ds620_driver = {
 	.id_table = ds620_id,
 };
 
-static int __init ds620_init(void)
-{
-	return i2c_add_driver(&ds620_driver);
-}
-
-static void __exit ds620_exit(void)
-{
-	i2c_del_driver(&ds620_driver);
-}
+module_i2c_driver(ds620_driver);
 
 MODULE_AUTHOR("Roland Stigge <stigge@antcom.de>");
 MODULE_DESCRIPTION("DS620 driver");
 MODULE_LICENSE("GPL");
-
-module_init(ds620_init);
-module_exit(ds620_exit);

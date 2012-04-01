@@ -83,6 +83,16 @@ static inline bool radeon_bo_is_reserved(struct radeon_bo *bo)
 	return !!atomic_read(&bo->tbo.reserved);
 }
 
+static inline unsigned radeon_bo_ngpu_pages(struct radeon_bo *bo)
+{
+	return (bo->tbo.num_pages << PAGE_SHIFT) / RADEON_GPU_PAGE_SIZE;
+}
+
+static inline unsigned radeon_bo_gpu_page_alignment(struct radeon_bo *bo)
+{
+	return (bo->tbo.mem.page_alignment << PAGE_SHIFT) / RADEON_GPU_PAGE_SIZE;
+}
+
 /**
  * radeon_bo_mmap_offset - return mmap offset of bo
  * @bo:	radeon object for which we query the offset
@@ -108,6 +118,8 @@ extern int radeon_bo_kmap(struct radeon_bo *bo, void **ptr);
 extern void radeon_bo_kunmap(struct radeon_bo *bo);
 extern void radeon_bo_unref(struct radeon_bo **bo);
 extern int radeon_bo_pin(struct radeon_bo *bo, u32 domain, u64 *gpu_addr);
+extern int radeon_bo_pin_restricted(struct radeon_bo *bo, u32 domain,
+				    u64 max_offset, u64 *gpu_addr);
 extern int radeon_bo_unpin(struct radeon_bo *bo);
 extern int radeon_bo_evict_vram(struct radeon_device *rdev);
 extern void radeon_bo_force_delete(struct radeon_device *rdev);
@@ -128,4 +140,26 @@ extern void radeon_bo_move_notify(struct ttm_buffer_object *bo,
 					struct ttm_mem_reg *mem);
 extern int radeon_bo_fault_reserve_notify(struct ttm_buffer_object *bo);
 extern int radeon_bo_get_surface_reg(struct radeon_bo *bo);
+extern struct radeon_bo_va *radeon_bo_va(struct radeon_bo *rbo,
+					 struct radeon_vm *vm);
+
+/*
+ * sub allocation
+ */
+extern int radeon_sa_bo_manager_init(struct radeon_device *rdev,
+				     struct radeon_sa_manager *sa_manager,
+				     unsigned size, u32 domain);
+extern void radeon_sa_bo_manager_fini(struct radeon_device *rdev,
+				      struct radeon_sa_manager *sa_manager);
+extern int radeon_sa_bo_manager_start(struct radeon_device *rdev,
+				      struct radeon_sa_manager *sa_manager);
+extern int radeon_sa_bo_manager_suspend(struct radeon_device *rdev,
+					struct radeon_sa_manager *sa_manager);
+extern int radeon_sa_bo_new(struct radeon_device *rdev,
+			    struct radeon_sa_manager *sa_manager,
+			    struct radeon_sa_bo *sa_bo,
+			    unsigned size, unsigned align);
+extern void radeon_sa_bo_free(struct radeon_device *rdev,
+			      struct radeon_sa_bo *sa_bo);
+
 #endif

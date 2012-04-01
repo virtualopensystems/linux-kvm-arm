@@ -966,18 +966,6 @@ typhoon_get_stats(struct net_device *dev)
 	return stats;
 }
 
-static int
-typhoon_set_mac_address(struct net_device *dev, void *addr)
-{
-	struct sockaddr *saddr = (struct sockaddr *) addr;
-
-	if(netif_running(dev))
-		return -EBUSY;
-
-	memcpy(dev->dev_addr, saddr->sa_data, dev->addr_len);
-	return 0;
-}
-
 static void
 typhoon_get_drvinfo(struct net_device *dev, struct ethtool_drvinfo *info)
 {
@@ -988,21 +976,23 @@ typhoon_get_drvinfo(struct net_device *dev, struct ethtool_drvinfo *info)
 
 	smp_rmb();
 	if(tp->card_state == Sleeping) {
-		strcpy(info->fw_version, "Sleep image");
+		strlcpy(info->fw_version, "Sleep image",
+			sizeof(info->fw_version));
 	} else {
 		INIT_COMMAND_WITH_RESPONSE(&xp_cmd, TYPHOON_CMD_READ_VERSIONS);
 		if(typhoon_issue_command(tp, 1, &xp_cmd, 3, xp_resp) < 0) {
-			strcpy(info->fw_version, "Unknown runtime");
+			strlcpy(info->fw_version, "Unknown runtime",
+				sizeof(info->fw_version));
 		} else {
 			u32 sleep_ver = le32_to_cpu(xp_resp[0].parm2);
-			snprintf(info->fw_version, 32, "%02x.%03x.%03x",
-				 sleep_ver >> 24, (sleep_ver >> 12) & 0xfff,
-				 sleep_ver & 0xfff);
+			snprintf(info->fw_version, sizeof(info->fw_version),
+				"%02x.%03x.%03x", sleep_ver >> 24,
+				(sleep_ver >> 12) & 0xfff, sleep_ver & 0xfff);
 		}
 	}
 
-	strcpy(info->driver, KBUILD_MODNAME);
-	strcpy(info->bus_info, pci_name(pci_dev));
+	strlcpy(info->driver, KBUILD_MODNAME, sizeof(info->driver));
+	strlcpy(info->bus_info, pci_name(pci_dev), sizeof(info->bus_info));
 }
 
 static int
@@ -1605,7 +1595,7 @@ typhoon_alloc_rx_skb(struct typhoon *tp, u32 idx)
 				le32_to_cpu(indexes->rxBuffCleared))
 		return -ENOMEM;
 
-	skb = dev_alloc_skb(PKT_BUF_SZ);
+	skb = netdev_alloc_skb(tp->dev, PKT_BUF_SZ);
 	if(!skb)
 		return -ENOMEM;
 
@@ -1616,7 +1606,6 @@ typhoon_alloc_rx_skb(struct typhoon *tp, u32 idx)
 	skb_reserve(skb, 2);
 #endif
 
-	skb->dev = tp->dev;
 	dma_addr = pci_map_single(tp->pdev, skb->data,
 				  PKT_BUF_SZ, PCI_DMA_FROMDEVICE);
 
@@ -1671,7 +1660,7 @@ typhoon_rx(struct typhoon *tp, struct basic_ring *rxRing, volatile __le32 * read
 		pkt_len = le16_to_cpu(rx->frameLen);
 
 		if(pkt_len < rx_copybreak &&
-		   (new_skb = dev_alloc_skb(pkt_len + 2)) != NULL) {
+		   (new_skb = netdev_alloc_skb(tp->dev, pkt_len + 2)) != NULL) {
 			skb_reserve(new_skb, 2);
 			pci_dma_sync_single_for_cpu(tp->pdev, dma_addr,
 						    PKT_BUF_SZ,
@@ -2265,7 +2254,7 @@ static const struct net_device_ops typhoon_netdev_ops = {
 	.ndo_tx_timeout		= typhoon_tx_timeout,
 	.ndo_get_stats		= typhoon_get_stats,
 	.ndo_validate_addr	= eth_validate_addr,
-	.ndo_set_mac_address	= typhoon_set_mac_address,
+	.ndo_set_mac_address	= eth_mac_addr,
 	.ndo_change_mtu		= eth_change_mtu,
 };
 

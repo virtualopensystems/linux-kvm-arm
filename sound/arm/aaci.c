@@ -1097,6 +1097,8 @@ static struct amba_id aaci_ids[] = {
 	{ 0, 0 },
 };
 
+MODULE_DEVICE_TABLE(amba, aaci_ids);
+
 static struct amba_driver aaci_driver = {
 	.drv		= {
 		.name	= DRIVER_NAME,
@@ -1108,18 +1110,7 @@ static struct amba_driver aaci_driver = {
 	.id_table	= aaci_ids,
 };
 
-static int __init aaci_init(void)
-{
-	return amba_driver_register(&aaci_driver);
-}
-
-static void __exit aaci_exit(void)
-{
-	amba_driver_unregister(&aaci_driver);
-}
-
-module_init(aaci_init);
-module_exit(aaci_exit);
+module_amba_driver(aaci_driver);
 
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("ARM PrimeCell PL041 Advanced Audio CODEC Interface driver");

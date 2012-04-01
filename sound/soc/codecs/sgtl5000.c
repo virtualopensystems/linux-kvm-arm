@@ -16,7 +16,6 @@
 #include <linux/pm.h>
 #include <linux/i2c.h>
 #include <linux/clk.h>
-#include <linux/platform_device.h>
 #include <linux/regulator/driver.h>
 #include <linux/regulator/machine.h>
 #include <linux/regulator/consumer.h>
@@ -228,7 +227,7 @@ static const struct snd_soc_dapm_widget sgtl5000_dapm_widgets[] = {
 };
 
 /* routes for sgtl5000 */
-static const struct snd_soc_dapm_route audio_map[] = {
+static const struct snd_soc_dapm_route sgtl5000_dapm_routes[] = {
 	{"Capture Mux", "LINE_IN", "LINE_IN"},	/* line_in --> adc_mux */
 	{"Capture Mux", "MIC_IN", "MIC_IN"},	/* mic_in --> adc_mux */
 
@@ -833,7 +832,7 @@ static int ldo_regulator_register(struct snd_soc_codec *codec,
 	ldo->voltage = voltage;
 
 	ldo->dev = regulator_register(&ldo->desc, codec->dev,
-					  init_data, ldo);
+					  init_data, ldo, NULL);
 	if (IS_ERR(ldo->dev)) {
 		int ret = PTR_ERR(ldo->dev);
 
@@ -923,7 +922,7 @@ static int sgtl5000_set_bias_level(struct snd_soc_codec *codec,
 			SNDRV_PCM_FMTBIT_S24_LE |\
 			SNDRV_PCM_FMTBIT_S32_LE)
 
-static struct snd_soc_dai_ops sgtl5000_ops = {
+static const struct snd_soc_dai_ops sgtl5000_ops = {
 	.hw_params = sgtl5000_pcm_hw_params,
 	.digital_mute = sgtl5000_digital_mute,
 	.set_fmt = sgtl5000_set_dai_fmt,
@@ -968,7 +967,7 @@ static int sgtl5000_volatile_register(struct snd_soc_codec *codec,
 }
 
 #ifdef CONFIG_SUSPEND
-static int sgtl5000_suspend(struct snd_soc_codec *codec, pm_message_t state)
+static int sgtl5000_suspend(struct snd_soc_codec *codec)
 {
 	sgtl5000_set_bias_level(codec, SND_SOC_BIAS_OFF);
 
@@ -988,12 +987,12 @@ static int sgtl5000_restore_regs(struct snd_soc_codec *codec)
 	/* restore regular registers */
 	for (reg = 0; reg <= SGTL5000_CHIP_SHORT_CTRL; reg += 2) {
 
-		/* this regs depends on the others */
+		/* These regs should restore in particular order */
 		if (reg == SGTL5000_CHIP_ANA_POWER ||
 			reg == SGTL5000_CHIP_CLK_CTRL ||
 			reg == SGTL5000_CHIP_LINREG_CTRL ||
 			reg == SGTL5000_CHIP_LINE_OUT_CTRL ||
-			reg == SGTL5000_CHIP_CLK_CTRL)
+			reg == SGTL5000_CHIP_REF_CTRL)
 			continue;
 
 		snd_soc_write(codec, reg, cache[reg]);
@@ -1004,8 +1003,17 @@ static int sgtl5000_restore_regs(struct snd_soc_codec *codec)
 		snd_soc_write(codec, reg, cache[reg]);
 
 	/*
-	 * restore power and other regs according
-	 * to set_power() and set_clock()
+	 * restore these regs according to the power setting sequence in
+	 * sgtl5000_set_power_regs() and clock setting sequence in
+	 * sgtl5000_set_clock().
+	 *
+	 * The order of restore is:
+	 * 1. SGTL5000_CHIP_CLK_CTRL MCLK_FREQ bits (1:0) should be restore after
+	 *    SGTL5000_CHIP_ANA_POWER PLL bits set
+	 * 2. SGTL5000_CHIP_LINREG_CTRL should be set before
+	 *    SGTL5000_CHIP_ANA_POWER LINREG_D restored
+	 * 3. SGTL5000_CHIP_REF_CTRL controls Analog Ground Voltage,
+	 *    prefer to resotre it after SGTL5000_CHIP_ANA_POWER restored
 	 */
 	snd_soc_write(codec, SGTL5000_CHIP_LINREG_CTRL,
 			cache[SGTL5000_CHIP_LINREG_CTRL]);
@@ -1077,7 +1085,7 @@ static int sgtl5000_set_power_regs(struct snd_soc_codec *codec)
 	/* according to datasheet, maximum voltage of supplies */
 	if (vdda > 3600 || vddio > 3600 || vddd > 1980) {
 		dev_err(codec->dev,
-			"exceed max voltage vdda %dmv vddio %dma vddd %dma\n",
+			"exceed max voltage vdda %dmV vddio %dmV vddd %dmV\n",
 			vdda, vddio, vddd);
 
 		return -EINVAL;
@@ -1240,7 +1248,7 @@ static int sgtl5000_enable_regulators(struct snd_soc_codec *codec)
 	}
 
 	rev = (reg & SGTL5000_REVID_MASK) >> SGTL5000_REVID_SHIFT;
-	dev_info(codec->dev, "sgtl5000 revision %d\n", rev);
+	dev_info(codec->dev, "sgtl5000 revision 0x%x\n", rev);
 
 	/*
 	 * workaround for revision 0x11 and later,
@@ -1345,15 +1353,6 @@ static int sgtl5000_probe(struct snd_soc_codec *codec)
 	if (ret)
 		goto err;
 
-	snd_soc_add_controls(codec, sgtl5000_snd_controls,
-			     ARRAY_SIZE(sgtl5000_snd_controls));
-
-	snd_soc_dapm_new_controls(&codec->dapm, sgtl5000_dapm_widgets,
-				  ARRAY_SIZE(sgtl5000_dapm_widgets));
-
-	snd_soc_dapm_add_routes(&codec->dapm, audio_map,
-				ARRAY_SIZE(audio_map));
-
 	snd_soc_dapm_new_widgets(&codec->dapm);
 
 	return 0;
@@ -1394,6 +1393,12 @@ static struct snd_soc_codec_driver sgtl5000_driver = {
 	.reg_cache_step = 2,
 	.reg_cache_default = sgtl5000_regs,
 	.volatile_register = sgtl5000_volatile_register,
+	.controls = sgtl5000_snd_controls,
+	.num_controls = ARRAY_SIZE(sgtl5000_snd_controls),
+	.dapm_widgets = sgtl5000_dapm_widgets,
+	.num_dapm_widgets = ARRAY_SIZE(sgtl5000_dapm_widgets),
+	.dapm_routes = sgtl5000_dapm_routes,
+	.num_dapm_routes = ARRAY_SIZE(sgtl5000_dapm_routes),
 };
 
 static __devinit int sgtl5000_i2c_probe(struct i2c_client *client,
@@ -1402,7 +1407,8 @@ static __devinit int sgtl5000_i2c_probe(struct i2c_client *client,
 	struct sgtl5000_priv *sgtl5000;
 	int ret;
 
-	sgtl5000 = kzalloc(sizeof(struct sgtl5000_priv), GFP_KERNEL);
+	sgtl5000 = devm_kzalloc(&client->dev, sizeof(struct sgtl5000_priv),
+								GFP_KERNEL);
 	if (!sgtl5000)
 		return -ENOMEM;
 
@@ -1410,22 +1416,13 @@ static __devinit int sgtl5000_i2c_probe(struct i2c_client *client,
 
 	ret = snd_soc_register_codec(&client->dev,
 			&sgtl5000_driver, &sgtl5000_dai, 1);
-	if (ret) {
-		dev_err(&client->dev, "Failed to register codec: %d\n", ret);
-		kfree(sgtl5000);
-		return ret;
-	}
-
-	return 0;
+	return ret;
 }
 
 static __devexit int sgtl5000_i2c_remove(struct i2c_client *client)
 {
-	struct sgtl5000_priv *sgtl5000 = i2c_get_clientdata(client);
-
 	snd_soc_unregister_codec(&client->dev);
 
-	kfree(sgtl5000);
 	return 0;
 }
 
@@ -1466,5 +1463,5 @@ static void __exit sgtl5000_exit(void)
 module_exit(sgtl5000_exit);
 
 MODULE_DESCRIPTION("Freescale SGTL5000 ALSA SoC Codec Driver");
-MODULE_AUTHOR("Zeng Zhaoming <zhaoming.zeng@freescale.com>");
+MODULE_AUTHOR("Zeng Zhaoming <zengzm.kernel@gmail.com>");
 MODULE_LICENSE("GPL");

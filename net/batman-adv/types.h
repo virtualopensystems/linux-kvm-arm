@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2007-2011 B.A.T.M.A.N. contributors:
+ * Copyright (C) 2007-2012 B.A.T.M.A.N. contributors:
  *
  * Marek Lindner, Simon Wunderlich
  *
@@ -81,6 +81,7 @@ struct orig_node {
 	int16_t tt_buff_len;
 	spinlock_t tt_buff_lock; /* protects tt_buff */
 	atomic_t tt_size;
+	bool tt_initialised;
 	/* The tt_poss_change flag is used to detect an ongoing roaming phase.
 	 * If true, then I sent a Roaming_adv to this orig_node and I have to
 	 * inspect every packet directed to it to check whether it is still
@@ -205,6 +206,7 @@ struct bat_priv {
 	atomic_t gw_reselect;
 	struct hard_iface __rcu *primary_if;  /* rcu protected pointer */
 	struct vis_info *my_vis_info;
+	struct bat_algo_ops *bat_algo_ops;
 };
 
 struct socket_client {
@@ -222,24 +224,24 @@ struct socket_packet {
 	struct icmp_packet_rr icmp_packet;
 };
 
-struct tt_local_entry {
+struct tt_common_entry {
 	uint8_t addr[ETH_ALEN];
 	struct hlist_node hash_entry;
-	unsigned long last_seen;
 	uint16_t flags;
 	atomic_t refcount;
 	struct rcu_head rcu;
 };
 
+struct tt_local_entry {
+	struct tt_common_entry common;
+	unsigned long last_seen;
+};
+
 struct tt_global_entry {
-	uint8_t addr[ETH_ALEN];
-	struct hlist_node hash_entry; /* entry in the global table */
+	struct tt_common_entry common;
 	struct orig_node *orig_node;
 	uint8_t ttvn;
-	uint16_t flags; /* only TT_GLOBAL_ROAM is used */
 	unsigned long roam_at; /* time at which TT_GLOBAL_ROAM was set */
-	atomic_t refcount;
-	struct rcu_head rcu;
 };
 
 struct tt_change_node {
@@ -341,6 +343,25 @@ struct softif_neigh {
 	unsigned long last_seen;
 	atomic_t refcount;
 	struct rcu_head rcu;
+};
+
+struct bat_algo_ops {
+	struct hlist_node list;
+	char *name;
+	/* init OGM when hard-interface is enabled */
+	void (*bat_ogm_init)(struct hard_iface *hard_iface);
+	/* init primary OGM when primary interface is selected */
+	void (*bat_ogm_init_primary)(struct hard_iface *hard_iface);
+	/* init mac addresses of the OGM belonging to this hard-interface */
+	void (*bat_ogm_update_mac)(struct hard_iface *hard_iface);
+	/* prepare a new outgoing OGM for the send queue */
+	void (*bat_ogm_schedule)(struct hard_iface *hard_iface,
+				 int tt_num_changes);
+	/* send scheduled OGM */
+	void (*bat_ogm_emit)(struct forw_packet *forw_packet);
+	/* receive incoming OGM */
+	void (*bat_ogm_receive)(struct hard_iface *if_incoming,
+				struct sk_buff *skb);
 };
 
 #endif /* _NET_BATMAN_ADV_TYPES_H_ */

@@ -366,7 +366,7 @@ vrtc_mrst_do_probe(struct device *dev, struct resource *iomem, int rtc_irq)
 
 	if (rtc_irq) {
 		retval = request_irq(rtc_irq, mrst_rtc_irq,
-				IRQF_DISABLED, dev_name(&mrst_rtc.rtc->dev),
+				0, dev_name(&mrst_rtc.rtc->dev),
 				mrst_rtc.rtc);
 		if (retval < 0) {
 			dev_dbg(dev, "IRQ %d is already in use, err %d\n",
@@ -537,18 +537,7 @@ static struct platform_driver vrtc_mrst_platform_driver = {
 	}
 };
 
-static int __init vrtc_mrst_init(void)
-{
-	return platform_driver_register(&vrtc_mrst_platform_driver);
-}
-
-static void __exit vrtc_mrst_exit(void)
-{
-	platform_driver_unregister(&vrtc_mrst_platform_driver);
-}
-
-module_init(vrtc_mrst_init);
-module_exit(vrtc_mrst_exit);
+module_platform_driver(vrtc_mrst_platform_driver);
 
 MODULE_AUTHOR("Jacob Pan; Feng Tang");
 MODULE_DESCRIPTION("Driver for Moorestown virtual RTC");

@@ -149,7 +149,7 @@ void __init rd88f5182_pci_preinit(void)
 		if (gpio_direction_input(pin) == 0) {
 			irq_set_irq_type(gpio_to_irq(pin), IRQ_TYPE_LEVEL_LOW);
 		} else {
-			printk(KERN_ERR "rd88f5182_pci_preinit faield to "
+			printk(KERN_ERR "rd88f5182_pci_preinit failed to "
 					"set_irq_type pin %d\n", pin);
 			gpio_free(pin);
 		}
@@ -162,7 +162,7 @@ void __init rd88f5182_pci_preinit(void)
 		if (gpio_direction_input(pin) == 0) {
 			irq_set_irq_type(gpio_to_irq(pin), IRQ_TYPE_LEVEL_LOW);
 		} else {
-			printk(KERN_ERR "rd88f5182_pci_preinit faield to "
+			printk(KERN_ERR "rd88f5182_pci_preinit failed to "
 					"set_irq_type pin %d\n", pin);
 			gpio_free(pin);
 		}
@@ -311,4 +311,5 @@ MACHINE_START(RD88F5182, "Marvell Orion-NAS Reference Design")
 	.init_early	= orion5x_init_early,
 	.init_irq	= orion5x_init_irq,
 	.timer		= &orion5x_timer,
+	.restart	= orion5x_restart,
 MACHINE_END

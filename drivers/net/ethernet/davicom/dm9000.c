@@ -474,10 +474,11 @@ static int dm9000_nway_reset(struct net_device *dev)
 	return mii_nway_restart(&dm->mii);
 }
 
-static int dm9000_set_features(struct net_device *dev, u32 features)
+static int dm9000_set_features(struct net_device *dev,
+	netdev_features_t features)
 {
 	board_info_t *dm = to_dm9000_board(dev);
-	u32 changed = dev->features ^ features;
+	netdev_features_t changed = dev->features ^ features;
 	unsigned long flags;
 
 	if (!(changed & NETIF_F_RXCSUM))
@@ -1027,7 +1028,7 @@ dm9000_rx(struct net_device *dev)
 
 		/* Move data from DM9000 */
 		if (GoodPacket &&
-		    ((skb = dev_alloc_skb(RxLen + 4)) != NULL)) {
+		    ((skb = netdev_alloc_skb(dev, RxLen + 4)) != NULL)) {
 			skb_reserve(skb, 2);
 			rdptr = (u8 *) skb_put(skb, RxLen - 4);
 
@@ -1372,10 +1373,8 @@ dm9000_probe(struct platform_device *pdev)
 
 	/* Init network device */
 	ndev = alloc_etherdev(sizeof(struct board_info));
-	if (!ndev) {
-		dev_err(&pdev->dev, "could not allocate device.\n");
+	if (!ndev)
 		return -ENOMEM;
-	}
 
 	SET_NETDEV_DEV(ndev, &pdev->dev);
 
@@ -1586,7 +1585,7 @@ dm9000_probe(struct platform_device *pdev)
 		dev_warn(db->dev, "%s: Invalid ethernet MAC address. Please "
 			 "set using ifconfig\n", ndev->name);
 
-		random_ether_addr(ndev->dev_addr);
+		eth_hw_addr_random(ndev);
 		mac_src = "random";
 	}
 

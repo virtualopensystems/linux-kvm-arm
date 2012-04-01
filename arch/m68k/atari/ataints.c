@@ -42,7 +42,6 @@
 #include <linux/seq_file.h>
 #include <linux/module.h>
 
-#include <asm/system.h>
 #include <asm/traps.h>
 
 #include <asm/atarihw.h>
@@ -81,8 +80,6 @@ __ALIGN_STR "\n\t"
 	"rte");
 
 extern void atari_microwire_cmd(int cmd);
-
-extern int atari_SCC_reset_done;
 
 static unsigned int atari_irq_startup(struct irq_data *data)
 {

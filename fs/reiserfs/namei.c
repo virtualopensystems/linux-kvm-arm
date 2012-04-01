@@ -14,9 +14,9 @@
 #include <linux/time.h>
 #include <linux/bitops.h>
 #include <linux/slab.h>
-#include <linux/reiserfs_fs.h>
-#include <linux/reiserfs_acl.h>
-#include <linux/reiserfs_xattr.h>
+#include "reiserfs.h"
+#include "acl.h"
+#include "xattr.h"
 #include <linux/quotaops.h>
 
 #define INC_DIR_INODE_NLINK(i) if (i->i_nlink != 1) { inc_nlink(i); if (i->i_nlink >= REISERFS_LINK_MAX) set_nlink(i, 1); }
@@ -559,7 +559,7 @@ static int drop_new_inode(struct inode *inode)
 ** outside of a transaction, so we had to pull some bits of
 ** reiserfs_new_inode out into this func.
 */
-static int new_inode_init(struct inode *inode, struct inode *dir, int mode)
+static int new_inode_init(struct inode *inode, struct inode *dir, umode_t mode)
 {
 	/* Make inode invalid - just in case we are going to drop it before
 	 * the initialization happens */
@@ -572,7 +572,7 @@ static int new_inode_init(struct inode *inode, struct inode *dir, int mode)
 	return 0;
 }
 
-static int reiserfs_create(struct inode *dir, struct dentry *dentry, int mode,
+static int reiserfs_create(struct inode *dir, struct dentry *dentry, umode_t mode,
 			   struct nameidata *nd)
 {
 	int retval;
@@ -643,7 +643,7 @@ static int reiserfs_create(struct inode *dir, struct dentry *dentry, int mode,
 	return retval;
 }
 
-static int reiserfs_mknod(struct inode *dir, struct dentry *dentry, int mode,
+static int reiserfs_mknod(struct inode *dir, struct dentry *dentry, umode_t mode,
 			  dev_t rdev)
 {
 	int retval;
@@ -721,7 +721,7 @@ static int reiserfs_mknod(struct inode *dir, struct dentry *dentry, int mode,
 	return retval;
 }
 
-static int reiserfs_mkdir(struct inode *dir, struct dentry *dentry, int mode)
+static int reiserfs_mkdir(struct inode *dir, struct dentry *dentry, umode_t mode)
 {
 	int retval;
 	struct inode *inode;

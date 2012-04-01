@@ -485,6 +485,7 @@ static int lbs_cfg_set_channel(struct wiphy *wiphy,
 static int lbs_ret_scan(struct lbs_private *priv, unsigned long dummy,
 	struct cmd_header *resp)
 {
+	struct cfg80211_bss *bss;
 	struct cmd_ds_802_11_scan_rsp *scanresp = (void *)resp;
 	int bsssize;
 	const u8 *pos;
@@ -632,12 +633,14 @@ static int lbs_ret_scan(struct lbs_private *priv, unsigned long dummy,
 				     LBS_SCAN_RSSI_TO_MBM(rssi)/100);
 
 			if (channel &&
-			    !(channel->flags & IEEE80211_CHAN_DISABLED))
-				cfg80211_inform_bss(wiphy, channel,
+			    !(channel->flags & IEEE80211_CHAN_DISABLED)) {
+				bss = cfg80211_inform_bss(wiphy, channel,
 					bssid, get_unaligned_le64(tsfdesc),
 					capa, intvl, ie, ielen,
 					LBS_SCAN_RSSI_TO_MBM(rssi),
 					GFP_KERNEL);
+				cfg80211_put_bss(bss);
+			}
 		} else
 			lbs_deb_scan("scan response: missing BSS channel IE\n");
 
@@ -728,9 +731,11 @@ static void lbs_scan_worker(struct work_struct *work)
 		le16_to_cpu(scan_cmd->hdr.size),
 		lbs_ret_scan, 0);
 
-	if (priv->scan_channel >= priv->scan_req->n_channels)
+	if (priv->scan_channel >= priv->scan_req->n_channels) {
 		/* Mark scan done */
+		cancel_delayed_work(&priv->scan_work);
 		lbs_scan_done(priv);
+	}
 
 	/* Restart network */
 	if (carrier)
@@ -759,11 +764,11 @@ static void _internal_start_scan(struct lbs_private *priv, bool internal,
 		request->n_ssids, request->n_channels, request->ie_len);
 
 	priv->scan_channel = 0;
-	queue_delayed_work(priv->work_thread, &priv->scan_work,
-		msecs_to_jiffies(50));
-
 	priv->scan_req = request;
 	priv->internal_scan = internal;
+
+	queue_delayed_work(priv->work_thread, &priv->scan_work,
+		msecs_to_jiffies(50));
 
 	lbs_deb_leave(LBS_DEB_CFG80211);
 }
@@ -1626,42 +1631,6 @@ static int lbs_cfg_get_station(struct wiphy *wiphy, struct net_device *dev,
 
 
 /*
- * "Site survey", here just current channel and noise level
- */
-
-static int lbs_get_survey(struct wiphy *wiphy, struct net_device *dev,
-	int idx, struct survey_info *survey)
-{
-	struct lbs_private *priv = wiphy_priv(wiphy);
-	s8 signal, noise;
-	int ret;
-
-	if (dev == priv->mesh_dev)
-		return -EOPNOTSUPP;
-
-	if (idx != 0)
-		ret = -ENOENT;
-
-	lbs_deb_enter(LBS_DEB_CFG80211);
-
-	survey->channel = ieee80211_get_channel(wiphy,
-		ieee80211_channel_to_frequency(priv->channel,
-					       IEEE80211_BAND_2GHZ));
-
-	ret = lbs_get_rssi(priv, &signal, &noise);
-	if (ret == 0) {
-		survey->filled = SURVEY_INFO_NOISE_DBM;
-		survey->noise = noise;
-	}
-
-	lbs_deb_leave_args(LBS_DEB_CFG80211, "ret %d", ret);
-	return ret;
-}
-
-
-
-
-/*
  * Change interface
  */
 
@@ -1720,6 +1689,7 @@ static void lbs_join_post(struct lbs_private *priv,
 		   2 + 2 +                      /* atim */
 		   2 + 8];                      /* extended rates */
 	u8 *fake = fake_ie;
+	struct cfg80211_bss *bss;
 
 	lbs_deb_enter(LBS_DEB_CFG80211);
 
@@ -1763,14 +1733,15 @@ static void lbs_join_post(struct lbs_private *priv,
 	*fake++ = 0x6c;
 	lbs_deb_hex(LBS_DEB_CFG80211, "IE", fake_ie, fake - fake_ie);
 
-	cfg80211_inform_bss(priv->wdev->wiphy,
-			    params->channel,
-			    bssid,
-			    0,
-			    capability,
-			    params->beacon_interval,
-			    fake_ie, fake - fake_ie,
-			    0, GFP_KERNEL);
+	bss = cfg80211_inform_bss(priv->wdev->wiphy,
+				  params->channel,
+				  bssid,
+				  0,
+				  capability,
+				  params->beacon_interval,
+				  fake_ie, fake - fake_ie,
+				  0, GFP_KERNEL);
+	cfg80211_put_bss(bss);
 
 	memcpy(priv->wdev->ssid, params->ssid, params->ssid_len);
 	priv->wdev->ssid_len = params->ssid_len;
@@ -2061,7 +2032,6 @@ static struct cfg80211_ops lbs_cfg80211_ops = {
 	.del_key = lbs_cfg_del_key,
 	.set_default_key = lbs_cfg_set_default_key,
 	.get_station = lbs_cfg_get_station,
-	.dump_survey = lbs_get_survey,
 	.change_virtual_intf = lbs_change_intf,
 	.join_ibss = lbs_join_ibss,
 	.leave_ibss = lbs_leave_ibss,

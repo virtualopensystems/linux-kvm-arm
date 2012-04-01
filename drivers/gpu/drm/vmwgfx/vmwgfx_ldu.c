@@ -95,7 +95,7 @@ static int vmw_ldu_commit_list(struct vmw_private *dev_priv)
 			return 0;
 		fb = entry->base.crtc.fb;
 
-		return vmw_kms_write_svga(dev_priv, w, h, fb->pitch,
+		return vmw_kms_write_svga(dev_priv, w, h, fb->pitches[0],
 					  fb->bits_per_pixel, fb->depth);
 	}
 
@@ -103,7 +103,7 @@ static int vmw_ldu_commit_list(struct vmw_private *dev_priv)
 		entry = list_entry(lds->active.next, typeof(*entry), active);
 		fb = entry->base.crtc.fb;
 
-		vmw_kms_write_svga(dev_priv, fb->width, fb->height, fb->pitch,
+		vmw_kms_write_svga(dev_priv, fb->width, fb->height, fb->pitches[0],
 				   fb->bits_per_pixel, fb->depth);
 	}
 
@@ -354,8 +354,8 @@ static int vmw_ldu_init(struct vmw_private *dev_priv, unsigned unit)
 	INIT_LIST_HEAD(&ldu->active);
 
 	ldu->base.pref_active = (unit == 0);
-	ldu->base.pref_width = 800;
-	ldu->base.pref_height = 600;
+	ldu->base.pref_width = dev_priv->initial_width;
+	ldu->base.pref_height = dev_priv->initial_height;
 	ldu->base.pref_mode = NULL;
 	ldu->base.is_implicit = true;
 

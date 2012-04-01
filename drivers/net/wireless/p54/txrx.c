@@ -242,7 +242,7 @@ void p54_free_skb(struct ieee80211_hw *dev, struct sk_buff *skb)
 
 	skb_unlink(skb, &priv->tx_queue);
 	p54_tx_qos_accounting_free(priv, skb);
-	dev_kfree_skb_any(skb);
+	ieee80211_free_txskb(dev, skb);
 }
 EXPORT_SYMBOL_GPL(p54_free_skb);
 
@@ -690,7 +690,7 @@ static void p54_tx_80211_header(struct p54_common *priv, struct sk_buff *skb,
 	if (!(info->flags & IEEE80211_TX_CTL_ASSIGN_SEQ))
 		*flags |= P54_HDR_FLAG_DATA_OUT_SEQNR;
 
-	if (info->flags & IEEE80211_TX_CTL_POLL_RESPONSE)
+	if (info->flags & IEEE80211_TX_CTL_NO_PS_BUFFER)
 		*flags |= P54_HDR_FLAG_DATA_OUT_NOCANCEL;
 
 	if (info->flags & IEEE80211_TX_CTL_CLEAR_PS_FILT)
@@ -788,7 +788,7 @@ void p54_tx_80211(struct ieee80211_hw *dev, struct sk_buff *skb)
 			    &hdr_flags, &aid, &burst_allowed);
 
 	if (p54_tx_qos_accounting_alloc(priv, skb, queue)) {
-		dev_kfree_skb_any(skb);
+		ieee80211_free_txskb(dev, skb);
 		return;
 	}
 

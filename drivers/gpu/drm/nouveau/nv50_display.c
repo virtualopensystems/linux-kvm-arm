@@ -50,9 +50,76 @@ nv50_sor_nr(struct drm_device *dev)
 	return 4;
 }
 
+u32
+nv50_display_active_crtcs(struct drm_device *dev)
+{
+	struct drm_nouveau_private *dev_priv = dev->dev_private;
+	u32 mask = 0;
+	int i;
+
+	if (dev_priv->chipset  < 0x90 ||
+	    dev_priv->chipset == 0x92 ||
+	    dev_priv->chipset == 0xa0) {
+		for (i = 0; i < 2; i++)
+			mask |= nv_rd32(dev, NV50_PDISPLAY_SOR_MODE_CTRL_C(i));
+	} else {
+		for (i = 0; i < 4; i++)
+			mask |= nv_rd32(dev, NV90_PDISPLAY_SOR_MODE_CTRL_C(i));
+	}
+
+	for (i = 0; i < 3; i++)
+		mask |= nv_rd32(dev, NV50_PDISPLAY_DAC_MODE_CTRL_C(i));
+
+	return mask & 3;
+}
+
+static int
+evo_icmd(struct drm_device *dev, int ch, u32 mthd, u32 data)
+{
+	int ret = 0;
+	nv_mask(dev, 0x610300 + (ch * 0x08), 0x00000001, 0x00000001);
+	nv_wr32(dev, 0x610304 + (ch * 0x08), data);
+	nv_wr32(dev, 0x610300 + (ch * 0x08), 0x80000001 | mthd);
+	if (!nv_wait(dev, 0x610300 + (ch * 0x08), 0x80000000, 0x00000000))
+		ret = -EBUSY;
+	if (ret || (nouveau_reg_debug & NOUVEAU_REG_DEBUG_EVO))
+		NV_INFO(dev, "EvoPIO: %d 0x%04x 0x%08x\n", ch, mthd, data);
+	nv_mask(dev, 0x610300 + (ch * 0x08), 0x00000001, 0x00000000);
+	return ret;
+}
+
 int
 nv50_display_early_init(struct drm_device *dev)
 {
+	u32 ctrl = nv_rd32(dev, 0x610200);
+	int i;
+
+	/* check if master evo channel is already active, a good a sign as any
+	 * that the display engine is in a weird state (hibernate/kexec), if
+	 * it is, do our best to reset the display engine...
+	 */
+	if ((ctrl & 0x00000003) == 0x00000003) {
+		NV_INFO(dev, "PDISP: EVO(0) 0x%08x, resetting...\n", ctrl);
+
+		/* deactivate both heads first, PDISP will disappear forever
+		 * (well, until you power cycle) on some boards as soon as
+		 * PMC_ENABLE is hit unless they are..
+		 */
+		for (i = 0; i < 2; i++) {
+			evo_icmd(dev, 0, 0x0880 + (i * 0x400), 0x05000000);
+			evo_icmd(dev, 0, 0x089c + (i * 0x400), 0);
+			evo_icmd(dev, 0, 0x0840 + (i * 0x400), 0);
+			evo_icmd(dev, 0, 0x0844 + (i * 0x400), 0);
+			evo_icmd(dev, 0, 0x085c + (i * 0x400), 0);
+			evo_icmd(dev, 0, 0x0874 + (i * 0x400), 0);
+		}
+		evo_icmd(dev, 0, 0x0080, 0);
+
+		/* reset PDISP */
+		nv_mask(dev, 0x000200, 0x40000000, 0x00000000);
+		nv_mask(dev, 0x000200, 0x40000000, 0x40000000);
+	}
+
 	return 0;
 }
 
@@ -62,11 +129,40 @@ nv50_display_late_takedown(struct drm_device *dev)
 }
 
 int
-nv50_display_init(struct drm_device *dev)
+nv50_display_sync(struct drm_device *dev)
 {
 	struct drm_nouveau_private *dev_priv = dev->dev_private;
-	struct nouveau_gpio_engine *pgpio = &dev_priv->engine.gpio;
-	struct drm_connector *connector;
+	struct nouveau_timer_engine *ptimer = &dev_priv->engine.timer;
+	struct nv50_display *disp = nv50_display(dev);
+	struct nouveau_channel *evo = disp->master;
+	u64 start;
+	int ret;
+
+	ret = RING_SPACE(evo, 6);
+	if (ret == 0) {
+		BEGIN_RING(evo, 0, 0x0084, 1);
+		OUT_RING  (evo, 0x80000000);
+		BEGIN_RING(evo, 0, 0x0080, 1);
+		OUT_RING  (evo, 0);
+		BEGIN_RING(evo, 0, 0x0084, 1);
+		OUT_RING  (evo, 0x00000000);
+
+		nv_wo32(disp->ntfy, 0x000, 0x00000000);
+		FIRE_RING (evo);
+
+		start = ptimer->read(dev);
+		do {
+			if (nv_ro32(disp->ntfy, 0x000))
+				return 0;
+		} while (ptimer->read(dev) - start < 2000000000ULL);
+	}
+
+	return -EBUSY;
+}
+
+int
+nv50_display_init(struct drm_device *dev)
+{
 	struct nouveau_channel *evo;
 	int ret, i;
 	u32 val;
@@ -161,16 +257,6 @@ nv50_display_init(struct drm_device *dev)
 		     NV50_PDISPLAY_INTR_EN_1_CLK_UNK20 |
 		     NV50_PDISPLAY_INTR_EN_1_CLK_UNK40);
 
-	/* enable hotplug interrupts */
-	list_for_each_entry(connector, &dev->mode_config.connector_list, head) {
-		struct nouveau_connector *conn = nouveau_connector(connector);
-
-		if (conn->dcb->gpio_tag == 0xff)
-			continue;
-
-		pgpio->irq_enable(dev, conn->dcb->gpio_tag, true);
-	}
-
 	ret = nv50_evo_init(dev);
 	if (ret)
 		return ret;
@@ -178,36 +264,19 @@ nv50_display_init(struct drm_device *dev)
 
 	nv_wr32(dev, NV50_PDISPLAY_OBJECTS, (evo->ramin->vinst >> 8) | 9);
 
-	ret = RING_SPACE(evo, 15);
+	ret = RING_SPACE(evo, 3);
 	if (ret)
 		return ret;
 	BEGIN_RING(evo, 0, NV50_EVO_UNK84, 2);
-	OUT_RING(evo, NV50_EVO_UNK84_NOTIFY_DISABLED);
-	OUT_RING(evo, NvEvoSync);
-	BEGIN_RING(evo, 0, NV50_EVO_CRTC(0, FB_DMA), 1);
-	OUT_RING(evo, NV50_EVO_CRTC_FB_DMA_HANDLE_NONE);
-	BEGIN_RING(evo, 0, NV50_EVO_CRTC(0, UNK0800), 1);
-	OUT_RING(evo, 0);
-	BEGIN_RING(evo, 0, NV50_EVO_CRTC(0, DISPLAY_START), 1);
-	OUT_RING(evo, 0);
-	BEGIN_RING(evo, 0, NV50_EVO_CRTC(0, UNK082C), 1);
-	OUT_RING(evo, 0);
-	/* required to make display sync channels not hate life */
-	BEGIN_RING(evo, 0, NV50_EVO_CRTC(0, UNK900), 1);
-	OUT_RING  (evo, 0x00000311);
-	BEGIN_RING(evo, 0, NV50_EVO_CRTC(1, UNK900), 1);
-	OUT_RING  (evo, 0x00000311);
-	FIRE_RING(evo);
-	if (!nv_wait(dev, 0x640004, 0xffffffff, evo->dma.put << 2))
-		NV_ERROR(dev, "evo pushbuf stalled\n");
+	OUT_RING  (evo, NV50_EVO_UNK84_NOTIFY_DISABLED);
+	OUT_RING  (evo, NvEvoSync);
 
-
-	return 0;
+	return nv50_display_sync(dev);
 }
 
-static int nv50_display_disable(struct drm_device *dev)
+void
+nv50_display_fini(struct drm_device *dev)
 {
-	struct drm_nouveau_private *dev_priv = dev->dev_private;
 	struct nv50_display *disp = nv50_display(dev);
 	struct nouveau_channel *evo = disp->master;
 	struct drm_crtc *drm_crtc;
@@ -270,18 +339,10 @@ static int nv50_display_disable(struct drm_device *dev)
 
 	/* disable interrupts. */
 	nv_wr32(dev, NV50_PDISPLAY_INTR_EN_1, 0x00000000);
-
-	/* disable hotplug interrupts */
-	nv_wr32(dev, 0xe054, 0xffffffff);
-	nv_wr32(dev, 0xe050, 0x00000000);
-	if (dev_priv->chipset >= 0x90) {
-		nv_wr32(dev, 0xe074, 0xffffffff);
-		nv_wr32(dev, 0xe070, 0x00000000);
-	}
-	return 0;
 }
 
-int nv50_display_create(struct drm_device *dev)
+int
+nv50_display_create(struct drm_device *dev)
 {
 	struct drm_nouveau_private *dev_priv = dev->dev_private;
 	struct dcb_table *dcb = &dev_priv->vbios.dcb;
@@ -341,7 +402,7 @@ int nv50_display_create(struct drm_device *dev)
 	tasklet_init(&priv->tasklet, nv50_display_bh, (unsigned long)dev);
 	nouveau_irq_register(dev, 26, nv50_display_isr);
 
-	ret = nv50_display_init(dev);
+	ret = nv50_evo_create(dev);
 	if (ret) {
 		nv50_display_destroy(dev);
 		return ret;
@@ -357,7 +418,7 @@ nv50_display_destroy(struct drm_device *dev)
 
 	NV_DEBUG_KMS(dev, "\n");
 
-	nv50_display_disable(dev);
+	nv50_evo_destroy(dev);
 	nouveau_irq_unregister(dev, 26);
 	kfree(disp);
 }
@@ -413,15 +474,15 @@ nv50_display_flip_next(struct drm_crtc *crtc, struct drm_framebuffer *fb,
 		}
 
 		if (dev_priv->chipset < 0xc0) {
-			BEGIN_RING(chan, NvSubSw, 0x0060, 2);
+			BEGIN_RING(chan, 0, 0x0060, 2);
 			OUT_RING  (chan, NvEvoSema0 + nv_crtc->index);
 			OUT_RING  (chan, dispc->sem.offset);
-			BEGIN_RING(chan, NvSubSw, 0x006c, 1);
+			BEGIN_RING(chan, 0, 0x006c, 1);
 			OUT_RING  (chan, 0xf00d0000 | dispc->sem.value);
-			BEGIN_RING(chan, NvSubSw, 0x0064, 2);
+			BEGIN_RING(chan, 0, 0x0064, 2);
 			OUT_RING  (chan, dispc->sem.offset ^ 0x10);
 			OUT_RING  (chan, 0x74b1e000);
-			BEGIN_RING(chan, NvSubSw, 0x0060, 1);
+			BEGIN_RING(chan, 0, 0x0060, 1);
 			if (dev_priv->chipset < 0x84)
 				OUT_RING  (chan, NvSema);
 			else
@@ -429,12 +490,12 @@ nv50_display_flip_next(struct drm_crtc *crtc, struct drm_framebuffer *fb,
 		} else {
 			u64 offset = chan->dispc_vma[nv_crtc->index].offset;
 			offset += dispc->sem.offset;
-			BEGIN_NVC0(chan, 2, NvSubM2MF, 0x0010, 4);
+			BEGIN_NVC0(chan, 2, 0, 0x0010, 4);
 			OUT_RING  (chan, upper_32_bits(offset));
 			OUT_RING  (chan, lower_32_bits(offset));
 			OUT_RING  (chan, 0xf00d0000 | dispc->sem.value);
 			OUT_RING  (chan, 0x1002);
-			BEGIN_NVC0(chan, 2, NvSubM2MF, 0x0010, 4);
+			BEGIN_NVC0(chan, 2, 0, 0x0010, 4);
 			OUT_RING  (chan, upper_32_bits(offset));
 			OUT_RING  (chan, lower_32_bits(offset ^ 0x10));
 			OUT_RING  (chan, 0x74b1e000);
@@ -521,7 +582,7 @@ nv50_display_script_select(struct drm_device *dev, struct dcb_entry *dcb,
 		} else {
 			/* determine number of lvds links */
 			if (nv_connector && nv_connector->edid &&
-			    nv_connector->dcb->type == DCB_CONNECTOR_LVDS_SPWG) {
+			    nv_connector->type == DCB_CONNECTOR_LVDS_SPWG) {
 				/* http://www.spwg.org */
 				if (((u8 *)nv_connector->edid)[121] == 2)
 					script |= 0x0100;
@@ -722,8 +783,8 @@ nv50_display_unk20_handler(struct drm_device *dev)
 	if (crtc >= 0) {
 		pclk  = nv_rd32(dev, NV50_PDISPLAY_CRTC_P(crtc, CLOCK));
 		pclk &= 0x003fffff;
-
-		nv50_crtc_set_clock(dev, crtc, pclk);
+		if (pclk)
+			nv50_crtc_set_clock(dev, crtc, pclk);
 
 		tmp = nv_rd32(dev, NV50_PDISPLAY_CRTC_CLK_CTRL2(crtc));
 		tmp &= ~0x000000f;
@@ -802,9 +863,9 @@ nv50_display_unk20_handler(struct drm_device *dev)
 	if (type == OUTPUT_DP) {
 		int link = !(dcb->dpconf.sor.link & 1);
 		if ((mc & 0x000f0000) == 0x00020000)
-			nouveau_dp_tu_update(dev, or, link, pclk, 18);
+			nv50_sor_dp_calc_tu(dev, or, link, pclk, 18);
 		else
-			nouveau_dp_tu_update(dev, or, link, pclk, 24);
+			nv50_sor_dp_calc_tu(dev, or, link, pclk, 24);
 	}
 
 	if (dcb->type != OUTPUT_ANALOG) {

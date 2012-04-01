@@ -125,7 +125,6 @@ static int iio_trig_periodic_rtc_probe(struct platform_device *dev)
 			goto error_put_trigger_and_remove_from_list;
 		}
 		trig->private_data = trig_info;
-		trig->owner = THIS_MODULE;
 		trig->ops = &iio_prtc_trigger_ops;
 		/* RTC access */
 		trig_info->rtc
@@ -196,18 +195,8 @@ static struct platform_driver iio_trig_periodic_rtc_driver = {
 	},
 };
 
-static int __init iio_trig_periodic_rtc_init(void)
-{
-	return platform_driver_register(&iio_trig_periodic_rtc_driver);
-}
+module_platform_driver(iio_trig_periodic_rtc_driver);
 
-static void __exit iio_trig_periodic_rtc_exit(void)
-{
-	return platform_driver_unregister(&iio_trig_periodic_rtc_driver);
-}
-
-module_init(iio_trig_periodic_rtc_init);
-module_exit(iio_trig_periodic_rtc_exit);
 MODULE_AUTHOR("Jonathan Cameron <jic23@cam.ac.uk>");
 MODULE_DESCRIPTION("Periodic realtime clock  trigger for the iio subsystem");
 MODULE_LICENSE("GPL v2");

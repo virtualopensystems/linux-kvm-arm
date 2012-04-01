@@ -1,6 +1,6 @@
 /******************************************************************************
  *
- * Copyright(c) 2009-2010  Realtek Corporation.
+ * Copyright(c) 2009-2012  Realtek Corporation.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of version 2 of the GNU General Public License as
@@ -30,12 +30,15 @@
 #ifndef __RTL_WIFI_H__
 #define __RTL_WIFI_H__
 
+#define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
+
 #include <linux/sched.h>
 #include <linux/firmware.h>
 #include <linux/etherdevice.h>
 #include <linux/vmalloc.h>
 #include <linux/usb.h>
 #include <net/mac80211.h>
+#include <linux/completion.h>
 #include "debug.h"
 
 #define RF_CHANGE_BY_INIT			0
@@ -63,6 +66,7 @@
 #define AC_MAX					4
 #define QOS_QUEUE_NUM				4
 #define RTL_MAC80211_NUM_QUEUE			5
+#define REALTEK_USB_VENQT_MAX_BUF_SIZE		254
 
 #define QBSS_LOAD_SIZE				5
 #define MAX_WMMELE_LENGTH			64
@@ -943,8 +947,10 @@ struct rtl_io {
 	unsigned long pci_base_addr;	/*device I/O address */
 
 	void (*write8_async) (struct rtl_priv *rtlpriv, u32 addr, u8 val);
-	void (*write16_async) (struct rtl_priv *rtlpriv, u32 addr, __le16 val);
-	void (*write32_async) (struct rtl_priv *rtlpriv, u32 addr, __le32 val);
+	void (*write16_async) (struct rtl_priv *rtlpriv, u32 addr, u16 val);
+	void (*write32_async) (struct rtl_priv *rtlpriv, u32 addr, u32 val);
+	void (*writeN_sync) (struct rtl_priv *rtlpriv, u32 addr, void *buf,
+			     u16 len);
 
 	u8(*read8_sync) (struct rtl_priv *rtlpriv, u32 addr);
 	u16(*read16_sync) (struct rtl_priv *rtlpriv, u32 addr);
@@ -1042,7 +1048,6 @@ struct rtl_hal {
 	u16 fw_subversion;
 	bool h2c_setinprogress;
 	u8 last_hmeboxnum;
-	bool fw_ready;
 	/*Reserve page start offset except beacon in TxQ. */
 	u8 fw_rsvdpage_startoffset;
 	u8 h2c_txcmd_seq;
@@ -1485,7 +1490,7 @@ struct rtl_intf_ops {
 
 struct rtl_mod_params {
 	/* default: 0 = using hardware encryption */
-	int sw_crypto;
+	bool sw_crypto;
 
 	/* default: 0 = DBG_EMERG (0)*/
 	int debug;
@@ -1541,6 +1546,7 @@ struct rtl_hal_cfg {
 struct rtl_locks {
 	/* mutex */
 	struct mutex conf_mutex;
+	struct mutex ps_mutex;
 
 	/*spin lock */
 	spinlock_t ips_lock;
@@ -1548,7 +1554,6 @@ struct rtl_locks {
 	spinlock_t h2c_lock;
 	spinlock_t rf_ps_lock;
 	spinlock_t rf_lock;
-	spinlock_t lps_lock;
 	spinlock_t waitq_lock;
 
 	/*Dual mac*/
@@ -1573,7 +1578,8 @@ struct rtl_works {
 	/* For SW LPS */
 	struct delayed_work ps_work;
 	struct delayed_work ps_rfon_wq;
-	struct tasklet_struct ips_leave_tasklet;
+
+	struct work_struct lps_leave_work;
 };
 
 struct rtl_debug {
@@ -1587,6 +1593,7 @@ struct rtl_debug {
 };
 
 struct rtl_priv {
+	struct completion firmware_loading_complete;
 	struct rtl_locks locks;
 	struct rtl_works works;
 	struct rtl_mac mac80211;
@@ -1608,6 +1615,7 @@ struct rtl_priv {
 	struct rtl_rate_priv *rate_priv;
 
 	struct rtl_debug dbg;
+	int max_fw_size;
 
 	/*
 	 *hal_cfg : for diff cards

@@ -1,7 +1,7 @@
 /*
  *
  * Intel Management Engine Interface (Intel MEI) Linux driver
- * Copyright (c) 2003-2011, Intel Corporation.
+ * Copyright (c) 2003-2012, Intel Corporation.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms and conditions of the GNU General Public License,
@@ -23,13 +23,6 @@
 #include "hw.h"
 
 /*
- * MEI Char Driver Minors
- */
-#define MEI_MINORS_BASE	1
-#define MEI_MINORS_COUNT	1
-#define MEI_MINOR_NUMBER	1
-
-/*
  * watch dog definition
  */
 #define MEI_WATCHDOG_DATA_SIZE         16
@@ -37,16 +30,13 @@
 #define MEI_WD_PARAMS_SIZE             4
 #define MEI_WD_STATE_INDEPENDENCE_MSG_SENT       (1 << 0)
 
+#define MEI_RD_MSG_BUF_SIZE           (128 * sizeof(u32))
+
 /*
  * MEI PCI Device object
  */
 extern struct pci_dev *mei_device;
 
-/*
- * AMT Watchdog Device
- */
-#define INTEL_AMT_WATCHDOG_ID "INTCAMT"
-extern struct watchdog_device amt_wd_dev;
 
 /*
  * AMTHI Client UUID
@@ -99,7 +89,7 @@ enum mei_states {
 	MEI_POWER_UP
 };
 
-/* init clients  states*/
+/* init clients states*/
 enum mei_init_clients_states {
 	MEI_START_MESSAGE = 0,
 	MEI_ENUM_CLIENTS_MESSAGE,
@@ -137,7 +127,7 @@ enum mei_cb_major_types {
  */
 struct mei_message_data {
 	u32 size;
-	char *data;
+	unsigned char *data;
 } __packed;
 
 
@@ -175,7 +165,6 @@ struct mei_cl {
 
 struct mei_io_list {
 	struct mei_cl_cb mei_cb;
-	int status;
 };
 
 /* MEI private device struct */
@@ -232,7 +221,7 @@ struct mei_device {
 	bool need_reset;
 
 	u32 extra_write_index;
-	u32 rd_msg_buf[128];	/* used for control messages */
+	unsigned char rd_msg_buf[MEI_RD_MSG_BUF_SIZE];	/* control messages */
 	u32 wr_msg_buf[128];	/* used for control messages */
 	u32 ext_msg_buf[8];	/* for control responses */
 	u32 rd_msg_hdr;

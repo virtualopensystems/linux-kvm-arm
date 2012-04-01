@@ -71,7 +71,7 @@
 #include <linux/jiffies.h>
 #include <linux/idr.h>
 
-#if defined(CONFIG_IPV6) || defined(CONFIG_IPV6_MODULE)
+#if IS_ENABLED(CONFIG_IPV6)
 #include <net/ipv6.h>
 #include <net/ip6_route.h>
 #endif
@@ -383,7 +383,7 @@ static inline void sctp_sysctl_unregister(void) { return; }
 /* Size of Supported Address Parameter for 'x' address types. */
 #define SCTP_SAT_LEN(x) (sizeof(struct sctp_paramhdr) + (x) * sizeof(__u16))
 
-#if defined(CONFIG_IPV6) || defined(CONFIG_IPV6_MODULE)
+#if IS_ENABLED(CONFIG_IPV6)
 
 void sctp_v6_pf_init(void);
 void sctp_v6_pf_exit(void);
@@ -413,6 +413,7 @@ static inline sctp_assoc_t sctp_assoc2id(const struct sctp_association *asoc)
 /* Look up the association by its id.  */
 struct sctp_association *sctp_id2assoc(struct sock *sk, sctp_assoc_t id);
 
+int sctp_do_peeloff(struct sock *sk, sctp_assoc_t id, struct socket **sockp);
 
 /* A macro to walk a list of skbs.  */
 #define sctp_skb_for_each(pos, head, tmp) \

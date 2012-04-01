@@ -15,6 +15,7 @@
 
 menuconfig USB_GADGET
 	tristate "USB Gadget Support"
+	select NLS
 	help
 	   USB is a master/slave protocol, organized with one master
 	   host (such as a PC) controlling up to 127 peripheral devices.
@@ -124,7 +125,6 @@ config USB_GADGET_STORAGE_NUM_BUFFERS
 #
 choice
 	prompt "USB Peripheral Controller"
-	depends on USB_GADGET
 	help
 	   A USB device uses a controller to talk to its host.
 	   Systems should have only one such upstream link.
@@ -137,7 +137,7 @@ choice
 
 config USB_AT91
 	tristate "Atmel AT91 USB Device Port"
-	depends on ARCH_AT91 && !ARCH_AT91SAM9RL && !ARCH_AT91CAP9 && !ARCH_AT91SAM9G45
+	depends on ARCH_AT91
 	help
 	   Many Atmel AT91 processors (such as the AT91RM2000) have a
 	   full speed USB Device Port with support for five configurable
@@ -150,7 +150,7 @@ config USB_AT91
 config USB_ATMEL_USBA
 	tristate "Atmel USBA"
 	select USB_GADGET_DUALSPEED
-	depends on AVR32 || ARCH_AT91CAP9 || ARCH_AT91SAM9RL || ARCH_AT91SAM9G45
+	depends on AVR32 || ARCH_AT91SAM9RL || ARCH_AT91SAM9G45
 	help
 	  USBA is the integrated high-speed USB Device controller on
 	  the AT32AP700x, some AT91SAM9 and AT91CAP9 processors from Atmel.
@@ -234,7 +234,6 @@ config USB_R8A66597
 
 config USB_RENESAS_USBHS_UDC
 	tristate 'Renesas USBHS controller'
-	depends on SUPERH || ARCH_SHMOBILE
 	depends on USB_RENESAS_USBHS
 	select USB_GADGET_DUALSPEED
 	help
@@ -264,7 +263,6 @@ config USB_PXA27X
 config USB_S3C_HSOTG
 	tristate "S3C HS/OtG USB Device controller"
 	depends on S3C_DEV_USB_HSOTG
-	select USB_GADGET_S3C_HSOTG_PIO
 	select USB_GADGET_DUALSPEED
 	help
 	  The Samsung S3C64XX USB2.0 high-speed gadget controller
@@ -286,7 +284,7 @@ config USB_IMX
 
 config USB_S3C2410
 	tristate "S3C2410 USB Device Controller"
-	depends on ARCH_S3C2410
+	depends on ARCH_S3C24XX
 	help
 	  Samsung's S3C2410 is an ARM-4 processor with an integrated
 	  full speed USB 1.1 device controller.  It has 4 configurable
@@ -301,7 +299,7 @@ config USB_S3C2410_DEBUG
 
 config USB_S3C_HSUDC
 	tristate "S3C2416, S3C2443 and S3C2450 USB Device Controller"
-	depends on ARCH_S3C2410
+	depends on ARCH_S3C24XX
 	select USB_GADGET_DUALSPEED
 	help
 	  Samsung's S3C2416, S3C2443 and S3C2450 is an ARM9 based SoC
@@ -310,25 +308,13 @@ config USB_S3C_HSUDC
 
 	  This driver has been tested on S3C2416 and S3C2450 processors.
 
-config USB_PXA_U2O
-	tristate "PXA9xx Processor USB2.0 controller"
-	depends on ARCH_MMP
+config USB_MV_UDC
+	tristate "Marvell USB2.0 Device Controller"
 	select USB_GADGET_DUALSPEED
 	help
-	  PXA9xx Processor series include a high speed USB2.0 device
-	  controller, which support high speed and full speed USB peripheral.
-
-config USB_GADGET_DWC3
-	tristate "DesignWare USB3.0 (DRD) Controller"
-	depends on USB_DWC3
-	select USB_GADGET_DUALSPEED
-	select USB_GADGET_SUPERSPEED
-	help
-	  DesignWare USB3.0 controller is a SuperSpeed USB3.0 Controller
-	  which can be configured for peripheral-only, host-only, hub-only
-	  and Dual-Role operation. This Controller was first integrated into
-	  the OMAP5 series of processors. More information about the OMAP5
-	  version of this controller, refer to http://www.ti.com/omap5.
+	  Marvell Socs (including PXA and MMP series) include a high speed
+	  USB2.0 OTG controller, which can be configured as high speed or
+	  full speed USB peripheral.
 
 #
 # Controllers available in both integrated and discrete versions
@@ -544,12 +530,10 @@ endchoice
 # Selected by UDC drivers that support high-speed operation.
 config USB_GADGET_DUALSPEED
 	bool
-	depends on USB_GADGET
 
 # Selected by UDC drivers that support super-speed opperation
 config USB_GADGET_SUPERSPEED
 	bool
-	depends on USB_GADGET
 	depends on USB_GADGET_DUALSPEED
 
 #
@@ -557,7 +541,6 @@ config USB_GADGET_SUPERSPEED
 #
 choice
 	tristate "USB Gadget Drivers"
-	depends on USB_GADGET
 	default USB_ETH
 	help
 	  A Linux "Gadget Driver" talks to the USB Peripheral Controller
@@ -616,15 +599,28 @@ config USB_AUDIO
 	depends on SND
 	select SND_PCM
 	help
-	  Gadget Audio is compatible with USB Audio Class specification 1.0.
-	  It will include at least one AudioControl interface, zero or more
-	  AudioStream interface and zero or more MIDIStream interface.
-
-	  Gadget Audio will use on-board ALSA (CONFIG_SND) audio card to
-	  playback or capture audio stream.
+	  This Gadget Audio driver is compatible with USB Audio Class
+	  specification 2.0. It implements 1 AudioControl interface,
+	  1 AudioStreaming Interface each for USB-OUT and USB-IN.
+	  Number of channels, sample rate and sample size can be
+	  specified as module parameters.
+	  This driver doesn't expect any real Audio codec to be present
+	  on the device - the audio streams are simply sinked to and
+	  sourced from a virtual ALSA sound card created. The user-space
+	  application may choose to do whatever it wants with the data
+	  received from the USB Host and choose to provide whatever it
+	  wants as audio data to the USB Host.
 
 	  Say "y" to link the driver statically, or "m" to build a
 	  dynamically linked module called "g_audio".
+
+config GADGET_UAC1
+	bool "UAC 1.0 (Legacy)"
+	depends on USB_AUDIO
+	help
+	  If you instead want older UAC Spec-1.0 driver that also has audio
+	  paths hardwired to the Audio codec chip on-board and doesn't work
+	  without one.
 
 config USB_ETH
 	tristate "Ethernet Gadget (with CDC Ethernet support)"
@@ -702,7 +698,7 @@ config USB_G_NCM
 	help
 	  This driver implements USB CDC NCM subclass standard. NCM is
 	  an advanced protocol for Ethernet encapsulation, allows grouping
-	  of several ethernet frames into one USB transfer and diffferent
+	  of several ethernet frames into one USB transfer and different
 	  alignment possibilities.
 
 	  Say "y" to link the driver statically, or "m" to build a

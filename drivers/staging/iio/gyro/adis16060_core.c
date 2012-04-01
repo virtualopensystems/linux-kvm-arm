@@ -14,7 +14,6 @@
 #include <linux/spi/spi.h>
 #include <linux/slab.h>
 #include <linux/sysfs.h>
-#include <linux/module.h>
 
 #include "../iio.h"
 #include "../sysfs.h"
@@ -98,11 +97,11 @@ static int adis16060_read_raw(struct iio_dev *indio_dev,
 		mutex_unlock(&indio_dev->mlock);
 		*val = tval;
 		return IIO_VAL_INT;
-	case (1 << IIO_CHAN_INFO_OFFSET_SEPARATE):
+	case IIO_CHAN_INFO_OFFSET:
 		*val = -7;
 		*val2 = 461117;
 		return IIO_VAL_INT_PLUS_MICRO;
-	case (1 << IIO_CHAN_INFO_SCALE_SEPARATE):
+	case IIO_CHAN_INFO_SCALE:
 		*val = 0;
 		*val2 = 34000;
 		return IIO_VAL_INT_PLUS_MICRO;
@@ -136,8 +135,8 @@ static const struct iio_chan_spec adis16060_channels[] = {
 		.type = IIO_TEMP,
 		.indexed = 1,
 		.channel = 0,
-		.info_mask = (1 << IIO_CHAN_INFO_OFFSET_SEPARATE) |
-		(1 << IIO_CHAN_INFO_SCALE_SEPARATE),
+		.info_mask = IIO_CHAN_INFO_OFFSET_SEPARATE_BIT |
+		IIO_CHAN_INFO_SCALE_SEPARATE_BIT,
 		.address = ADIS16060_TEMP_OUT,
 	}
 };

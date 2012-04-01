@@ -563,20 +563,9 @@ static int genphy_config_advert(struct phy_device *phydev)
 	if (adv < 0)
 		return adv;
 
-	adv &= ~(ADVERTISE_ALL | ADVERTISE_100BASE4 | ADVERTISE_PAUSE_CAP | 
+	adv &= ~(ADVERTISE_ALL | ADVERTISE_100BASE4 | ADVERTISE_PAUSE_CAP |
 		 ADVERTISE_PAUSE_ASYM);
-	if (advertise & ADVERTISED_10baseT_Half)
-		adv |= ADVERTISE_10HALF;
-	if (advertise & ADVERTISED_10baseT_Full)
-		adv |= ADVERTISE_10FULL;
-	if (advertise & ADVERTISED_100baseT_Half)
-		adv |= ADVERTISE_100HALF;
-	if (advertise & ADVERTISED_100baseT_Full)
-		adv |= ADVERTISE_100FULL;
-	if (advertise & ADVERTISED_Pause)
-		adv |= ADVERTISE_PAUSE_CAP;
-	if (advertise & ADVERTISED_Asym_Pause)
-		adv |= ADVERTISE_PAUSE_ASYM;
+	adv |= ethtool_adv_to_mii_adv_t(advertise);
 
 	if (adv != oldadv) {
 		err = phy_write(phydev, MII_ADVERTISE, adv);
@@ -595,10 +584,7 @@ static int genphy_config_advert(struct phy_device *phydev)
 			return adv;
 
 		adv &= ~(ADVERTISE_1000FULL | ADVERTISE_1000HALF);
-		if (advertise & SUPPORTED_1000baseT_Half)
-			adv |= ADVERTISE_1000HALF;
-		if (advertise & SUPPORTED_1000baseT_Full)
-			adv |= ADVERTISE_1000FULL;
+		adv |= ethtool_adv_to_mii_ctrl1000_t(advertise);
 
 		if (adv != oldadv) {
 			err = phy_write(phydev, MII_CTRL1000, adv);
@@ -929,9 +915,7 @@ static int phy_probe(struct device *dev)
 
 	phydev = to_phy_device(dev);
 
-	/* Make sure the driver is held.
-	 * XXX -- Is this correct? */
-	drv = get_driver(phydev->dev.driver);
+	drv = phydev->dev.driver;
 	phydrv = to_phy_driver(drv);
 	phydev->drv = phydrv;
 
@@ -971,8 +955,6 @@ static int phy_remove(struct device *dev)
 
 	if (phydev->drv->remove)
 		phydev->drv->remove(phydev);
-
-	put_driver(dev->driver);
 	phydev->drv = NULL;
 
 	return 0;

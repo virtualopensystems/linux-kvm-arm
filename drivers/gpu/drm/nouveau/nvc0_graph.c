@@ -333,14 +333,6 @@ nvc0_graph_fini(struct drm_device *dev, int engine, bool suspend)
 	return 0;
 }
 
-static int
-nvc0_graph_mthd_page_flip(struct nouveau_channel *chan,
-			  u32 class, u32 mthd, u32 data)
-{
-	nouveau_finish_page_flip(chan, NULL);
-	return 0;
-}
-
 static void
 nvc0_graph_init_obj418880(struct drm_device *dev)
 {
@@ -875,19 +867,20 @@ nvc0_graph_create(struct drm_device *dev)
 	case 0xcf: /* 4/0/0/0, 3 */
 		priv->magic_not_rop_nr = 0x03;
 		break;
+	case 0xd9: /* 1/0/0/0, 1 */
+		priv->magic_not_rop_nr = 0x01;
+		break;
 	}
 
 	if (!priv->magic_not_rop_nr) {
 		NV_ERROR(dev, "PGRAPH: unknown config: %d/%d/%d/%d, %d\n",
 			 priv->tp_nr[0], priv->tp_nr[1], priv->tp_nr[2],
 			 priv->tp_nr[3], priv->rop_nr);
-		/* use 0xc3's values... */
-		priv->magic_not_rop_nr = 0x03;
+		priv->magic_not_rop_nr = 0x00;
 	}
 
 	NVOBJ_CLASS(dev, 0x902d, GR); /* 2D */
 	NVOBJ_CLASS(dev, 0x9039, GR); /* M2MF */
-	NVOBJ_MTHD (dev, 0x9039, 0x0500, nvc0_graph_mthd_page_flip);
 	NVOBJ_CLASS(dev, 0x9097, GR); /* 3D */
 	if (fermi >= 0x9197)
 		NVOBJ_CLASS(dev, 0x9197, GR); /* 3D (NVC1-) */

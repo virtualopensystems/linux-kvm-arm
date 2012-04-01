@@ -76,7 +76,7 @@ struct usb_context {
 	struct usbnet *dev;
 };
 
-static int turbo_mode = true;
+static bool turbo_mode = true;
 module_param(turbo_mode, bool, 0644);
 MODULE_PARM_DESC(turbo_mode, "Enable multiple frames per Rx transaction");
 
@@ -615,7 +615,7 @@ static void smsc75xx_init_mac_address(struct usbnet *dev)
 	}
 
 	/* no eeprom, or eeprom values are invalid. generate random MAC */
-	random_ether_addr(dev->net->dev_addr);
+	eth_hw_addr_random(dev->net);
 	netif_dbg(dev, ifup, dev->net, "MAC address set to random_ether_addr");
 }
 
@@ -728,7 +728,8 @@ static int smsc75xx_change_mtu(struct net_device *netdev, int new_mtu)
 }
 
 /* Enable or disable Rx checksum offload engine */
-static int smsc75xx_set_features(struct net_device *netdev, u32 features)
+static int smsc75xx_set_features(struct net_device *netdev,
+	netdev_features_t features)
 {
 	struct usbnet *dev = netdev_priv(netdev);
 	struct smsc75xx_priv *pdata = (struct smsc75xx_priv *)(dev->data[0]);
@@ -1237,17 +1238,7 @@ static struct usb_driver smsc75xx_driver = {
 	.disconnect	= usbnet_disconnect,
 };
 
-static int __init smsc75xx_init(void)
-{
-	return usb_register(&smsc75xx_driver);
-}
-module_init(smsc75xx_init);
-
-static void __exit smsc75xx_exit(void)
-{
-	usb_deregister(&smsc75xx_driver);
-}
-module_exit(smsc75xx_exit);
+module_usb_driver(smsc75xx_driver);
 
 MODULE_AUTHOR("Nancy Lin");
 MODULE_AUTHOR("Steve Glendinning <steve.glendinning@smsc.com>");

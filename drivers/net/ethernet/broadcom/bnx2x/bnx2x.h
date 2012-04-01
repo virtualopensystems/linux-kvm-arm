@@ -1,6 +1,6 @@
 /* bnx2x.h: Broadcom Everest network driver.
  *
- * Copyright (c) 2007-2011 Broadcom Corporation
+ * Copyright (c) 2007-2012 Broadcom Corporation
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -23,8 +23,8 @@
  * (you will need to reboot afterwards) */
 /* #define BNX2X_STOP_ON_ERROR */
 
-#define DRV_MODULE_VERSION      "1.70.30-0"
-#define DRV_MODULE_RELDATE      "2011/10/25"
+#define DRV_MODULE_VERSION      "1.72.10-0"
+#define DRV_MODULE_RELDATE      "2012/02/20"
 #define BNX2X_BC_VER            0x040200
 
 #if defined(CONFIG_DCB)
@@ -58,18 +58,22 @@
 #define DRV_MODULE_NAME		"bnx2x"
 
 /* for messages that are currently off */
-#define BNX2X_MSG_OFF			0
-#define BNX2X_MSG_MCP			0x010000 /* was: NETIF_MSG_HW */
-#define BNX2X_MSG_STATS			0x020000 /* was: NETIF_MSG_TIMER */
-#define BNX2X_MSG_NVM			0x040000 /* was: NETIF_MSG_HW */
-#define BNX2X_MSG_DMAE			0x080000 /* was: NETIF_MSG_HW */
-#define BNX2X_MSG_SP			0x100000 /* was: NETIF_MSG_INTR */
-#define BNX2X_MSG_FP			0x200000 /* was: NETIF_MSG_INTR */
+#define BNX2X_MSG_OFF			0x0
+#define BNX2X_MSG_MCP			0x0010000 /* was: NETIF_MSG_HW */
+#define BNX2X_MSG_STATS			0x0020000 /* was: NETIF_MSG_TIMER */
+#define BNX2X_MSG_NVM			0x0040000 /* was: NETIF_MSG_HW */
+#define BNX2X_MSG_DMAE			0x0080000 /* was: NETIF_MSG_HW */
+#define BNX2X_MSG_SP			0x0100000 /* was: NETIF_MSG_INTR */
+#define BNX2X_MSG_FP			0x0200000 /* was: NETIF_MSG_INTR */
+#define BNX2X_MSG_IOV			0x0800000
+#define BNX2X_MSG_IDLE			0x2000000 /* used for idle check*/
+#define BNX2X_MSG_ETHTOOL		0x4000000
+#define BNX2X_MSG_DCB			0x8000000
 
 /* regular debug print */
 #define DP(__mask, fmt, ...)					\
 do {								\
-	if (bp->msg_enable & (__mask))				\
+	if (unlikely(bp->msg_enable & (__mask)))		\
 		pr_notice("[%s:%d(%s)]" fmt,			\
 			  __func__, __LINE__,			\
 			  bp->dev ? (bp->dev->name) : "?",	\
@@ -78,14 +82,14 @@ do {								\
 
 #define DP_CONT(__mask, fmt, ...)				\
 do {								\
-	if (bp->msg_enable & (__mask))				\
+	if (unlikely(bp->msg_enable & (__mask)))		\
 		pr_cont(fmt, ##__VA_ARGS__);			\
 } while (0)
 
 /* errors debug print */
 #define BNX2X_DBG_ERR(fmt, ...)					\
 do {								\
-	if (netif_msg_probe(bp))				\
+	if (unlikely(netif_msg_probe(bp)))			\
 		pr_err("[%s:%d(%s)]" fmt,			\
 		       __func__, __LINE__,			\
 		       bp->dev ? (bp->dev->name) : "?",		\
@@ -108,7 +112,7 @@ do {								\
 /* before we have a dev->name use dev_info() */
 #define BNX2X_DEV_INFO(fmt, ...)				 \
 do {								 \
-	if (netif_msg_probe(bp))				 \
+	if (unlikely(netif_msg_probe(bp)))			 \
 		dev_info(&bp->pdev->dev, fmt, ##__VA_ARGS__);	 \
 } while (0)
 
@@ -293,8 +297,13 @@ enum {
 #define FCOE_TXQ_IDX(bp)	(MAX_ETH_TXQ_IDX(bp))
 
 /* fast path */
+/*
+ * This driver uses new build_skb() API :
+ * RX ring buffer contains pointer to kmalloc() data only,
+ * skb are built only after Hardware filled the frame.
+ */
 struct sw_rx_bd {
-	struct sk_buff	*skb;
+	u8		*data;
 	DEFINE_DMA_UNMAP_ADDR(mapping);
 };
 
@@ -336,6 +345,7 @@ union db_prod {
 #define SGE_PAGE_SIZE		PAGE_SIZE
 #define SGE_PAGE_SHIFT		PAGE_SHIFT
 #define SGE_PAGE_ALIGN(addr)	PAGE_ALIGN((typeof(PAGE_SIZE))(addr))
+#define SGE_PAGES		(SGE_PAGE_SIZE * PAGES_PER_SGE)
 
 /* SGE ring related macros */
 #define NUM_RX_SGE_PAGES	2
@@ -411,8 +421,7 @@ union db_prod {
 
 
 /* Number of u64 elements in SGE mask array */
-#define RX_SGE_MASK_LEN			((NUM_RX_SGE_PAGES * RX_SGE_CNT) / \
-					 BIT_VEC64_ELEM_SZ)
+#define RX_SGE_MASK_LEN			(NUM_RX_SGE / BIT_VEC64_ELEM_SZ)
 #define RX_SGE_MASK_LEN_MASK		(RX_SGE_MASK_LEN - 1)
 #define NEXT_SGE_MASK_ELEM(el)		(((el) + 1) & RX_SGE_MASK_LEN_MASK)
 
@@ -425,8 +434,8 @@ union host_hc_status_block {
 
 struct bnx2x_agg_info {
 	/*
-	 * First aggregation buffer is an skb, the following - are pages.
-	 * We will preallocate the skbs for each aggregation when
+	 * First aggregation buffer is a data buffer, the following - are pages.
+	 * We will preallocate the data buffer for each aggregation when
 	 * we open the interface and will replace the BD at the consumer
 	 * with this one when we receive the TPA_START CQE in order to
 	 * keep the Rx BD ring consistent.
@@ -440,6 +449,9 @@ struct bnx2x_agg_info {
 	u16			parsing_flags;
 	u16			vlan_tag;
 	u16			len_on_bd;
+	u32			rxhash;
+	u16			gro_size;
+	u16			full_page;
 };
 
 #define Q_STATS_OFFSET32(stat_name) \
@@ -468,6 +480,11 @@ struct bnx2x_fp_txdata {
 	int			txq_index;
 };
 
+enum bnx2x_tpa_mode_t {
+	TPA_MODE_LRO,
+	TPA_MODE_GRO
+};
+
 struct bnx2x_fastpath {
 	struct bnx2x		*bp; /* parent */
 
@@ -483,6 +500,8 @@ struct bnx2x_fastpath {
 	u32			rx_buf_size;
 
 	dma_addr_t		status_blk_mapping;
+
+	enum bnx2x_tpa_mode_t	mode;
 
 	u8			max_cos; /* actual number of active tx coses */
 	struct bnx2x_fp_txdata	txdata[BNX2X_MULTI_TX_COS];
@@ -507,6 +526,7 @@ struct bnx2x_fastpath {
 	__le16			fp_hc_idx;
 
 	u8			index;		/* number in fp array */
+	u8			rx_queue;	/* index for skb_record */
 	u8			cl_id;		/* eth client id */
 	u8			cl_qzone_id;
 	u8			fw_sb_id;	/* status block number in FW */
@@ -534,6 +554,7 @@ struct bnx2x_fastpath {
 	struct ustorm_per_queue_stats old_uclient;
 	struct xstorm_per_queue_stats old_xclient;
 	struct bnx2x_eth_q_stats eth_q_stats;
+	struct bnx2x_eth_q_stats_old eth_q_stats_old;
 
 	/* The size is calculated using the following:
 	     sizeof name field from netdev structure +
@@ -881,6 +902,8 @@ struct bnx2x_common {
 #define CHIP_PORT_MODE_NONE			0x2
 #define CHIP_MODE(bp)			(bp->common.chip_port_mode)
 #define CHIP_MODE_IS_4_PORT(bp) (CHIP_MODE(bp) == CHIP_4_PORT_MODE)
+
+	u32			boot_mode;
 };
 
 /* IGU MSIX STATISTICS on 57712: 64 for VFs; 4 for PFs; 4 for Attentions */
@@ -1038,10 +1061,11 @@ struct bnx2x_slowpath {
 	struct nig_stats		nig_stats;
 	struct host_port_stats		port_stats;
 	struct host_func_stats		func_stats;
-	struct host_func_stats		func_stats_base;
 
 	u32				wb_comp;
 	u32				wb_data[4];
+
+	union drv_info_to_mcp		drv_info_to_mcp;
 };
 
 #define bnx2x_sp(bp, var)		(&bp->slowpath->var)
@@ -1078,7 +1102,8 @@ enum bnx2x_recovery_state {
 	BNX2X_RECOVERY_DONE,
 	BNX2X_RECOVERY_INIT,
 	BNX2X_RECOVERY_WAIT,
-	BNX2X_RECOVERY_FAILED
+	BNX2X_RECOVERY_FAILED,
+	BNX2X_RECOVERY_NIC_LOADING
 };
 
 /*
@@ -1122,18 +1147,21 @@ enum {
 enum {
 	BNX2X_PORT_QUERY_IDX,
 	BNX2X_PF_QUERY_IDX,
+	BNX2X_FCOE_QUERY_IDX,
 	BNX2X_FIRST_QUEUE_QUERY_IDX,
 };
 
 struct bnx2x_fw_stats_req {
 	struct stats_query_header hdr;
-	struct stats_query_entry query[STATS_QUERY_CMD_COUNT];
+	struct stats_query_entry query[FP_SB_MAX_E1x+
+		BNX2X_FIRST_QUEUE_QUERY_IDX];
 };
 
 struct bnx2x_fw_stats_data {
 	struct stats_counter	storm_counters;
 	struct per_port_stats	port;
 	struct per_pf_stats	pf;
+	struct fcoe_statistics_params	fcoe;
 	struct per_queue_stats  queue_stats[1];
 };
 
@@ -1141,6 +1169,7 @@ struct bnx2x_fw_stats_data {
 enum {
 	BNX2X_SP_RTNL_SETUP_TC,
 	BNX2X_SP_RTNL_TX_TIMEOUT,
+	BNX2X_SP_RTNL_FAN_FAILURE,
 };
 
 
@@ -1184,12 +1213,25 @@ struct bnx2x {
 #define ETH_MIN_PACKET_SIZE		60
 #define ETH_MAX_PACKET_SIZE		1500
 #define ETH_MAX_JUMBO_PACKET_SIZE	9600
+/* TCP with Timestamp Option (32) + IPv6 (40) */
+#define ETH_MAX_TPA_HEADER_SIZE		72
+#define ETH_MIN_TPA_HEADER_SIZE		40
 
 	/* Max supported alignment is 256 (8 shift) */
-#define BNX2X_RX_ALIGN_SHIFT		((L1_CACHE_SHIFT < 8) ? \
-					 L1_CACHE_SHIFT : 8)
-	/* FW use 2 Cache lines Alignment for start packet and size  */
-#define BNX2X_FW_RX_ALIGN		(2 << BNX2X_RX_ALIGN_SHIFT)
+#define BNX2X_RX_ALIGN_SHIFT		min(8, L1_CACHE_SHIFT)
+
+	/* FW uses 2 Cache lines Alignment for start packet and size
+	 *
+	 * We assume skb_build() uses sizeof(struct skb_shared_info) bytes
+	 * at the end of skb->data, to avoid wasting a full cache line.
+	 * This reduces memory use (skb->truesize).
+	 */
+#define BNX2X_FW_RX_ALIGN_START	(1UL << BNX2X_RX_ALIGN_SHIFT)
+
+#define BNX2X_FW_RX_ALIGN_END					\
+	max(1UL << BNX2X_RX_ALIGN_SHIFT, 			\
+	    SKB_DATA_ALIGN(sizeof(struct skb_shared_info)))
+
 #define BNX2X_PXP_DRAM_ALIGN		(BNX2X_RX_ALIGN_SHIFT - 5)
 
 	struct host_sp_status_block *def_status_blk;
@@ -1244,11 +1286,13 @@ struct bnx2x {
 #define NO_MCP_FLAG			(1 << 9)
 
 #define BP_NOMCP(bp)			(bp->flags & NO_MCP_FLAG)
+#define GRO_ENABLE_FLAG			(1 << 10)
 #define MF_FUNC_DIS			(1 << 11)
 #define OWN_CNIC_IRQ			(1 << 12)
 #define NO_ISCSI_OOO_FLAG		(1 << 13)
 #define NO_ISCSI_FLAG			(1 << 14)
 #define NO_FCOE_FLAG			(1 << 15)
+#define BC_SUPPORTS_PFC_STATS		(1 << 17)
 
 #define NO_ISCSI(bp)		((bp)->flags & NO_ISCSI_FLAG)
 #define NO_ISCSI_OOO(bp)	((bp)->flags & NO_ISCSI_OOO_FLAG)
@@ -1290,6 +1334,8 @@ struct bnx2x {
 #define IS_MF_SD(bp)		(bp->mf_mode == MULTI_FUNCTION_SD)
 
 	u8			wol;
+
+	bool			gro_check;
 
 	int			rx_ring_size;
 
@@ -1436,6 +1482,11 @@ struct bnx2x {
 
 	u16			stats_counter;
 	struct bnx2x_eth_stats	eth_stats;
+	struct host_func_stats		func_stats;
+	struct bnx2x_eth_stats_old	eth_stats_old;
+	struct bnx2x_net_stats_old	net_stats_old;
+	struct bnx2x_fw_port_stats_old	fw_stats_old;
+	bool			stats_init;
 
 	struct z_stream_s	*strm;
 	void			*gunzip_buf;
@@ -1984,13 +2035,6 @@ static inline u32 reg_poll(struct bnx2x *bp, u32 reg, u32 expected, int ms,
 #define HW_PRTY_ASSERT_SET_4 (AEU_INPUTS_ATTN_BITS_PGLUE_PARITY_ERROR | \
 			      AEU_INPUTS_ATTN_BITS_ATC_PARITY_ERROR)
 
-#define RSS_FLAGS(bp) \
-		(TSTORM_ETH_FUNCTION_COMMON_CONFIG_RSS_IPV4_CAPABILITY | \
-		 TSTORM_ETH_FUNCTION_COMMON_CONFIG_RSS_IPV4_TCP_CAPABILITY | \
-		 TSTORM_ETH_FUNCTION_COMMON_CONFIG_RSS_IPV6_CAPABILITY | \
-		 TSTORM_ETH_FUNCTION_COMMON_CONFIG_RSS_IPV6_TCP_CAPABILITY | \
-		 (bp->multi_mode << \
-		  TSTORM_ETH_FUNCTION_COMMON_CONFIG_RSS_MODE_SHIFT))
 #define MULTI_MASK			0x7f
 
 
@@ -2072,4 +2116,24 @@ static const u32 dmae_reg_go_c[] = {
 
 void bnx2x_set_ethtool_ops(struct net_device *netdev);
 void bnx2x_notify_link_changed(struct bnx2x *bp);
+
+
+#define BNX2X_MF_SD_PROTOCOL(bp) \
+	((bp)->mf_config[BP_VN(bp)] & FUNC_MF_CFG_PROTOCOL_MASK)
+
+#ifdef BCM_CNIC
+#define BNX2X_IS_MF_SD_PROTOCOL_ISCSI(bp) \
+	(BNX2X_MF_SD_PROTOCOL(bp) == FUNC_MF_CFG_PROTOCOL_ISCSI)
+
+#define BNX2X_IS_MF_SD_PROTOCOL_FCOE(bp) \
+	(BNX2X_MF_SD_PROTOCOL(bp) == FUNC_MF_CFG_PROTOCOL_FCOE)
+
+#define IS_MF_ISCSI_SD(bp) (IS_MF_SD(bp) && BNX2X_IS_MF_SD_PROTOCOL_ISCSI(bp))
+#define IS_MF_FCOE_SD(bp) (IS_MF_SD(bp) && BNX2X_IS_MF_SD_PROTOCOL_FCOE(bp))
+
+#define IS_MF_STORAGE_SD(bp) (IS_MF_SD(bp) && \
+				(BNX2X_IS_MF_SD_PROTOCOL_ISCSI(bp) || \
+				 BNX2X_IS_MF_SD_PROTOCOL_FCOE(bp)))
+#endif
+
 #endif /* bnx2x.h */

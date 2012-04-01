@@ -2127,14 +2127,9 @@ srom_search(struct net_device *dev, struct pci_dev *pdev)
     u_long iobase = 0;                     /* Clear upper 32 bits in Alphas */
     int i, j;
     struct de4x5_private *lp = netdev_priv(dev);
-    struct list_head *walk;
+    struct pci_dev *this_dev;
 
-    list_for_each(walk, &pdev->bus_list) {
-	struct pci_dev *this_dev = pci_dev_b(walk);
-
-	/* Skip the pci_bus list entry */
-	if (list_entry(walk, struct pci_bus, devices) == pdev->bus) continue;
-
+    list_for_each_entry(this_dev, &pdev->bus->devices, bus_list) {
 	vendor = this_dev->vendor;
 	device = this_dev->device << 8;
 	if (!(is_DC21040 || is_DC21041 || is_DC21140 || is_DC2114x)) continue;
@@ -3603,7 +3598,7 @@ de4x5_alloc_rx_buff(struct net_device *dev, int index, int len)
     struct sk_buff *ret;
     u_long i=0, tmp;
 
-    p = dev_alloc_skb(IEEE802_3_SZ + DE4X5_ALIGN + 2);
+    p = netdev_alloc_skb(dev, IEEE802_3_SZ + DE4X5_ALIGN + 2);
     if (!p) return NULL;
 
     tmp = virt_to_bus(p->data);
@@ -3623,7 +3618,7 @@ de4x5_alloc_rx_buff(struct net_device *dev, int index, int len)
 #else
     if (lp->state != OPEN) return (struct sk_buff *)1; /* Fake out the open */
 
-    p = dev_alloc_skb(len + 2);
+    p = netdev_alloc_skb(dev, len + 2);
     if (!p) return NULL;
 
     skb_reserve(p, 2);	                               /* Align */
@@ -5196,7 +5191,7 @@ de4x5_parse_params(struct net_device *dev)
     struct de4x5_private *lp = netdev_priv(dev);
     char *p, *q, t;
 
-    lp->params.fdx = 0;
+    lp->params.fdx = false;
     lp->params.autosense = AUTO;
 
     if (args == NULL) return;
@@ -5206,7 +5201,7 @@ de4x5_parse_params(struct net_device *dev)
 	t = *q;
 	*q = '\0';
 
-	if (strstr(p, "fdx") || strstr(p, "FDX")) lp->params.fdx = 1;
+	if (strstr(p, "fdx") || strstr(p, "FDX")) lp->params.fdx = true;
 
 	if (strstr(p, "autosense") || strstr(p, "AUTOSENSE")) {
 	    if (strstr(p, "TP")) {
@@ -5239,11 +5234,7 @@ de4x5_dbg_open(struct net_device *dev)
 
     if (de4x5_debug & DEBUG_OPEN) {
 	printk("%s: de4x5 opening with irq %d\n",dev->name,dev->irq);
-	printk("\tphysical address: ");
-	for (i=0;i<6;i++) {
-	    printk("%2.2x:",(short)dev->dev_addr[i]);
-	}
-	printk("\n");
+	printk("\tphysical address: %pM\n", dev->dev_addr);
 	printk("Descriptor head addresses:\n");
 	printk("\t0x%8.8lx  0x%8.8lx\n",(u_long)lp->rx_ring,(u_long)lp->tx_ring);
 	printk("Descriptor addresses:\nRX: ");

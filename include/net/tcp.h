@@ -22,6 +22,7 @@
 
 #include <linux/list.h>
 #include <linux/tcp.h>
+#include <linux/bug.h>
 #include <linux/slab.h>
 #include <linux/cache.h>
 #include <linux/percpu.h>
@@ -44,6 +45,7 @@
 #include <net/dst.h>
 
 #include <linux/seq_file.h>
+#include <linux/memcontrol.h>
 
 extern struct inet_hashinfo tcp_hashinfo;
 
@@ -229,7 +231,6 @@ extern int sysctl_tcp_fack;
 extern int sysctl_tcp_reordering;
 extern int sysctl_tcp_ecn;
 extern int sysctl_tcp_dsack;
-extern long sysctl_tcp_mem[3];
 extern int sysctl_tcp_wmem[3];
 extern int sysctl_tcp_rmem[3];
 extern int sysctl_tcp_app_win;
@@ -273,6 +274,14 @@ static inline int between(__u32 seq1, __u32 seq2, __u32 seq3)
 	return seq3 - seq2 >= seq1 - seq2;
 }
 
+static inline bool tcp_out_of_memory(struct sock *sk)
+{
+	if (sk->sk_wmem_queued > SOCK_MIN_SNDBUF &&
+	    sk_memory_allocated(sk) > sk_prot_mem_limits(sk, 2))
+		return true;
+	return false;
+}
+
 static inline bool tcp_too_many_orphans(struct sock *sk, int shift)
 {
 	struct percpu_counter *ocp = sk->sk_prot->orphan_count;
@@ -283,12 +292,10 @@ static inline bool tcp_too_many_orphans(struct sock *sk, int shift)
 		if (orphans << shift > sysctl_tcp_max_orphans)
 			return true;
 	}
-
-	if (sk->sk_wmem_queued > SOCK_MIN_SNDBUF &&
-	    atomic_long_read(&tcp_memory_allocated) > sysctl_tcp_mem[2])
-		return true;
 	return false;
 }
+
+extern bool tcp_check_oom(struct sock *sk, int shift);
 
 /* syncookies: remember time of last synqueue overflow */
 static inline void tcp_synq_overflow(struct sock *sk)
@@ -310,6 +317,8 @@ extern struct proto tcp_prot;
 #define TCP_DEC_STATS(net, field)	SNMP_DEC_STATS((net)->mib.tcp_statistics, field)
 #define TCP_ADD_STATS_USER(net, field, val) SNMP_ADD_STATS_USER((net)->mib.tcp_statistics, field, val)
 #define TCP_ADD_STATS(net, field, val)	SNMP_ADD_STATS((net)->mib.tcp_statistics, field, val)
+
+extern void tcp_init_mem(struct net *net);
 
 extern void tcp_v4_err(struct sk_buff *skb, u32);
 
@@ -628,7 +637,7 @@ extern u32 __tcp_select_window(struct sock *sk);
 struct tcp_skb_cb {
 	union {
 		struct inet_skb_parm	h4;
-#if defined(CONFIG_IPV6) || defined (CONFIG_IPV6_MODULE)
+#if IS_ENABLED(CONFIG_IPV6)
 		struct inet6_skb_parm	h6;
 #endif
 	} header;	/* For incoming frames		*/
@@ -773,12 +782,12 @@ static inline int tcp_is_reno(const struct tcp_sock *tp)
 
 static inline int tcp_is_fack(const struct tcp_sock *tp)
 {
-	return tp->rx_opt.sack_ok & 2;
+	return tp->rx_opt.sack_ok & TCP_FACK_ENABLED;
 }
 
 static inline void tcp_enable_fack(struct tcp_sock *tp)
 {
-	tp->rx_opt.sack_ok |= 2;
+	tp->rx_opt.sack_ok |= TCP_FACK_ENABLED;
 }
 
 static inline unsigned int tcp_left_out(const struct tcp_sock *tp)
@@ -833,6 +842,14 @@ static inline __u32 tcp_current_ssthresh(const struct sock *sk)
 
 extern void tcp_enter_cwr(struct sock *sk, const int set_ssthresh);
 extern __u32 tcp_init_cwnd(const struct tcp_sock *tp, const struct dst_entry *dst);
+
+/* The maximum number of MSS of available cwnd for which TSO defers
+ * sending if not using sysctl_tcp_tso_win_divisor.
+ */
+static inline __u32 tcp_max_tso_deferred_mss(const struct tcp_sock *tp)
+{
+	return 3;
+}
 
 /* Slow start with delack produces 3 packets of burst, so that
  * it is safe "de facto".  This will be the default - same as
@@ -1122,35 +1139,27 @@ static inline void tcp_clear_all_retrans_hints(struct tcp_sock *tp)
 /* MD5 Signature */
 struct crypto_hash;
 
+union tcp_md5_addr {
+	struct in_addr  a4;
+#if IS_ENABLED(CONFIG_IPV6)
+	struct in6_addr	a6;
+#endif
+};
+
 /* - key database */
 struct tcp_md5sig_key {
-	u8			*key;
+	struct hlist_node	node;
 	u8			keylen;
-};
-
-struct tcp4_md5sig_key {
-	struct tcp_md5sig_key	base;
-	__be32			addr;
-};
-
-struct tcp6_md5sig_key {
-	struct tcp_md5sig_key	base;
-#if 0
-	u32			scope_id;	/* XXX */
-#endif
-	struct in6_addr		addr;
+	u8			family; /* AF_INET or AF_INET6 */
+	union tcp_md5_addr	addr;
+	u8			key[TCP_MD5SIG_MAXKEYLEN];
+	struct rcu_head		rcu;
 };
 
 /* - sock block */
 struct tcp_md5sig_info {
-	struct tcp4_md5sig_key	*keys4;
-#if defined(CONFIG_IPV6) || defined(CONFIG_IPV6_MODULE)
-	struct tcp6_md5sig_key	*keys6;
-	u32			entries6;
-	u32			alloced6;
-#endif
-	u32			entries4;
-	u32			alloced4;
+	struct hlist_head	head;
+	struct rcu_head		rcu;
 };
 
 /* - pseudo header */
@@ -1171,7 +1180,7 @@ struct tcp6_pseudohdr {
 
 union tcp_md5sum_block {
 	struct tcp4_pseudohdr ip4;
-#if defined(CONFIG_IPV6) || defined(CONFIG_IPV6_MODULE)
+#if IS_ENABLED(CONFIG_IPV6)
 	struct tcp6_pseudohdr ip6;
 #endif
 };
@@ -1187,19 +1196,25 @@ extern int tcp_v4_md5_hash_skb(char *md5_hash, struct tcp_md5sig_key *key,
 			       const struct sock *sk,
 			       const struct request_sock *req,
 			       const struct sk_buff *skb);
-extern struct tcp_md5sig_key * tcp_v4_md5_lookup(struct sock *sk,
-						 struct sock *addr_sk);
-extern int tcp_v4_md5_do_add(struct sock *sk, __be32 addr, u8 *newkey,
-			     u8 newkeylen);
-extern int tcp_v4_md5_do_del(struct sock *sk, __be32 addr);
+extern int tcp_md5_do_add(struct sock *sk, const union tcp_md5_addr *addr,
+			  int family, const u8 *newkey,
+			  u8 newkeylen, gfp_t gfp);
+extern int tcp_md5_do_del(struct sock *sk, const union tcp_md5_addr *addr,
+			  int family);
+extern struct tcp_md5sig_key *tcp_v4_md5_lookup(struct sock *sk,
+					 struct sock *addr_sk);
 
 #ifdef CONFIG_TCP_MD5SIG
-#define tcp_twsk_md5_key(twsk)	((twsk)->tw_md5_keylen ? 		 \
-				 &(struct tcp_md5sig_key) {		 \
-					.key = (twsk)->tw_md5_key,	 \
-					.keylen = (twsk)->tw_md5_keylen, \
-				} : NULL)
+extern struct tcp_md5sig_key *tcp_md5_do_lookup(struct sock *sk,
+			const union tcp_md5_addr *addr, int family);
+#define tcp_twsk_md5_key(twsk)	((twsk)->tw_md5_key)
 #else
+static inline struct tcp_md5sig_key *tcp_md5_do_lookup(struct sock *sk,
+					 const union tcp_md5_addr *addr,
+					 int family)
+{
+	return NULL;
+}
 #define tcp_twsk_md5_key(twsk)	NULL
 #endif
 
@@ -1348,8 +1363,9 @@ static inline void tcp_push_pending_frames(struct sock *sk)
 	}
 }
 
-/* Start sequence of the highest skb with SACKed bit, valid only if
- * sacked > 0 or when the caller has ensured validity by itself.
+/* Start sequence of the skb just after the highest skb with SACKed
+ * bit, valid only if sacked_out > 0 or when the caller has ensured
+ * validity by itself.
  */
 static inline u32 tcp_highest_sack_seq(struct tcp_sock *tp)
 {
@@ -1430,7 +1446,8 @@ extern struct request_sock_ops tcp6_request_sock_ops;
 extern void tcp_v4_destroy_sock(struct sock *sk);
 
 extern int tcp_v4_gso_send_check(struct sk_buff *skb);
-extern struct sk_buff *tcp_tso_segment(struct sk_buff *skb, u32 features);
+extern struct sk_buff *tcp_tso_segment(struct sk_buff *skb,
+				       netdev_features_t features);
 extern struct sk_buff **tcp_gro_receive(struct sk_buff **head,
 					struct sk_buff *skb);
 extern struct sk_buff **tcp4_gro_receive(struct sk_buff **head,
@@ -1453,10 +1470,6 @@ struct tcp_sock_af_ops {
 						  const struct sock *sk,
 						  const struct request_sock *req,
 						  const struct sk_buff *skb);
-	int			(*md5_add) (struct sock *sk,
-					    struct sock *addr_sk,
-					    u8 *newkey,
-					    u8 len);
 	int			(*md5_parse) (struct sock *sk,
 					      char __user *optval,
 					      int optlen);

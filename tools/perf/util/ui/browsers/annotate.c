@@ -69,14 +69,17 @@ static void annotate_browser__write(struct ui_browser *self, void *entry, int ro
 	if (!self->navkeypressed)
 		width += 1;
 
+	if (!ab->hide_src_code && ol->offset != -1)
+		if (!current_entry || (self->use_navkeypressed &&
+				       !self->navkeypressed))
+			ui_browser__set_color(self, HE_COLORSET_CODE);
+
 	if (!*ol->line)
 		slsmg_write_nstring(" ", width - 18);
 	else
 		slsmg_write_nstring(ol->line, width - 18);
 
-	if (!current_entry)
-		ui_browser__set_color(self, HE_COLORSET_CODE);
-	else
+	if (current_entry)
 		ab->selection = ol;
 }
 
@@ -224,15 +227,15 @@ static bool annotate_browser__toggle_source(struct annotate_browser *browser)
 }
 
 static int annotate_browser__run(struct annotate_browser *self, int evidx,
-				 int nr_events, void(*timer)(void *arg),
+				 void(*timer)(void *arg),
 				 void *arg, int delay_secs)
 {
 	struct rb_node *nd = NULL;
 	struct map_symbol *ms = self->b.priv;
 	struct symbol *sym = ms->sym;
-	const char *help = "<-, ESC: exit, TAB/shift+TAB: cycle hottest lines, "
-			   "H: Hottest, -> Line action, S -> Toggle source "
-			   "code view";
+	const char *help = "<-/ESC: Exit, TAB/shift+TAB: Cycle hot lines, "
+			   "H: Go to hottest line, ->/ENTER: Line action, "
+			   "S: Toggle source code view";
 	int key;
 
 	if (ui_browser__show(&self->b, sym->name, help) < 0)
@@ -284,9 +287,11 @@ static int annotate_browser__run(struct annotate_browser *self, int evidx,
 				nd = self->curr_hot;
 			break;
 		case 'H':
+		case 'h':
 			nd = self->curr_hot;
 			break;
 		case 'S':
+		case 's':
 			if (annotate_browser__toggle_source(self))
 				ui_helpline__puts(help);
 			continue;
@@ -328,8 +333,7 @@ static int annotate_browser__run(struct annotate_browser *self, int evidx,
 				notes = symbol__annotation(target);
 				pthread_mutex_lock(&notes->lock);
 
-				if (notes->src == NULL &&
-				    symbol__alloc_hist(target, nr_events) < 0) {
+				if (notes->src == NULL && symbol__alloc_hist(target) < 0) {
 					pthread_mutex_unlock(&notes->lock);
 					ui__warning("Not enough memory for annotating '%s' symbol!\n",
 						    target->name);
@@ -337,8 +341,9 @@ static int annotate_browser__run(struct annotate_browser *self, int evidx,
 				}
 
 				pthread_mutex_unlock(&notes->lock);
-				symbol__tui_annotate(target, ms->map, evidx, nr_events,
+				symbol__tui_annotate(target, ms->map, evidx,
 						     timer, arg, delay_secs);
+				ui_browser__show_title(&self->b, sym->name);
 			}
 			continue;
 		case K_LEFT:
@@ -358,15 +363,15 @@ out:
 	return key;
 }
 
-int hist_entry__tui_annotate(struct hist_entry *he, int evidx, int nr_events,
+int hist_entry__tui_annotate(struct hist_entry *he, int evidx,
 			     void(*timer)(void *arg), void *arg, int delay_secs)
 {
-	return symbol__tui_annotate(he->ms.sym, he->ms.map, evidx, nr_events,
+	return symbol__tui_annotate(he->ms.sym, he->ms.map, evidx,
 				    timer, arg, delay_secs);
 }
 
 int symbol__tui_annotate(struct symbol *sym, struct map *map, int evidx,
-			 int nr_events, void(*timer)(void *arg), void *arg,
+			 void(*timer)(void *arg), void *arg,
 			 int delay_secs)
 {
 	struct objdump_line *pos, *n;
@@ -419,8 +424,7 @@ int symbol__tui_annotate(struct symbol *sym, struct map *map, int evidx,
 	browser.b.nr_entries = browser.nr_entries;
 	browser.b.entries = &notes->src->source,
 	browser.b.width += 18; /* Percentage */
-	ret = annotate_browser__run(&browser, evidx, nr_events,
-				    timer, arg, delay_secs);
+	ret = annotate_browser__run(&browser, evidx, timer, arg, delay_secs);
 	list_for_each_entry_safe(pos, n, &notes->src->source, node) {
 		list_del(&pos->node);
 		objdump_line__free(pos);

@@ -32,7 +32,6 @@
 #include <asm/cputype.h>
 #include <asm/irq.h>
 #include <asm/sizes.h>
-#include <asm/system.h>
 #include <asm/mach/pci.h>
 #include <mach/hardware.h>
 
@@ -472,9 +471,8 @@ int ixp4xx_setup(int nr, struct pci_sys_data *sys)
 	request_resource(&ioport_resource, &res[0]);
 	request_resource(&iomem_resource, &res[1]);
 
-	sys->resource[0] = &res[0];
-	sys->resource[1] = &res[1];
-	sys->resource[2] = NULL;
+	pci_add_resource_offset(&sys->resources, &res[0], sys->io_offset);
+	pci_add_resource_offset(&sys->resources, &res[1], sys->mem_offset);
 
 	platform_notify = ixp4xx_pci_platform_notify;
 	platform_notify_remove = ixp4xx_pci_platform_notify_remove;
@@ -484,7 +482,8 @@ int ixp4xx_setup(int nr, struct pci_sys_data *sys)
 
 struct pci_bus * __devinit ixp4xx_scan_bus(int nr, struct pci_sys_data *sys)
 {
-	return pci_scan_bus(sys->busnr, &ixp4xx_ops, sys);
+	return pci_scan_root_bus(NULL, sys->busnr, &ixp4xx_ops, sys,
+				 &sys->resources);
 }
 
 int dma_set_coherent_mask(struct device *dev, u64 mask)

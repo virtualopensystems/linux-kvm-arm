@@ -32,8 +32,6 @@
 #include <linux/crc-itu-t.h>
 #include <linux/exportfs.h>
 
-enum { UDF_MAX_LINKS = 0xffff };
-
 static inline int udf_match(int len1, const unsigned char *name1, int len2,
 			    const unsigned char *name2)
 {
@@ -552,7 +550,7 @@ static int udf_delete_entry(struct inode *inode, struct fileIdentDesc *fi,
 	return udf_write_fi(inode, cfi, fi, fibh, NULL, NULL);
 }
 
-static int udf_create(struct inode *dir, struct dentry *dentry, int mode,
+static int udf_create(struct inode *dir, struct dentry *dentry, umode_t mode,
 		      struct nameidata *nd)
 {
 	struct udf_fileident_bh fibh;
@@ -596,7 +594,7 @@ static int udf_create(struct inode *dir, struct dentry *dentry, int mode,
 	return 0;
 }
 
-static int udf_mknod(struct inode *dir, struct dentry *dentry, int mode,
+static int udf_mknod(struct inode *dir, struct dentry *dentry, umode_t mode,
 		     dev_t rdev)
 {
 	struct inode *inode;
@@ -640,7 +638,7 @@ out:
 	return err;
 }
 
-static int udf_mkdir(struct inode *dir, struct dentry *dentry, int mode)
+static int udf_mkdir(struct inode *dir, struct dentry *dentry, umode_t mode)
 {
 	struct inode *inode;
 	struct udf_fileident_bh fibh;
@@ -648,10 +646,6 @@ static int udf_mkdir(struct inode *dir, struct dentry *dentry, int mode)
 	int err;
 	struct udf_inode_info *dinfo = UDF_I(dir);
 	struct udf_inode_info *iinfo;
-
-	err = -EMLINK;
-	if (dir->i_nlink >= UDF_MAX_LINKS)
-		goto out;
 
 	err = -EIO;
 	inode = udf_new_inode(dir, S_IFDIR | mode, &err);
@@ -1032,9 +1026,6 @@ static int udf_link(struct dentry *old_dentry, struct inode *dir,
 	struct fileIdentDesc cfi, *fi;
 	int err;
 
-	if (inode->i_nlink >= UDF_MAX_LINKS)
-		return -EMLINK;
-
 	fi = udf_add_entry(dir, dentry, &fibh, &cfi, &err);
 	if (!fi) {
 		return err;
@@ -1125,10 +1116,6 @@ static int udf_rename(struct inode *old_dir, struct dentry *old_dentry,
 		tloc = lelb_to_cpu(dir_fi->icb.extLocation);
 		if (udf_get_lb_pblock(old_inode->i_sb, &tloc, 0) !=
 				old_dir->i_ino)
-			goto end_rename;
-
-		retval = -EMLINK;
-		if (!new_inode && new_dir->i_nlink >= UDF_MAX_LINKS)
 			goto end_rename;
 	}
 	if (!nfi) {

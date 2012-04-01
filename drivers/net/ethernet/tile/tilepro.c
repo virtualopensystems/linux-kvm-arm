@@ -419,7 +419,7 @@ static bool tile_net_provide_needed_buffer(struct tile_net_cpu *info,
 #endif
 
 	/* Avoid "false sharing" with last cache line. */
-	/* ISSUE: This is already done by "dev_alloc_skb()". */
+	/* ISSUE: This is already done by "netdev_alloc_skb()". */
 	unsigned int len =
 		 (((small ? LIPP_SMALL_PACKET_SIZE : large_size) +
 		   CHIP_L2_LINE_SIZE() - 1) & -CHIP_L2_LINE_SIZE());
@@ -433,7 +433,7 @@ static bool tile_net_provide_needed_buffer(struct tile_net_cpu *info,
 	struct sk_buff **skb_ptr;
 
 	/* Request 96 extra bytes for alignment purposes. */
-	skb = dev_alloc_skb(len + padding);
+	skb = netdev_alloc_skb(info->napi->dev, len + padding);
 	if (skb == NULL)
 		return false;
 
@@ -1256,7 +1256,7 @@ static void tile_net_stop_aux(struct net_device *dev)
 			  sizeof(dummy), NETIO_IPP_STOP_SHIM_OFF) < 0)
 		panic("Failed to stop LIPP/LEPP!\n");
 
-	priv->partly_opened = 0;
+	priv->partly_opened = false;
 }
 
 
@@ -1507,7 +1507,7 @@ static int tile_net_open(struct net_device *dev)
 		       priv->network_cpus_count, priv->network_cpus_credits);
 #endif
 
-		priv->partly_opened = 1;
+		priv->partly_opened = true;
 
 	} else {
 		/* FIXME: Is this possible? */
@@ -2186,10 +2186,11 @@ static int tile_net_set_mac_address(struct net_device *dev, void *p)
 	struct sockaddr *addr = p;
 
 	if (!is_valid_ether_addr(addr->sa_data))
-		return -EINVAL;
+		return -EADDRNOTAVAIL;
 
 	/* ISSUE: Note that "dev_addr" is now a pointer. */
 	memcpy(dev->dev_addr, addr->sa_data, dev->addr_len);
+	dev->addr_assign_type &= ~NET_ADDR_RANDOM;
 
 	return 0;
 }
@@ -2254,14 +2255,13 @@ static int tile_net_get_mac(struct net_device *dev)
 		 * can't get its MAC address, we are most likely running
 		 * the simulator, so let's generate a random MAC address.
 		 */
-		random_ether_addr(dev->dev_addr);
+		eth_hw_addr_random(dev);
 	}
 
 	return 0;
 }
 
-
-static struct net_device_ops tile_net_ops = {
+static const struct net_device_ops tile_net_ops = {
 	.ndo_open = tile_net_open,
 	.ndo_stop = tile_net_stop,
 	.ndo_start_xmit = tile_net_tx,

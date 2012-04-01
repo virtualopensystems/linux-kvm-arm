@@ -279,9 +279,10 @@ static void smsc9420_ethtool_get_drvinfo(struct net_device *netdev,
 {
 	struct smsc9420_pdata *pd = netdev_priv(netdev);
 
-	strcpy(drvinfo->driver, DRV_NAME);
-	strcpy(drvinfo->bus_info, pci_name(pd->pdev));
-	strcpy(drvinfo->version, DRV_VERSION);
+	strlcpy(drvinfo->driver, DRV_NAME, sizeof(drvinfo->driver));
+	strlcpy(drvinfo->bus_info, pci_name(pd->pdev),
+		sizeof(drvinfo->bus_info));
+	strlcpy(drvinfo->version, DRV_VERSION, sizeof(drvinfo->version));
 }
 
 static u32 smsc9420_ethtool_get_msglevel(struct net_device *netdev)
@@ -508,10 +509,9 @@ static void smsc9420_check_mac_address(struct net_device *dev)
 			smsc_dbg(PROBE, "Mac Address is read from EEPROM");
 		} else {
 			/* eeprom values are invalid, generate random MAC */
-			random_ether_addr(dev->dev_addr);
+			eth_hw_addr_random(dev);
 			smsc9420_set_mac_address(dev);
-			smsc_dbg(PROBE,
-				"MAC Address is set to random_ether_addr");
+			smsc_dbg(PROBE, "MAC Address is set to random");
 		}
 	}
 }
@@ -848,8 +848,6 @@ static int smsc9420_alloc_rx_buffer(struct smsc9420_pdata *pd, int index)
 		smsc_warn(RX_ERR, "Failed to allocate new skb!");
 		return -ENOMEM;
 	}
-
-	skb->dev = pd->dev;
 
 	mapping = pci_map_single(pd->pdev, skb_tail_pointer(skb),
 				 PKT_BUF_SZ, PCI_DMA_FROMDEVICE);
@@ -1597,10 +1595,8 @@ smsc9420_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	pci_set_master(pdev);
 
 	dev = alloc_etherdev(sizeof(*pd));
-	if (!dev) {
-		printk(KERN_ERR "ether device alloc failed\n");
+	if (!dev)
 		goto out_disable_pci_device_1;
-	}
 
 	SET_NETDEV_DEV(dev, &pdev->dev);
 

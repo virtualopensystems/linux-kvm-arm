@@ -1,6 +1,6 @@
 /******************************************************************************
  *
- * Copyright(c) 2005 - 2011 Intel Corporation. All rights reserved.
+ * Copyright(c) 2005 - 2012 Intel Corporation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of version 2 of the GNU General Public License as
@@ -38,6 +38,7 @@
 #include "iwl-dev.h"
 #include "iwl-core.h"
 #include "iwl-agn.h"
+#include "iwl-op-mode.h"
 
 #define RS_NAME "iwl-agn-rs"
 
@@ -298,7 +299,7 @@ static u8 rs_tl_add_packet(struct iwl_lq_sta *lq_data,
 	} else
 		return IWL_MAX_TID_COUNT;
 
-	if (unlikely(tid >= TID_MAX_LOAD_COUNT))
+	if (unlikely(tid >= IWL_MAX_TID_COUNT))
 		return IWL_MAX_TID_COUNT;
 
 	tl = &lq_data->load[tid];
@@ -352,7 +353,7 @@ static void rs_program_fix_rate(struct iwl_priv *priv,
 	lq_sta->active_mimo2_rate  = 0x1FD0;	/* 6 - 60 MBits, no 9, no CCK */
 	lq_sta->active_mimo3_rate  = 0x1FD0;	/* 6 - 60 MBits, no 9, no CCK */
 
-#ifdef CONFIG_IWLWIFI_DEVICE_SVTOOL
+#ifdef CONFIG_IWLWIFI_DEVICE_TESTMODE
 	/* testmode has higher priority to overwirte the fixed rate */
 	if (priv->tm_fixed_rate)
 		lq_sta->dbg_fixed_rate = priv->tm_fixed_rate;
@@ -379,7 +380,7 @@ static u32 rs_tl_get_load(struct iwl_lq_sta *lq_data, u8 tid)
 	s32 index;
 	struct iwl_traffic_load *tl = NULL;
 
-	if (tid >= TID_MAX_LOAD_COUNT)
+	if (tid >= IWL_MAX_TID_COUNT)
 		return 0;
 
 	tl = &(lq_data->load[tid]);
@@ -444,11 +445,11 @@ static void rs_tl_turn_on_agg(struct iwl_priv *priv, u8 tid,
 			      struct iwl_lq_sta *lq_data,
 			      struct ieee80211_sta *sta)
 {
-	if (tid < TID_MAX_LOAD_COUNT)
+	if (tid < IWL_MAX_TID_COUNT)
 		rs_tl_turn_on_agg_for_tid(priv, lq_data, tid, sta);
 	else
-		IWL_ERR(priv, "tid exceeds max load count: %d/%d\n",
-			tid, TID_MAX_LOAD_COUNT);
+		IWL_ERR(priv, "tid exceeds max TID count: %d/%d\n",
+			tid, IWL_MAX_TID_COUNT);
 }
 
 static inline int get_num_of_ant_from_rate(u32 rate_n_flags)
@@ -869,19 +870,16 @@ static void rs_bt_update_lq(struct iwl_priv *priv, struct iwl_rxon_context *ctx,
 {
 	struct iwl_scale_tbl_info *tbl;
 	bool full_concurrent = priv->bt_full_concurrent;
-	unsigned long flags;
 
 	if (priv->bt_ant_couple_ok) {
 		/*
 		 * Is there a need to switch between
 		 * full concurrency and 3-wire?
 		 */
-		spin_lock_irqsave(&priv->shrd->lock, flags);
 		if (priv->bt_ci_compliance && priv->bt_ant_couple_ok)
 			full_concurrent = true;
 		else
 			full_concurrent = false;
-		spin_unlock_irqrestore(&priv->shrd->lock, flags);
 	}
 	if ((priv->bt_traffic_load != priv->last_bt_traffic_load) ||
 	    (priv->bt_full_concurrent != full_concurrent)) {
@@ -892,7 +890,7 @@ static void rs_bt_update_lq(struct iwl_priv *priv, struct iwl_rxon_context *ctx,
 		rs_fill_link_cmd(priv, lq_sta, tbl->current_rate);
 		iwl_send_lq_cmd(priv, ctx, &lq_sta->lq, CMD_ASYNC, false);
 
-		queue_work(priv->shrd->workqueue, &priv->bt_full_concurrency);
+		queue_work(priv->workqueue, &priv->bt_full_concurrency);
 	}
 }
 
@@ -909,7 +907,8 @@ static void rs_tx_status(void *priv_r, struct ieee80211_supported_band *sband,
 	struct iwl_lq_sta *lq_sta = priv_sta;
 	struct iwl_link_quality_cmd *table;
 	struct ieee80211_hdr *hdr = (struct ieee80211_hdr *)skb->data;
-	struct iwl_priv *priv = (struct iwl_priv *)priv_r;
+	struct iwl_op_mode *op_mode = (struct iwl_op_mode *)priv_r;
+	struct iwl_priv *priv = IWL_OP_MODE_GET_DVM(op_mode);
 	struct ieee80211_tx_info *info = IEEE80211_SKB_CB(skb);
 	enum mac80211_rate_control_flags mac_flags;
 	u32 tx_rate;
@@ -1081,12 +1080,12 @@ done:
 	if (sta && sta->supp_rates[sband->band])
 		rs_rate_scale_perform(priv, skb, sta, lq_sta);
 
-#if defined(CONFIG_MAC80211_DEBUGFS) && defined(CONFIG_IWLWIFI_DEVICE_SVTOOL)
+#if defined(CONFIG_MAC80211_DEBUGFS) && defined(CONFIG_IWLWIFI_DEVICE_TESTMODE)
 	if ((priv->tm_fixed_rate) &&
 	    (priv->tm_fixed_rate != lq_sta->dbg_fixed_rate))
 		rs_program_fix_rate(priv, lq_sta);
 #endif
-	if (priv->cfg->bt_params && priv->cfg->bt_params->advanced_bt_coexist)
+	if (cfg(priv)->bt_params && cfg(priv)->bt_params->advanced_bt_coexist)
 		rs_bt_update_lq(priv, ctx, lq_sta);
 }
 
@@ -1458,10 +1457,8 @@ static int rs_move_legacy_other(struct iwl_priv *priv,
 		break;
 	case IWL_BT_COEX_TRAFFIC_LOAD_LOW:
 		/* avoid antenna B unless MIMO */
-		valid_tx_ant =
-			first_antenna(hw_params(priv).valid_tx_ant);
 		if (tbl->action == IWL_LEGACY_SWITCH_ANTENNA2)
-			tbl->action = IWL_LEGACY_SWITCH_ANTENNA1;
+			tbl->action = IWL_LEGACY_SWITCH_SISO;
 		break;
 	case IWL_BT_COEX_TRAFFIC_LOAD_HIGH:
 	case IWL_BT_COEX_TRAFFIC_LOAD_CONTINUOUS:
@@ -1636,10 +1633,8 @@ static int rs_move_siso_to_other(struct iwl_priv *priv,
 		break;
 	case IWL_BT_COEX_TRAFFIC_LOAD_LOW:
 		/* avoid antenna B unless MIMO */
-		valid_tx_ant =
-			first_antenna(hw_params(priv).valid_tx_ant);
 		if (tbl->action == IWL_SISO_SWITCH_ANTENNA2)
-			tbl->action = IWL_SISO_SWITCH_ANTENNA1;
+			tbl->action = IWL_SISO_SWITCH_MIMO2_AB;
 		break;
 	case IWL_BT_COEX_TRAFFIC_LOAD_HIGH:
 	case IWL_BT_COEX_TRAFFIC_LOAD_CONTINUOUS:
@@ -2277,7 +2272,7 @@ static void rs_rate_scale_perform(struct iwl_priv *priv,
 	tid = rs_tl_add_packet(lq_sta, hdr);
 	if ((tid != IWL_MAX_TID_COUNT) &&
 	    (lq_sta->tx_agg_tid_en & (1 << tid))) {
-		tid_data = &priv->shrd->tid_data[lq_sta->lq.sta_id][tid];
+		tid_data = &priv->tid_data[lq_sta->lq.sta_id][tid];
 		if (tid_data->agg.state == IWL_AGG_OFF)
 			lq_sta->is_agg = 0;
 		else
@@ -2649,8 +2644,7 @@ lq_update:
 			    (lq_sta->tx_agg_tid_en & (1 << tid)) &&
 			    (tid != IWL_MAX_TID_COUNT)) {
 				u8 sta_id = lq_sta->lq.sta_id;
-				tid_data =
-				   &priv->shrd->tid_data[sta_id][tid];
+				tid_data = &priv->tid_data[sta_id][tid];
 				if (tid_data->agg.state == IWL_AGG_OFF) {
 					IWL_DEBUG_RATE(priv,
 						       "try to aggregate tid %d\n",
@@ -2683,7 +2677,6 @@ out:
  *       which requires station table entry to exist).
  */
 static void rs_initialize_lq(struct iwl_priv *priv,
-			     struct ieee80211_conf *conf,
 			     struct ieee80211_sta *sta,
 			     struct iwl_lq_sta *lq_sta)
 {
@@ -2742,7 +2735,9 @@ static void rs_get_rate(void *priv_r, struct ieee80211_sta *sta, void *priv_sta,
 
 	struct sk_buff *skb = txrc->skb;
 	struct ieee80211_supported_band *sband = txrc->sband;
-	struct iwl_priv *priv __maybe_unused = (struct iwl_priv *)priv_r;
+	struct iwl_op_mode *op_mode __maybe_unused =
+			(struct iwl_op_mode *)priv_r;
+	struct iwl_priv *priv __maybe_unused = IWL_OP_MODE_GET_DVM(op_mode);
 	struct ieee80211_tx_info *info = IEEE80211_SKB_CB(skb);
 	struct iwl_lq_sta *lq_sta = priv_sta;
 	int rate_idx;
@@ -2810,9 +2805,10 @@ static void *rs_alloc_sta(void *priv_rate, struct ieee80211_sta *sta,
 			  gfp_t gfp)
 {
 	struct iwl_station_priv *sta_priv = (struct iwl_station_priv *) sta->drv_priv;
-	struct iwl_priv *priv;
+	struct iwl_op_mode *op_mode __maybe_unused =
+			(struct iwl_op_mode *)priv_rate;
+	struct iwl_priv *priv __maybe_unused = IWL_OP_MODE_GET_DVM(op_mode);
 
-	priv = (struct iwl_priv *)priv_rate;
 	IWL_DEBUG_RATE(priv, "create station rate scale window\n");
 
 	return &sta_priv->lq_sta;
@@ -2908,14 +2904,14 @@ void iwl_rs_rate_init(struct iwl_priv *priv, struct ieee80211_sta *sta, u8 sta_i
 	if (sband->band == IEEE80211_BAND_5GHZ)
 		lq_sta->last_txrate_idx += IWL_FIRST_OFDM_RATE;
 	lq_sta->is_agg = 0;
-#ifdef CONFIG_IWLWIFI_DEVICE_SVTOOL
+#ifdef CONFIG_IWLWIFI_DEVICE_TESTMODE
 	priv->tm_fixed_rate = 0;
 #endif
 #ifdef CONFIG_MAC80211_DEBUGFS
 	lq_sta->dbg_fixed_rate = 0;
 #endif
 
-	rs_initialize_lq(priv, conf, sta, lq_sta);
+	rs_initialize_lq(priv, sta, lq_sta);
 }
 
 static void rs_fill_link_cmd(struct iwl_priv *priv,
@@ -3059,11 +3055,11 @@ static void rs_fill_link_cmd(struct iwl_priv *priv,
 	 * overwrite if needed, pass aggregation time limit
 	 * to uCode in uSec
 	 */
-	if (priv && priv->cfg->bt_params &&
-	    priv->cfg->bt_params->agg_time_limit &&
+	if (priv && cfg(priv)->bt_params &&
+	    cfg(priv)->bt_params->agg_time_limit &&
 	    priv->bt_traffic_load >= IWL_BT_COEX_TRAFFIC_LOAD_HIGH)
 		lq_cmd->agg_params.agg_time_limit =
-			cpu_to_le16(priv->cfg->bt_params->agg_time_limit);
+			cpu_to_le16(cfg(priv)->bt_params->agg_time_limit);
 }
 
 static void *rs_alloc(struct ieee80211_hw *hw, struct dentry *debugfsdir)
@@ -3079,7 +3075,8 @@ static void rs_free(void *priv_rate)
 static void rs_free_sta(void *priv_r, struct ieee80211_sta *sta,
 			void *priv_sta)
 {
-	struct iwl_priv *priv __maybe_unused = priv_r;
+	struct iwl_op_mode *op_mode __maybe_unused = priv_r;
+	struct iwl_priv *priv __maybe_unused = IWL_OP_MODE_GET_DVM(op_mode);
 
 	IWL_DEBUG_RATE(priv, "enter\n");
 	IWL_DEBUG_RATE(priv, "leave\n");

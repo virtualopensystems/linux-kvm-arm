@@ -261,10 +261,8 @@ static int if_usb_probe(struct usb_interface *intf,
 	udev = interface_to_usbdev(intf);
 
 	cardp = kzalloc(sizeof(struct if_usb_card), GFP_KERNEL);
-	if (!cardp) {
-		pr_err("Out of memory allocating private data\n");
+	if (!cardp)
 		goto error;
-	}
 
 	setup_timer(&cardp->fw_timeout, if_usb_fw_timeo, (unsigned long)cardp);
 	init_waitqueue_head(&cardp->fw_wq);
@@ -1184,29 +1182,7 @@ static struct usb_driver if_usb_driver = {
 	.reset_resume = if_usb_resume,
 };
 
-static int __init if_usb_init_module(void)
-{
-	int ret = 0;
-
-	lbs_deb_enter(LBS_DEB_MAIN);
-
-	ret = usb_register(&if_usb_driver);
-
-	lbs_deb_leave_args(LBS_DEB_MAIN, "ret %d", ret);
-	return ret;
-}
-
-static void __exit if_usb_exit_module(void)
-{
-	lbs_deb_enter(LBS_DEB_MAIN);
-
-	usb_deregister(&if_usb_driver);
-
-	lbs_deb_leave(LBS_DEB_MAIN);
-}
-
-module_init(if_usb_init_module);
-module_exit(if_usb_exit_module);
+module_usb_driver(if_usb_driver);
 
 MODULE_DESCRIPTION("8388 USB WLAN Driver");
 MODULE_AUTHOR("Marvell International Ltd. and Red Hat, Inc.");

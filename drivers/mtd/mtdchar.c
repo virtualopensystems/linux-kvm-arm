@@ -31,15 +31,14 @@
 #include <linux/compat.h>
 #include <linux/mount.h>
 #include <linux/blkpg.h>
+#include <linux/magic.h>
 #include <linux/mtd/mtd.h>
 #include <linux/mtd/partitions.h>
 #include <linux/mtd/map.h>
 
 #include <asm/uaccess.h>
 
-#define MTD_INODE_FS_MAGIC 0x11307854
 static DEFINE_MUTEX(mtd_mutex);
-static struct vfsmount *mtd_inode_mnt __read_mostly;
 
 /*
  * Data structure to hold the pointer to the mtd device as well
@@ -51,7 +50,7 @@ struct mtd_file_info {
 	enum mtd_file_modes mode;
 };
 
-static loff_t mtd_lseek (struct file *file, loff_t offset, int orig)
+static loff_t mtdchar_lseek(struct file *file, loff_t offset, int orig)
 {
 	struct mtd_file_info *mfi = file->private_data;
 	struct mtd_info *mtd = mfi->mtd;
@@ -75,9 +74,11 @@ static loff_t mtd_lseek (struct file *file, loff_t offset, int orig)
 	return -EINVAL;
 }
 
+static int count;
+static struct vfsmount *mnt;
+static struct file_system_type mtd_inodefs_type;
 
-
-static int mtd_open(struct inode *inode, struct file *file)
+static int mtdchar_open(struct inode *inode, struct file *file)
 {
 	int minor = iminor(inode);
 	int devnum = minor >> 1;
@@ -91,6 +92,10 @@ static int mtd_open(struct inode *inode, struct file *file)
 	/* You can't open the RO devices RW */
 	if ((file->f_mode & FMODE_WRITE) && (minor & 1))
 		return -EACCES;
+
+	ret = simple_pin_fs(&mtd_inodefs_type, &mnt, &count);
+	if (ret)
+		return ret;
 
 	mutex_lock(&mtd_mutex);
 	mtd = get_mtd_device(NULL, devnum);
@@ -106,7 +111,7 @@ static int mtd_open(struct inode *inode, struct file *file)
 		goto out;
 	}
 
-	mtd_ino = iget_locked(mtd_inode_mnt->mnt_sb, devnum);
+	mtd_ino = iget_locked(mnt->mnt_sb, devnum);
 	if (!mtd_ino) {
 		put_mtd_device(mtd);
 		ret = -ENOMEM;
@@ -141,12 +146,13 @@ static int mtd_open(struct inode *inode, struct file *file)
 
 out:
 	mutex_unlock(&mtd_mutex);
+	simple_release_fs(&mnt, &count);
 	return ret;
-} /* mtd_open */
+} /* mtdchar_open */
 
 /*====================================================================*/
 
-static int mtd_close(struct inode *inode, struct file *file)
+static int mtdchar_close(struct inode *inode, struct file *file)
 {
 	struct mtd_file_info *mfi = file->private_data;
 	struct mtd_info *mtd = mfi->mtd;
@@ -154,17 +160,18 @@ static int mtd_close(struct inode *inode, struct file *file)
 	pr_debug("MTD_close\n");
 
 	/* Only sync if opened RW */
-	if ((file->f_mode & FMODE_WRITE) && mtd->sync)
-		mtd->sync(mtd);
+	if ((file->f_mode & FMODE_WRITE))
+		mtd_sync(mtd);
 
 	iput(mfi->ino);
 
 	put_mtd_device(mtd);
 	file->private_data = NULL;
 	kfree(mfi);
+	simple_release_fs(&mnt, &count);
 
 	return 0;
-} /* mtd_close */
+} /* mtdchar_close */
 
 /* Back in June 2001, dwmw2 wrote:
  *
@@ -184,11 +191,12 @@ static int mtd_close(struct inode *inode, struct file *file)
  * alignment requirements are not met in the NAND subdriver.
  */
 
-static ssize_t mtd_read(struct file *file, char __user *buf, size_t count,loff_t *ppos)
+static ssize_t mtdchar_read(struct file *file, char __user *buf, size_t count,
+			loff_t *ppos)
 {
 	struct mtd_file_info *mfi = file->private_data;
 	struct mtd_info *mtd = mfi->mtd;
-	size_t retlen=0;
+	size_t retlen;
 	size_t total_retlen=0;
 	int ret=0;
 	int len;
@@ -212,10 +220,12 @@ static ssize_t mtd_read(struct file *file, char __user *buf, size_t count,loff_t
 
 		switch (mfi->mode) {
 		case MTD_FILE_MODE_OTP_FACTORY:
-			ret = mtd->read_fact_prot_reg(mtd, *ppos, len, &retlen, kbuf);
+			ret = mtd_read_fact_prot_reg(mtd, *ppos, len,
+						     &retlen, kbuf);
 			break;
 		case MTD_FILE_MODE_OTP_USER:
-			ret = mtd->read_user_prot_reg(mtd, *ppos, len, &retlen, kbuf);
+			ret = mtd_read_user_prot_reg(mtd, *ppos, len,
+						     &retlen, kbuf);
 			break;
 		case MTD_FILE_MODE_RAW:
 		{
@@ -226,12 +236,12 @@ static ssize_t mtd_read(struct file *file, char __user *buf, size_t count,loff_t
 			ops.oobbuf = NULL;
 			ops.len = len;
 
-			ret = mtd->read_oob(mtd, *ppos, &ops);
+			ret = mtd_read_oob(mtd, *ppos, &ops);
 			retlen = ops.retlen;
 			break;
 		}
 		default:
-			ret = mtd->read(mtd, *ppos, len, &retlen, kbuf);
+			ret = mtd_read(mtd, *ppos, len, &retlen, kbuf);
 		}
 		/* Nand returns -EBADMSG on ECC errors, but it returns
 		 * the data. For our userspace tools it is important
@@ -265,9 +275,10 @@ static ssize_t mtd_read(struct file *file, char __user *buf, size_t count,loff_t
 
 	kfree(kbuf);
 	return total_retlen;
-} /* mtd_read */
+} /* mtdchar_read */
 
-static ssize_t mtd_write(struct file *file, const char __user *buf, size_t count,loff_t *ppos)
+static ssize_t mtdchar_write(struct file *file, const char __user *buf, size_t count,
+			loff_t *ppos)
 {
 	struct mtd_file_info *mfi = file->private_data;
 	struct mtd_info *mtd = mfi->mtd;
@@ -306,11 +317,8 @@ static ssize_t mtd_write(struct file *file, const char __user *buf, size_t count
 			ret = -EROFS;
 			break;
 		case MTD_FILE_MODE_OTP_USER:
-			if (!mtd->write_user_prot_reg) {
-				ret = -EOPNOTSUPP;
-				break;
-			}
-			ret = mtd->write_user_prot_reg(mtd, *ppos, len, &retlen, kbuf);
+			ret = mtd_write_user_prot_reg(mtd, *ppos, len,
+						      &retlen, kbuf);
 			break;
 
 		case MTD_FILE_MODE_RAW:
@@ -323,13 +331,13 @@ static ssize_t mtd_write(struct file *file, const char __user *buf, size_t count
 			ops.ooboffs = 0;
 			ops.len = len;
 
-			ret = mtd->write_oob(mtd, *ppos, &ops);
+			ret = mtd_write_oob(mtd, *ppos, &ops);
 			retlen = ops.retlen;
 			break;
 		}
 
 		default:
-			ret = (*(mtd->write))(mtd, *ppos, len, &retlen, kbuf);
+			ret = mtd_write(mtd, *ppos, len, &retlen, kbuf);
 		}
 		if (!ret) {
 			*ppos += retlen;
@@ -345,7 +353,7 @@ static ssize_t mtd_write(struct file *file, const char __user *buf, size_t count
 
 	kfree(kbuf);
 	return total_retlen;
-} /* mtd_write */
+} /* mtdchar_write */
 
 /*======================================================================
 
@@ -361,20 +369,22 @@ static void mtdchar_erase_callback (struct erase_info *instr)
 static int otp_select_filemode(struct mtd_file_info *mfi, int mode)
 {
 	struct mtd_info *mtd = mfi->mtd;
+	size_t retlen;
 	int ret = 0;
+
+	/*
+	 * Make a fake call to mtd_read_fact_prot_reg() to check if OTP
+	 * operations are supported.
+	 */
+	if (mtd_read_fact_prot_reg(mtd, -1, -1, &retlen, NULL) == -EOPNOTSUPP)
+		return -EOPNOTSUPP;
 
 	switch (mode) {
 	case MTD_OTP_FACTORY:
-		if (!mtd->read_fact_prot_reg)
-			ret = -EOPNOTSUPP;
-		else
-			mfi->mode = MTD_FILE_MODE_OTP_FACTORY;
+		mfi->mode = MTD_FILE_MODE_OTP_FACTORY;
 		break;
 	case MTD_OTP_USER:
-		if (!mtd->read_fact_prot_reg)
-			ret = -EOPNOTSUPP;
-		else
-			mfi->mode = MTD_FILE_MODE_OTP_USER;
+		mfi->mode = MTD_FILE_MODE_OTP_USER;
 		break;
 	default:
 		ret = -EINVAL;
@@ -387,7 +397,7 @@ static int otp_select_filemode(struct mtd_file_info *mfi, int mode)
 # define otp_select_filemode(f,m)	-EOPNOTSUPP
 #endif
 
-static int mtd_do_writeoob(struct file *file, struct mtd_info *mtd,
+static int mtdchar_writeoob(struct file *file, struct mtd_info *mtd,
 	uint64_t start, uint32_t length, void __user *ptr,
 	uint32_t __user *retp)
 {
@@ -402,7 +412,7 @@ static int mtd_do_writeoob(struct file *file, struct mtd_info *mtd,
 	if (length > 4096)
 		return -EINVAL;
 
-	if (!mtd->write_oob)
+	if (!mtd->_write_oob)
 		ret = -EOPNOTSUPP;
 	else
 		ret = access_ok(VERIFY_READ, ptr, length) ? 0 : -EFAULT;
@@ -424,7 +434,7 @@ static int mtd_do_writeoob(struct file *file, struct mtd_info *mtd,
 		return PTR_ERR(ops.oobbuf);
 
 	start &= ~((uint64_t)mtd->writesize - 1);
-	ret = mtd->write_oob(mtd, start, &ops);
+	ret = mtd_write_oob(mtd, start, &ops);
 
 	if (ops.oobretlen > 0xFFFFFFFFU)
 		ret = -EOVERFLOW;
@@ -436,7 +446,7 @@ static int mtd_do_writeoob(struct file *file, struct mtd_info *mtd,
 	return ret;
 }
 
-static int mtd_do_readoob(struct file *file, struct mtd_info *mtd,
+static int mtdchar_readoob(struct file *file, struct mtd_info *mtd,
 	uint64_t start, uint32_t length, void __user *ptr,
 	uint32_t __user *retp)
 {
@@ -447,13 +457,8 @@ static int mtd_do_readoob(struct file *file, struct mtd_info *mtd,
 	if (length > 4096)
 		return -EINVAL;
 
-	if (!mtd->read_oob)
-		ret = -EOPNOTSUPP;
-	else
-		ret = access_ok(VERIFY_WRITE, ptr,
-				length) ? 0 : -EFAULT;
-	if (ret)
-		return ret;
+	if (!access_ok(VERIFY_WRITE, ptr, length))
+		return -EFAULT;
 
 	ops.ooblen = length;
 	ops.ooboffs = start & (mtd->writesize - 1);
@@ -469,7 +474,7 @@ static int mtd_do_readoob(struct file *file, struct mtd_info *mtd,
 		return -ENOMEM;
 
 	start &= ~((uint64_t)mtd->writesize - 1);
-	ret = mtd->read_oob(mtd, start, &ops);
+	ret = mtd_read_oob(mtd, start, &ops);
 
 	if (put_user(ops.oobretlen, retp))
 		ret = -EFAULT;
@@ -530,7 +535,7 @@ static int shrink_ecclayout(const struct nand_ecclayout *from,
 	return 0;
 }
 
-static int mtd_blkpg_ioctl(struct mtd_info *mtd,
+static int mtdchar_blkpg_ioctl(struct mtd_info *mtd,
 			   struct blkpg_ioctl_arg __user *arg)
 {
 	struct blkpg_ioctl_arg a;
@@ -566,7 +571,7 @@ static int mtd_blkpg_ioctl(struct mtd_info *mtd,
 	}
 }
 
-static int mtd_write_ioctl(struct mtd_info *mtd,
+static int mtdchar_write_ioctl(struct mtd_info *mtd,
 		struct mtd_write_req __user *argp)
 {
 	struct mtd_write_req req;
@@ -578,7 +583,7 @@ static int mtd_write_ioctl(struct mtd_info *mtd,
 			!access_ok(VERIFY_READ, req.usr_data, req.len) ||
 			!access_ok(VERIFY_READ, req.usr_oob, req.ooblen))
 		return -EFAULT;
-	if (!mtd->write_oob)
+	if (!mtd->_write_oob)
 		return -EOPNOTSUPP;
 
 	ops.mode = req.mode;
@@ -607,7 +612,7 @@ static int mtd_write_ioctl(struct mtd_info *mtd,
 		ops.oobbuf = NULL;
 	}
 
-	ret = mtd->write_oob(mtd, (loff_t)req.start, &ops);
+	ret = mtd_write_oob(mtd, (loff_t)req.start, &ops);
 
 	kfree(ops.datbuf);
 	kfree(ops.oobbuf);
@@ -615,7 +620,7 @@ static int mtd_write_ioctl(struct mtd_info *mtd,
 	return ret;
 }
 
-static int mtd_ioctl(struct file *file, u_int cmd, u_long arg)
+static int mtdchar_ioctl(struct file *file, u_int cmd, u_long arg)
 {
 	struct mtd_file_info *mfi = file->private_data;
 	struct mtd_info *mtd = mfi->mtd;
@@ -729,7 +734,7 @@ static int mtd_ioctl(struct file *file, u_int cmd, u_long arg)
 			  wq_head is no longer there when the
 			  callback routine tries to wake us up.
 			*/
-			ret = mtd->erase(mtd, erase);
+			ret = mtd_erase(mtd, erase);
 			if (!ret) {
 				set_current_state(TASK_UNINTERRUPTIBLE);
 				add_wait_queue(&waitq, &wait);
@@ -755,7 +760,7 @@ static int mtd_ioctl(struct file *file, u_int cmd, u_long arg)
 		if (copy_from_user(&buf, argp, sizeof(buf)))
 			ret = -EFAULT;
 		else
-			ret = mtd_do_writeoob(file, mtd, buf.start, buf.length,
+			ret = mtdchar_writeoob(file, mtd, buf.start, buf.length,
 				buf.ptr, &buf_user->length);
 		break;
 	}
@@ -769,7 +774,7 @@ static int mtd_ioctl(struct file *file, u_int cmd, u_long arg)
 		if (copy_from_user(&buf, argp, sizeof(buf)))
 			ret = -EFAULT;
 		else
-			ret = mtd_do_readoob(file, mtd, buf.start, buf.length,
+			ret = mtdchar_readoob(file, mtd, buf.start, buf.length,
 				buf.ptr, &buf_user->start);
 		break;
 	}
@@ -782,7 +787,7 @@ static int mtd_ioctl(struct file *file, u_int cmd, u_long arg)
 		if (copy_from_user(&buf, argp, sizeof(buf)))
 			ret = -EFAULT;
 		else
-			ret = mtd_do_writeoob(file, mtd, buf.start, buf.length,
+			ret = mtdchar_writeoob(file, mtd, buf.start, buf.length,
 				(void __user *)(uintptr_t)buf.usr_ptr,
 				&buf_user->length);
 		break;
@@ -796,7 +801,7 @@ static int mtd_ioctl(struct file *file, u_int cmd, u_long arg)
 		if (copy_from_user(&buf, argp, sizeof(buf)))
 			ret = -EFAULT;
 		else
-			ret = mtd_do_readoob(file, mtd, buf.start, buf.length,
+			ret = mtdchar_readoob(file, mtd, buf.start, buf.length,
 				(void __user *)(uintptr_t)buf.usr_ptr,
 				&buf_user->length);
 		break;
@@ -804,7 +809,7 @@ static int mtd_ioctl(struct file *file, u_int cmd, u_long arg)
 
 	case MEMWRITE:
 	{
-		ret = mtd_write_ioctl(mtd,
+		ret = mtdchar_write_ioctl(mtd,
 		      (struct mtd_write_req __user *)arg);
 		break;
 	}
@@ -816,10 +821,7 @@ static int mtd_ioctl(struct file *file, u_int cmd, u_long arg)
 		if (copy_from_user(&einfo, argp, sizeof(einfo)))
 			return -EFAULT;
 
-		if (!mtd->lock)
-			ret = -EOPNOTSUPP;
-		else
-			ret = mtd->lock(mtd, einfo.start, einfo.length);
+		ret = mtd_lock(mtd, einfo.start, einfo.length);
 		break;
 	}
 
@@ -830,10 +832,7 @@ static int mtd_ioctl(struct file *file, u_int cmd, u_long arg)
 		if (copy_from_user(&einfo, argp, sizeof(einfo)))
 			return -EFAULT;
 
-		if (!mtd->unlock)
-			ret = -EOPNOTSUPP;
-		else
-			ret = mtd->unlock(mtd, einfo.start, einfo.length);
+		ret = mtd_unlock(mtd, einfo.start, einfo.length);
 		break;
 	}
 
@@ -844,10 +843,7 @@ static int mtd_ioctl(struct file *file, u_int cmd, u_long arg)
 		if (copy_from_user(&einfo, argp, sizeof(einfo)))
 			return -EFAULT;
 
-		if (!mtd->is_locked)
-			ret = -EOPNOTSUPP;
-		else
-			ret = mtd->is_locked(mtd, einfo.start, einfo.length);
+		ret = mtd_is_locked(mtd, einfo.start, einfo.length);
 		break;
 	}
 
@@ -878,10 +874,7 @@ static int mtd_ioctl(struct file *file, u_int cmd, u_long arg)
 
 		if (copy_from_user(&offs, argp, sizeof(loff_t)))
 			return -EFAULT;
-		if (!mtd->block_isbad)
-			ret = -EOPNOTSUPP;
-		else
-			return mtd->block_isbad(mtd, offs);
+		return mtd_block_isbad(mtd, offs);
 		break;
 	}
 
@@ -891,10 +884,7 @@ static int mtd_ioctl(struct file *file, u_int cmd, u_long arg)
 
 		if (copy_from_user(&offs, argp, sizeof(loff_t)))
 			return -EFAULT;
-		if (!mtd->block_markbad)
-			ret = -EOPNOTSUPP;
-		else
-			return mtd->block_markbad(mtd, offs);
+		return mtd_block_markbad(mtd, offs);
 		break;
 	}
 
@@ -919,17 +909,15 @@ static int mtd_ioctl(struct file *file, u_int cmd, u_long arg)
 		struct otp_info *buf = kmalloc(4096, GFP_KERNEL);
 		if (!buf)
 			return -ENOMEM;
-		ret = -EOPNOTSUPP;
 		switch (mfi->mode) {
 		case MTD_FILE_MODE_OTP_FACTORY:
-			if (mtd->get_fact_prot_info)
-				ret = mtd->get_fact_prot_info(mtd, buf, 4096);
+			ret = mtd_get_fact_prot_info(mtd, buf, 4096);
 			break;
 		case MTD_FILE_MODE_OTP_USER:
-			if (mtd->get_user_prot_info)
-				ret = mtd->get_user_prot_info(mtd, buf, 4096);
+			ret = mtd_get_user_prot_info(mtd, buf, 4096);
 			break;
 		default:
+			ret = -EINVAL;
 			break;
 		}
 		if (ret >= 0) {
@@ -953,9 +941,7 @@ static int mtd_ioctl(struct file *file, u_int cmd, u_long arg)
 			return -EINVAL;
 		if (copy_from_user(&oinfo, argp, sizeof(oinfo)))
 			return -EFAULT;
-		if (!mtd->lock_user_prot_reg)
-			return -EOPNOTSUPP;
-		ret = mtd->lock_user_prot_reg(mtd, oinfo.start, oinfo.length);
+		ret = mtd_lock_user_prot_reg(mtd, oinfo.start, oinfo.length);
 		break;
 	}
 #endif
@@ -999,7 +985,7 @@ static int mtd_ioctl(struct file *file, u_int cmd, u_long arg)
 			break;
 
 		case MTD_FILE_MODE_RAW:
-			if (!mtd->read_oob || !mtd->write_oob)
+			if (!mtd_has_oob(mtd))
 				return -EOPNOTSUPP;
 			mfi->mode = arg;
 
@@ -1014,7 +1000,7 @@ static int mtd_ioctl(struct file *file, u_int cmd, u_long arg)
 
 	case BLKPG:
 	{
-		ret = mtd_blkpg_ioctl(mtd,
+		ret = mtdchar_blkpg_ioctl(mtd,
 		      (struct blkpg_ioctl_arg __user *)arg);
 		break;
 	}
@@ -1033,12 +1019,12 @@ static int mtd_ioctl(struct file *file, u_int cmd, u_long arg)
 	return ret;
 } /* memory_ioctl */
 
-static long mtd_unlocked_ioctl(struct file *file, u_int cmd, u_long arg)
+static long mtdchar_unlocked_ioctl(struct file *file, u_int cmd, u_long arg)
 {
 	int ret;
 
 	mutex_lock(&mtd_mutex);
-	ret = mtd_ioctl(file, cmd, arg);
+	ret = mtdchar_ioctl(file, cmd, arg);
 	mutex_unlock(&mtd_mutex);
 
 	return ret;
@@ -1055,7 +1041,7 @@ struct mtd_oob_buf32 {
 #define MEMWRITEOOB32		_IOWR('M', 3, struct mtd_oob_buf32)
 #define MEMREADOOB32		_IOWR('M', 4, struct mtd_oob_buf32)
 
-static long mtd_compat_ioctl(struct file *file, unsigned int cmd,
+static long mtdchar_compat_ioctl(struct file *file, unsigned int cmd,
 	unsigned long arg)
 {
 	struct mtd_file_info *mfi = file->private_data;
@@ -1074,7 +1060,7 @@ static long mtd_compat_ioctl(struct file *file, unsigned int cmd,
 		if (copy_from_user(&buf, argp, sizeof(buf)))
 			ret = -EFAULT;
 		else
-			ret = mtd_do_writeoob(file, mtd, buf.start,
+			ret = mtdchar_writeoob(file, mtd, buf.start,
 				buf.length, compat_ptr(buf.ptr),
 				&buf_user->length);
 		break;
@@ -1089,13 +1075,13 @@ static long mtd_compat_ioctl(struct file *file, unsigned int cmd,
 		if (copy_from_user(&buf, argp, sizeof(buf)))
 			ret = -EFAULT;
 		else
-			ret = mtd_do_readoob(file, mtd, buf.start,
+			ret = mtdchar_readoob(file, mtd, buf.start,
 				buf.length, compat_ptr(buf.ptr),
 				&buf_user->start);
 		break;
 	}
 	default:
-		ret = mtd_ioctl(file, cmd, (unsigned long)argp);
+		ret = mtdchar_ioctl(file, cmd, (unsigned long)argp);
 	}
 
 	mutex_unlock(&mtd_mutex);
@@ -1111,7 +1097,7 @@ static long mtd_compat_ioctl(struct file *file, unsigned int cmd,
  *   mappings)
  */
 #ifndef CONFIG_MMU
-static unsigned long mtd_get_unmapped_area(struct file *file,
+static unsigned long mtdchar_get_unmapped_area(struct file *file,
 					   unsigned long addr,
 					   unsigned long len,
 					   unsigned long pgoff,
@@ -1119,32 +1105,28 @@ static unsigned long mtd_get_unmapped_area(struct file *file,
 {
 	struct mtd_file_info *mfi = file->private_data;
 	struct mtd_info *mtd = mfi->mtd;
+	unsigned long offset;
+	int ret;
 
-	if (mtd->get_unmapped_area) {
-		unsigned long offset;
+	if (addr != 0)
+		return (unsigned long) -EINVAL;
 
-		if (addr != 0)
-			return (unsigned long) -EINVAL;
+	if (len > mtd->size || pgoff >= (mtd->size >> PAGE_SHIFT))
+		return (unsigned long) -EINVAL;
 
-		if (len > mtd->size || pgoff >= (mtd->size >> PAGE_SHIFT))
-			return (unsigned long) -EINVAL;
+	offset = pgoff << PAGE_SHIFT;
+	if (offset > mtd->size - len)
+		return (unsigned long) -EINVAL;
 
-		offset = pgoff << PAGE_SHIFT;
-		if (offset > mtd->size - len)
-			return (unsigned long) -EINVAL;
-
-		return mtd->get_unmapped_area(mtd, len, offset, flags);
-	}
-
-	/* can't map directly */
-	return (unsigned long) -ENOSYS;
+	ret = mtd_get_unmapped_area(mtd, len, offset, flags);
+	return ret == -EOPNOTSUPP ? -ENOSYS : ret;
 }
 #endif
 
 /*
  * set up a mapping for shared memory segments
  */
-static int mtd_mmap(struct file *file, struct vm_area_struct *vma)
+static int mtdchar_mmap(struct file *file, struct vm_area_struct *vma)
 {
 #ifdef CONFIG_MMU
 	struct mtd_file_info *mfi = file->private_data;
@@ -1185,51 +1167,36 @@ static int mtd_mmap(struct file *file, struct vm_area_struct *vma)
 
 static const struct file_operations mtd_fops = {
 	.owner		= THIS_MODULE,
-	.llseek		= mtd_lseek,
-	.read		= mtd_read,
-	.write		= mtd_write,
-	.unlocked_ioctl	= mtd_unlocked_ioctl,
+	.llseek		= mtdchar_lseek,
+	.read		= mtdchar_read,
+	.write		= mtdchar_write,
+	.unlocked_ioctl	= mtdchar_unlocked_ioctl,
 #ifdef CONFIG_COMPAT
-	.compat_ioctl	= mtd_compat_ioctl,
+	.compat_ioctl	= mtdchar_compat_ioctl,
 #endif
-	.open		= mtd_open,
-	.release	= mtd_close,
-	.mmap		= mtd_mmap,
+	.open		= mtdchar_open,
+	.release	= mtdchar_close,
+	.mmap		= mtdchar_mmap,
 #ifndef CONFIG_MMU
-	.get_unmapped_area = mtd_get_unmapped_area,
+	.get_unmapped_area = mtdchar_get_unmapped_area,
 #endif
+};
+
+static const struct super_operations mtd_ops = {
+	.drop_inode = generic_delete_inode,
+	.statfs = simple_statfs,
 };
 
 static struct dentry *mtd_inodefs_mount(struct file_system_type *fs_type,
 				int flags, const char *dev_name, void *data)
 {
-	return mount_pseudo(fs_type, "mtd_inode:", NULL, NULL, MTD_INODE_FS_MAGIC);
+	return mount_pseudo(fs_type, "mtd_inode:", &mtd_ops, NULL, MTD_INODE_FS_MAGIC);
 }
 
 static struct file_system_type mtd_inodefs_type = {
        .name = "mtd_inodefs",
        .mount = mtd_inodefs_mount,
        .kill_sb = kill_anon_super,
-};
-
-static void mtdchar_notify_add(struct mtd_info *mtd)
-{
-}
-
-static void mtdchar_notify_remove(struct mtd_info *mtd)
-{
-	struct inode *mtd_ino = ilookup(mtd_inode_mnt->mnt_sb, mtd->index);
-
-	if (mtd_ino) {
-		/* Destroy the inode if it exists */
-		clear_nlink(mtd_ino);
-		iput(mtd_ino);
-	}
-}
-
-static struct mtd_notifier mtdchar_notifier = {
-	.add = mtdchar_notify_add,
-	.remove = mtdchar_notify_remove,
 };
 
 static int __init init_mtdchar(void)
@@ -1249,19 +1216,8 @@ static int __init init_mtdchar(void)
 		pr_notice("Can't register mtd_inodefs filesystem: %d\n", ret);
 		goto err_unregister_chdev;
 	}
-
-	mtd_inode_mnt = kern_mount(&mtd_inodefs_type);
-	if (IS_ERR(mtd_inode_mnt)) {
-		ret = PTR_ERR(mtd_inode_mnt);
-		pr_notice("Error mounting mtd_inodefs filesystem: %d\n", ret);
-		goto err_unregister_filesystem;
-	}
-	register_mtd_user(&mtdchar_notifier);
-
 	return ret;
 
-err_unregister_filesystem:
-	unregister_filesystem(&mtd_inodefs_type);
 err_unregister_chdev:
 	__unregister_chrdev(MTD_CHAR_MAJOR, 0, 1 << MINORBITS, "mtd");
 	return ret;
@@ -1269,8 +1225,6 @@ err_unregister_chdev:
 
 static void __exit cleanup_mtdchar(void)
 {
-	unregister_mtd_user(&mtdchar_notifier);
-	kern_unmount(mtd_inode_mnt);
 	unregister_filesystem(&mtd_inodefs_type);
 	__unregister_chrdev(MTD_CHAR_MAJOR, 0, 1 << MINORBITS, "mtd");
 }

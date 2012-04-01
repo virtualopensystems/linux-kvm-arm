@@ -99,9 +99,7 @@ struct machdep_calls {
 
 	void		(*init_IRQ)(void);
 
-	/* Return an irq, or NO_IRQ to indicate there are none pending.
-	 * If for some reason there is no irq, but the interrupt
-	 * shouldn't be counted as spurious, return NO_IRQ_IGNORE. */
+	/* Return an irq, or NO_IRQ to indicate there are none pending. */
 	unsigned int	(*get_irq)(void);
 
 	/* PCI stuff */
@@ -212,6 +210,9 @@ struct machdep_calls {
 	/* Called when pci_enable_device() is called. Returns 0 to
 	 * allow assignment/enabling of the device. */
 	int  (*pcibios_enable_device_hook)(struct pci_dev *);
+
+	/* Called after scan and before resource survey */
+	void (*pcibios_fixup_phb)(struct pci_controller *hose);
 
 	/* Called to shutdown machine specific hardware not already controlled
 	 * by other drivers.

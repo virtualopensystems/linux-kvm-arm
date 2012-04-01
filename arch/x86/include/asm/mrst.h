@@ -26,8 +26,8 @@ extern struct sfi_rtc_table_entry sfi_mrtc_array[];
  * identified via MSRs.
  */
 enum mrst_cpu_type {
-	MRST_CPU_CHIP_LINCROFT = 1,
-	MRST_CPU_CHIP_PENWELL,
+	/* 1 was Moorestown */
+	MRST_CPU_CHIP_PENWELL = 2,
 };
 
 extern enum mrst_cpu_type __mrst_cpu_chip;
@@ -67,7 +67,7 @@ extern struct console early_mrst_console;
 extern void mrst_early_console_init(void);
 
 extern struct console early_hsu_console;
-extern void hsu_early_console_init(void);
+extern void hsu_early_console_init(const char *);
 
 extern void intel_scu_devices_create(void);
 extern void intel_scu_devices_destroy(void);

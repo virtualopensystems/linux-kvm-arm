@@ -27,6 +27,7 @@
 #include <asm/ucontext.h>
 #include <asm/uaccess.h>
 #include <asm/lowcore.h>
+#include <asm/switch_to.h>
 #include "compat_linux.h"
 #include "compat_ptrace.h"
 #include "entry.h"
@@ -501,8 +502,12 @@ static int setup_frame32(int sig, struct k_sigaction *ka,
 
 	/* We forgot to include these in the sigcontext.
 	   To avoid breaking binary compatibility, they are passed as args. */
-	regs->gprs[4] = current->thread.trap_no;
-	regs->gprs[5] = current->thread.prot_addr;
+	if (sig == SIGSEGV || sig == SIGBUS || sig == SIGILL ||
+	    sig == SIGTRAP || sig == SIGFPE) {
+		/* set extra registers only for synchronous signals */
+		regs->gprs[4] = regs->int_code & 127;
+		regs->gprs[5] = regs->int_parm_long;
+	}
 
 	/* Place signal number on stack to allow backtrace from handler.  */
 	if (__put_user(regs->gprs[2], (int __force __user *) &frame->signo))
@@ -544,9 +549,9 @@ static int setup_rt_frame32(int sig, struct k_sigaction *ka, siginfo_t *info,
 	/* Set up to return from userspace.  If provided, use a stub
 	   already in userspace.  */
 	if (ka->sa.sa_flags & SA_RESTORER) {
-		regs->gprs[14] = (__u64) ka->sa.sa_restorer;
+		regs->gprs[14] = (__u64) ka->sa.sa_restorer | PSW32_ADDR_AMODE;
 	} else {
-		regs->gprs[14] = (__u64) frame->retcode;
+		regs->gprs[14] = (__u64) frame->retcode | PSW32_ADDR_AMODE;
 		err |= __put_user(S390_SYSCALL_OPCODE | __NR_rt_sigreturn,
 				  (u16 __force __user *)(frame->retcode));
 	}
@@ -577,7 +582,6 @@ give_sigsegv:
 int handle_signal32(unsigned long sig, struct k_sigaction *ka,
 		    siginfo_t *info, sigset_t *oldset, struct pt_regs *regs)
 {
-	sigset_t blocked;
 	int ret;
 
 	/* Set up the stack frame */
@@ -587,10 +591,7 @@ int handle_signal32(unsigned long sig, struct k_sigaction *ka,
 		ret = setup_frame32(sig, ka, oldset, regs);
 	if (ret)
 		return ret;
-	sigorsets(&blocked, &current->blocked, &ka->sa.sa_mask);
-	if (!(ka->sa.sa_flags & SA_NODEFER))
-		sigaddset(&blocked, sig);
-	set_current_blocked(&blocked);
+	block_sigmask(ka, sig);
 	return 0;
 }
 

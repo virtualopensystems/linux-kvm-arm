@@ -167,6 +167,7 @@ static int __devinit sharpsl_nand_probe(struct platform_device *pdev)
 	this->ecc.mode = NAND_ECC_HW;
 	this->ecc.size = 256;
 	this->ecc.bytes = 3;
+	this->ecc.strength = 1;
 	this->badblock_pattern = data->badblock_pattern;
 	this->ecc.layout = data->ecc_layout;
 	this->ecc.hwctl = sharpsl_nand_enable_hwecc;
@@ -181,8 +182,8 @@ static int __devinit sharpsl_nand_probe(struct platform_device *pdev)
 	/* Register the partitions */
 	sharpsl->mtd.name = "sharpsl-nand";
 
-	err = mtd_device_parse_register(&sharpsl->mtd, NULL, 0,
-			data->partitions, data->nr_partitions);
+	err = mtd_device_parse_register(&sharpsl->mtd, NULL, NULL,
+					data->partitions, data->nr_partitions);
 	if (err)
 		goto err_add;
 
@@ -230,17 +231,7 @@ static struct platform_driver sharpsl_nand_driver = {
 	.remove		= __devexit_p(sharpsl_nand_remove),
 };
 
-static int __init sharpsl_nand_init(void)
-{
-	return platform_driver_register(&sharpsl_nand_driver);
-}
-module_init(sharpsl_nand_init);
-
-static void __exit sharpsl_nand_exit(void)
-{
-	platform_driver_unregister(&sharpsl_nand_driver);
-}
-module_exit(sharpsl_nand_exit);
+module_platform_driver(sharpsl_nand_driver);
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Richard Purdie <rpurdie@rpsys.net>");

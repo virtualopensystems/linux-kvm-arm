@@ -472,6 +472,7 @@ static struct cxgbi_sock *cxgbi_check_route(struct sockaddr *dst_addr)
 	struct net_device *ndev;
 	struct cxgbi_device *cdev;
 	struct rtable *rt = NULL;
+	struct neighbour *n;
 	struct flowi4 fl4;
 	struct cxgbi_sock *csk = NULL;
 	unsigned int mtu = 0;
@@ -493,7 +494,12 @@ static struct cxgbi_sock *cxgbi_check_route(struct sockaddr *dst_addr)
 		goto err_out;
 	}
 	dst = &rt->dst;
-	ndev = dst_get_neighbour(dst)->dev;
+	n = dst_get_neighbour_noref(dst);
+	if (!n) {
+		err = -ENODEV;
+		goto rel_rt;
+	}
+	ndev = n->dev;
 
 	if (rt->rt_flags & (RTCF_MULTICAST | RTCF_BROADCAST)) {
 		pr_info("multi-cast route %pI4, port %u, dev %s.\n",
@@ -507,7 +513,7 @@ static struct cxgbi_sock *cxgbi_check_route(struct sockaddr *dst_addr)
 		ndev = ip_dev_find(&init_net, daddr->sin_addr.s_addr);
 		mtu = ndev->mtu;
 		pr_info("rt dev %s, loopback -> %s, mtu %u.\n",
-			dst_get_neighbour(dst)->dev->name, ndev->name, mtu);
+			n->dev->name, ndev->name, mtu);
 	}
 
 	cdev = cxgbi_device_find_by_netdev(ndev, &port);
@@ -1862,8 +1868,9 @@ int cxgbi_conn_alloc_pdu(struct iscsi_task *task, u8 opcode)
 
 	tdata->skb = alloc_skb(cdev->skb_tx_rsvd + headroom, GFP_ATOMIC);
 	if (!tdata->skb) {
-		pr_warn("alloc skb %u+%u, opcode 0x%x failed.\n",
-			cdev->skb_tx_rsvd, headroom, opcode);
+		struct cxgbi_sock *csk = cconn->cep->csk;
+		struct net_device *ndev = cdev->ports[csk->port_id];
+		ndev->stats.tx_dropped++;
 		return -ENOMEM;
 	}
 
@@ -1949,12 +1956,11 @@ int cxgbi_conn_init_pdu(struct iscsi_task *task, unsigned int offset,
 
 			/* data fits in the skb's headroom */
 			for (i = 0; i < tdata->nr_frags; i++, frag++) {
-				char *src = kmap_atomic(frag->page,
-							KM_SOFTIRQ0);
+				char *src = kmap_atomic(frag->page);
 
 				memcpy(dst, src+frag->offset, frag->size);
 				dst += frag->size;
-				kunmap_atomic(src, KM_SOFTIRQ0);
+				kunmap_atomic(src);
 			}
 			if (padlen) {
 				memset(dst, 0, padlen);
@@ -2141,11 +2147,10 @@ int cxgbi_set_conn_param(struct iscsi_cls_conn *cls_conn,
 			enum iscsi_param param, char *buf, int buflen)
 {
 	struct iscsi_conn *conn = cls_conn->dd_data;
-	struct iscsi_session *session = conn->session;
 	struct iscsi_tcp_conn *tcp_conn = conn->dd_data;
 	struct cxgbi_conn *cconn = tcp_conn->dd_data;
 	struct cxgbi_sock *csk = cconn->cep->csk;
-	int value, err = 0;
+	int err;
 
 	log_debug(1 << CXGBI_DBG_ISCSI,
 		"cls_conn 0x%p, param %d, buf(%d) %s.\n",
@@ -2167,15 +2172,7 @@ int cxgbi_set_conn_param(struct iscsi_cls_conn *cls_conn,
 							conn->datadgst_en, 0);
 		break;
 	case ISCSI_PARAM_MAX_R2T:
-		sscanf(buf, "%d", &value);
-		if (value <= 0 || !is_power_of_2(value))
-			return -EINVAL;
-		if (session->max_r2t == value)
-			break;
-		iscsi_tcp_r2tpool_free(session);
-		err = iscsi_set_param(cls_conn, param, buf, buflen);
-		if (!err && iscsi_tcp_r2tpool_alloc(session))
-			return -ENOMEM;
+		return iscsi_tcp_set_max_r2t(conn, buf);
 	case ISCSI_PARAM_MAX_RECV_DLENGTH:
 		err = iscsi_set_param(cls_conn, param, buf, buflen);
 		if (!err)
@@ -2569,7 +2566,7 @@ void cxgbi_iscsi_cleanup(struct iscsi_transport *itp,
 }
 EXPORT_SYMBOL_GPL(cxgbi_iscsi_cleanup);
 
-mode_t cxgbi_attr_is_visible(int param_type, int param)
+umode_t cxgbi_attr_is_visible(int param_type, int param)
 {
 	switch (param_type) {
 	case ISCSI_HOST_PARAM:

@@ -34,6 +34,8 @@
 #include <linux/io.h>
 #include <linux/slab.h>
 #include <linux/pm_runtime.h>
+#include <linux/of.h>
+#include <linux/of_device.h>
 
 #include <linux/spi/spi.h>
 
@@ -121,6 +123,7 @@ struct omap2_mcspi {
 	/* SPI1 has 4 channels, while SPI2 has 2 */
 	struct omap2_mcspi_dma	*dma_channels;
 	struct  device		*dev;
+	struct workqueue_struct *wq;
 };
 
 struct omap2_mcspi_cs {
@@ -142,8 +145,6 @@ struct omap2_mcspi_regs {
 };
 
 static struct omap2_mcspi_regs omap2_mcspi_ctx[OMAP2_MCSPI_MAX_CTRL];
-
-static struct workqueue_struct *omap2_mcspi_wq;
 
 #define MOD_REG_BIT(val, mask, set) do { \
 	if (set) \
@@ -1043,7 +1044,7 @@ static int omap2_mcspi_transfer(struct spi_device *spi, struct spi_message *m)
 
 	spin_lock_irqsave(&mcspi->lock, flags);
 	list_add_tail(&m->queue, &mcspi->msg_queue);
-	queue_work(omap2_mcspi_wq, &mcspi->work);
+	queue_work(mcspi->wq, &mcspi->work);
 	spin_unlock_irqrestore(&mcspi->lock, flags);
 
 	return 0;
@@ -1080,14 +1081,39 @@ static int omap_mcspi_runtime_resume(struct device *dev)
 	return 0;
 }
 
+static struct omap2_mcspi_platform_config omap2_pdata = {
+	.regs_offset = 0,
+};
+
+static struct omap2_mcspi_platform_config omap4_pdata = {
+	.regs_offset = OMAP4_MCSPI_REG_OFFSET,
+};
+
+static const struct of_device_id omap_mcspi_of_match[] = {
+	{
+		.compatible = "ti,omap2-mcspi",
+		.data = &omap2_pdata,
+	},
+	{
+		.compatible = "ti,omap4-mcspi",
+		.data = &omap4_pdata,
+	},
+	{ },
+};
+MODULE_DEVICE_TABLE(of, omap_mcspi_of_match);
 
 static int __init omap2_mcspi_probe(struct platform_device *pdev)
 {
 	struct spi_master	*master;
-	struct omap2_mcspi_platform_config *pdata = pdev->dev.platform_data;
+	struct omap2_mcspi_platform_config *pdata;
 	struct omap2_mcspi	*mcspi;
 	struct resource		*r;
 	int			status = 0, i;
+	char			wq_name[20];
+	u32			regs_offset = 0;
+	static int		bus_num = 1;
+	struct device_node	*node = pdev->dev.of_node;
+	const struct of_device_id *match;
 
 	master = spi_alloc_master(&pdev->dev, sizeof *mcspi);
 	if (master == NULL) {
@@ -1098,39 +1124,59 @@ static int __init omap2_mcspi_probe(struct platform_device *pdev)
 	/* the spi->mode bits understood by this driver: */
 	master->mode_bits = SPI_CPOL | SPI_CPHA | SPI_CS_HIGH;
 
-	if (pdev->id != -1)
-		master->bus_num = pdev->id;
-
 	master->setup = omap2_mcspi_setup;
 	master->transfer = omap2_mcspi_transfer;
 	master->cleanup = omap2_mcspi_cleanup;
-	master->num_chipselect = pdata->num_cs;
+	master->dev.of_node = node;
+
+	match = of_match_device(omap_mcspi_of_match, &pdev->dev);
+	if (match) {
+		u32 num_cs = 1; /* default number of chipselect */
+		pdata = match->data;
+
+		of_property_read_u32(node, "ti,spi-num-cs", &num_cs);
+		master->num_chipselect = num_cs;
+		master->bus_num = bus_num++;
+	} else {
+		pdata = pdev->dev.platform_data;
+		master->num_chipselect = pdata->num_cs;
+		if (pdev->id != -1)
+			master->bus_num = pdev->id;
+	}
+	regs_offset = pdata->regs_offset;
 
 	dev_set_drvdata(&pdev->dev, master);
 
 	mcspi = spi_master_get_devdata(master);
 	mcspi->master = master;
 
+	sprintf(wq_name, "omap2_mcspi/%d", master->bus_num);
+	mcspi->wq = alloc_workqueue(wq_name, WQ_MEM_RECLAIM, 1);
+	if (mcspi->wq == NULL) {
+		status = -ENOMEM;
+		goto free_master;
+	}
+
 	r = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	if (r == NULL) {
 		status = -ENODEV;
-		goto err1;
+		goto free_master;
 	}
 
-	r->start += pdata->regs_offset;
-	r->end += pdata->regs_offset;
+	r->start += regs_offset;
+	r->end += regs_offset;
 	mcspi->phys = r->start;
 	if (!request_mem_region(r->start, resource_size(r),
 				dev_name(&pdev->dev))) {
 		status = -EBUSY;
-		goto err1;
+		goto free_master;
 	}
 
 	mcspi->base = ioremap(r->start, resource_size(r));
 	if (!mcspi->base) {
 		dev_dbg(&pdev->dev, "can't ioremap MCSPI\n");
 		status = -ENOMEM;
-		goto err2;
+		goto release_region;
 	}
 
 	mcspi->dev = &pdev->dev;
@@ -1145,7 +1191,7 @@ static int __init omap2_mcspi_probe(struct platform_device *pdev)
 			GFP_KERNEL);
 
 	if (mcspi->dma_channels == NULL)
-		goto err2;
+		goto unmap_io;
 
 	for (i = 0; i < master->num_chipselect; i++) {
 		char dma_ch_name[14];
@@ -1175,25 +1221,33 @@ static int __init omap2_mcspi_probe(struct platform_device *pdev)
 		mcspi->dma_channels[i].dma_tx_sync_dev = dma_res->start;
 	}
 
+	if (status < 0)
+		goto dma_chnl_free;
+
 	pm_runtime_enable(&pdev->dev);
 
 	if (status || omap2_mcspi_master_setup(mcspi) < 0)
-		goto err3;
+		goto disable_pm;
 
 	status = spi_register_master(master);
 	if (status < 0)
-		goto err4;
+		goto err_spi_register;
 
 	return status;
 
-err4:
+err_spi_register:
 	spi_master_put(master);
-err3:
+disable_pm:
+	pm_runtime_disable(&pdev->dev);
+dma_chnl_free:
 	kfree(mcspi->dma_channels);
-err2:
-	release_mem_region(r->start, resource_size(r));
+unmap_io:
 	iounmap(mcspi->base);
-err1:
+release_region:
+	release_mem_region(r->start, resource_size(r));
+free_master:
+	kfree(master);
+	platform_set_drvdata(pdev, NULL);
 	return status;
 }
 
@@ -1210,6 +1264,7 @@ static int __exit omap2_mcspi_remove(struct platform_device *pdev)
 	dma_channels = mcspi->dma_channels;
 
 	omap2_mcspi_disable_clocks(mcspi);
+	pm_runtime_disable(&pdev->dev);
 	r = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	release_mem_region(r->start, resource_size(r));
 
@@ -1217,6 +1272,8 @@ static int __exit omap2_mcspi_remove(struct platform_device *pdev)
 	spi_unregister_master(master);
 	iounmap(base);
 	kfree(dma_channels);
+	destroy_workqueue(mcspi->wq);
+	platform_set_drvdata(pdev, NULL);
 
 	return 0;
 }
@@ -1267,7 +1324,8 @@ static struct platform_driver omap2_mcspi_driver = {
 	.driver = {
 		.name =		"omap2_mcspi",
 		.owner =	THIS_MODULE,
-		.pm =		&omap2_mcspi_pm_ops
+		.pm =		&omap2_mcspi_pm_ops,
+		.of_match_table = omap_mcspi_of_match,
 	},
 	.remove =	__exit_p(omap2_mcspi_remove),
 };
@@ -1275,10 +1333,6 @@ static struct platform_driver omap2_mcspi_driver = {
 
 static int __init omap2_mcspi_init(void)
 {
-	omap2_mcspi_wq = create_singlethread_workqueue(
-				omap2_mcspi_driver.driver.name);
-	if (omap2_mcspi_wq == NULL)
-		return -1;
 	return platform_driver_probe(&omap2_mcspi_driver, omap2_mcspi_probe);
 }
 subsys_initcall(omap2_mcspi_init);
@@ -1287,7 +1341,6 @@ static void __exit omap2_mcspi_exit(void)
 {
 	platform_driver_unregister(&omap2_mcspi_driver);
 
-	destroy_workqueue(omap2_mcspi_wq);
 }
 module_exit(omap2_mcspi_exit);
 

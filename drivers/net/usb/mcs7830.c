@@ -239,7 +239,7 @@ static int mcs7830_set_mac_address(struct net_device *netdev, void *p)
 		return -EBUSY;
 
 	if (!is_valid_ether_addr(addr->sa_data))
-		return -EINVAL;
+		return -EADDRNOTAVAIL;
 
 	ret = mcs7830_hif_set_mac_address(dev, addr->sa_data);
 
@@ -692,17 +692,7 @@ static struct usb_driver mcs7830_driver = {
 	.reset_resume = mcs7830_reset_resume,
 };
 
-static int __init mcs7830_init(void)
-{
-	return usb_register(&mcs7830_driver);
-}
-module_init(mcs7830_init);
-
-static void __exit mcs7830_exit(void)
-{
-	usb_deregister(&mcs7830_driver);
-}
-module_exit(mcs7830_exit);
+module_usb_driver(mcs7830_driver);
 
 MODULE_DESCRIPTION("USB to network adapter MCS7830)");
 MODULE_LICENSE("GPL");

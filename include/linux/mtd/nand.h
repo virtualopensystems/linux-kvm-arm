@@ -324,6 +324,7 @@ struct nand_hw_control {
  * @steps:	number of ECC steps per page
  * @size:	data bytes per ECC step
  * @bytes:	ECC bytes per step
+ * @strength:	max number of correctible bits per ECC step
  * @total:	total number of ECC bytes per page
  * @prepad:	padding information for syndrome based ECC generators
  * @postpad:	padding information for syndrome based ECC generators
@@ -351,6 +352,7 @@ struct nand_ecc_ctrl {
 	int size;
 	int bytes;
 	int total;
+	int strength;
 	int prepad;
 	int postpad;
 	struct nand_ecclayout	*layout;
@@ -448,8 +450,9 @@ struct nand_buffers {
  *			will be copied to the appropriate nand_bbt_descr's.
  * @badblockpos:	[INTERN] position of the bad block marker in the oob
  *			area.
- * @badblockbits:	[INTERN] number of bits to left-shift the bad block
- *			number
+ * @badblockbits:	[INTERN] minimum number of set bits in a good block's
+ *			bad block marker position; i.e., BBM == 11110111b is
+ *			not bad when badblockbits == 7
  * @cellinfo:		[INTERN] MLC/multichip data from chip ident
  * @numchips:		[INTERN] number of physical chips
  * @chipsize:		[INTERN] the size of one chip for multichip arrays
@@ -555,6 +558,7 @@ struct nand_chip {
 #define NAND_MFR_HYNIX		0xad
 #define NAND_MFR_MICRON		0x2c
 #define NAND_MFR_AMD		0x01
+#define NAND_MFR_MACRONIX	0xc2
 
 /**
  * struct nand_flash_dev - NAND Flash Device ID Structure

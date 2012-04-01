@@ -97,8 +97,8 @@ static int qlcnicvf_config_bridged_mode(struct qlcnic_adapter *, u32);
 static int qlcnicvf_start_firmware(struct qlcnic_adapter *);
 static void qlcnic_set_netdev_features(struct qlcnic_adapter *,
 				struct qlcnic_esw_func_cfg *);
-static void qlcnic_vlan_rx_add(struct net_device *, u16);
-static void qlcnic_vlan_rx_del(struct net_device *, u16);
+static int qlcnic_vlan_rx_add(struct net_device *, u16);
+static int qlcnic_vlan_rx_del(struct net_device *, u16);
 
 /*  PCI Device ID Table  */
 #define ENTRY(device) \
@@ -301,7 +301,7 @@ static int qlcnic_set_mac(struct net_device *netdev, void *p)
 		return -EOPNOTSUPP;
 
 	if (!is_valid_ether_addr(addr->sa_data))
-		return -EINVAL;
+		return -EADDRNOTAVAIL;
 
 	if (test_bit(__QLCNIC_DEV_UP, &adapter->state)) {
 		netif_device_detach(netdev);
@@ -735,20 +735,22 @@ qlcnic_set_vlan_config(struct qlcnic_adapter *adapter,
 		adapter->pvid = 0;
 }
 
-static void
+static int
 qlcnic_vlan_rx_add(struct net_device *netdev, u16 vid)
 {
 	struct qlcnic_adapter *adapter = netdev_priv(netdev);
 	set_bit(vid, adapter->vlans);
+	return 0;
 }
 
-static void
+static int
 qlcnic_vlan_rx_del(struct net_device *netdev, u16 vid)
 {
 	struct qlcnic_adapter *adapter = netdev_priv(netdev);
 
 	qlcnic_restore_indev_addr(netdev, NETDEV_DOWN);
 	clear_bit(vid, adapter->vlans);
+	return 0;
 }
 
 static void
@@ -792,7 +794,7 @@ qlcnic_set_netdev_features(struct qlcnic_adapter *adapter,
 		struct qlcnic_esw_func_cfg *esw_cfg)
 {
 	struct net_device *netdev = adapter->netdev;
-	unsigned long features, vlan_features;
+	netdev_features_t features, vlan_features;
 
 	features = (NETIF_F_SG | NETIF_F_IP_CSUM | NETIF_F_RXCSUM |
 			NETIF_F_IPV6_CSUM | NETIF_F_GRO);
@@ -1456,8 +1458,10 @@ qlcnic_reset_context(struct qlcnic_adapter *adapter)
 
 		if (netif_running(netdev)) {
 			err = qlcnic_attach(adapter);
-			if (!err)
+			if (!err) {
 				__qlcnic_up(adapter, netdev);
+				qlcnic_restore_indev_addr(netdev, NETDEV_UP);
+			}
 		}
 
 		netif_device_attach(netdev);
@@ -1574,7 +1578,6 @@ qlcnic_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 
 	netdev = alloc_etherdev(sizeof(struct qlcnic_adapter));
 	if (!netdev) {
-		dev_err(&pdev->dev, "failed to allocate net_device\n");
 		err = -ENOMEM;
 		goto err_out_free_res;
 	}
@@ -2998,8 +3001,18 @@ qlcnic_set_npar_non_operational(struct qlcnic_adapter *adapter)
 void
 qlcnic_dev_request_reset(struct qlcnic_adapter *adapter)
 {
-	u32 state;
+	u32 state, xg_val = 0, gb_val = 0;
 
+	qlcnic_xg_set_xg0_mask(xg_val);
+	qlcnic_xg_set_xg1_mask(xg_val);
+	QLCWR32(adapter, QLCNIC_NIU_XG_PAUSE_CTL, xg_val);
+	qlcnic_gb_set_gb0_mask(gb_val);
+	qlcnic_gb_set_gb1_mask(gb_val);
+	qlcnic_gb_set_gb2_mask(gb_val);
+	qlcnic_gb_set_gb3_mask(gb_val);
+	QLCWR32(adapter, QLCNIC_NIU_GB_PAUSE_CTL, gb_val);
+	dev_info(&adapter->pdev->dev, "Pause control frames disabled"
+				" on all ports\n");
 	adapter->need_fw_reset = 1;
 	if (qlcnic_api_lock(adapter))
 		return;
@@ -3148,7 +3161,7 @@ qlcnic_check_health(struct qlcnic_adapter *adapter)
 			QLCRD32(adapter, QLCNIC_CRB_PEG_NET_3 + 0x3c),
 			QLCRD32(adapter, QLCNIC_CRB_PEG_NET_4 + 0x3c));
 	peg_status = QLCRD32(adapter, QLCNIC_PEG_HALT_STATUS1);
-	if (LSW(MSB(peg_status)) == 0x67)
+	if (QLCNIC_FWERROR_CODE(peg_status) == 0x67)
 		dev_err(&adapter->pdev->dev,
 			"Firmware aborted with error code 0x00006700. "
 				"Device is being reset.\n");

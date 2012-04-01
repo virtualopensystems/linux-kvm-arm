@@ -2,7 +2,7 @@
  *
  * GPL LICENSE SUMMARY
  *
- * Copyright(c) 2008 - 2011 Intel Corporation. All rights reserved.
+ * Copyright(c) 2008 - 2012 Intel Corporation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of version 2 of the GNU General Public License as
@@ -230,15 +230,18 @@ static ssize_t iwl_dbgfs_sram_read(struct file *file,
 	int pos = 0;
 	int sram;
 	struct iwl_priv *priv = file->private_data;
+	const struct fw_img *img;
 	size_t bufsz;
 
 	/* default is to dump the entire data segment */
 	if (!priv->dbgfs_sram_offset && !priv->dbgfs_sram_len) {
 		priv->dbgfs_sram_offset = 0x800000;
-		if (priv->ucode_type == IWL_UCODE_INIT)
-			priv->dbgfs_sram_len = priv->ucode_init.data.len;
-		else
-			priv->dbgfs_sram_len = priv->ucode_rt.data.len;
+		if (!priv->ucode_loaded) {
+			IWL_ERR(priv, "No uCode has been loadded.\n");
+			return -EINVAL;
+		}
+		img = &priv->fw->img[priv->shrd->ucode_type];
+		priv->dbgfs_sram_len = img->sec[IWL_UCODE_SECTION_DATA].len;
 	}
 	len = priv->dbgfs_sram_len;
 
@@ -262,7 +265,7 @@ static ssize_t iwl_dbgfs_sram_read(struct file *file,
 	sram = priv->dbgfs_sram_offset & ~0x3;
 
 	/* read the first u32 from sram */
-	val = iwl_read_targ_mem(bus(priv), sram);
+	val = iwl_read_targ_mem(trans(priv), sram);
 
 	for (; len; len--) {
 		/* put the address at the start of every line */
@@ -281,7 +284,7 @@ static ssize_t iwl_dbgfs_sram_read(struct file *file,
 		if (++offset == 4) {
 			sram += 4;
 			offset = 0;
-			val = iwl_read_targ_mem(bus(priv), sram);
+			val = iwl_read_targ_mem(trans(priv), sram);
 		}
 
 		/* put in extra spaces and split lines for human readability */
@@ -335,13 +338,14 @@ static ssize_t iwl_dbgfs_wowlan_sram_read(struct file *file,
 					  size_t count, loff_t *ppos)
 {
 	struct iwl_priv *priv = file->private_data;
+	const struct fw_img *img = &priv->fw->img[IWL_UCODE_WOWLAN];
 
 	if (!priv->wowlan_sram)
 		return -ENODATA;
 
 	return simple_read_from_buffer(user_buf, count, ppos,
 				       priv->wowlan_sram,
-				       priv->ucode_wowlan.data.len);
+				       img->sec[IWL_UCODE_SECTION_DATA].len);
 }
 static ssize_t iwl_dbgfs_stations_read(struct file *file, char __user *user_buf,
 					size_t count, loff_t *ppos)
@@ -371,15 +375,13 @@ static ssize_t iwl_dbgfs_stations_read(struct file *file, char __user *user_buf,
 				 i, station->sta.sta.addr,
 				 station->sta.station_flags_msk);
 		pos += scnprintf(buf + pos, bufsz - pos,
-				"TID\tseq_num\ttxq_id\ttfds\trate_n_flags\n");
+				"TID\tseq_num\trate_n_flags\n");
 
 		for (j = 0; j < IWL_MAX_TID_COUNT; j++) {
-			tid_data = &priv->shrd->tid_data[i][j];
+			tid_data = &priv->tid_data[i][j];
 			pos += scnprintf(buf + pos, bufsz - pos,
-				"%d:\t%#x\t%#x\t%u\t%#x",
+				"%d:\t%#x\t%#x",
 				j, tid_data->seq_number,
-				tid_data->agg.txq_id,
-				tid_data->tfds_in_queue,
 				tid_data->agg.rate_n_flags);
 
 			if (tid_data->agg.wait_for_ba)
@@ -407,7 +409,7 @@ static ssize_t iwl_dbgfs_nvm_read(struct file *file,
 	const u8 *ptr;
 	char *buf;
 	u16 eeprom_ver;
-	size_t eeprom_len = priv->cfg->base_params->eeprom_size;
+	size_t eeprom_len = cfg(priv)->base_params->eeprom_size;
 	buf_size = 4 * eeprom_len + 256;
 
 	if (eeprom_len % 16) {
@@ -415,7 +417,7 @@ static ssize_t iwl_dbgfs_nvm_read(struct file *file,
 		return -ENODATA;
 	}
 
-	ptr = priv->eeprom;
+	ptr = priv->shrd->eeprom;
 	if (!ptr) {
 		IWL_ERR(priv, "Invalid EEPROM/OTP memory\n");
 		return -ENOMEM;
@@ -427,10 +429,10 @@ static ssize_t iwl_dbgfs_nvm_read(struct file *file,
 		IWL_ERR(priv, "Can not allocate Buffer\n");
 		return -ENOMEM;
 	}
-	eeprom_ver = iwl_eeprom_query16(priv, EEPROM_VERSION);
+	eeprom_ver = iwl_eeprom_query16(priv->shrd, EEPROM_VERSION);
 	pos += scnprintf(buf + pos, buf_size - pos, "NVM Type: %s, "
 			"version: 0x%x\n",
-			(priv->nvm_device_type == NVM_DEVICE_TYPE_OTP)
+			(trans(priv)->nvm_device_type == NVM_DEVICE_TYPE_OTP)
 			 ? "OTP" : "EEPROM", eeprom_ver);
 	for (ofs = 0 ; ofs < eeprom_len ; ofs += 16) {
 		pos += scnprintf(buf + pos, buf_size - pos, "0x%.4x ", ofs);
@@ -456,7 +458,7 @@ static ssize_t iwl_dbgfs_channels_read(struct file *file, char __user *user_buf,
 	char *buf;
 	ssize_t ret;
 
-	if (!test_bit(STATUS_GEO_CONFIGURED, &priv->shrd->status))
+	if (!test_bit(STATUS_GEO_CONFIGURED, &priv->status))
 		return -EAGAIN;
 
 	buf = kzalloc(bufsz, GFP_KERNEL);
@@ -527,32 +529,26 @@ static ssize_t iwl_dbgfs_status_read(struct file *file,
 
 	pos += scnprintf(buf + pos, bufsz - pos, "STATUS_HCMD_ACTIVE:\t %d\n",
 		test_bit(STATUS_HCMD_ACTIVE, &priv->shrd->status));
-	pos += scnprintf(buf + pos, bufsz - pos, "STATUS_INT_ENABLED:\t %d\n",
-		test_bit(STATUS_INT_ENABLED, &priv->shrd->status));
 	pos += scnprintf(buf + pos, bufsz - pos, "STATUS_RF_KILL_HW:\t %d\n",
-		test_bit(STATUS_RF_KILL_HW, &priv->shrd->status));
+		test_bit(STATUS_RF_KILL_HW, &priv->status));
 	pos += scnprintf(buf + pos, bufsz - pos, "STATUS_CT_KILL:\t\t %d\n",
-		test_bit(STATUS_CT_KILL, &priv->shrd->status));
-	pos += scnprintf(buf + pos, bufsz - pos, "STATUS_INIT:\t\t %d\n",
-		test_bit(STATUS_INIT, &priv->shrd->status));
+		test_bit(STATUS_CT_KILL, &priv->status));
 	pos += scnprintf(buf + pos, bufsz - pos, "STATUS_ALIVE:\t\t %d\n",
-		test_bit(STATUS_ALIVE, &priv->shrd->status));
+		test_bit(STATUS_ALIVE, &priv->status));
 	pos += scnprintf(buf + pos, bufsz - pos, "STATUS_READY:\t\t %d\n",
-		test_bit(STATUS_READY, &priv->shrd->status));
-	pos += scnprintf(buf + pos, bufsz - pos, "STATUS_TEMPERATURE:\t %d\n",
-		test_bit(STATUS_TEMPERATURE, &priv->shrd->status));
+		test_bit(STATUS_READY, &priv->status));
 	pos += scnprintf(buf + pos, bufsz - pos, "STATUS_GEO_CONFIGURED:\t %d\n",
-		test_bit(STATUS_GEO_CONFIGURED, &priv->shrd->status));
+		test_bit(STATUS_GEO_CONFIGURED, &priv->status));
 	pos += scnprintf(buf + pos, bufsz - pos, "STATUS_EXIT_PENDING:\t %d\n",
-		test_bit(STATUS_EXIT_PENDING, &priv->shrd->status));
+		test_bit(STATUS_EXIT_PENDING, &priv->status));
 	pos += scnprintf(buf + pos, bufsz - pos, "STATUS_STATISTICS:\t %d\n",
-		test_bit(STATUS_STATISTICS, &priv->shrd->status));
+		test_bit(STATUS_STATISTICS, &priv->status));
 	pos += scnprintf(buf + pos, bufsz - pos, "STATUS_SCANNING:\t %d\n",
-		test_bit(STATUS_SCANNING, &priv->shrd->status));
+		test_bit(STATUS_SCANNING, &priv->status));
 	pos += scnprintf(buf + pos, bufsz - pos, "STATUS_SCAN_ABORTING:\t %d\n",
-		test_bit(STATUS_SCAN_ABORTING, &priv->shrd->status));
+		test_bit(STATUS_SCAN_ABORTING, &priv->status));
 	pos += scnprintf(buf + pos, bufsz - pos, "STATUS_SCAN_HW:\t\t %d\n",
-		test_bit(STATUS_SCAN_HW, &priv->shrd->status));
+		test_bit(STATUS_SCAN_HW, &priv->status));
 	pos += scnprintf(buf + pos, bufsz - pos, "STATUS_POWER_PMI:\t %d\n",
 		test_bit(STATUS_POWER_PMI, &priv->shrd->status));
 	pos += scnprintf(buf + pos, bufsz - pos, "STATUS_FW_ERROR:\t %d\n",
@@ -758,14 +754,14 @@ static ssize_t iwl_dbgfs_sleep_level_override_write(struct file *file,
 	if (value != -1 && (value < 0 || value >= IWL_POWER_NUM))
 		return -EINVAL;
 
-	if (!iwl_is_ready_rf(priv->shrd))
+	if (!iwl_is_ready_rf(priv))
 		return -EAGAIN;
 
 	priv->power_data.debug_sleep_level_override = value;
 
-	mutex_lock(&priv->shrd->mutex);
+	mutex_lock(&priv->mutex);
 	iwl_power_update_mode(priv, true);
-	mutex_unlock(&priv->shrd->mutex);
+	mutex_unlock(&priv->mutex);
 
 	return count;
 }
@@ -836,7 +832,7 @@ static ssize_t iwl_dbgfs_traffic_log_read(struct file *file,
 
 	char *buf;
 	int bufsz = ((IWL_TRAFFIC_ENTRIES * IWL_TRAFFIC_ENTRY_SIZE * 64) * 2) +
-		(hw_params(priv).max_txq_num * 32 * 8) + 400;
+		(cfg(priv)->base_params->num_of_queues * 32 * 8) + 400;
 	const u8 *ptr;
 	ssize_t ret;
 
@@ -845,8 +841,7 @@ static ssize_t iwl_dbgfs_traffic_log_read(struct file *file,
 		IWL_ERR(priv, "Can not allocate buffer\n");
 		return -ENOMEM;
 	}
-	if (priv->tx_traffic &&
-		(iwl_get_debug_level(priv->shrd) & IWL_DL_TX)) {
+	if (priv->tx_traffic && iwl_have_debug_level(IWL_DL_TX)) {
 		ptr = priv->tx_traffic;
 		pos += scnprintf(buf + pos, bufsz - pos,
 				"Tx Traffic idx: %u\n", priv->tx_traffic_idx);
@@ -864,8 +859,7 @@ static ssize_t iwl_dbgfs_traffic_log_read(struct file *file,
 		}
 	}
 
-	if (priv->rx_traffic &&
-		(iwl_get_debug_level(priv->shrd) & IWL_DL_RX)) {
+	if (priv->rx_traffic && iwl_have_debug_level(IWL_DL_RX)) {
 		ptr = priv->rx_traffic;
 		pos += scnprintf(buf + pos, bufsz - pos,
 				"Rx Traffic idx: %u\n", priv->rx_traffic_idx);
@@ -920,6 +914,8 @@ static int iwl_statistics_flag(struct iwl_priv *priv, char *buf, int bufsz)
 	int p = 0;
 	u32 flag;
 
+	lockdep_assert_held(&priv->statistics.lock);
+
 	flag = le32_to_cpu(priv->statistics.flag);
 
 	p += scnprintf(buf + p, bufsz - p, "Statistics Flag(0x%X):\n", flag);
@@ -953,7 +949,7 @@ static ssize_t iwl_dbgfs_ucode_rx_stats_read(struct file *file,
 	struct statistics_rx_non_phy *delta_general, *max_general;
 	struct statistics_rx_ht_phy *ht, *accum_ht, *delta_ht, *max_ht;
 
-	if (!iwl_is_alive(priv->shrd))
+	if (!iwl_is_alive(priv))
 		return -EAGAIN;
 
 	buf = kzalloc(bufsz, GFP_KERNEL);
@@ -967,6 +963,7 @@ static ssize_t iwl_dbgfs_ucode_rx_stats_read(struct file *file,
 	 * the last statistics notification from uCode
 	 * might not reflect the current uCode activity
 	 */
+	spin_lock_bh(&priv->statistics.lock);
 	ofdm = &priv->statistics.rx_ofdm;
 	cck = &priv->statistics.rx_cck;
 	general = &priv->statistics.rx_non_phy;
@@ -1363,6 +1360,8 @@ static ssize_t iwl_dbgfs_ucode_rx_stats_read(struct file *file,
 			 accum_ht->unsupport_mcs,
 			 delta_ht->unsupport_mcs, max_ht->unsupport_mcs);
 
+	spin_unlock_bh(&priv->statistics.lock);
+
 	ret = simple_read_from_buffer(user_buf, count, ppos, buf, pos);
 	kfree(buf);
 	return ret;
@@ -1379,7 +1378,7 @@ static ssize_t iwl_dbgfs_ucode_tx_stats_read(struct file *file,
 	ssize_t ret;
 	struct statistics_tx *tx, *accum_tx, *delta_tx, *max_tx;
 
-	if (!iwl_is_alive(priv->shrd))
+	if (!iwl_is_alive(priv))
 		return -EAGAIN;
 
 	buf = kzalloc(bufsz, GFP_KERNEL);
@@ -1392,6 +1391,8 @@ static ssize_t iwl_dbgfs_ucode_tx_stats_read(struct file *file,
 	 * the last statistics notification from uCode
 	 * might not reflect the current uCode activity
 	 */
+	spin_lock_bh(&priv->statistics.lock);
+
 	tx = &priv->statistics.tx;
 	accum_tx = &priv->accum_stats.tx;
 	delta_tx = &priv->delta_stats.tx;
@@ -1541,19 +1542,25 @@ static ssize_t iwl_dbgfs_ucode_tx_stats_read(struct file *file,
 	if (tx->tx_power.ant_a || tx->tx_power.ant_b || tx->tx_power.ant_c) {
 		pos += scnprintf(buf + pos, bufsz - pos,
 			"tx power: (1/2 dB step)\n");
-		if ((priv->cfg->valid_tx_ant & ANT_A) && tx->tx_power.ant_a)
+		if ((hw_params(priv).valid_tx_ant & ANT_A) &&
+		    tx->tx_power.ant_a)
 			pos += scnprintf(buf + pos, bufsz - pos,
 					fmt_hex, "antenna A:",
 					tx->tx_power.ant_a);
-		if ((priv->cfg->valid_tx_ant & ANT_B) && tx->tx_power.ant_b)
+		if ((hw_params(priv).valid_tx_ant & ANT_B) &&
+		    tx->tx_power.ant_b)
 			pos += scnprintf(buf + pos, bufsz - pos,
 					fmt_hex, "antenna B:",
 					tx->tx_power.ant_b);
-		if ((priv->cfg->valid_tx_ant & ANT_C) && tx->tx_power.ant_c)
+		if ((hw_params(priv).valid_tx_ant & ANT_C) &&
+		    tx->tx_power.ant_c)
 			pos += scnprintf(buf + pos, bufsz - pos,
 					fmt_hex, "antenna C:",
 					tx->tx_power.ant_c);
 	}
+
+	spin_unlock_bh(&priv->statistics.lock);
+
 	ret = simple_read_from_buffer(user_buf, count, ppos, buf, pos);
 	kfree(buf);
 	return ret;
@@ -1573,7 +1580,7 @@ static ssize_t iwl_dbgfs_ucode_general_stats_read(struct file *file,
 	struct statistics_dbg *dbg, *accum_dbg, *delta_dbg, *max_dbg;
 	struct statistics_div *div, *accum_div, *delta_div, *max_div;
 
-	if (!iwl_is_alive(priv->shrd))
+	if (!iwl_is_alive(priv))
 		return -EAGAIN;
 
 	buf = kzalloc(bufsz, GFP_KERNEL);
@@ -1586,6 +1593,9 @@ static ssize_t iwl_dbgfs_ucode_general_stats_read(struct file *file,
 	 * the last statistics notification from uCode
 	 * might not reflect the current uCode activity
 	 */
+
+	spin_lock_bh(&priv->statistics.lock);
+
 	general = &priv->statistics.common;
 	dbg = &priv->statistics.common.dbg;
 	div = &priv->statistics.common.div;
@@ -1670,6 +1680,9 @@ static ssize_t iwl_dbgfs_ucode_general_stats_read(struct file *file,
 			 accum_general->num_of_sos_states,
 			 delta_general->num_of_sos_states,
 			 max_general->num_of_sos_states);
+
+	spin_unlock_bh(&priv->statistics.lock);
+
 	ret = simple_read_from_buffer(user_buf, count, ppos, buf, pos);
 	kfree(buf);
 	return ret;
@@ -1686,16 +1699,16 @@ static ssize_t iwl_dbgfs_ucode_bt_stats_read(struct file *file,
 	ssize_t ret;
 	struct statistics_bt_activity *bt, *accum_bt;
 
-	if (!iwl_is_alive(priv->shrd))
+	if (!iwl_is_alive(priv))
 		return -EAGAIN;
 
 	if (!priv->bt_enable_flag)
 		return -EINVAL;
 
 	/* make request to uCode to retrieve statistics information */
-	mutex_lock(&priv->shrd->mutex);
+	mutex_lock(&priv->mutex);
 	ret = iwl_send_statistics_request(priv, CMD_SYNC, false);
-	mutex_unlock(&priv->shrd->mutex);
+	mutex_unlock(&priv->mutex);
 
 	if (ret) {
 		IWL_ERR(priv,
@@ -1713,6 +1726,9 @@ static ssize_t iwl_dbgfs_ucode_bt_stats_read(struct file *file,
 	 * the last statistics notification from uCode
 	 * might not reflect the current uCode activity
 	 */
+
+	spin_lock_bh(&priv->statistics.lock);
+
 	bt = &priv->statistics.bt_activity;
 	accum_bt = &priv->accum_stats.bt_activity;
 
@@ -1758,6 +1774,8 @@ static ssize_t iwl_dbgfs_ucode_bt_stats_read(struct file *file,
 			 le32_to_cpu(priv->statistics.num_bt_kills),
 			 priv->statistics.accum_num_bt_kills);
 
+	spin_unlock_bh(&priv->statistics.lock);
+
 	ret = simple_read_from_buffer(user_buf, count, ppos, buf, pos);
 	kfree(buf);
 	return ret;
@@ -1774,7 +1792,7 @@ static ssize_t iwl_dbgfs_reply_tx_error_read(struct file *file,
 		(sizeof(struct reply_agg_tx_error_statistics) * 24) + 200;
 	ssize_t ret;
 
-	if (!iwl_is_alive(priv->shrd))
+	if (!iwl_is_alive(priv))
 		return -EAGAIN;
 
 	buf = kzalloc(bufsz, GFP_KERNEL);
@@ -2056,7 +2074,7 @@ static ssize_t iwl_dbgfs_power_save_status_read(struct file *file,
 	const size_t bufsz = sizeof(buf);
 	u32 pwrsave_status;
 
-	pwrsave_status = iwl_read32(bus(priv), CSR_GP_CNTRL) &
+	pwrsave_status = iwl_read32(trans(priv), CSR_GP_CNTRL) &
 			CSR_GP_REG_POWER_SAVE_STATUS_MSK;
 
 	pos += scnprintf(buf + pos, bufsz - pos, "Power Save Status: ");
@@ -2086,9 +2104,9 @@ static ssize_t iwl_dbgfs_clear_ucode_statistics_write(struct file *file,
 		return -EFAULT;
 
 	/* make request to uCode to retrieve statistics information */
-	mutex_lock(&priv->shrd->mutex);
+	mutex_lock(&priv->mutex);
 	iwl_send_statistics_request(priv, CMD_SYNC, true);
-	mutex_unlock(&priv->shrd->mutex);
+	mutex_unlock(&priv->mutex);
 
 	return count;
 }
@@ -2132,9 +2150,10 @@ static ssize_t iwl_dbgfs_ucode_tracing_write(struct file *file,
 
 	if (trace) {
 		priv->event_log.ucode_trace = true;
-		/* schedule the ucode timer to occur in UCODE_TRACE_PERIOD */
-		mod_timer(&priv->ucode_trace,
-			jiffies + msecs_to_jiffies(UCODE_TRACE_PERIOD));
+		if (iwl_is_alive(priv)) {
+			/* start collecting data now */
+			mod_timer(&priv->ucode_trace, jiffies);
+		}
 	} else {
 		priv->event_log.ucode_trace = false;
 		del_timer_sync(&priv->ucode_trace);
@@ -2220,7 +2239,7 @@ static ssize_t iwl_dbgfs_plcp_delta_read(struct file *file,
 	const size_t bufsz = sizeof(buf);
 
 	pos += scnprintf(buf + pos, bufsz - pos, "%u\n",
-			priv->cfg->base_params->plcp_delta_threshold);
+			priv->plcp_delta_threshold);
 
 	return simple_read_from_buffer(user_buf, count, ppos, buf, pos);
 }
@@ -2242,10 +2261,10 @@ static ssize_t iwl_dbgfs_plcp_delta_write(struct file *file,
 		return -EINVAL;
 	if ((plcp < IWL_MAX_PLCP_ERR_THRESHOLD_MIN) ||
 		(plcp > IWL_MAX_PLCP_ERR_THRESHOLD_MAX))
-		priv->cfg->base_params->plcp_delta_threshold =
+		priv->plcp_delta_threshold =
 			IWL_MAX_PLCP_ERR_THRESHOLD_DISABLE;
 	else
-		priv->cfg->base_params->plcp_delta_threshold = plcp;
+		priv->plcp_delta_threshold = plcp;
 	return count;
 }
 
@@ -2321,7 +2340,7 @@ static ssize_t iwl_dbgfs_txfifo_flush_write(struct file *file,
 	if (sscanf(buf, "%d", &flush) != 1)
 		return -EINVAL;
 
-	if (iwl_is_rfkill(priv->shrd))
+	if (iwl_is_rfkill(priv))
 		return -EFAULT;
 
 	iwlagn_dev_txfifo_flush(priv, IWL_DROP_ALL);
@@ -2347,7 +2366,7 @@ static ssize_t iwl_dbgfs_wd_timeout_write(struct file *file,
 	if (timeout < 0 || timeout > IWL_MAX_WD_TIMEOUT)
 		timeout = IWL_DEF_WD_TIMEOUT;
 
-	priv->cfg->base_params->wd_timeout = timeout;
+	hw_params(priv).wd_timeout = timeout;
 	iwl_setup_watchdog(priv);
 	return count;
 }
@@ -2407,10 +2426,10 @@ static ssize_t iwl_dbgfs_protection_mode_read(struct file *file,
 	char buf[40];
 	const size_t bufsz = sizeof(buf);
 
-	if (priv->cfg->ht_params)
+	if (cfg(priv)->ht_params)
 		pos += scnprintf(buf + pos, bufsz - pos,
 			 "use %s for aggregation\n",
-			 (priv->cfg->ht_params->use_rts_for_aggregation) ?
+			 (hw_params(priv).use_rts_for_aggregation) ?
 				"rts/cts" : "cts-to-self");
 	else
 		pos += scnprintf(buf + pos, bufsz - pos, "N/A");
@@ -2427,7 +2446,7 @@ static ssize_t iwl_dbgfs_protection_mode_write(struct file *file,
 	int buf_size;
 	int rts;
 
-	if (!priv->cfg->ht_params)
+	if (!cfg(priv)->ht_params)
 		return -EINVAL;
 
 	memset(buf, 0, sizeof(buf));
@@ -2437,9 +2456,9 @@ static ssize_t iwl_dbgfs_protection_mode_write(struct file *file,
 	if (sscanf(buf, "%d", &rts) != 1)
 		return -EINVAL;
 	if (rts)
-		priv->cfg->ht_params->use_rts_for_aggregation = true;
+		hw_params(priv).use_rts_for_aggregation = true;
 	else
-		priv->cfg->ht_params->use_rts_for_aggregation = false;
+		hw_params(priv).use_rts_for_aggregation = false;
 	return count;
 }
 
@@ -2484,52 +2503,6 @@ DEBUGFS_READ_FILE_OPS(bt_traffic);
 DEBUGFS_READ_WRITE_FILE_OPS(protection_mode);
 DEBUGFS_READ_FILE_OPS(reply_tx_error);
 DEBUGFS_WRITE_FILE_OPS(echo_test);
-
-#ifdef CONFIG_IWLWIFI_DEBUG
-static ssize_t iwl_dbgfs_debug_level_read(struct file *file,
-					  char __user *user_buf,
-					  size_t count, loff_t *ppos)
-{
-	struct iwl_priv *priv = file->private_data;
-	struct iwl_shared *shrd = priv->shrd;
-	char buf[11];
-	int len;
-
-	len = scnprintf(buf, sizeof(buf), "0x%.8x",
-			iwl_get_debug_level(shrd));
-
-	return simple_read_from_buffer(user_buf, count, ppos, buf, len);
-}
-
-static ssize_t iwl_dbgfs_debug_level_write(struct file *file,
-					   const char __user *user_buf,
-					   size_t count, loff_t *ppos)
-{
-	struct iwl_priv *priv = file->private_data;
-	struct iwl_shared *shrd = priv->shrd;
-	char buf[11];
-	unsigned long val;
-	int ret;
-
-	if (count > sizeof(buf))
-		return -EINVAL;
-
-	memset(buf, 0, sizeof(buf));
-	if (copy_from_user(buf, user_buf, count))
-		return -EFAULT;
-
-	ret = strict_strtoul(buf, 0, &val);
-	if (ret)
-		return ret;
-
-	shrd->dbg_level_dev = val;
-	if (iwl_alloc_traffic_mem(priv))
-		IWL_ERR(priv, "Not enough memory to generate traffic log\n");
-
-	return count;
-}
-DEBUGFS_READ_WRITE_FILE_OPS(debug_level);
-#endif /* CONFIG_IWLWIFI_DEBUG */
 
 /*
  * Create the debugfs files and directories
@@ -2595,9 +2568,6 @@ int iwl_dbgfs_register(struct iwl_priv *priv, const char *name)
 	DEBUGFS_ADD_FILE(echo_test, dir_debug, S_IWUSR);
 	if (iwl_advanced_bt_coexist(priv))
 		DEBUGFS_ADD_FILE(bt_traffic, dir_debug, S_IRUSR);
-#ifdef CONFIG_IWLWIFI_DEBUG
-	DEBUGFS_ADD_FILE(debug_level, dir_debug, S_IRUSR | S_IWUSR);
-#endif
 
 	DEBUGFS_ADD_BOOL(disable_sensitivity, dir_rf,
 			 &priv->disable_sens_cal);

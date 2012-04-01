@@ -405,6 +405,41 @@ int crypto_unregister_alg(struct crypto_alg *alg)
 }
 EXPORT_SYMBOL_GPL(crypto_unregister_alg);
 
+int crypto_register_algs(struct crypto_alg *algs, int count)
+{
+	int i, ret;
+
+	for (i = 0; i < count; i++) {
+		ret = crypto_register_alg(&algs[i]);
+		if (ret)
+			goto err;
+	}
+
+	return 0;
+
+err:
+	for (--i; i >= 0; --i)
+		crypto_unregister_alg(&algs[i]);
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(crypto_register_algs);
+
+int crypto_unregister_algs(struct crypto_alg *algs, int count)
+{
+	int i, ret;
+
+	for (i = 0; i < count; i++) {
+		ret = crypto_unregister_alg(&algs[i]);
+		if (ret)
+			pr_err("Failed to unregister %s %s: %d\n",
+			       algs[i].cra_driver_name, algs[i].cra_name, ret);
+	}
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(crypto_unregister_algs);
+
 int crypto_register_template(struct crypto_template *tmpl)
 {
 	struct crypto_template *q;
@@ -517,6 +552,35 @@ err:
 	return err;
 }
 EXPORT_SYMBOL_GPL(crypto_register_instance);
+
+int crypto_unregister_instance(struct crypto_alg *alg)
+{
+	int err;
+	struct crypto_instance *inst = (void *)alg;
+	struct crypto_template *tmpl = inst->tmpl;
+	LIST_HEAD(users);
+
+	if (!(alg->cra_flags & CRYPTO_ALG_INSTANCE))
+		return -EINVAL;
+
+	BUG_ON(atomic_read(&alg->cra_refcnt) != 1);
+
+	down_write(&crypto_alg_sem);
+
+	hlist_del_init(&inst->list);
+	err = crypto_remove_alg(alg, &users);
+
+	up_write(&crypto_alg_sem);
+
+	if (err)
+		return err;
+
+	tmpl->free(inst);
+	crypto_remove_final(&users);
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(crypto_unregister_instance);
 
 int crypto_init_spawn(struct crypto_spawn *spawn, struct crypto_alg *alg,
 		      struct crypto_instance *inst, u32 mask)

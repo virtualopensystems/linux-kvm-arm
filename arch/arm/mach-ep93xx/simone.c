@@ -25,8 +25,11 @@
 #include <mach/fb.h>
 #include <mach/gpio-ep93xx.h>
 
+#include <asm/hardware/vic.h>
 #include <asm/mach-types.h>
 #include <asm/mach/arch.h>
+
+#include "soc.h"
 
 static struct ep93xx_eth_data __initdata simone_eth_data = {
 	.phy_id		= 1,
@@ -80,6 +83,8 @@ MACHINE_START(SIM_ONE, "Simplemachines Sim.One Board")
 	.atag_offset	= 0x100,
 	.map_io		= ep93xx_map_io,
 	.init_irq	= ep93xx_init_irq,
+	.handle_irq	= vic_handle_irq,
 	.timer		= &ep93xx_timer,
 	.init_machine	= simone_init_machine,
+	.restart	= ep93xx_restart,
 MACHINE_END

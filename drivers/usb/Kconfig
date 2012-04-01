@@ -10,6 +10,59 @@ menuconfig USB_SUPPORT
 	  This option adds core support for Universal Serial Bus (USB).
 	  You will also need drivers from the following menu to make use of it.
 
+# many non-PCI SOC chips embed OHCI
+config USB_ARCH_HAS_OHCI
+	boolean
+	# ARM:
+	default y if SA1111
+	default y if ARCH_OMAP
+	default y if ARCH_S3C24XX
+	default y if PXA27x
+	default y if PXA3xx
+	default y if ARCH_EP93XX
+	default y if ARCH_AT91
+	default y if ARCH_PNX4008 && I2C
+	default y if MFD_TC6393XB
+	default y if ARCH_W90X900
+	default y if ARCH_DAVINCI_DA8XX
+	default y if ARCH_CNS3XXX
+	default y if PLAT_SPEAR
+	default y if ARCH_EXYNOS
+	# PPC:
+	default y if STB03xxx
+	default y if PPC_MPC52xx
+	# MIPS:
+	default y if MIPS_ALCHEMY
+	default y if MACH_JZ4740
+	# more:
+	default PCI
+
+# some non-PCI hcds implement EHCI
+config USB_ARCH_HAS_EHCI
+	boolean
+	default y if FSL_SOC
+	default y if PPC_MPC512x
+	default y if ARCH_IXP4XX
+	default y if ARCH_W90X900
+	default y if ARCH_AT91
+	default y if ARCH_MXC
+	default y if ARCH_OMAP3
+	default y if ARCH_CNS3XXX
+	default y if ARCH_VT8500
+	default y if PLAT_SPEAR
+	default y if PLAT_S5P
+	default y if ARCH_MSM
+	default y if MICROBLAZE
+	default y if SPARC_LEON
+	default y if ARCH_MMP
+	default y if MACH_LOONGSON1
+	default PCI
+
+# some non-PCI HCDs implement xHCI
+config USB_ARCH_HAS_XHCI
+	boolean
+	default PCI
+
 if USB_SUPPORT
 
 config USB_COMMON
@@ -29,57 +82,6 @@ config USB_ARCH_HAS_HCD
 	default y if ARM				# SL-811
 	default y if BLACKFIN				# SL-811
 	default y if SUPERH				# r8a66597-hcd
-	default PCI
-
-# many non-PCI SOC chips embed OHCI
-config USB_ARCH_HAS_OHCI
-	boolean
-	# ARM:
-	default y if SA1111
-	default y if ARCH_OMAP
-	default y if ARCH_S3C2410
-	default y if PXA27x
-	default y if PXA3xx
-	default y if ARCH_EP93XX
-	default y if ARCH_AT91
-	default y if ARCH_PNX4008 && I2C
-	default y if MFD_TC6393XB
-	default y if ARCH_W90X900
-	default y if ARCH_DAVINCI_DA8XX
-	default y if ARCH_CNS3XXX
-	default y if PLAT_SPEAR
-	# PPC:
-	default y if STB03xxx
-	default y if PPC_MPC52xx
-	# MIPS:
-	default y if MIPS_ALCHEMY
-	default y if MACH_JZ4740
-	# more:
-	default PCI
-
-# some non-PCI hcds implement EHCI
-config USB_ARCH_HAS_EHCI
-	boolean
-	default y if FSL_SOC
-	default y if PPC_MPC512x
-	default y if ARCH_IXP4XX
-	default y if ARCH_W90X900
-	default y if ARCH_AT91SAM9G45
-	default y if ARCH_MXC
-	default y if ARCH_OMAP3
-	default y if ARCH_CNS3XXX
-	default y if ARCH_VT8500
-	default y if PLAT_SPEAR
-	default y if PLAT_S5P
-	default y if ARCH_MSM
-	default y if MICROBLAZE
-	default y if SPARC_LEON
-	default y if ARCH_MMP
-	default PCI
-
-# some non-PCI HCDs implement xHCI
-config USB_ARCH_HAS_XHCI
-	boolean
 	default PCI
 
 # ARM SA1111 chips have a non-PCI based "OHCI-compatible" USB host interface.

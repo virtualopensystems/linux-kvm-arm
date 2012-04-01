@@ -51,8 +51,8 @@
 #include "en_port.h"
 
 #define DRV_NAME	"mlx4_en"
-#define DRV_VERSION	"1.5.4.2"
-#define DRV_RELDATE	"October 2011"
+#define DRV_VERSION	"2.0"
+#define DRV_RELDATE	"Dec 2011"
 
 #define MLX4_EN_MSG_LEVEL	(NETIF_MSG_LINK | NETIF_MSG_IFDOWN)
 
@@ -325,11 +325,11 @@ struct mlx4_en_port_profile {
 	u8 rx_ppp;
 	u8 tx_pause;
 	u8 tx_ppp;
+	int rss_rings;
 };
 
 struct mlx4_en_profile {
 	int rss_xor;
-	int tcp_rss;
 	int udp_rss;
 	u8 rss_mask;
 	u32 active_ports;
@@ -364,16 +364,6 @@ struct mlx4_en_rss_map {
 	enum mlx4_qp_state state[MAX_RX_RINGS];
 	struct mlx4_qp indir_qp;
 	enum mlx4_qp_state indir_state;
-};
-
-struct mlx4_en_rss_context {
-	__be32 base_qpn;
-	__be32 default_qpn;
-	u16 reserved;
-	u8 hash_fn;
-	u8 flags;
-	__be32 rss_key[10];
-	__be32 base_qpn_udp;
 };
 
 struct mlx4_en_port_state {
@@ -463,6 +453,7 @@ struct mlx4_en_priv {
 	int base_qpn;
 
 	struct mlx4_en_rss_map rss_map;
+	__be32 ctrl_flags;
 	u32 flags;
 #define MLX4_EN_FLAG_PROMISC	0x1
 #define MLX4_EN_FLAG_MC_PROMISC	0x2
@@ -485,19 +476,21 @@ struct mlx4_en_priv {
 	struct mlx4_en_perf_stats pstats;
 	struct mlx4_en_pkt_stats pkstats;
 	struct mlx4_en_port_stats port_stats;
+	u64 stats_bitmap;
 	char *mc_addrs;
 	int mc_addrs_cnt;
 	struct mlx4_en_stat_out_mbox hw_stats;
 	int vids[128];
 	bool wol;
+	struct device *ddev;
 };
 
 enum mlx4_en_wol {
 	MLX4_EN_WOL_MAGIC = (1ULL << 61),
 	MLX4_EN_WOL_ENABLED = (1ULL << 62),
-	MLX4_EN_WOL_DO_MODIFY = (1ULL << 63),
 };
 
+#define MLX4_EN_WOL_DO_MODIFY (1ULL << 63)
 
 void mlx4_en_destroy_netdev(struct net_device *dev);
 int mlx4_en_init_netdev(struct mlx4_en_dev *mdev, int port,
@@ -536,7 +529,8 @@ int mlx4_en_create_rx_ring(struct mlx4_en_priv *priv,
 			   struct mlx4_en_rx_ring *ring,
 			   u32 size, u16 stride);
 void mlx4_en_destroy_rx_ring(struct mlx4_en_priv *priv,
-			     struct mlx4_en_rx_ring *ring);
+			     struct mlx4_en_rx_ring *ring,
+			     u32 size, u16 stride);
 int mlx4_en_activate_rx_rings(struct mlx4_en_priv *priv);
 void mlx4_en_deactivate_rx_ring(struct mlx4_en_priv *priv,
 				struct mlx4_en_rx_ring *ring);
@@ -559,10 +553,6 @@ void mlx4_en_rx_irq(struct mlx4_cq *mcq);
 
 int mlx4_SET_MCAST_FLTR(struct mlx4_dev *dev, u8 port, u64 mac, u64 clear, u8 mode);
 int mlx4_SET_VLAN_FLTR(struct mlx4_dev *dev, struct mlx4_en_priv *priv);
-int mlx4_SET_PORT_general(struct mlx4_dev *dev, u8 port, int mtu,
-			  u8 pptx, u8 pfctx, u8 pprx, u8 pfcrx);
-int mlx4_SET_PORT_qpn_calc(struct mlx4_dev *dev, u8 port, u32 base_qpn,
-			   u8 promisc);
 
 int mlx4_en_DUMP_ETH_STATS(struct mlx4_en_dev *mdev, u8 port, u8 reset);
 int mlx4_en_QUERY_PORT(struct mlx4_en_dev *mdev, u8 port);

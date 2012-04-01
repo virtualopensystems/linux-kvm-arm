@@ -71,16 +71,14 @@ int mlx4_en_create_tx_ring(struct mlx4_en_priv *priv,
 
 	tmp = size * sizeof(struct mlx4_en_tx_info);
 	ring->tx_info = vmalloc(tmp);
-	if (!ring->tx_info) {
-		en_err(priv, "Failed allocating tx_info ring\n");
+	if (!ring->tx_info)
 		return -ENOMEM;
-	}
+
 	en_dbg(DRV, priv, "Allocated tx_info ring at addr:%p size:%d\n",
 		 ring->tx_info, tmp);
 
 	ring->bounce_buf = kmalloc(MAX_DESC_SIZE, GFP_KERNEL);
 	if (!ring->bounce_buf) {
-		en_err(priv, "Failed allocating bounce buffer\n");
 		err = -ENOMEM;
 		goto err_tx;
 	}
@@ -200,7 +198,6 @@ static u32 mlx4_en_free_tx_desc(struct mlx4_en_priv *priv,
 				struct mlx4_en_tx_ring *ring,
 				int index, u8 owner)
 {
-	struct mlx4_en_dev *mdev = priv->mdev;
 	struct mlx4_en_tx_info *tx_info = &ring->tx_info[index];
 	struct mlx4_en_tx_desc *tx_desc = ring->buf + index * TXBB_SIZE;
 	struct mlx4_wqe_data_seg *data = (void *) tx_desc + tx_info->data_offset;
@@ -216,7 +213,7 @@ static u32 mlx4_en_free_tx_desc(struct mlx4_en_priv *priv,
 	if (likely((void *) tx_desc + tx_info->nr_txbb * TXBB_SIZE <= end)) {
 		if (!tx_info->inl) {
 			if (tx_info->linear) {
-				pci_unmap_single(mdev->pdev,
+				dma_unmap_single(priv->ddev,
 					(dma_addr_t) be64_to_cpu(data->addr),
 					 be32_to_cpu(data->byte_count),
 					 PCI_DMA_TODEVICE);
@@ -225,7 +222,7 @@ static u32 mlx4_en_free_tx_desc(struct mlx4_en_priv *priv,
 
 			for (i = 0; i < frags; i++) {
 				frag = &skb_shinfo(skb)->frags[i];
-				pci_unmap_page(mdev->pdev,
+				dma_unmap_page(priv->ddev,
 					(dma_addr_t) be64_to_cpu(data[i].addr),
 					skb_frag_size(frag), PCI_DMA_TODEVICE);
 			}
@@ -243,7 +240,7 @@ static u32 mlx4_en_free_tx_desc(struct mlx4_en_priv *priv,
 			}
 
 			if (tx_info->linear) {
-				pci_unmap_single(mdev->pdev,
+				dma_unmap_single(priv->ddev,
 					(dma_addr_t) be64_to_cpu(data->addr),
 					 be32_to_cpu(data->byte_count),
 					 PCI_DMA_TODEVICE);
@@ -255,7 +252,7 @@ static u32 mlx4_en_free_tx_desc(struct mlx4_en_priv *priv,
 				if ((void *) data >= end)
 					data = ring->buf;
 				frag = &skb_shinfo(skb)->frags[i];
-				pci_unmap_page(mdev->pdev,
+				dma_unmap_page(priv->ddev,
 					(dma_addr_t) be64_to_cpu(data->addr),
 					 skb_frag_size(frag), PCI_DMA_TODEVICE);
 				++data;
@@ -307,59 +304,60 @@ int mlx4_en_free_tx_buf(struct net_device *dev, struct mlx4_en_tx_ring *ring)
 	return cnt;
 }
 
-
 static void mlx4_en_process_tx_cq(struct net_device *dev, struct mlx4_en_cq *cq)
 {
 	struct mlx4_en_priv *priv = netdev_priv(dev);
 	struct mlx4_cq *mcq = &cq->mcq;
 	struct mlx4_en_tx_ring *ring = &priv->tx_ring[cq->ring];
-	struct mlx4_cqe *cqe = cq->buf;
+	struct mlx4_cqe *cqe;
 	u16 index;
-	u16 new_index;
+	u16 new_index, ring_index;
 	u32 txbbs_skipped = 0;
-	u32 cq_last_sav;
-
-	/* index always points to the first TXBB of the last polled descriptor */
-	index = ring->cons & ring->size_mask;
-	new_index = be16_to_cpu(cqe->wqe_index) & ring->size_mask;
-	if (index == new_index)
-		return;
+	u32 cons_index = mcq->cons_index;
+	int size = cq->size;
+	u32 size_mask = ring->size_mask;
+	struct mlx4_cqe *buf = cq->buf;
 
 	if (!priv->port_up)
 		return;
 
-	/*
-	 * We use a two-stage loop:
-	 * - the first samples the HW-updated CQE
-	 * - the second frees TXBBs until the last sample
-	 * This lets us amortize CQE cache misses, while still polling the CQ
-	 * until is quiescent.
-	 */
-	cq_last_sav = mcq->cons_index;
-	do {
+	index = cons_index & size_mask;
+	cqe = &buf[index];
+	ring_index = ring->cons & size_mask;
+
+	/* Process all completed CQEs */
+	while (XNOR(cqe->owner_sr_opcode & MLX4_CQE_OWNER_MASK,
+			cons_index & size)) {
+		/*
+		 * make sure we read the CQE after we read the
+		 * ownership bit
+		 */
+		rmb();
+
+		/* Skip over last polled CQE */
+		new_index = be16_to_cpu(cqe->wqe_index) & size_mask;
+
 		do {
-			/* Skip over last polled CQE */
-			index = (index + ring->last_nr_txbb) & ring->size_mask;
 			txbbs_skipped += ring->last_nr_txbb;
-
-			/* Poll next CQE */
+			ring_index = (ring_index + ring->last_nr_txbb) & size_mask;
+			/* free next descriptor */
 			ring->last_nr_txbb = mlx4_en_free_tx_desc(
-						priv, ring, index,
-						!!((ring->cons + txbbs_skipped) &
-						   ring->size));
-			++mcq->cons_index;
+					priv, ring, ring_index,
+					!!((ring->cons + txbbs_skipped) &
+							ring->size));
+		} while (ring_index != new_index);
 
-		} while (index != new_index);
+		++cons_index;
+		index = cons_index & size_mask;
+		cqe = &buf[index];
+	}
 
-		new_index = be16_to_cpu(cqe->wqe_index) & ring->size_mask;
-	} while (index != new_index);
-	AVG_PERF_COUNTER(priv->pstats.tx_coal_avg,
-			 (u32) (mcq->cons_index - cq_last_sav));
 
 	/*
 	 * To prevent CQ overflow we first update CQ consumer and only then
 	 * the ring consumer.
 	 */
+	mcq->cons_index = cons_index;
 	mlx4_cq_set_ci(mcq);
 	wmb();
 	ring->cons += txbbs_skipped;
@@ -565,7 +563,8 @@ static void build_inline_wqe(struct mlx4_en_tx_desc *tx_desc, struct sk_buff *sk
 		inl->byte_count = cpu_to_be32(1 << 31 | (skb->len - spc));
 	}
 	tx_desc->ctrl.vlan_tag = cpu_to_be16(*vlan_tag);
-	tx_desc->ctrl.ins_vlan = MLX4_WQE_CTRL_INS_VLAN * !!(*vlan_tag);
+	tx_desc->ctrl.ins_vlan = MLX4_WQE_CTRL_INS_VLAN *
+		(!!vlan_tx_tag_present(skb));
 	tx_desc->ctrl.fence_size = (real_size / 16) & 0x3f;
 }
 
@@ -585,7 +584,7 @@ u16 mlx4_en_select_queue(struct net_device *dev, struct sk_buff *skb)
 	return skb_tx_hash(dev, skb);
 }
 
-static void mlx4_bf_copy(unsigned long *dst, unsigned long *src, unsigned bytecnt)
+static void mlx4_bf_copy(void __iomem *dst, unsigned long *src, unsigned bytecnt)
 {
 	__iowrite64_copy(dst, src, bytecnt / 8);
 }
@@ -601,8 +600,6 @@ netdev_tx_t mlx4_en_xmit(struct sk_buff *skb, struct net_device *dev)
 	struct skb_frag_struct *frag;
 	struct mlx4_en_tx_info *tx_info;
 	struct ethhdr *ethh;
-	u64 mac;
-	u32 mac_l, mac_h;
 	int tx_ind = 0;
 	int nr_txbb;
 	int desc_size;
@@ -676,29 +673,20 @@ netdev_tx_t mlx4_en_xmit(struct sk_buff *skb, struct net_device *dev)
 	/* Prepare ctrl segement apart opcode+ownership, which depends on
 	 * whether LSO is used */
 	tx_desc->ctrl.vlan_tag = cpu_to_be16(vlan_tag);
-	tx_desc->ctrl.ins_vlan = MLX4_WQE_CTRL_INS_VLAN * !!vlan_tag;
+	tx_desc->ctrl.ins_vlan = MLX4_WQE_CTRL_INS_VLAN *
+		!!vlan_tx_tag_present(skb);
 	tx_desc->ctrl.fence_size = (real_size / 16) & 0x3f;
-	tx_desc->ctrl.srcrb_flags = cpu_to_be32(MLX4_WQE_CTRL_CQ_UPDATE |
-						MLX4_WQE_CTRL_SOLICITED);
+	tx_desc->ctrl.srcrb_flags = priv->ctrl_flags;
 	if (likely(skb->ip_summed == CHECKSUM_PARTIAL)) {
 		tx_desc->ctrl.srcrb_flags |= cpu_to_be32(MLX4_WQE_CTRL_IP_CSUM |
 							 MLX4_WQE_CTRL_TCP_UDP_CSUM);
 		ring->tx_csum++;
 	}
 
-	if (unlikely(priv->validate_loopback)) {
-		/* Copy dst mac address to wqe */
-		skb_reset_mac_header(skb);
-		ethh = eth_hdr(skb);
-		if (ethh && ethh->h_dest) {
-			mac = mlx4_en_mac_to_u64(ethh->h_dest);
-			mac_h = (u32) ((mac & 0xffff00000000ULL) >> 16);
-			mac_l = (u32) (mac & 0xffffffff);
-			tx_desc->ctrl.srcrb_flags |= cpu_to_be32(mac_h);
-			tx_desc->ctrl.imm = cpu_to_be32(mac_l);
-		}
-	}
-
+	/* Copy dst mac address to wqe */
+	ethh = (struct ethhdr *)skb->data;
+	tx_desc->ctrl.srcrb_flags16[0] = get_unaligned((__be16 *)ethh->h_dest);
+	tx_desc->ctrl.imm = get_unaligned((__be32 *)(ethh->h_dest + 2));
 	/* Handle LSO (TSO) packets */
 	if (lso_header_size) {
 		/* Mark opcode as LSO */
@@ -744,7 +732,7 @@ netdev_tx_t mlx4_en_xmit(struct sk_buff *skb, struct net_device *dev)
 		/* Map fragments */
 		for (i = skb_shinfo(skb)->nr_frags - 1; i >= 0; i--) {
 			frag = &skb_shinfo(skb)->frags[i];
-			dma = skb_frag_dma_map(&mdev->dev->pdev->dev, frag,
+			dma = skb_frag_dma_map(priv->ddev, frag,
 					       0, skb_frag_size(frag),
 					       DMA_TO_DEVICE);
 			data->addr = cpu_to_be64(dma);
@@ -756,7 +744,7 @@ netdev_tx_t mlx4_en_xmit(struct sk_buff *skb, struct net_device *dev)
 
 		/* Map linear part */
 		if (tx_info->linear) {
-			dma = pci_map_single(mdev->dev->pdev, skb->data + lso_header_size,
+			dma = dma_map_single(priv->ddev, skb->data + lso_header_size,
 					     skb_headlen(skb) - lso_header_size, PCI_DMA_TODEVICE);
 			data->addr = cpu_to_be64(dma);
 			data->lkey = cpu_to_be32(mdev->mr.key);

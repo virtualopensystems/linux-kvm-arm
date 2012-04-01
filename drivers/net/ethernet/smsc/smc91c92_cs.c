@@ -53,7 +53,6 @@
 #include <pcmcia/ss.h>
 
 #include <asm/io.h>
-#include <asm/system.h>
 #include <asm/uaccess.h>
 
 /*====================================================================*/
@@ -1500,7 +1499,7 @@ static void smc_rx(struct net_device *dev)
 	struct sk_buff *skb;
 	
 	/* Note: packet_length adds 5 or 6 extra bytes here! */
-	skb = dev_alloc_skb(packet_length+2);
+	skb = netdev_alloc_skb(dev, packet_length+2);
 	
 	if (skb == NULL) {
 	    pr_debug("%s: Low memory, packet dropped.\n", dev->name);
@@ -1909,8 +1908,8 @@ static int check_if_running(struct net_device *dev)
 
 static void smc_get_drvinfo(struct net_device *dev, struct ethtool_drvinfo *info)
 {
-	strcpy(info->driver, DRV_NAME);
-	strcpy(info->version, DRV_VERSION);
+	strlcpy(info->driver, DRV_NAME, sizeof(info->driver));
+	strlcpy(info->version, DRV_VERSION, sizeof(info->version));
 }
 
 static int smc_get_settings(struct net_device *dev, struct ethtool_cmd *ecmd)

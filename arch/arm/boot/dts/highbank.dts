@@ -72,15 +72,15 @@
 		ranges;
 
 		timer@fff10600 {
-			compatible = "arm,smp-twd";
+			compatible = "arm,cortex-a9-twd-timer";
 			reg = <0xfff10600 0x20>;
-			interrupts = <1 13 0xf04>;
+			interrupts = <1 13 0xf01>;
 		};
 
 		watchdog@fff10620 {
-			compatible = "arm,cortex-a9-wdt";
+			compatible = "arm,cortex-a9-twd-wdt";
 			reg = <0xfff10620 0x20>;
-			interrupts = <1 14 0xf04>;
+			interrupts = <1 14 0xf01>;
 		};
 
 		intc: interrupt-controller@fff11000 {
@@ -193,6 +193,18 @@
 			compatible = "arm,pl330", "arm,primecell";
 			reg = <0xfff3d000 0x1000>;
 			interrupts = <0 92 4>;
+		};
+
+		ethernet@fff50000 {
+			compatible = "calxeda,hb-xgmac";
+			reg = <0xfff50000 0x1000>;
+			interrupts = <0 77 4  0 78 4  0 79 4>;
+		};
+
+		ethernet@fff51000 {
+			compatible = "calxeda,hb-xgmac";
+			reg = <0xfff51000 0x1000>;
+			interrupts = <0 80 4  0 81 4  0 82 4>;
 		};
 	};
 };

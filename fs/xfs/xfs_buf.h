@@ -21,7 +21,6 @@
 #include <linux/list.h>
 #include <linux/types.h>
 #include <linux/spinlock.h>
-#include <asm/system.h>
 #include <linux/mm.h>
 #include <linux/fs.h>
 #include <linux/buffer_head.h>
@@ -90,8 +89,7 @@ typedef unsigned int xfs_buf_flags_t;
 	{ _XBF_DELWRI_Q,	"DELWRI_Q" }
 
 typedef enum {
-	XBT_FORCE_SLEEP = 0,
-	XBT_FORCE_FLUSH = 1,
+	XBT_FORCE_FLUSH = 0,
 } xfs_buftarg_flags_t;
 
 typedef struct xfs_buftarg {

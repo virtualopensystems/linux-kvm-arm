@@ -22,7 +22,6 @@
 #include <asm/pgtable.h>
 #include <asm/page.h>
 #include <asm/ptrace.h>
-#include <asm/system.h>
 
 #include "proc-macros.S"
 
@@ -57,6 +56,7 @@ ENTRY(cpu_fa526_proc_fin)
  * loc: location to jump to for soft reset
  */
 	.align	4
+	.pushsection	.idmap.text, "ax"
 ENTRY(cpu_fa526_reset)
 /* TODO: Use CP8 if possible... */
 	mov	ip, #0
@@ -73,6 +73,8 @@ ENTRY(cpu_fa526_reset)
 	nop
 	nop
 	mov	pc, r0
+ENDPROC(cpu_fa526_reset)
+	.popsection
 
 /*
  * cpu_fa526_do_idle()

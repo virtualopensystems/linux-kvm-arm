@@ -169,22 +169,17 @@ static void ath_rx_addbuffer_edma(struct ath_softc *sc,
 				  enum ath9k_rx_qtype qtype, int size)
 {
 	struct ath_common *common = ath9k_hw_common(sc->sc_ah);
-	u32 nbuf = 0;
+	struct ath_buf *bf, *tbf;
 
 	if (list_empty(&sc->rx.rxbuf)) {
-		ath_dbg(common, ATH_DBG_QUEUE, "No free rx buf available\n");
+		ath_dbg(common, QUEUE, "No free rx buf available\n");
 		return;
 	}
 
-	while (!list_empty(&sc->rx.rxbuf)) {
-		nbuf++;
-
+	list_for_each_entry_safe(bf, tbf, &sc->rx.rxbuf, list)
 		if (!ath_rx_edma_buf_link(sc, qtype))
 			break;
 
-		if (nbuf >= size)
-			break;
-	}
 }
 
 static void ath_rx_remove_buffer(struct ath_softc *sc,
@@ -232,7 +227,6 @@ static void ath_rx_edma_cleanup(struct ath_softc *sc)
 static void ath_rx_edma_init_queue(struct ath_rx_edma *rx_edma, int size)
 {
 	skb_queue_head_init(&rx_edma->rx_fifo);
-	skb_queue_head_init(&rx_edma->rx_buffers);
 	rx_edma->rx_fifo_hwsize = size;
 }
 
@@ -337,7 +331,7 @@ int ath_rx_init(struct ath_softc *sc, int nbufs)
 	if (sc->sc_ah->caps.hw_caps & ATH9K_HW_CAP_EDMA) {
 		return ath_rx_edma_init(sc, nbufs);
 	} else {
-		ath_dbg(common, ATH_DBG_CONFIG, "cachelsz %u rxbufsize %u\n",
+		ath_dbg(common, CONFIG, "cachelsz %u rxbufsize %u\n",
 			common->cachelsz, common->rx_bufsize);
 
 		/* Initialize rx descriptors */
@@ -475,7 +469,6 @@ u32 ath_calcrxfilter(struct ath_softc *sc)
 
 	return rfilt;
 
-#undef RX_FILTER_PRESERVE
 }
 
 int ath_startrecv(struct ath_softc *sc)
@@ -592,7 +585,7 @@ static void ath_rx_ps_beacon(struct ath_softc *sc, struct sk_buff *skb)
 
 	if (sc->ps_flags & PS_BEACON_SYNC) {
 		sc->ps_flags &= ~PS_BEACON_SYNC;
-		ath_dbg(common, ATH_DBG_PS,
+		ath_dbg(common, PS,
 			"Reconfigure Beacon timers based on timestamp from the AP\n");
 		ath_set_beacon(sc);
 	}
@@ -605,7 +598,7 @@ static void ath_rx_ps_beacon(struct ath_softc *sc, struct sk_buff *skb)
 		 * a backup trigger for returning into NETWORK SLEEP state,
 		 * so we are waiting for it as well.
 		 */
-		ath_dbg(common, ATH_DBG_PS,
+		ath_dbg(common, PS,
 			"Received DTIM beacon indicating buffered broadcast/multicast frame(s)\n");
 		sc->ps_flags |= PS_WAIT_FOR_CAB | PS_WAIT_FOR_BEACON;
 		return;
@@ -618,8 +611,7 @@ static void ath_rx_ps_beacon(struct ath_softc *sc, struct sk_buff *skb)
 		 * been delivered.
 		 */
 		sc->ps_flags &= ~PS_WAIT_FOR_CAB;
-		ath_dbg(common, ATH_DBG_PS,
-			"PS wait for CAB frames timed out\n");
+		ath_dbg(common, PS, "PS wait for CAB frames timed out\n");
 	}
 }
 
@@ -644,13 +636,13 @@ static void ath_rx_ps(struct ath_softc *sc, struct sk_buff *skb, bool mybeacon)
 		 * point.
 		 */
 		sc->ps_flags &= ~(PS_WAIT_FOR_CAB | PS_WAIT_FOR_BEACON);
-		ath_dbg(common, ATH_DBG_PS,
+		ath_dbg(common, PS,
 			"All PS CAB frames received, back to sleep\n");
 	} else if ((sc->ps_flags & PS_WAIT_FOR_PSPOLL_DATA) &&
 		   !is_multicast_ether_addr(hdr->addr1) &&
 		   !ieee80211_has_morefrags(hdr->frame_control)) {
 		sc->ps_flags &= ~PS_WAIT_FOR_PSPOLL_DATA;
-		ath_dbg(common, ATH_DBG_PS,
+		ath_dbg(common, PS,
 			"Going back to sleep after having received PS-Poll data (0x%lx)\n",
 			sc->ps_flags & (PS_WAIT_FOR_BEACON |
 					PS_WAIT_FOR_CAB |
@@ -660,7 +652,9 @@ static void ath_rx_ps(struct ath_softc *sc, struct sk_buff *skb, bool mybeacon)
 }
 
 static bool ath_edma_get_buffers(struct ath_softc *sc,
-				 enum ath9k_rx_qtype qtype)
+				 enum ath9k_rx_qtype qtype,
+				 struct ath_rx_status *rs,
+				 struct ath_buf **dest)
 {
 	struct ath_rx_edma *rx_edma = &sc->rx.rx_edma[qtype];
 	struct ath_hw *ah = sc->sc_ah;
@@ -679,7 +673,7 @@ static bool ath_edma_get_buffers(struct ath_softc *sc,
 	dma_sync_single_for_cpu(sc->dev, bf->bf_buf_addr,
 				common->rx_bufsize, DMA_FROM_DEVICE);
 
-	ret = ath9k_hw_process_rxdesc_edma(ah, NULL, skb->data);
+	ret = ath9k_hw_process_rxdesc_edma(ah, rs, skb->data);
 	if (ret == -EINPROGRESS) {
 		/*let device gain the buffer again*/
 		dma_sync_single_for_device(sc->dev, bf->bf_buf_addr,
@@ -692,20 +686,21 @@ static bool ath_edma_get_buffers(struct ath_softc *sc,
 		/* corrupt descriptor, skip this one and the following one */
 		list_add_tail(&bf->list, &sc->rx.rxbuf);
 		ath_rx_edma_buf_link(sc, qtype);
+
 		skb = skb_peek(&rx_edma->rx_fifo);
-		if (!skb)
-			return true;
+		if (skb) {
+			bf = SKB_CB_ATHBUF(skb);
+			BUG_ON(!bf);
 
-		bf = SKB_CB_ATHBUF(skb);
-		BUG_ON(!bf);
-
-		__skb_unlink(skb, &rx_edma->rx_fifo);
-		list_add_tail(&bf->list, &sc->rx.rxbuf);
-		ath_rx_edma_buf_link(sc, qtype);
-		return true;
+			__skb_unlink(skb, &rx_edma->rx_fifo);
+			list_add_tail(&bf->list, &sc->rx.rxbuf);
+			ath_rx_edma_buf_link(sc, qtype);
+		} else {
+			bf = NULL;
+		}
 	}
-	skb_queue_tail(&rx_edma->rx_buffers, skb);
 
+	*dest = bf;
 	return true;
 }
 
@@ -713,18 +708,15 @@ static struct ath_buf *ath_edma_get_next_rx_buf(struct ath_softc *sc,
 						struct ath_rx_status *rs,
 						enum ath9k_rx_qtype qtype)
 {
-	struct ath_rx_edma *rx_edma = &sc->rx.rx_edma[qtype];
-	struct sk_buff *skb;
-	struct ath_buf *bf;
+	struct ath_buf *bf = NULL;
 
-	while (ath_edma_get_buffers(sc, qtype));
-	skb = __skb_dequeue(&rx_edma->rx_buffers);
-	if (!skb)
-		return NULL;
+	while (ath_edma_get_buffers(sc, qtype, rs, &bf)) {
+		if (!bf)
+			continue;
 
-	bf = SKB_CB_ATHBUF(skb);
-	ath9k_hw_process_rxdesc_edma(sc->sc_ah, rs, skb->data);
-	return bf;
+		return bf;
+	}
+	return NULL;
 }
 
 static struct ath_buf *ath_get_next_rx_buf(struct ath_softc *sc,
@@ -823,6 +815,14 @@ static bool ath9k_rx_accept(struct ath_common *common,
 		!(rx_stats->rs_status &
 		(ATH9K_RXERR_DECRYPT | ATH9K_RXERR_CRC | ATH9K_RXERR_MIC |
 		 ATH9K_RXERR_KEYMISS));
+
+	/*
+	 * Key miss events are only relevant for pairwise keys where the
+	 * descriptor does contain a valid key index. This has been observed
+	 * mostly with CCMP encryption.
+	 */
+	if (rx_stats->rs_keyix == ATH9K_RXKEYIX_INVALID)
+		rx_stats->rs_status &= ~ATH9K_RXERR_KEYMISS;
 
 	if (!rx_stats->rs_datalen)
 		return false;
@@ -933,7 +933,7 @@ static int ath9k_process_rate(struct ath_common *common,
 	 * No valid hardware bitrate found -- we should not get here
 	 * because hardware has already validated this frame as OK.
 	 */
-	ath_dbg(common, ATH_DBG_ANY,
+	ath_dbg(common, ANY,
 		"unsupported hw bitrate detected 0x%02x using 1 Mbit\n",
 		rx_stats->rs_rate);
 
@@ -948,6 +948,7 @@ static void ath9k_process_rssi(struct ath_common *common,
 	struct ath_softc *sc = hw->priv;
 	struct ath_hw *ah = common->ah;
 	int last_rssi;
+	int rssi = rx_stats->rs_rssi;
 
 	if (!rx_stats->is_mybeacon ||
 	    ((ah->opmode != NL80211_IFTYPE_STATION) &&
@@ -959,13 +960,12 @@ static void ath9k_process_rssi(struct ath_common *common,
 
 	last_rssi = sc->last_rssi;
 	if (likely(last_rssi != ATH_RSSI_DUMMY_MARKER))
-		rx_stats->rs_rssi = ATH_EP_RND(last_rssi,
-					      ATH_RSSI_EP_MULTIPLIER);
-	if (rx_stats->rs_rssi < 0)
-		rx_stats->rs_rssi = 0;
+		rssi = ATH_EP_RND(last_rssi, ATH_RSSI_EP_MULTIPLIER);
+	if (rssi < 0)
+		rssi = 0;
 
 	/* Update Beacon RSSI, this is used by ANI. */
-	ah->stats.avgbrssi = rx_stats->rs_rssi;
+	ah->stats.avgbrssi = rssi;
 }
 
 /*
@@ -981,8 +981,6 @@ static int ath9k_rx_skb_preprocess(struct ath_common *common,
 				   bool *decrypt_error)
 {
 	struct ath_hw *ah = common->ah;
-
-	memset(rx_status, 0, sizeof(struct ieee80211_rx_status));
 
 	/*
 	 * everything but the rate is checked here, the rate check is done
@@ -1005,6 +1003,8 @@ static int ath9k_rx_skb_preprocess(struct ath_common *common,
 	rx_status->signal = ah->noise + rx_stats->rs_rssi;
 	rx_status->antenna = rx_stats->rs_antenna;
 	rx_status->flag |= RX_FLAG_MACTIME_MPDU;
+	if (rx_stats->rs_moreaggr)
+		rx_status->flag |= RX_FLAG_NO_SIGNAL_VAL;
 
 	return 0;
 }
@@ -1824,6 +1824,7 @@ int ath_rx_tasklet(struct ath_softc *sc, int flush, bool hp)
 		hdr = (struct ieee80211_hdr *) (hdr_skb->data + rx_status_len);
 		rxs = IEEE80211_SKB_RXCB(hdr_skb);
 		if (ieee80211_is_beacon(hdr->frame_control) &&
+		    !is_zero_ether_addr(common->curbssid) &&
 		    !compare_ether_addr(hdr->addr3, common->curbssid))
 			rs.is_mybeacon = true;
 		else
@@ -1838,10 +1839,7 @@ int ath_rx_tasklet(struct ath_softc *sc, int flush, bool hp)
 		if (sc->sc_flags & SC_OP_RXFLUSH)
 			goto requeue_drop_frag;
 
-		retval = ath9k_rx_skb_preprocess(common, hw, hdr, &rs,
-						 rxs, &decrypt_error);
-		if (retval)
-			goto requeue_drop_frag;
+		memset(rxs, 0, sizeof(struct ieee80211_rx_status));
 
 		rxs->mactime = (tsf & ~0xffffffffULL) | rs.rs_tstamp;
 		if (rs.rs_tstamp > tsf_lower &&
@@ -1851,6 +1849,11 @@ int ath_rx_tasklet(struct ath_softc *sc, int flush, bool hp)
 		if (rs.rs_tstamp < tsf_lower &&
 		    unlikely(tsf_lower - rs.rs_tstamp > 0x10000000))
 			rxs->mactime += 0x100000000ULL;
+
+		retval = ath9k_rx_skb_preprocess(common, hw, hdr, &rs,
+						 rxs, &decrypt_error);
+		if (retval)
+			goto requeue_drop_frag;
 
 		/* Ensure we always have an skb to requeue once we are done
 		 * processing the current buffer's skb */
@@ -1923,15 +1926,20 @@ int ath_rx_tasklet(struct ath_softc *sc, int flush, bool hp)
 			skb = hdr_skb;
 		}
 
-		/*
-		 * change the default rx antenna if rx diversity chooses the
-		 * other antenna 3 times in a row.
-		 */
-		if (sc->rx.defant != rs.rs_antenna) {
-			if (++sc->rx.rxotherant >= 3)
-				ath_setdefantenna(sc, rs.rs_antenna);
-		} else {
-			sc->rx.rxotherant = 0;
+
+		if (ah->caps.hw_caps & ATH9K_HW_CAP_ANT_DIV_COMB) {
+
+			/*
+			 * change the default rx antenna if rx diversity
+			 * chooses the other antenna 3 times in a row.
+			 */
+			if (sc->rx.defant != rs.rs_antenna) {
+				if (++sc->rx.rxotherant >= 3)
+					ath_setdefantenna(sc, rs.rs_antenna);
+			} else {
+				sc->rx.rxotherant = 0;
+			}
+
 		}
 
 		if (rxs->flag & RX_FLAG_MMIC_STRIPPED)

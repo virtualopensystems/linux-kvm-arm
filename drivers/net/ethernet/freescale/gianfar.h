@@ -1,5 +1,5 @@
 /*
- * drivers/net/gianfar.h
+ * drivers/net/ethernet/freescale/gianfar.h
  *
  * Gianfar Ethernet Driver
  * Driver for FEC on MPC8540 and TSEC on MPC8540/MPC8560
@@ -63,6 +63,9 @@ struct ethtool_rx_list {
 /* Length for FCB */
 #define GMAC_FCB_LEN 8
 
+/* Length for TxPAL */
+#define GMAC_TXPAL_LEN 16
+
 /* Default padding amount */
 #define DEFAULT_PADDING 2
 
@@ -74,15 +77,9 @@ struct ethtool_rx_list {
  * will be the next highest multiple of 512 bytes. */
 #define INCREMENTAL_BUFFER_SIZE 512
 
-
-#define MAC_ADDR_LEN 6
-
 #define PHY_INIT_TIMEOUT 100000
-#define GFAR_PHY_CHANGE_TIME 2
 
-#define DEVICE_NAME "%s: Gianfar Ethernet Controller Version 1.2, "
 #define DRV_NAME "gfar-enet"
-extern const char gfar_driver_name[];
 extern const char gfar_driver_version[];
 
 /* MAXIMUM NUMBER OF QUEUES SUPPORTED */
@@ -520,7 +517,7 @@ extern const char gfar_driver_version[];
 #define RXFCB_PERR_MASK		0x000c
 #define RXFCB_PERR_BADL3	0x0008
 
-#define GFAR_INT_NAME_MAX	IFNAMSIZ + 4
+#define GFAR_INT_NAME_MAX	(IFNAMSIZ + 6)	/* '_g#_xx' */
 
 struct txbd8
 {
@@ -1179,9 +1176,9 @@ extern void gfar_phy_test(struct mii_bus *bus, struct phy_device *phydev,
 extern void gfar_configure_coalescing(struct gfar_private *priv,
 		unsigned long tx_mask, unsigned long rx_mask);
 void gfar_init_sysfs(struct net_device *dev);
-int gfar_set_features(struct net_device *dev, u32 features);
+int gfar_set_features(struct net_device *dev, netdev_features_t features);
 extern void gfar_check_rx_parser_mode(struct gfar_private *priv);
-extern void gfar_vlan_mode(struct net_device *dev, u32 features);
+extern void gfar_vlan_mode(struct net_device *dev, netdev_features_t features);
 
 extern const struct ethtool_ops gfar_ethtool_ops;
 

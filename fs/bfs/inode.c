@@ -251,7 +251,6 @@ static struct inode *bfs_alloc_inode(struct super_block *sb)
 static void bfs_i_callback(struct rcu_head *head)
 {
 	struct inode *inode = container_of(head, struct inode, i_rcu);
-	INIT_LIST_HEAD(&inode->i_dentry);
 	kmem_cache_free(bfs_inode_cachep, BFS_I(inode));
 }
 
@@ -368,9 +367,8 @@ static int bfs_fill_super(struct super_block *s, void *data, int silent)
 		ret = PTR_ERR(inode);
 		goto out2;
 	}
-	s->s_root = d_alloc_root(inode);
+	s->s_root = d_make_root(inode);
 	if (!s->s_root) {
-		iput(inode);
 		ret = -ENOMEM;
 		goto out2;
 	}

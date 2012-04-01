@@ -362,8 +362,7 @@ static int isl29018_write_raw(struct iio_dev *indio_dev,
 	int ret = -EINVAL;
 
 	mutex_lock(&chip->lock);
-	if (mask == (1 << IIO_CHAN_INFO_CALIBSCALE_SEPARATE) &&
-	    chan->type == IIO_LIGHT) {
+	if (mask == IIO_CHAN_INFO_CALIBSCALE && chan->type == IIO_LIGHT) {
 		chip->lux_scale = val;
 		ret = 0;
 	}
@@ -402,7 +401,7 @@ static int isl29018_read_raw(struct iio_dev *indio_dev,
 		if (!ret)
 			ret = IIO_VAL_INT;
 		break;
-	case (1 << IIO_CHAN_INFO_CALIBSCALE_SEPARATE):
+	case IIO_CHAN_INFO_CALIBSCALE:
 		if (chan->type == IIO_LIGHT) {
 			*val = chip->lux_scale;
 			ret = IIO_VAL_INT;
@@ -421,7 +420,7 @@ static const struct iio_chan_spec isl29018_channels[] = {
 		.indexed = 1,
 		.channel = 0,
 		.processed_val = IIO_PROCESSED,
-		.info_mask = (1 << IIO_CHAN_INFO_CALIBSCALE_SEPARATE),
+		.info_mask = IIO_CHAN_INFO_CALIBSCALE_SEPARATE_BIT,
 	}, {
 		.type = IIO_INTENSITY,
 		.modified = 1,
@@ -593,29 +592,24 @@ static const struct i2c_device_id isl29018_id[] = {
 
 MODULE_DEVICE_TABLE(i2c, isl29018_id);
 
+static const struct of_device_id isl29018_of_match[] = {
+	{ .compatible = "invn,isl29018", },
+	{ },
+};
+MODULE_DEVICE_TABLE(of, isl29018_of_match);
+
 static struct i2c_driver isl29018_driver = {
 	.class	= I2C_CLASS_HWMON,
 	.driver	 = {
 			.name = "isl29018",
 			.owner = THIS_MODULE,
+			.of_match_table = isl29018_of_match,
 		    },
 	.probe	 = isl29018_probe,
 	.remove	 = __devexit_p(isl29018_remove),
 	.id_table = isl29018_id,
 };
-
-static int __init isl29018_init(void)
-{
-	return i2c_add_driver(&isl29018_driver);
-}
-
-static void __exit isl29018_exit(void)
-{
-	i2c_del_driver(&isl29018_driver);
-}
-
-module_init(isl29018_init);
-module_exit(isl29018_exit);
+module_i2c_driver(isl29018_driver);
 
 MODULE_DESCRIPTION("ISL29018 Ambient Light Sensor driver");
 MODULE_LICENSE("GPL");

@@ -32,7 +32,7 @@
  * @chip: irq chip we are faking
  * @base: base of irq range
  * @enabled: mask of which irqs are enabled
- * @inuse: mask of which irqs actually have anyone connected
+ * @inuse: mask of which irqs are connected
  * @lock: protect the evgen state
  */
 struct iio_dummy_eventgen {
@@ -102,6 +102,10 @@ static int iio_dummy_evgen_create(void)
 int iio_dummy_evgen_get_irq(void)
 {
 	int i, ret = 0;
+
+	if (iio_evgen == NULL)
+		return -ENODEV;
+
 	mutex_lock(&iio_evgen->lock);
 	for (i = 0; i < IIO_EVENTGEN_NO; i++)
 		if (iio_evgen->inuse[i] == false) {

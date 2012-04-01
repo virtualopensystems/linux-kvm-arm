@@ -963,6 +963,9 @@ static void qe_uart_set_termios(struct uart_port *port,
 	/* Do we really need a spinlock here? */
 	spin_lock_irqsave(&port->lock, flags);
 
+	/* Update the per-port timeout. */
+	uart_update_timeout(port, termios->c_cflag, baud);
+
 	out_be16(&uccp->upsmr, upsmr);
 	if (soft_uart) {
 		out_be16(&uccup->supsmr, supsmr);
@@ -1357,7 +1360,7 @@ static int ucc_uart_probe(struct platform_device *ofdev)
 	}
 
 	qe_port->port.irq = irq_of_parse_and_map(np, 0);
-	if (qe_port->port.irq == NO_IRQ) {
+	if (qe_port->port.irq == 0) {
 		dev_err(&ofdev->dev, "could not map IRQ for UCC%u\n",
 		       qe_port->ucc_num + 1);
 		ret = -EINVAL;

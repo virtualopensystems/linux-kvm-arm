@@ -5,6 +5,7 @@ config MN10300
 	select GENERIC_IRQ_SHOW
 	select HAVE_ARCH_TRACEHOOK
 	select HAVE_ARCH_KGDB
+	select HAVE_NMI_WATCHDOG if MN10300_WD_TIMER
 
 config AM33_2
 	def_bool n
@@ -252,6 +253,7 @@ config PCI
 	bool "Use PCI"
 	depends on MN10300_UNIT_ASB2305
 	default y
+	select GENERIC_PCI_IOMAP
 	help
 	  Some systems (such as the ASB2305) have PCI onboard. If you have one
 	  of these boards and you wish to use the PCI facilities, say Y here.

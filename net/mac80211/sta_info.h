@@ -14,6 +14,7 @@
 #include <linux/if_ether.h>
 #include <linux/workqueue.h>
 #include <linux/average.h>
+#include <linux/etherdevice.h>
 #include "key.h"
 
 /**
@@ -30,7 +31,6 @@
  *	when virtual port control is not in use.
  * @WLAN_STA_SHORT_PREAMBLE: Station is capable of receiving short-preamble
  *	frames.
- * @WLAN_STA_ASSOC_AP: We're associated to that station, it is an AP.
  * @WLAN_STA_WME: Station is a QoS-STA.
  * @WLAN_STA_WDS: Station is one of our WDS peers.
  * @WLAN_STA_CLEAR_PS_FILT: Clear PS filter in hardware (using the
@@ -52,6 +52,9 @@
  *	unblocks the station.
  * @WLAN_STA_SP: Station is in a service period, so don't try to
  *	reply to other uAPSD trigger frames or PS-Poll.
+ * @WLAN_STA_4ADDR_EVENT: 4-addr event was already sent for this frame.
+ * @WLAN_STA_INSERTED: This station is inserted into the hash table.
+ * @WLAN_STA_RATE_CONTROL: rate control was initialized for this station.
  */
 enum ieee80211_sta_info_flags {
 	WLAN_STA_AUTH,
@@ -59,7 +62,6 @@ enum ieee80211_sta_info_flags {
 	WLAN_STA_PS_STA,
 	WLAN_STA_AUTHORIZED,
 	WLAN_STA_SHORT_PREAMBLE,
-	WLAN_STA_ASSOC_AP,
 	WLAN_STA_WME,
 	WLAN_STA_WDS,
 	WLAN_STA_CLEAR_PS_FILT,
@@ -71,11 +73,16 @@ enum ieee80211_sta_info_flags {
 	WLAN_STA_TDLS_PEER_AUTH,
 	WLAN_STA_UAPSD,
 	WLAN_STA_SP,
+	WLAN_STA_4ADDR_EVENT,
+	WLAN_STA_INSERTED,
+	WLAN_STA_RATE_CONTROL,
 };
 
 #define STA_TID_NUM 16
 #define ADDBA_RESP_INTERVAL HZ
-#define HT_AGG_MAX_RETRIES		0x3
+#define HT_AGG_MAX_RETRIES		15
+#define HT_AGG_BURST_RETRIES		3
+#define HT_AGG_RETRIES_PERIOD		(15 * HZ)
 
 #define HT_AGG_STATE_DRV_READY		0
 #define HT_AGG_STATE_RESPONSE_RECEIVED	1
@@ -88,6 +95,7 @@ enum ieee80211_sta_info_flags {
  * struct tid_ampdu_tx - TID aggregation information (Tx).
  *
  * @rcu_head: rcu head for freeing structure
+ * @session_timer: check if we keep Tx-ing on the TID (by timeout value)
  * @addba_resp_timer: timer for peer's response to addba request
  * @pending: pending frames queue -- use sta's spinlock to protect
  * @dialog_token: dialog token for aggregation session
@@ -110,6 +118,7 @@ enum ieee80211_sta_info_flags {
  */
 struct tid_ampdu_tx {
 	struct rcu_head rcu_head;
+	struct timer_list session_timer;
 	struct timer_list addba_resp_timer;
 	struct sk_buff_head pending;
 	unsigned long state;
@@ -169,6 +178,7 @@ struct tid_ampdu_rx {
  * @tid_tx: aggregation info for Tx per TID
  * @tid_start_tx: sessions where start was requested
  * @addba_req_num: number of times addBA request has been sent.
+ * @last_addba_req_time: timestamp of the last addBA request.
  * @dialog_token_allocator: dialog token enumerator for each new session;
  * @work: work struct for starting/stopping aggregation
  * @tid_rx_timer_expired: bitmap indicating on which TIDs the
@@ -188,6 +198,7 @@ struct sta_ampdu_mlme {
 	struct work_struct work;
 	struct tid_ampdu_tx __rcu *tid_tx[STA_TID_NUM];
 	struct tid_ampdu_tx *tid_start_tx[STA_TID_NUM];
+	unsigned long last_addba_req_time[STA_TID_NUM];
 	u8 addba_req_num[STA_TID_NUM];
 	u8 dialog_token_allocator;
 };
@@ -257,9 +268,9 @@ struct sta_ampdu_mlme {
  * @dead: set to true when sta is unlinked
  * @uploaded: set to true when sta is uploaded to the driver
  * @lost_packets: number of consecutive lost packets
- * @dummy: indicate a dummy station created for receiving
- *	EAP frames before association
  * @sta: station information we share with the driver
+ * @sta_state: duplicates information about station state (for debug)
+ * @beacon_loss_count: number of times beacon loss has triggered
  */
 struct sta_info {
 	/* General information, mostly static */
@@ -280,6 +291,8 @@ struct sta_info {
 	bool dead;
 
 	bool uploaded;
+
+	enum ieee80211_sta_state sta_state;
 
 	/* use the accessors defined below */
 	unsigned long _flags;
@@ -350,9 +363,7 @@ struct sta_info {
 #endif
 
 	unsigned int lost_packets;
-
-	/* should be right in front of sta to be in the same cache line */
-	bool dummy;
+	unsigned int beacon_loss_count;
 
 	/* keep last! */
 	struct ieee80211_sta sta;
@@ -369,12 +380,18 @@ static inline enum nl80211_plink_state sta_plink_state(struct sta_info *sta)
 static inline void set_sta_flag(struct sta_info *sta,
 				enum ieee80211_sta_info_flags flag)
 {
+	WARN_ON(flag == WLAN_STA_AUTH ||
+		flag == WLAN_STA_ASSOC ||
+		flag == WLAN_STA_AUTHORIZED);
 	set_bit(flag, &sta->_flags);
 }
 
 static inline void clear_sta_flag(struct sta_info *sta,
 				  enum ieee80211_sta_info_flags flag)
 {
+	WARN_ON(flag == WLAN_STA_AUTH ||
+		flag == WLAN_STA_ASSOC ||
+		flag == WLAN_STA_AUTHORIZED);
 	clear_bit(flag, &sta->_flags);
 }
 
@@ -387,8 +404,35 @@ static inline int test_sta_flag(struct sta_info *sta,
 static inline int test_and_clear_sta_flag(struct sta_info *sta,
 					  enum ieee80211_sta_info_flags flag)
 {
+	WARN_ON(flag == WLAN_STA_AUTH ||
+		flag == WLAN_STA_ASSOC ||
+		flag == WLAN_STA_AUTHORIZED);
 	return test_and_clear_bit(flag, &sta->_flags);
 }
+
+static inline int test_and_set_sta_flag(struct sta_info *sta,
+					enum ieee80211_sta_info_flags flag)
+{
+	WARN_ON(flag == WLAN_STA_AUTH ||
+		flag == WLAN_STA_ASSOC ||
+		flag == WLAN_STA_AUTHORIZED);
+	return test_and_set_bit(flag, &sta->_flags);
+}
+
+int sta_info_move_state(struct sta_info *sta,
+			enum ieee80211_sta_state new_state);
+
+static inline void sta_info_pre_move_state(struct sta_info *sta,
+					   enum ieee80211_sta_state new_state)
+{
+	int ret;
+
+	WARN_ON_ONCE(test_sta_flag(sta, WLAN_STA_INSERTED));
+
+	ret = sta_info_move_state(sta, new_state);
+	WARN_ON_ONCE(ret);
+}
+
 
 void ieee80211_assign_tid_tx(struct sta_info *sta, int tid,
 			     struct tid_ampdu_tx *tid_tx);
@@ -422,13 +466,7 @@ rcu_dereference_protected_tid_tx(struct sta_info *sta, int tid)
 struct sta_info *sta_info_get(struct ieee80211_sub_if_data *sdata,
 			      const u8 *addr);
 
-struct sta_info *sta_info_get_rx(struct ieee80211_sub_if_data *sdata,
-			      const u8 *addr);
-
 struct sta_info *sta_info_get_bss(struct ieee80211_sub_if_data *sdata,
-				  const u8 *addr);
-
-struct sta_info *sta_info_get_bss_rx(struct ieee80211_sub_if_data *sdata,
 				  const u8 *addr);
 
 static inline
@@ -439,23 +477,7 @@ void for_each_sta_info_type_check(struct ieee80211_local *local,
 {
 }
 
-#define for_each_sta_info(local, _addr, _sta, nxt) 			\
-	for (	/* initialise loop */					\
-		_sta = rcu_dereference(local->sta_hash[STA_HASH(_addr)]),\
-		nxt = _sta ? rcu_dereference(_sta->hnext) : NULL;	\
-		/* typecheck */						\
-		for_each_sta_info_type_check(local, (_addr), _sta, nxt),\
-		/* continue condition */				\
-		_sta;							\
-		/* advance loop */					\
-		_sta = nxt,						\
-		nxt = _sta ? rcu_dereference(_sta->hnext) : NULL	\
-	     )								\
-	/* run code only if address matches and it's not a dummy sta */	\
-	if (memcmp(_sta->sta.addr, (_addr), ETH_ALEN) == 0 &&		\
-		!_sta->dummy)
-
-#define for_each_sta_info_rx(local, _addr, _sta, nxt)			\
+#define for_each_sta_info(local, _addr, _sta, nxt)			\
 	for (	/* initialise loop */					\
 		_sta = rcu_dereference(local->sta_hash[STA_HASH(_addr)]),\
 		nxt = _sta ? rcu_dereference(_sta->hnext) : NULL;	\
@@ -468,7 +490,7 @@ void for_each_sta_info_type_check(struct ieee80211_local *local,
 		nxt = _sta ? rcu_dereference(_sta->hnext) : NULL	\
 	     )								\
 	/* compare address and run code only if it matches */		\
-	if (memcmp(_sta->sta.addr, (_addr), ETH_ALEN) == 0)
+	if (compare_ether_addr(_sta->sta.addr, (_addr)) == 0)
 
 /*
  * Get STA info by index, BROKEN!
@@ -480,7 +502,10 @@ struct sta_info *sta_info_get_by_idx(struct ieee80211_sub_if_data *sdata,
  * until sta_info_insert().
  */
 struct sta_info *sta_info_alloc(struct ieee80211_sub_if_data *sdata,
-				u8 *addr, gfp_t gfp);
+				const u8 *addr, gfp_t gfp);
+
+void sta_info_free(struct ieee80211_local *local, struct sta_info *sta);
+
 /*
  * Insert STA info into hash table/list, returns zero or a
  * -EEXIST if (if the same MAC address is already present).
@@ -491,9 +516,8 @@ struct sta_info *sta_info_alloc(struct ieee80211_sub_if_data *sdata,
  */
 int sta_info_insert(struct sta_info *sta);
 int sta_info_insert_rcu(struct sta_info *sta) __acquires(RCU);
-int sta_info_insert_atomic(struct sta_info *sta);
-int sta_info_reinsert(struct sta_info *sta);
 
+int __must_check __sta_info_destroy(struct sta_info *sta);
 int sta_info_destroy_addr(struct ieee80211_sub_if_data *sdata,
 			  const u8 *addr);
 int sta_info_destroy_addr_bss(struct ieee80211_sub_if_data *sdata,
@@ -505,6 +529,9 @@ void sta_info_init(struct ieee80211_local *local);
 void sta_info_stop(struct ieee80211_local *local);
 int sta_info_flush(struct ieee80211_local *local,
 		   struct ieee80211_sub_if_data *sdata);
+void sta_set_rate_info_tx(struct sta_info *sta,
+			  const struct ieee80211_tx_rate *rate,
+			  struct rate_info *rinfo);
 void ieee80211_sta_expire(struct ieee80211_sub_if_data *sdata,
 			  unsigned long exp_time);
 

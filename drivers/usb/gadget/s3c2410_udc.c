@@ -3,7 +3,7 @@
  *
  * Samsung S3C24xx series on-chip full speed USB device controllers
  *
- * Copyright (C) 2004-2007 Herbert Pötzl - Arnaud Patard
+ * Copyright (C) 2004-2007 Herbert PÃ¶tzl - Arnaud Patard
  *	Additional cleanups by Ben Dooks <ben-linux@fluff.org>
  *
  * This program is free software; you can redistribute it and/or modify
@@ -37,7 +37,6 @@
 #include <asm/byteorder.h>
 #include <asm/io.h>
 #include <asm/irq.h>
-#include <asm/system.h>
 #include <asm/unaligned.h>
 #include <mach/irqs.h>
 
@@ -51,7 +50,7 @@
 
 #define DRIVER_DESC	"S3C2410 USB Device Controller Gadget"
 #define DRIVER_VERSION	"29 Apr 2007"
-#define DRIVER_AUTHOR	"Herbert Pötzl <herbert@13thfloor.at>, " \
+#define DRIVER_AUTHOR	"Herbert PÃ¶tzl <herbert@13thfloor.at>, " \
 			"Arnaud Patard <arnaud.patard@rtp-net.org>"
 
 static const char		gadget_name[] = "s3c2410_udc";
@@ -1148,6 +1147,7 @@ static int s3c2410_udc_ep_disable(struct usb_ep *_ep)
 	dprintk(DEBUG_NORMAL, "ep_disable: %s\n", _ep->name);
 
 	ep->desc = NULL;
+	ep->ep.desc = NULL;
 	ep->halted = 1;
 
 	s3c2410_udc_nuke (ep->dev, ep, -ESHUTDOWN);
@@ -1630,6 +1630,7 @@ static void s3c2410_udc_reinit(struct s3c2410_udc *dev)
 
 		ep->dev = dev;
 		ep->desc = NULL;
+		ep->ep.desc = NULL;
 		ep->halted = 0;
 		INIT_LIST_HEAD (&ep->queue);
 	}
@@ -1683,9 +1684,9 @@ static int s3c2410_udc_start(struct usb_gadget_driver *driver,
 	if (udc->driver)
 		return -EBUSY;
 
-	if (!bind || !driver->setup || driver->speed < USB_SPEED_FULL) {
+	if (!bind || !driver->setup || driver->max_speed < USB_SPEED_FULL) {
 		printk(KERN_ERR "Invalid driver: bind %p setup %p speed %d\n",
-			bind, driver->setup, driver->speed);
+			bind, driver->setup, driver->max_speed);
 		return -EINVAL;
 	}
 #if defined(MODULE)

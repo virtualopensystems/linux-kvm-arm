@@ -39,6 +39,7 @@
 #define TX_HW_ATTR_LAST_WORD_PAD         (BIT(10) | BIT(11))
 #define TX_HW_ATTR_TX_CMPLT_REQ          BIT(12)
 #define TX_HW_ATTR_TX_DUMMY_REQ          BIT(13)
+#define TX_HW_ATTR_HOST_ENCRYPT          BIT(14)
 
 #define TX_HW_ATTR_OFST_SAVE_RETRIES     0
 #define TX_HW_ATTR_OFST_HEADER_PAD       1
@@ -51,7 +52,9 @@
 #define TX_HW_RESULT_QUEUE_LEN_MASK      0xf
 
 #define WL1271_TX_ALIGN_TO 4
-#define WL1271_TKIP_IV_SPACE 4
+#define WL1271_EXTRA_SPACE_TKIP 4
+#define WL1271_EXTRA_SPACE_AES  8
+#define WL1271_EXTRA_SPACE_MAX  8
 
 /* Used for management frames and dummy packets */
 #define WL1271_TID_MGMT 7
@@ -206,18 +209,24 @@ static inline int wl1271_tx_total_queue_count(struct wl1271 *wl)
 void wl1271_tx_work(struct work_struct *work);
 void wl1271_tx_work_locked(struct wl1271 *wl);
 void wl1271_tx_complete(struct wl1271 *wl);
-void wl1271_tx_reset(struct wl1271 *wl, bool reset_tx_queues);
+void wl12xx_tx_reset_wlvif(struct wl1271 *wl, struct wl12xx_vif *wlvif);
+void wl12xx_tx_reset(struct wl1271 *wl, bool reset_tx_queues);
 void wl1271_tx_flush(struct wl1271 *wl);
 u8 wl1271_rate_to_idx(int rate, enum ieee80211_band band);
 u32 wl1271_tx_enabled_rates_get(struct wl1271 *wl, u32 rate_set,
 				enum ieee80211_band rate_band);
 u32 wl1271_tx_min_rate_get(struct wl1271 *wl, u32 rate_set);
-u8 wl12xx_tx_get_hlid_ap(struct wl1271 *wl, struct sk_buff *skb);
+u8 wl12xx_tx_get_hlid_ap(struct wl1271 *wl, struct wl12xx_vif *wlvif,
+			 struct sk_buff *skb);
+u8 wl12xx_tx_get_hlid(struct wl1271 *wl, struct wl12xx_vif *wlvif,
+		      struct sk_buff *skb);
 void wl1271_tx_reset_link_queues(struct wl1271 *wl, u8 hlid);
 void wl1271_handle_tx_low_watermark(struct wl1271 *wl);
 bool wl12xx_is_dummy_packet(struct wl1271 *wl, struct sk_buff *skb);
+void wl12xx_rearm_rx_streaming(struct wl1271 *wl, unsigned long *active_hlids);
 
 /* from main.c */
-void wl1271_free_sta(struct wl1271 *wl, u8 hlid);
+void wl1271_free_sta(struct wl1271 *wl, struct wl12xx_vif *wlvif, u8 hlid);
+void wl12xx_rearm_tx_watchdog_locked(struct wl1271 *wl);
 
 #endif

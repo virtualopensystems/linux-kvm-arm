@@ -36,6 +36,7 @@
 #include <linux/ctype.h>
 #include <linux/init.h>
 #include <linux/poll.h>
+#include <linux/nmi.h>
 #include <linux/fs.h>
 
 #include "trace.h"
@@ -338,7 +339,8 @@ static DECLARE_WAIT_QUEUE_HEAD(trace_wait);
 /* trace_flags holds trace_options default values */
 unsigned long trace_flags = TRACE_ITER_PRINT_PARENT | TRACE_ITER_PRINTK |
 	TRACE_ITER_ANNOTATE | TRACE_ITER_CONTEXT_INFO | TRACE_ITER_SLEEP_TIME |
-	TRACE_ITER_GRAPH_TIME | TRACE_ITER_RECORD_CMD | TRACE_ITER_OVERWRITE;
+	TRACE_ITER_GRAPH_TIME | TRACE_ITER_RECORD_CMD | TRACE_ITER_OVERWRITE |
+	TRACE_ITER_IRQ_INFO;
 
 static int trace_stop_count;
 static DEFINE_RAW_SPINLOCK(tracing_start_lock);
@@ -349,6 +351,59 @@ static void wakeup_work_handler(struct work_struct *work)
 }
 
 static DECLARE_DELAYED_WORK(wakeup_work, wakeup_work_handler);
+
+/**
+ * tracing_on - enable tracing buffers
+ *
+ * This function enables tracing buffers that may have been
+ * disabled with tracing_off.
+ */
+void tracing_on(void)
+{
+	if (global_trace.buffer)
+		ring_buffer_record_on(global_trace.buffer);
+	/*
+	 * This flag is only looked at when buffers haven't been
+	 * allocated yet. We don't really care about the race
+	 * between setting this flag and actually turning
+	 * on the buffer.
+	 */
+	global_trace.buffer_disabled = 0;
+}
+EXPORT_SYMBOL_GPL(tracing_on);
+
+/**
+ * tracing_off - turn off tracing buffers
+ *
+ * This function stops the tracing buffers from recording data.
+ * It does not disable any overhead the tracers themselves may
+ * be causing. This function simply causes all recording to
+ * the ring buffers to fail.
+ */
+void tracing_off(void)
+{
+	if (global_trace.buffer)
+		ring_buffer_record_on(global_trace.buffer);
+	/*
+	 * This flag is only looked at when buffers haven't been
+	 * allocated yet. We don't really care about the race
+	 * between setting this flag and actually turning
+	 * on the buffer.
+	 */
+	global_trace.buffer_disabled = 1;
+}
+EXPORT_SYMBOL_GPL(tracing_off);
+
+/**
+ * tracing_is_on - show state of ring buffers enabled
+ */
+int tracing_is_on(void)
+{
+	if (global_trace.buffer)
+		return ring_buffer_record_is_on(global_trace.buffer);
+	return !global_trace.buffer_disabled;
+}
+EXPORT_SYMBOL_GPL(tracing_is_on);
 
 /**
  * trace_wake_up - wake up tasks waiting for trace input
@@ -426,6 +481,7 @@ static const char *trace_options[] = {
 	"record-cmd",
 	"overwrite",
 	"disable_on_free",
+	"irq-info",
 	NULL
 };
 
@@ -1642,6 +1698,7 @@ __find_next_entry(struct trace_iterator *iter, int *ent_cpu,
 	int cpu_file = iter->cpu_file;
 	u64 next_ts = 0, ts;
 	int next_cpu = -1;
+	int next_size = 0;
 	int cpu;
 
 	/*
@@ -1673,8 +1730,11 @@ __find_next_entry(struct trace_iterator *iter, int *ent_cpu,
 			next_cpu = cpu;
 			next_ts = ts;
 			next_lost = lost_events;
+			next_size = iter->ent_size;
 		}
 	}
+
+	iter->ent_size = next_size;
 
 	if (ent_cpu)
 		*ent_cpu = next_cpu;
@@ -1843,6 +1903,33 @@ static void s_stop(struct seq_file *m, void *p)
 	trace_event_read_unlock();
 }
 
+static void
+get_total_entries(struct trace_array *tr, unsigned long *total, unsigned long *entries)
+{
+	unsigned long count;
+	int cpu;
+
+	*total = 0;
+	*entries = 0;
+
+	for_each_tracing_cpu(cpu) {
+		count = ring_buffer_entries_cpu(tr->buffer, cpu);
+		/*
+		 * If this buffer has skipped entries, then we hold all
+		 * entries for the trace and we need to ignore the
+		 * ones before the time stamp.
+		 */
+		if (tr->data[cpu]->skipped_entries) {
+			count -= tr->data[cpu]->skipped_entries;
+			/* total is the same as the entries */
+			*total += count;
+		} else
+			*total += count +
+				ring_buffer_overrun_cpu(tr->buffer, cpu);
+		*entries += count;
+	}
+}
+
 static void print_lat_help_header(struct seq_file *m)
 {
 	seq_puts(m, "#                  _------=> CPU#            \n");
@@ -1855,12 +1942,35 @@ static void print_lat_help_header(struct seq_file *m)
 	seq_puts(m, "#     \\   /      |||||  \\    |   /           \n");
 }
 
-static void print_func_help_header(struct seq_file *m)
+static void print_event_info(struct trace_array *tr, struct seq_file *m)
 {
-	seq_puts(m, "#           TASK-PID    CPU#    TIMESTAMP  FUNCTION\n");
+	unsigned long total;
+	unsigned long entries;
+
+	get_total_entries(tr, &total, &entries);
+	seq_printf(m, "# entries-in-buffer/entries-written: %lu/%lu   #P:%d\n",
+		   entries, total, num_online_cpus());
+	seq_puts(m, "#\n");
+}
+
+static void print_func_help_header(struct trace_array *tr, struct seq_file *m)
+{
+	print_event_info(tr, m);
+	seq_puts(m, "#           TASK-PID   CPU#      TIMESTAMP  FUNCTION\n");
 	seq_puts(m, "#              | |       |          |         |\n");
 }
 
+static void print_func_help_header_irq(struct trace_array *tr, struct seq_file *m)
+{
+	print_event_info(tr, m);
+	seq_puts(m, "#                              _-----=> irqs-off\n");
+	seq_puts(m, "#                             / _----=> need-resched\n");
+	seq_puts(m, "#                            | / _---=> hardirq/softirq\n");
+	seq_puts(m, "#                            || / _--=> preempt-depth\n");
+	seq_puts(m, "#                            ||| /     delay\n");
+	seq_puts(m, "#           TASK-PID   CPU#  ||||    TIMESTAMP  FUNCTION\n");
+	seq_puts(m, "#              | |       |   ||||       |         |\n");
+}
 
 void
 print_trace_header(struct seq_file *m, struct trace_iterator *iter)
@@ -1869,32 +1979,14 @@ print_trace_header(struct seq_file *m, struct trace_iterator *iter)
 	struct trace_array *tr = iter->tr;
 	struct trace_array_cpu *data = tr->data[tr->cpu];
 	struct tracer *type = current_trace;
-	unsigned long entries = 0;
-	unsigned long total = 0;
-	unsigned long count;
+	unsigned long entries;
+	unsigned long total;
 	const char *name = "preemption";
-	int cpu;
 
 	if (type)
 		name = type->name;
 
-
-	for_each_tracing_cpu(cpu) {
-		count = ring_buffer_entries_cpu(tr->buffer, cpu);
-		/*
-		 * If this buffer has skipped entries, then we hold all
-		 * entries for the trace and we need to ignore the
-		 * ones before the time stamp.
-		 */
-		if (tr->data[cpu]->skipped_entries) {
-			count -= tr->data[cpu]->skipped_entries;
-			/* total is the same as the entries */
-			total += count;
-		} else
-			total += count +
-				ring_buffer_overrun_cpu(tr->buffer, cpu);
-		entries += count;
-	}
+	get_total_entries(tr, &total, &entries);
 
 	seq_printf(m, "# %s latency trace v1.1.5 on %s\n",
 		   name, UTS_RELEASE);
@@ -2140,6 +2232,21 @@ enum print_line_t print_trace_line(struct trace_iterator *iter)
 	return print_trace_fmt(iter);
 }
 
+void trace_latency_header(struct seq_file *m)
+{
+	struct trace_iterator *iter = m->private;
+
+	/* print nothing if the buffers are empty */
+	if (trace_empty(iter))
+		return;
+
+	if (iter->iter_flags & TRACE_FILE_LAT_FMT)
+		print_trace_header(m, iter);
+
+	if (!(trace_flags & TRACE_ITER_VERBOSE))
+		print_lat_help_header(m);
+}
+
 void trace_default_header(struct seq_file *m)
 {
 	struct trace_iterator *iter = m->private;
@@ -2155,8 +2262,12 @@ void trace_default_header(struct seq_file *m)
 		if (!(trace_flags & TRACE_ITER_VERBOSE))
 			print_lat_help_header(m);
 	} else {
-		if (!(trace_flags & TRACE_ITER_VERBOSE))
-			print_func_help_header(m);
+		if (!(trace_flags & TRACE_ITER_VERBOSE)) {
+			if (trace_flags & TRACE_ITER_IRQ_INFO)
+				print_func_help_header_irq(iter->tr, m);
+			else
+				print_func_help_header(iter->tr, m);
+		}
 	}
 }
 
@@ -2711,12 +2822,12 @@ static const char readme_msg[] =
 	"tracing mini-HOWTO:\n\n"
 	"# mount -t debugfs nodev /sys/kernel/debug\n\n"
 	"# cat /sys/kernel/debug/tracing/available_tracers\n"
-	"wakeup preemptirqsoff preemptoff irqsoff function sched_switch nop\n\n"
+	"wakeup wakeup_rt preemptirqsoff preemptoff irqsoff function nop\n\n"
 	"# cat /sys/kernel/debug/tracing/current_tracer\n"
 	"nop\n"
-	"# echo sched_switch > /sys/kernel/debug/tracing/current_tracer\n"
+	"# echo wakeup > /sys/kernel/debug/tracing/current_tracer\n"
 	"# cat /sys/kernel/debug/tracing/current_tracer\n"
-	"sched_switch\n"
+	"wakeup\n"
 	"# cat /sys/kernel/debug/tracing/trace_options\n"
 	"noprint-parent nosym-offset nosym-addr noverbose\n"
 	"# echo print-parent > /sys/kernel/debug/tracing/trace_options\n"
@@ -4385,7 +4496,7 @@ static const struct file_operations trace_options_core_fops = {
 };
 
 struct dentry *trace_create_file(const char *name,
-				 mode_t mode,
+				 umode_t mode,
 				 struct dentry *parent,
 				 void *data,
 				 const struct file_operations *fops)
@@ -4514,6 +4625,55 @@ static __init void create_trace_options_dir(void)
 		create_trace_option_core_file(trace_options[i], i);
 }
 
+static ssize_t
+rb_simple_read(struct file *filp, char __user *ubuf,
+	       size_t cnt, loff_t *ppos)
+{
+	struct ring_buffer *buffer = filp->private_data;
+	char buf[64];
+	int r;
+
+	if (buffer)
+		r = ring_buffer_record_is_on(buffer);
+	else
+		r = 0;
+
+	r = sprintf(buf, "%d\n", r);
+
+	return simple_read_from_buffer(ubuf, cnt, ppos, buf, r);
+}
+
+static ssize_t
+rb_simple_write(struct file *filp, const char __user *ubuf,
+		size_t cnt, loff_t *ppos)
+{
+	struct ring_buffer *buffer = filp->private_data;
+	unsigned long val;
+	int ret;
+
+	ret = kstrtoul_from_user(ubuf, cnt, 10, &val);
+	if (ret)
+		return ret;
+
+	if (buffer) {
+		if (val)
+			ring_buffer_record_on(buffer);
+		else
+			ring_buffer_record_off(buffer);
+	}
+
+	(*ppos)++;
+
+	return cnt;
+}
+
+static const struct file_operations rb_simple_fops = {
+	.open		= tracing_open_generic,
+	.read		= rb_simple_read,
+	.write		= rb_simple_write,
+	.llseek		= default_llseek,
+};
+
 static __init int tracer_init_debugfs(void)
 {
 	struct dentry *d_tracer;
@@ -4572,6 +4732,9 @@ static __init int tracer_init_debugfs(void)
 
 	trace_create_file("trace_clock", 0644, d_tracer, NULL,
 			  &trace_clock_fops);
+
+	trace_create_file("tracing_on", 0644, d_tracer,
+			    global_trace.buffer, &rb_simple_fops);
 
 #ifdef CONFIG_DYNAMIC_FTRACE
 	trace_create_file("dyn_ftrace_total_info", 0444, d_tracer,
@@ -4745,6 +4908,7 @@ __ftrace_dump(bool disable_tracing, enum ftrace_dump_mode oops_dump_mode)
 			if (ret != TRACE_TYPE_NO_CONSUME)
 				trace_consume(&iter);
 		}
+		touch_nmi_watchdog();
 
 		trace_printk_seq(&iter.seq);
 	}
@@ -4775,6 +4939,7 @@ void ftrace_dump(enum ftrace_dump_mode oops_dump_mode)
 {
 	__ftrace_dump(true, oops_dump_mode);
 }
+EXPORT_SYMBOL_GPL(ftrace_dump);
 
 __init static int tracer_alloc_buffers(void)
 {
@@ -4809,6 +4974,8 @@ __init static int tracer_alloc_buffers(void)
 		goto out_free_cpumask;
 	}
 	global_trace.entries = ring_buffer_size(global_trace.buffer);
+	if (global_trace.buffer_disabled)
+		tracing_off();
 
 
 #ifdef CONFIG_TRACER_MAX_TRACE

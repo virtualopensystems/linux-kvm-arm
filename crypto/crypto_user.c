@@ -298,13 +298,13 @@ static int crypto_del_alg(struct sk_buff *skb, struct nlmsghdr *nlh,
 	if (atomic_read(&alg->cra_refcnt) != 1)
 		return -EBUSY;
 
-	return crypto_unregister_alg(alg);
+	return crypto_unregister_instance(alg);
 }
 
 static int crypto_add_alg(struct sk_buff *skb, struct nlmsghdr *nlh,
 			  struct nlattr **attrs)
 {
-	int exact;
+	int exact = 0;
 	const char *name;
 	struct crypto_alg *alg;
 	struct crypto_user_alg *p = nlmsg_data(nlh);
@@ -382,16 +382,20 @@ static int crypto_user_rcv_msg(struct sk_buff *skb, struct nlmsghdr *nlh)
 	type -= CRYPTO_MSG_BASE;
 	link = &crypto_dispatch[type];
 
-	if (security_netlink_recv(skb, CAP_NET_ADMIN))
+	if (!capable(CAP_NET_ADMIN))
 		return -EPERM;
 
 	if ((type == (CRYPTO_MSG_GETALG - CRYPTO_MSG_BASE) &&
 	    (nlh->nlmsg_flags & NLM_F_DUMP))) {
 		if (link->dump == NULL)
 			return -EINVAL;
-
-		return netlink_dump_start(crypto_nlsk, skb, nlh,
-					  link->dump, link->done, 0);
+		{
+			struct netlink_dump_control c = {
+				.dump = link->dump,
+				.done = link->done,
+			};
+			return netlink_dump_start(crypto_nlsk, skb, nlh, &c);
+		}
 	}
 
 	err = nlmsg_parse(nlh, crypto_msg_min[type], attrs, CRYPTOCFGA_MAX,

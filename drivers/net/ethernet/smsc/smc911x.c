@@ -401,7 +401,7 @@ static inline void	 smc911x_rcv(struct net_device *dev)
 	} else {
 		/* Receive a valid packet */
 		/* Alloc a buffer with extra room for DMA alignment */
-		skb=dev_alloc_skb(pkt_len+32);
+		skb = netdev_alloc_skb(dev, pkt_len+32);
 		if (unlikely(skb == NULL)) {
 			PRINTK( "%s: Low memory, rcvd packet dropped.\n",
 				dev->name);
@@ -2065,7 +2065,6 @@ static int __devinit smc911x_drv_probe(struct platform_device *pdev)
 
 	ndev = alloc_etherdev(sizeof(struct smc911x_local));
 	if (!ndev) {
-		printk("%s: could not allocate device.\n", CARDNAME);
 		ret = -ENOMEM;
 		goto release_1;
 	}
@@ -2196,15 +2195,4 @@ static struct platform_driver smc911x_driver = {
 	},
 };
 
-static int __init smc911x_init(void)
-{
-	return platform_driver_register(&smc911x_driver);
-}
-
-static void __exit smc911x_cleanup(void)
-{
-	platform_driver_unregister(&smc911x_driver);
-}
-
-module_init(smc911x_init);
-module_exit(smc911x_cleanup);
+module_platform_driver(smc911x_driver);

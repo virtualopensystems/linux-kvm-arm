@@ -923,7 +923,7 @@ static int s3c_onenand_probe(struct platform_device *pdev)
 		r = platform_get_resource(pdev, IORESOURCE_MEM, 1);
 		if (!r) {
 			dev_err(&pdev->dev, "no buffer memory resource defined\n");
-			return -ENOENT;
+			err = -ENOENT;
 			goto ahb_resource_failed;
 		}
 
@@ -964,7 +964,7 @@ static int s3c_onenand_probe(struct platform_device *pdev)
 		r = platform_get_resource(pdev, IORESOURCE_MEM, 1);
 		if (!r) {
 			dev_err(&pdev->dev, "no dma memory resource defined\n");
-			return -ENOENT;
+			err = -ENOENT;
 			goto dma_resource_failed;
 		}
 
@@ -1014,7 +1014,7 @@ static int s3c_onenand_probe(struct platform_device *pdev)
 	if (s3c_read_reg(MEM_CFG_OFFSET) & ONENAND_SYS_CFG1_SYNC_READ)
 		dev_info(&onenand->pdev->dev, "OneNAND Sync. Burst Read enabled\n");
 
-	err = mtd_device_parse_register(mtd, NULL, 0,
+	err = mtd_device_parse_register(mtd, NULL, NULL,
 					pdata ? pdata->parts : NULL,
 					pdata ? pdata->nr_parts : 0);
 
@@ -1133,18 +1133,7 @@ static struct platform_driver s3c_onenand_driver = {
 	.remove         = __devexit_p(s3c_onenand_remove),
 };
 
-static int __init s3c_onenand_init(void)
-{
-	return platform_driver_register(&s3c_onenand_driver);
-}
-
-static void __exit s3c_onenand_exit(void)
-{
-	platform_driver_unregister(&s3c_onenand_driver);
-}
-
-module_init(s3c_onenand_init);
-module_exit(s3c_onenand_exit);
+module_platform_driver(s3c_onenand_driver);
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Kyungmin Park <kyungmin.park@samsung.com>");

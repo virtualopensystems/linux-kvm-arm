@@ -520,7 +520,7 @@ static int pm8xxx_rtc_suspend(struct device *dev)
 }
 #endif
 
-SIMPLE_DEV_PM_OPS(pm8xxx_rtc_pm_ops, pm8xxx_rtc_suspend, pm8xxx_rtc_resume);
+static SIMPLE_DEV_PM_OPS(pm8xxx_rtc_pm_ops, pm8xxx_rtc_suspend, pm8xxx_rtc_resume);
 
 static struct platform_driver pm8xxx_rtc_driver = {
 	.probe		= pm8xxx_rtc_probe,
@@ -532,17 +532,7 @@ static struct platform_driver pm8xxx_rtc_driver = {
 	},
 };
 
-static int __init pm8xxx_rtc_init(void)
-{
-	return platform_driver_register(&pm8xxx_rtc_driver);
-}
-module_init(pm8xxx_rtc_init);
-
-static void __exit pm8xxx_rtc_exit(void)
-{
-	platform_driver_unregister(&pm8xxx_rtc_driver);
-}
-module_exit(pm8xxx_rtc_exit);
+module_platform_driver(pm8xxx_rtc_driver);
 
 MODULE_ALIAS("platform:rtc-pm8xxx");
 MODULE_DESCRIPTION("PMIC8xxx RTC driver");

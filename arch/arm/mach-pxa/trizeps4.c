@@ -558,9 +558,11 @@ MACHINE_START(TRIZEPS4, "Keith und Koep Trizeps IV module")
 	.atag_offset	= 0x100,
 	.init_machine	= trizeps4_init,
 	.map_io		= trizeps4_map_io,
+	.nr_irqs	= PXA_NR_IRQS,
 	.init_irq	= pxa27x_init_irq,
 	.handle_irq	= pxa27x_handle_irq,
 	.timer		= &pxa_timer,
+	.restart	= pxa_restart,
 MACHINE_END
 
 MACHINE_START(TRIZEPS4WL, "Keith und Koep Trizeps IV-WL module")
@@ -568,7 +570,9 @@ MACHINE_START(TRIZEPS4WL, "Keith und Koep Trizeps IV-WL module")
 	.atag_offset	= 0x100,
 	.init_machine	= trizeps4_init,
 	.map_io		= trizeps4_map_io,
+	.nr_irqs	= PXA_NR_IRQS,
 	.init_irq	= pxa27x_init_irq,
 	.handle_irq	= pxa27x_handle_irq,
 	.timer		= &pxa_timer,
+	.restart	= pxa_restart,
 MACHINE_END

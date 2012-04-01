@@ -820,7 +820,7 @@ struct drm_driver {
 	 * Specifically, the timestamp in @vblank_time should correspond as
 	 * closely as possible to the time when the first video scanline of
 	 * the video frame after the end of VBLANK will start scanning out,
-	 * the time immmediately after end of the VBLANK interval. If the
+	 * the time immediately after end of the VBLANK interval. If the
 	 * @crtc is currently inside VBLANK, this will be a time in the future.
 	 * If the @crtc is currently scanning out a frame, this will be the
 	 * past start time of the current scanout. This is meant to adhere
@@ -918,7 +918,7 @@ struct drm_driver {
 	int dev_priv_size;
 	struct drm_ioctl_desc *ioctls;
 	int num_ioctls;
-	struct file_operations fops;
+	const struct file_operations *fops;
 	union {
 		struct pci_driver *pci;
 		struct platform_device *platform_device;
@@ -1170,6 +1170,8 @@ struct drm_device {
 	struct idr object_name_idr;
 	/*@} */
 	int switch_power_state;
+
+	atomic_t unplugged; /* device has been unplugged or gone away */
 };
 
 #define DRM_SWITCH_POWER_ON 0
@@ -1235,6 +1237,19 @@ static inline int drm_mtrr_del(int handle, unsigned long offset,
 }
 #endif
 
+static inline void drm_device_set_unplugged(struct drm_device *dev)
+{
+	smp_wmb();
+	atomic_set(&dev->unplugged, 1);
+}
+
+static inline int drm_device_is_unplugged(struct drm_device *dev)
+{
+	int ret = atomic_read(&dev->unplugged);
+	smp_rmb();
+	return ret;
+}
+
 /******************************************************************/
 /** \name Internal function definitions */
 /*@{*/
@@ -1264,11 +1279,6 @@ extern unsigned int drm_poll(struct file *filp, struct poll_table_struct *wait);
 
 				/* Memory management support (drm_memory.h) */
 #include "drm_memory.h"
-extern void drm_mem_init(void);
-extern int drm_mem_info(char *buf, char **start, off_t offset,
-			int request, int *eof, void *data);
-extern void *drm_realloc(void *oldpt, size_t oldsize, size_t size, int area);
-
 extern void drm_free_agp(DRM_AGP_MEM * handle, int pages);
 extern int drm_bind_agp(DRM_AGP_MEM * handle, unsigned int start);
 extern DRM_AGP_MEM *drm_agp_bind_pages(struct drm_device *dev,
@@ -1328,6 +1338,7 @@ extern int drm_getmagic(struct drm_device *dev, void *data,
 			struct drm_file *file_priv);
 extern int drm_authmagic(struct drm_device *dev, void *data,
 			 struct drm_file *file_priv);
+extern int drm_remove_magic(struct drm_master *master, drm_magic_t magic);
 
 /* Cache management (drm_cache.c) */
 void drm_clflush_pages(struct page *pages[], unsigned long num_pages);
@@ -1382,12 +1393,8 @@ extern void drm_core_reclaim_buffers(struct drm_device *dev,
 				/* IRQ support (drm_irq.h) */
 extern int drm_control(struct drm_device *dev, void *data,
 		       struct drm_file *file_priv);
-extern irqreturn_t drm_irq_handler(DRM_IRQ_ARGS);
 extern int drm_irq_install(struct drm_device *dev);
 extern int drm_irq_uninstall(struct drm_device *dev);
-extern void drm_driver_irq_preinstall(struct drm_device *dev);
-extern void drm_driver_irq_postinstall(struct drm_device *dev);
-extern void drm_driver_irq_uninstall(struct drm_device *dev);
 
 extern int drm_vblank_init(struct drm_device *dev, int num_crtcs);
 extern int drm_wait_vblank(struct drm_device *dev, void *data,
@@ -1463,6 +1470,7 @@ extern void drm_master_put(struct drm_master **master);
 
 extern void drm_put_dev(struct drm_device *dev);
 extern int drm_put_minor(struct drm_minor **minor);
+extern void drm_unplug_dev(struct drm_device *dev);
 extern unsigned int drm_debug;
 
 extern unsigned int drm_vblank_offdelay;
@@ -1695,6 +1703,14 @@ extern void drm_platform_exit(struct drm_driver *driver, struct platform_device 
 
 extern int drm_get_platform_dev(struct platform_device *pdev,
 				struct drm_driver *driver);
+
+/* returns true if currently okay to sleep */
+static __inline__ bool drm_can_sleep(void)
+{
+	if (in_atomic() || in_dbg_master() || irqs_disabled())
+		return false;
+	return true;
+}
 
 #endif				/* __KERNEL__ */
 #endif

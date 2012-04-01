@@ -24,7 +24,7 @@
 static inline void ath9k_hw_configpcipowersave(struct ath_hw *ah,
 					       bool power_off)
 {
-	if (ah->aspm_enabled != true)
+	if (!ah->aspm_enabled)
 		return;
 
 	ath9k_hw_ops(ah)->config_pci_powersave(ah, power_off);
@@ -212,4 +212,13 @@ static inline int ath9k_hw_fast_chan_change(struct ath_hw *ah,
 	return ath9k_hw_private_ops(ah)->fast_chan_change(ah, chan,
 							  ini_reloaded);
 }
+
+static inline void ath9k_hw_set_radar_params(struct ath_hw *ah)
+{
+	if (!ath9k_hw_private_ops(ah)->set_radar_params)
+		return;
+
+	ath9k_hw_private_ops(ah)->set_radar_params(ah, &ah->radar_conf);
+}
+
 #endif /* ATH9K_HW_OPS_H */

@@ -165,6 +165,7 @@ static void __init avila_init(void)
 MACHINE_START(AVILA, "Gateworks Avila Network Platform")
 	/* Maintainer: Deepak Saxena <dsaxena@plexity.net> */
 	.map_io		= ixp4xx_map_io,
+	.init_early	= ixp4xx_init_early,
 	.init_irq	= ixp4xx_init_irq,
 	.timer		= &ixp4xx_timer,
 	.atag_offset	= 0x100,
@@ -172,6 +173,7 @@ MACHINE_START(AVILA, "Gateworks Avila Network Platform")
 #if defined(CONFIG_PCI)
 	.dma_zone_size	= SZ_64M,
 #endif
+	.restart	= ixp4xx_restart,
 MACHINE_END
 
  /*
@@ -183,6 +185,7 @@ MACHINE_END
 MACHINE_START(LOFT, "Giant Shoulder Inc Loft board")
 	/* Maintainer: Tom Billman <kernel@giantshoulderinc.com> */
 	.map_io		= ixp4xx_map_io,
+	.init_early	= ixp4xx_init_early,
 	.init_irq	= ixp4xx_init_irq,
 	.timer		= &ixp4xx_timer,
 	.atag_offset	= 0x100,
@@ -190,6 +193,7 @@ MACHINE_START(LOFT, "Giant Shoulder Inc Loft board")
 #if defined(CONFIG_PCI)
 	.dma_zone_size	= SZ_64M,
 #endif
+	.restart	= ixp4xx_restart,
 MACHINE_END
 #endif
 

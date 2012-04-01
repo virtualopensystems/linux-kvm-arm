@@ -228,7 +228,7 @@ static struct spi_board_info bfin_spi_board_info[] __initdata = {
 };
 
 /* SPI controller data */
-#if defined(CONFIG_SPI_BFIN) || defined(CONFIG_SPI_BFIN_MODULE)
+#if defined(CONFIG_SPI_BFIN5XX) || defined(CONFIG_SPI_BFIN5XX_MODULE)
 /* SPI (0) */
 static struct bfin5xx_spi_master bfin_spi0_info = {
 	.num_chipselect = 6,
@@ -635,7 +635,7 @@ static struct platform_device *tcm_devices[] __initdata = {
 	&bfin_mac_device,
 #endif
 
-#if defined(CONFIG_SPI_BFIN) || defined(CONFIG_SPI_BFIN_MODULE)
+#if defined(CONFIG_SPI_BFIN5XX) || defined(CONFIG_SPI_BFIN5XX_MODULE)
 	&bfin_spi0_device,
 	&bfin_spi1_device,
 #endif
@@ -730,9 +730,8 @@ void native_machine_restart(char *cmd)
 		bfin_reset_boot_spi_cs(P_DEFAULT_BOOT_SPI_CS);
 }
 
-void bfin_get_ether_addr(char *addr)
+int bfin_get_ether_addr(char *addr)
 {
-	random_ether_addr(addr);
-	printk(KERN_WARNING "%s:%s: Setting Ethernet MAC to a random one\n", __FILE__, __func__);
+	return 1;
 }
 EXPORT_SYMBOL(bfin_get_ether_addr);

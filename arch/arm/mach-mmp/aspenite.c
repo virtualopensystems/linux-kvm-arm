@@ -17,13 +17,13 @@
 #include <linux/mtd/partitions.h>
 #include <linux/mtd/nand.h>
 #include <linux/interrupt.h>
-#include <linux/gpio.h>
 
 #include <asm/mach-types.h>
 #include <asm/mach/arch.h>
 #include <mach/addr-map.h>
 #include <mach/mfp-pxa168.h>
 #include <mach/pxa168.h>
+#include <mach/irqs.h>
 #include <video/pxa168fb.h>
 #include <linux/input.h>
 #include <plat/pxa27x_keypad.h>
@@ -120,8 +120,8 @@ static struct resource smc91x_resources[] = {
 		.flags	= IORESOURCE_MEM,
 	},
 	[1] = {
-		.start	= gpio_to_irq(27),
-		.end	= gpio_to_irq(27),
+		.start	= MMP_GPIO_TO_IRQ(27),
+		.end	= MMP_GPIO_TO_IRQ(27),
 		.flags	= IORESOURCE_IRQ | IORESOURCE_IRQ_HIGHEDGE,
 	}
 };
@@ -232,6 +232,7 @@ static void __init common_init(void)
 	pxa168_add_nand(&aspenite_nand_info);
 	pxa168_add_fb(&aspenite_lcd_info);
 	pxa168_add_keypad(&aspenite_keypad_info);
+	platform_device_register(&pxa168_device_gpio);
 
 	/* off-chip devices */
 	platform_device_register(&smc91x_device);
@@ -239,16 +240,18 @@ static void __init common_init(void)
 
 MACHINE_START(ASPENITE, "PXA168-based Aspenite Development Platform")
 	.map_io		= mmp_map_io,
-	.nr_irqs	= IRQ_BOARD_START,
+	.nr_irqs	= MMP_NR_IRQS,
 	.init_irq       = pxa168_init_irq,
 	.timer          = &pxa168_timer,
 	.init_machine   = common_init,
+	.restart	= pxa168_restart,
 MACHINE_END
 
 MACHINE_START(ZYLONITE2, "PXA168-based Zylonite2 Development Platform")
 	.map_io		= mmp_map_io,
-	.nr_irqs	= IRQ_BOARD_START,
+	.nr_irqs	= MMP_NR_IRQS,
 	.init_irq       = pxa168_init_irq,
 	.timer          = &pxa168_timer,
 	.init_machine   = common_init,
+	.restart	= pxa168_restart,
 MACHINE_END

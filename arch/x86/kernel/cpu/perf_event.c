@@ -24,13 +24,14 @@
 #include <linux/slab.h>
 #include <linux/cpu.h>
 #include <linux/bitops.h>
+#include <linux/device.h>
 
 #include <asm/apic.h>
 #include <asm/stacktrace.h>
 #include <asm/nmi.h>
-#include <asm/compat.h>
 #include <asm/smp.h>
 #include <asm/alternative.h>
+#include <asm/timer.h>
 
 #include "perf_event.h"
 
@@ -351,6 +352,36 @@ int x86_setup_perfctr(struct perf_event *event)
 	return 0;
 }
 
+/*
+ * check that branch_sample_type is compatible with
+ * settings needed for precise_ip > 1 which implies
+ * using the LBR to capture ALL taken branches at the
+ * priv levels of the measurement
+ */
+static inline int precise_br_compat(struct perf_event *event)
+{
+	u64 m = event->attr.branch_sample_type;
+	u64 b = 0;
+
+	/* must capture all branches */
+	if (!(m & PERF_SAMPLE_BRANCH_ANY))
+		return 0;
+
+	m &= PERF_SAMPLE_BRANCH_KERNEL | PERF_SAMPLE_BRANCH_USER;
+
+	if (!event->attr.exclude_user)
+		b |= PERF_SAMPLE_BRANCH_USER;
+
+	if (!event->attr.exclude_kernel)
+		b |= PERF_SAMPLE_BRANCH_KERNEL;
+
+	/*
+	 * ignore PERF_SAMPLE_BRANCH_HV, not supported on x86
+	 */
+
+	return m == b;
+}
+
 int x86_pmu_hw_config(struct perf_event *event)
 {
 	if (event->attr.precise_ip) {
@@ -367,6 +398,36 @@ int x86_pmu_hw_config(struct perf_event *event)
 
 		if (event->attr.precise_ip > precise)
 			return -EOPNOTSUPP;
+		/*
+		 * check that PEBS LBR correction does not conflict with
+		 * whatever the user is asking with attr->branch_sample_type
+		 */
+		if (event->attr.precise_ip > 1) {
+			u64 *br_type = &event->attr.branch_sample_type;
+
+			if (has_branch_stack(event)) {
+				if (!precise_br_compat(event))
+					return -EOPNOTSUPP;
+
+				/* branch_sample_type is compatible */
+
+			} else {
+				/*
+				 * user did not specify  branch_sample_type
+				 *
+				 * For PEBS fixups, we capture all
+				 * the branches at the priv level of the
+				 * event.
+				 */
+				*br_type = PERF_SAMPLE_BRANCH_ANY;
+
+				if (!event->attr.exclude_user)
+					*br_type |= PERF_SAMPLE_BRANCH_USER;
+
+				if (!event->attr.exclude_kernel)
+					*br_type |= PERF_SAMPLE_BRANCH_KERNEL;
+			}
+		}
 	}
 
 	/*
@@ -423,6 +484,10 @@ static int __x86_pmu_event_init(struct perf_event *event)
 
 	/* mark unused */
 	event->hw.extra_reg.idx = EXTRA_REG_NONE;
+
+	/* mark not used */
+	event->hw.extra_reg.idx = EXTRA_REG_NONE;
+	event->hw.branch_reg.idx = EXTRA_REG_NONE;
 
 	return x86_pmu.hw_config(event);
 }
@@ -484,18 +549,195 @@ static inline int is_x86_event(struct perf_event *event)
 	return event->pmu == &pmu;
 }
 
+/*
+ * Event scheduler state:
+ *
+ * Assign events iterating over all events and counters, beginning
+ * with events with least weights first. Keep the current iterator
+ * state in struct sched_state.
+ */
+struct sched_state {
+	int	weight;
+	int	event;		/* event index */
+	int	counter;	/* counter index */
+	int	unassigned;	/* number of events to be assigned left */
+	unsigned long used[BITS_TO_LONGS(X86_PMC_IDX_MAX)];
+};
+
+/* Total max is X86_PMC_IDX_MAX, but we are O(n!) limited */
+#define	SCHED_STATES_MAX	2
+
+struct perf_sched {
+	int			max_weight;
+	int			max_events;
+	struct event_constraint	**constraints;
+	struct sched_state	state;
+	int			saved_states;
+	struct sched_state	saved[SCHED_STATES_MAX];
+};
+
+/*
+ * Initialize interator that runs through all events and counters.
+ */
+static void perf_sched_init(struct perf_sched *sched, struct event_constraint **c,
+			    int num, int wmin, int wmax)
+{
+	int idx;
+
+	memset(sched, 0, sizeof(*sched));
+	sched->max_events	= num;
+	sched->max_weight	= wmax;
+	sched->constraints	= c;
+
+	for (idx = 0; idx < num; idx++) {
+		if (c[idx]->weight == wmin)
+			break;
+	}
+
+	sched->state.event	= idx;		/* start with min weight */
+	sched->state.weight	= wmin;
+	sched->state.unassigned	= num;
+}
+
+static void perf_sched_save_state(struct perf_sched *sched)
+{
+	if (WARN_ON_ONCE(sched->saved_states >= SCHED_STATES_MAX))
+		return;
+
+	sched->saved[sched->saved_states] = sched->state;
+	sched->saved_states++;
+}
+
+static bool perf_sched_restore_state(struct perf_sched *sched)
+{
+	if (!sched->saved_states)
+		return false;
+
+	sched->saved_states--;
+	sched->state = sched->saved[sched->saved_states];
+
+	/* continue with next counter: */
+	clear_bit(sched->state.counter++, sched->state.used);
+
+	return true;
+}
+
+/*
+ * Select a counter for the current event to schedule. Return true on
+ * success.
+ */
+static bool __perf_sched_find_counter(struct perf_sched *sched)
+{
+	struct event_constraint *c;
+	int idx;
+
+	if (!sched->state.unassigned)
+		return false;
+
+	if (sched->state.event >= sched->max_events)
+		return false;
+
+	c = sched->constraints[sched->state.event];
+
+	/* Prefer fixed purpose counters */
+	if (x86_pmu.num_counters_fixed) {
+		idx = X86_PMC_IDX_FIXED;
+		for_each_set_bit_from(idx, c->idxmsk, X86_PMC_IDX_MAX) {
+			if (!__test_and_set_bit(idx, sched->state.used))
+				goto done;
+		}
+	}
+	/* Grab the first unused counter starting with idx */
+	idx = sched->state.counter;
+	for_each_set_bit_from(idx, c->idxmsk, X86_PMC_IDX_FIXED) {
+		if (!__test_and_set_bit(idx, sched->state.used))
+			goto done;
+	}
+
+	return false;
+
+done:
+	sched->state.counter = idx;
+
+	if (c->overlap)
+		perf_sched_save_state(sched);
+
+	return true;
+}
+
+static bool perf_sched_find_counter(struct perf_sched *sched)
+{
+	while (!__perf_sched_find_counter(sched)) {
+		if (!perf_sched_restore_state(sched))
+			return false;
+	}
+
+	return true;
+}
+
+/*
+ * Go through all unassigned events and find the next one to schedule.
+ * Take events with the least weight first. Return true on success.
+ */
+static bool perf_sched_next_event(struct perf_sched *sched)
+{
+	struct event_constraint *c;
+
+	if (!sched->state.unassigned || !--sched->state.unassigned)
+		return false;
+
+	do {
+		/* next event */
+		sched->state.event++;
+		if (sched->state.event >= sched->max_events) {
+			/* next weight */
+			sched->state.event = 0;
+			sched->state.weight++;
+			if (sched->state.weight > sched->max_weight)
+				return false;
+		}
+		c = sched->constraints[sched->state.event];
+	} while (c->weight != sched->state.weight);
+
+	sched->state.counter = 0;	/* start with first counter */
+
+	return true;
+}
+
+/*
+ * Assign a counter for each event.
+ */
+static int perf_assign_events(struct event_constraint **constraints, int n,
+			      int wmin, int wmax, int *assign)
+{
+	struct perf_sched sched;
+
+	perf_sched_init(&sched, constraints, n, wmin, wmax);
+
+	do {
+		if (!perf_sched_find_counter(&sched))
+			break;	/* failed */
+		if (assign)
+			assign[sched.state.event] = sched.state.counter;
+	} while (perf_sched_next_event(&sched));
+
+	return sched.state.unassigned;
+}
+
 int x86_schedule_events(struct cpu_hw_events *cpuc, int n, int *assign)
 {
 	struct event_constraint *c, *constraints[X86_PMC_IDX_MAX];
 	unsigned long used_mask[BITS_TO_LONGS(X86_PMC_IDX_MAX)];
-	int i, j, w, wmax, num = 0;
+	int i, wmin, wmax, num = 0;
 	struct hw_perf_event *hwc;
 
 	bitmap_zero(used_mask, X86_PMC_IDX_MAX);
 
-	for (i = 0; i < n; i++) {
+	for (i = 0, wmin = X86_PMC_IDX_MAX, wmax = 0; i < n; i++) {
 		c = x86_pmu.get_event_constraints(cpuc, cpuc->event_list[i]);
 		constraints[i] = c;
+		wmin = min(wmin, c->weight);
+		wmax = max(wmax, c->weight);
 	}
 
 	/*
@@ -521,59 +763,11 @@ int x86_schedule_events(struct cpu_hw_events *cpuc, int n, int *assign)
 		if (assign)
 			assign[i] = hwc->idx;
 	}
-	if (i == n)
-		goto done;
 
-	/*
-	 * begin slow path
-	 */
+	/* slow path */
+	if (i != n)
+		num = perf_assign_events(constraints, n, wmin, wmax, assign);
 
-	bitmap_zero(used_mask, X86_PMC_IDX_MAX);
-
-	/*
-	 * weight = number of possible counters
-	 *
-	 * 1    = most constrained, only works on one counter
-	 * wmax = least constrained, works on any counter
-	 *
-	 * assign events to counters starting with most
-	 * constrained events.
-	 */
-	wmax = x86_pmu.num_counters;
-
-	/*
-	 * when fixed event counters are present,
-	 * wmax is incremented by 1 to account
-	 * for one more choice
-	 */
-	if (x86_pmu.num_counters_fixed)
-		wmax++;
-
-	for (w = 1, num = n; num && w <= wmax; w++) {
-		/* for each event */
-		for (i = 0; num && i < n; i++) {
-			c = constraints[i];
-			hwc = &cpuc->event_list[i]->hw;
-
-			if (c->weight != w)
-				continue;
-
-			for_each_set_bit(j, c->idxmsk, X86_PMC_IDX_MAX) {
-				if (!test_bit(j, used_mask))
-					break;
-			}
-
-			if (j == X86_PMC_IDX_MAX)
-				break;
-
-			__set_bit(j, used_mask);
-
-			if (assign)
-				assign[i] = j;
-			num--;
-		}
-	}
-done:
 	/*
 	 * scheduling failed or is just a simulation,
 	 * free resources if necessary
@@ -1081,6 +1275,8 @@ x86_pmu_notifier(struct notifier_block *self, unsigned long action, void *hcpu)
 		break;
 
 	case CPU_STARTING:
+		if (x86_pmu.attr_rdpmc)
+			set_in_cr4(X86_CR4_PCE);
 		if (x86_pmu.cpu_starting)
 			x86_pmu.cpu_starting(cpu);
 		break;
@@ -1117,8 +1313,14 @@ static void __init pmu_check_apic(void)
 	pr_info("no hardware sampling interrupt available.\n");
 }
 
+static struct attribute_group x86_pmu_format_group = {
+	.name = "format",
+	.attrs = NULL,
+};
+
 static int __init init_hw_perf_events(void)
 {
+	struct x86_pmu_quirk *quirk;
 	struct event_constraint *c;
 	int err;
 
@@ -1147,8 +1349,8 @@ static int __init init_hw_perf_events(void)
 
 	pr_cont("%s PMU driver.\n", x86_pmu.name);
 
-	if (x86_pmu.quirks)
-		x86_pmu.quirks();
+	for (quirk = x86_pmu.quirks; quirk; quirk = quirk->next)
+		quirk->func();
 
 	if (x86_pmu.num_counters > X86_PMC_MAX_GENERIC) {
 		WARN(1, KERN_ERR "hw perf events %d > max(%d), clipping!",
@@ -1171,17 +1373,26 @@ static int __init init_hw_perf_events(void)
 
 	unconstrained = (struct event_constraint)
 		__EVENT_CONSTRAINT(0, (1ULL << x86_pmu.num_counters) - 1,
-				   0, x86_pmu.num_counters);
+				   0, x86_pmu.num_counters, 0);
 
 	if (x86_pmu.event_constraints) {
+		/*
+		 * event on fixed counter2 (REF_CYCLES) only works on this
+		 * counter, so do not extend mask to generic counters
+		 */
 		for_each_event_constraint(c, x86_pmu.event_constraints) {
-			if (c->cmask != X86_RAW_EVENT_MASK)
+			if (c->cmask != X86_RAW_EVENT_MASK
+			    || c->idxmsk64 == X86_PMC_MSK_FIXED_REF_CYCLES) {
 				continue;
+			}
 
 			c->idxmsk64 |= (1ULL << x86_pmu.num_counters) - 1;
 			c->weight += x86_pmu.num_counters;
 		}
 	}
+
+	x86_pmu.attr_rdpmc = 1; /* enable userspace RDPMC usage by default */
+	x86_pmu_format_group.attrs = x86_pmu.format_attrs;
 
 	pr_info("... version:                %d\n",     x86_pmu.version);
 	pr_info("... bit width:              %d\n",     x86_pmu.cntval_bits);
@@ -1406,22 +1617,114 @@ static int x86_pmu_event_init(struct perf_event *event)
 	return err;
 }
 
+static int x86_pmu_event_idx(struct perf_event *event)
+{
+	int idx = event->hw.idx;
+
+	if (!x86_pmu.attr_rdpmc)
+		return 0;
+
+	if (x86_pmu.num_counters_fixed && idx >= X86_PMC_IDX_FIXED) {
+		idx -= X86_PMC_IDX_FIXED;
+		idx |= 1 << 30;
+	}
+
+	return idx + 1;
+}
+
+static ssize_t get_attr_rdpmc(struct device *cdev,
+			      struct device_attribute *attr,
+			      char *buf)
+{
+	return snprintf(buf, 40, "%d\n", x86_pmu.attr_rdpmc);
+}
+
+static void change_rdpmc(void *info)
+{
+	bool enable = !!(unsigned long)info;
+
+	if (enable)
+		set_in_cr4(X86_CR4_PCE);
+	else
+		clear_in_cr4(X86_CR4_PCE);
+}
+
+static ssize_t set_attr_rdpmc(struct device *cdev,
+			      struct device_attribute *attr,
+			      const char *buf, size_t count)
+{
+	unsigned long val = simple_strtoul(buf, NULL, 0);
+
+	if (!!val != !!x86_pmu.attr_rdpmc) {
+		x86_pmu.attr_rdpmc = !!val;
+		smp_call_function(change_rdpmc, (void *)val, 1);
+	}
+
+	return count;
+}
+
+static DEVICE_ATTR(rdpmc, S_IRUSR | S_IWUSR, get_attr_rdpmc, set_attr_rdpmc);
+
+static struct attribute *x86_pmu_attrs[] = {
+	&dev_attr_rdpmc.attr,
+	NULL,
+};
+
+static struct attribute_group x86_pmu_attr_group = {
+	.attrs = x86_pmu_attrs,
+};
+
+static const struct attribute_group *x86_pmu_attr_groups[] = {
+	&x86_pmu_attr_group,
+	&x86_pmu_format_group,
+	NULL,
+};
+
+static void x86_pmu_flush_branch_stack(void)
+{
+	if (x86_pmu.flush_branch_stack)
+		x86_pmu.flush_branch_stack();
+}
+
 static struct pmu pmu = {
-	.pmu_enable	= x86_pmu_enable,
-	.pmu_disable	= x86_pmu_disable,
+	.pmu_enable		= x86_pmu_enable,
+	.pmu_disable		= x86_pmu_disable,
+
+	.attr_groups	= x86_pmu_attr_groups,
 
 	.event_init	= x86_pmu_event_init,
 
-	.add		= x86_pmu_add,
-	.del		= x86_pmu_del,
-	.start		= x86_pmu_start,
-	.stop		= x86_pmu_stop,
-	.read		= x86_pmu_read,
+	.add			= x86_pmu_add,
+	.del			= x86_pmu_del,
+	.start			= x86_pmu_start,
+	.stop			= x86_pmu_stop,
+	.read			= x86_pmu_read,
 
 	.start_txn	= x86_pmu_start_txn,
 	.cancel_txn	= x86_pmu_cancel_txn,
 	.commit_txn	= x86_pmu_commit_txn,
+
+	.event_idx	= x86_pmu_event_idx,
+	.flush_branch_stack	= x86_pmu_flush_branch_stack,
 };
+
+void arch_perf_update_userpage(struct perf_event_mmap_page *userpg, u64 now)
+{
+	userpg->cap_usr_time = 0;
+	userpg->cap_usr_rdpmc = x86_pmu.attr_rdpmc;
+	userpg->pmc_width = x86_pmu.cntval_bits;
+
+	if (!boot_cpu_has(X86_FEATURE_CONSTANT_TSC))
+		return;
+
+	if (!boot_cpu_has(X86_FEATURE_NONSTOP_TSC))
+		return;
+
+	userpg->cap_usr_time = 1;
+	userpg->time_mult = this_cpu_read(cyc2ns);
+	userpg->time_shift = CYC2NS_SCALE_FACTOR;
+	userpg->time_offset = this_cpu_read(cyc2ns_offset) - now;
+}
 
 /*
  * callchain support
@@ -1459,6 +1762,9 @@ perf_callchain_kernel(struct perf_callchain_entry *entry, struct pt_regs *regs)
 }
 
 #ifdef CONFIG_COMPAT
+
+#include <asm/compat.h>
+
 static inline int
 perf_callchain_user32(struct pt_regs *regs, struct perf_callchain_entry *entry)
 {
@@ -1566,3 +1872,15 @@ unsigned long perf_misc_flags(struct pt_regs *regs)
 
 	return misc;
 }
+
+void perf_get_x86_pmu_capability(struct x86_pmu_capability *cap)
+{
+	cap->version		= x86_pmu.version;
+	cap->num_counters_gp	= x86_pmu.num_counters;
+	cap->num_counters_fixed	= x86_pmu.num_counters_fixed;
+	cap->bit_width_gp	= x86_pmu.cntval_bits;
+	cap->bit_width_fixed	= x86_pmu.cntval_bits;
+	cap->events_mask	= (unsigned int)x86_pmu.events_maskl;
+	cap->events_mask_len	= x86_pmu.events_mask_len;
+}
+EXPORT_SYMBOL_GPL(perf_get_x86_pmu_capability);

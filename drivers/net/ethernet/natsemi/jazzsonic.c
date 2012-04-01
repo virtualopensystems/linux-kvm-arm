@@ -38,7 +38,6 @@
 #include <linux/slab.h>
 
 #include <asm/bootinfo.h>
-#include <asm/system.h>
 #include <asm/pgtable.h>
 #include <asm/io.h>
 #include <asm/dma.h>
@@ -294,15 +293,4 @@ static struct platform_driver jazz_sonic_driver = {
 	},
 };
 
-static int __init jazz_sonic_init_module(void)
-{
-	return platform_driver_register(&jazz_sonic_driver);
-}
-
-static void __exit jazz_sonic_cleanup_module(void)
-{
-	platform_driver_unregister(&jazz_sonic_driver);
-}
-
-module_init(jazz_sonic_init_module);
-module_exit(jazz_sonic_cleanup_module);
+module_platform_driver(jazz_sonic_driver);

@@ -83,11 +83,30 @@ u64 mlx4_make_profile(struct mlx4_dev *dev,
 	u64 total_size = 0;
 	struct mlx4_resource *profile;
 	struct mlx4_resource tmp;
+	struct sysinfo si;
 	int i, j;
 
 	profile = kcalloc(MLX4_RES_NUM, sizeof(*profile), GFP_KERNEL);
 	if (!profile)
 		return -ENOMEM;
+
+	/*
+	 * We want to scale the number of MTTs with the size of the
+	 * system memory, since it makes sense to register a lot of
+	 * memory on a system with a lot of memory.  As a heuristic,
+	 * make sure we have enough MTTs to cover twice the system
+	 * memory (with PAGE_SIZE entries).
+	 *
+	 * This number has to be a power of two and fit into 32 bits
+	 * due to device limitations, so cap this at 2^31 as well.
+	 * That limits us to 8TB of memory registration per HCA with
+	 * 4KB pages, which is probably OK for the next few months.
+	 */
+	si_meminfo(&si);
+	request->num_mtt =
+		roundup_pow_of_two(max_t(unsigned, request->num_mtt,
+					 min(1UL << 31,
+					     si.totalram >> (log_mtts_per_seg - 1))));
 
 	profile[MLX4_RES_QP].size     = dev_cap->qpc_entry_sz;
 	profile[MLX4_RES_RDMARC].size = dev_cap->rdmarc_entry_sz;
@@ -98,8 +117,8 @@ u64 mlx4_make_profile(struct mlx4_dev *dev,
 	profile[MLX4_RES_EQ].size     = dev_cap->eqc_entry_sz;
 	profile[MLX4_RES_DMPT].size   = dev_cap->dmpt_entry_sz;
 	profile[MLX4_RES_CMPT].size   = dev_cap->cmpt_entry_sz;
-	profile[MLX4_RES_MTT].size    = dev->caps.mtts_per_seg * dev_cap->mtt_entry_sz;
-	profile[MLX4_RES_MCG].size    = MLX4_MGM_ENTRY_SIZE;
+	profile[MLX4_RES_MTT].size    = dev_cap->mtt_entry_sz;
+	profile[MLX4_RES_MCG].size    = mlx4_get_mgm_entry_size(dev);
 
 	profile[MLX4_RES_QP].num      = request->num_qp;
 	profile[MLX4_RES_RDMARC].num  = request->num_qp * request->rdmarc_per_qp;
@@ -110,7 +129,7 @@ u64 mlx4_make_profile(struct mlx4_dev *dev,
 	profile[MLX4_RES_EQ].num      = min_t(unsigned, dev_cap->max_eqs, MAX_MSIX);
 	profile[MLX4_RES_DMPT].num    = request->num_mpt;
 	profile[MLX4_RES_CMPT].num    = MLX4_NUM_CMPTS;
-	profile[MLX4_RES_MTT].num     = request->num_mtt;
+	profile[MLX4_RES_MTT].num     = request->num_mtt * (1 << log_mtts_per_seg);
 	profile[MLX4_RES_MCG].num     = request->num_mcg;
 
 	for (i = 0; i < MLX4_RES_NUM; ++i) {
@@ -210,7 +229,7 @@ u64 mlx4_make_profile(struct mlx4_dev *dev,
 			init_hca->cmpt_base	 = profile[i].start;
 			break;
 		case MLX4_RES_MTT:
-			dev->caps.num_mtt_segs	 = profile[i].num;
+			dev->caps.num_mtts	 = profile[i].num;
 			priv->mr_table.mtt_base	 = profile[i].start;
 			init_hca->mtt_base	 = profile[i].start;
 			break;
@@ -218,7 +237,8 @@ u64 mlx4_make_profile(struct mlx4_dev *dev,
 			dev->caps.num_mgms	  = profile[i].num >> 1;
 			dev->caps.num_amgms	  = profile[i].num >> 1;
 			init_hca->mc_base	  = profile[i].start;
-			init_hca->log_mc_entry_sz = ilog2(MLX4_MGM_ENTRY_SIZE);
+			init_hca->log_mc_entry_sz =
+					ilog2(mlx4_get_mgm_entry_size(dev));
 			init_hca->log_mc_table_sz = profile[i].log_num;
 			init_hca->log_mc_hash_sz  = profile[i].log_num - 1;
 			break;

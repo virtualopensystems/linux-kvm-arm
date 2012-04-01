@@ -140,11 +140,14 @@ qlcnic_get_drvinfo(struct net_device *dev, struct ethtool_drvinfo *drvinfo)
 	fw_major = QLCRD32(adapter, QLCNIC_FW_VERSION_MAJOR);
 	fw_minor = QLCRD32(adapter, QLCNIC_FW_VERSION_MINOR);
 	fw_build = QLCRD32(adapter, QLCNIC_FW_VERSION_SUB);
-	sprintf(drvinfo->fw_version, "%d.%d.%d", fw_major, fw_minor, fw_build);
+	snprintf(drvinfo->fw_version, sizeof(drvinfo->fw_version),
+		"%d.%d.%d", fw_major, fw_minor, fw_build);
 
-	strlcpy(drvinfo->bus_info, pci_name(adapter->pdev), 32);
-	strlcpy(drvinfo->driver, qlcnic_driver_name, 32);
-	strlcpy(drvinfo->version, QLCNIC_LINUX_VERSIONID, 32);
+	strlcpy(drvinfo->bus_info, pci_name(adapter->pdev),
+		sizeof(drvinfo->bus_info));
+	strlcpy(drvinfo->driver, qlcnic_driver_name, sizeof(drvinfo->driver));
+	strlcpy(drvinfo->version, QLCNIC_LINUX_VERSIONID,
+		sizeof(drvinfo->version));
 }
 
 static int
@@ -152,7 +155,6 @@ qlcnic_get_settings(struct net_device *dev, struct ethtool_cmd *ecmd)
 {
 	struct qlcnic_adapter *adapter = netdev_priv(dev);
 	int check_sfp_module = 0;
-	u16 pcifn = adapter->ahw->pci_func;
 
 	/* read which mode */
 	if (adapter->ahw->port_type == QLCNIC_GBE) {
@@ -191,10 +193,8 @@ qlcnic_get_settings(struct net_device *dev, struct ethtool_cmd *ecmd)
 			goto skip;
 		}
 
-		val = QLCRD32(adapter, P3P_LINK_SPEED_REG(pcifn));
-		ethtool_cmd_speed_set(ecmd, P3P_LINK_SPEED_MHZ *
-				      P3P_LINK_SPEED_VAL(pcifn, val));
-		ecmd->duplex = DUPLEX_FULL;
+		ethtool_cmd_speed_set(ecmd, SPEED_UNKNOWN);
+		ecmd->duplex = DUPLEX_UNKNOWN;
 		ecmd->autoneg = AUTONEG_DISABLE;
 	} else
 		return -EIO;
@@ -719,7 +719,7 @@ static int qlcnic_do_lb_test(struct qlcnic_adapter *adapter, u8 mode)
 	int i, loop, cnt = 0;
 
 	for (i = 0; i < QLCNIC_NUM_ILB_PKT; i++) {
-		skb = dev_alloc_skb(QLCNIC_ILB_PKT_SIZE);
+		skb = netdev_alloc_skb(adapter->netdev, QLCNIC_ILB_PKT_SIZE);
 		qlcnic_create_loopback_buff(skb->data, adapter->mac_addr);
 		skb_put(skb, QLCNIC_ILB_PKT_SIZE);
 
@@ -1152,7 +1152,6 @@ qlcnic_get_dump_data(struct net_device *netdev, struct ethtool_dump *dump,
 
 	if (!fw_dump->clr) {
 		netdev_info(netdev, "Dump not available\n");
-		qlcnic_api_unlock(adapter);
 		return -EINVAL;
 	}
 	/* Copy template header first */
@@ -1171,7 +1170,7 @@ qlcnic_get_dump_data(struct net_device *netdev, struct ethtool_dump *dump,
 	vfree(fw_dump->data);
 	fw_dump->data = NULL;
 	fw_dump->clr = 0;
-
+	netdev_info(netdev, "extracted the FW dump Successfully\n");
 	return 0;
 }
 
@@ -1189,7 +1188,7 @@ qlcnic_set_dump(struct net_device *netdev, struct ethtool_dump *val)
 			return ret;
 		}
 		if (fw_dump->clr) {
-			dev_info(&adapter->pdev->dev,
+			netdev_info(netdev,
 			"Previous dump not cleared, not forcing dump\n");
 			return ret;
 		}

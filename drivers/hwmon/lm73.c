@@ -50,7 +50,7 @@ static ssize_t set_temp(struct device *dev, struct device_attribute *da,
 	long temp;
 	short value;
 
-	int status = strict_strtol(buf, 10, &temp);
+	int status = kstrtol(buf, 10, &temp);
 	if (status < 0)
 		return status;
 
@@ -194,21 +194,8 @@ static struct i2c_driver lm73_driver = {
 	.address_list	= normal_i2c,
 };
 
-/* module glue */
-
-static int __init sensors_lm73_init(void)
-{
-	return i2c_add_driver(&lm73_driver);
-}
-
-static void __exit sensors_lm73_exit(void)
-{
-	i2c_del_driver(&lm73_driver);
-}
+module_i2c_driver(lm73_driver);
 
 MODULE_AUTHOR("Guillaume Ligneul <guillaume.ligneul@gmail.com>");
 MODULE_DESCRIPTION("LM73 driver");
 MODULE_LICENSE("GPL");
-
-module_init(sensors_lm73_init);
-module_exit(sensors_lm73_exit);

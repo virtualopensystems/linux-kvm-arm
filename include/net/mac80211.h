@@ -13,10 +13,10 @@
 #ifndef MAC80211_H
 #define MAC80211_H
 
+#include <linux/bug.h>
 #include <linux/kernel.h>
 #include <linux/if_ether.h>
 #include <linux/skbuff.h>
-#include <linux/device.h>
 #include <linux/ieee80211.h>
 #include <net/cfg80211.h>
 #include <asm/unaligned.h>
@@ -86,6 +86,8 @@
  * All work performed on the mac80211 workqueue must not acquire the RTNL lock.
  *
  */
+
+struct device;
 
 /**
  * enum ieee80211_max_queues - maximum number of queues
@@ -166,6 +168,7 @@ struct ieee80211_low_level_stats {
  *	that it is only ever disabled for station mode.
  * @BSS_CHANGED_IDLE: Idle changed for this BSS/interface.
  * @BSS_CHANGED_SSID: SSID changed for this BSS (AP mode)
+ * @BSS_CHANGED_AP_PROBE_RESP: Probe Response changed for this BSS (AP mode)
  */
 enum ieee80211_bss_change {
 	BSS_CHANGED_ASSOC		= 1<<0,
@@ -184,6 +187,7 @@ enum ieee80211_bss_change {
 	BSS_CHANGED_QOS			= 1<<13,
 	BSS_CHANGED_IDLE		= 1<<14,
 	BSS_CHANGED_SSID		= 1<<15,
+	BSS_CHANGED_AP_PROBE_RESP	= 1<<16,
 
 	/* when adding here, make sure to change ieee80211_reconfig */
 };
@@ -227,7 +231,8 @@ enum ieee80211_rssi_event {
  *	valid in station mode only while @assoc is true and if also
  *	requested by %IEEE80211_HW_NEED_DTIM_PERIOD (cf. also hw conf
  *	@ps_dtim_period)
- * @timestamp: beacon timestamp
+ * @last_tsf: last beacon's/probe response's TSF timestamp (could be old
+ *	as it may have been received during scanning long ago)
  * @beacon_int: beacon interval
  * @assoc_capability: capabilities taken from assoc resp
  * @basic_rates: bitmap of basic rates, each bit stands for an
@@ -274,7 +279,7 @@ struct ieee80211_bss_conf {
 	u8 dtim_period;
 	u16 beacon_int;
 	u16 assoc_capability;
-	u64 timestamp;
+	u64 last_tsf;
 	u32 basic_rates;
 	int mcast_rate[IEEE80211_NUM_BANDS];
 	u16 ht_operation_mode;
@@ -339,9 +344,9 @@ struct ieee80211_bss_conf {
  *	used to indicate that a frame was already retried due to PS
  * @IEEE80211_TX_INTFL_DONT_ENCRYPT: completely internal to mac80211,
  *	used to indicate frame should not be encrypted
- * @IEEE80211_TX_CTL_POLL_RESPONSE: This frame is a response to a poll
- *	frame (PS-Poll or uAPSD) and should be sent although the station
- *	is in powersave mode.
+ * @IEEE80211_TX_CTL_NO_PS_BUFFER: This frame is a response to a poll
+ *	frame (PS-Poll or uAPSD) or a non-bufferable MMPDU and must
+ *	be sent although the station is in powersave mode.
  * @IEEE80211_TX_CTL_MORE_FRAMES: More frames will be passed to the
  *	transmit function after the current frame, this can be used
  *	by drivers to kick the DMA queue only if unset or when the
@@ -397,7 +402,7 @@ enum mac80211_tx_control_flags {
 	IEEE80211_TX_INTFL_NEED_TXPROCESSING	= BIT(14),
 	IEEE80211_TX_INTFL_RETRIED		= BIT(15),
 	IEEE80211_TX_INTFL_DONT_ENCRYPT		= BIT(16),
-	IEEE80211_TX_CTL_POLL_RESPONSE		= BIT(17),
+	IEEE80211_TX_CTL_NO_PS_BUFFER		= BIT(17),
 	IEEE80211_TX_CTL_MORE_FRAMES		= BIT(18),
 	IEEE80211_TX_INTFL_RETRANSMISSION	= BIT(19),
 	/* hole at 20, use later */
@@ -423,7 +428,7 @@ enum mac80211_tx_control_flags {
 	IEEE80211_TX_CTL_SEND_AFTER_DTIM | IEEE80211_TX_CTL_AMPDU |	      \
 	IEEE80211_TX_STAT_TX_FILTERED |	IEEE80211_TX_STAT_ACK |		      \
 	IEEE80211_TX_STAT_AMPDU | IEEE80211_TX_STAT_AMPDU_NO_BACK |	      \
-	IEEE80211_TX_CTL_RATE_CTRL_PROBE | IEEE80211_TX_CTL_POLL_RESPONSE |   \
+	IEEE80211_TX_CTL_RATE_CTRL_PROBE | IEEE80211_TX_CTL_NO_PS_BUFFER |    \
 	IEEE80211_TX_CTL_MORE_FRAMES | IEEE80211_TX_CTL_LDPC |		      \
 	IEEE80211_TX_CTL_STBC | IEEE80211_TX_STATUS_EOSP)
 
@@ -518,7 +523,7 @@ struct ieee80211_tx_rate {
  * @flags: transmit info flags, defined above
  * @band: the band to transmit on (use for checking for races)
  * @antenna_sel_tx: antenna to use, 0 for automatic diversity
- * @pad: padding, ignore
+ * @ack_frame_id: internal frame ID for TX status, used internally
  * @control: union for control data
  * @status: union for status data
  * @driver_data: array of driver_data pointers
@@ -535,8 +540,7 @@ struct ieee80211_tx_info {
 
 	u8 antenna_sel_tx;
 
-	/* 2 byte hole */
-	u8 pad[2];
+	u16 ack_frame_id;
 
 	union {
 		struct {
@@ -658,6 +662,8 @@ ieee80211_tx_info_clear_status(struct ieee80211_tx_info *info)
  * @RX_FLAG_HT: HT MCS was used and rate_idx is MCS index
  * @RX_FLAG_40MHZ: HT40 (40 MHz) was used
  * @RX_FLAG_SHORT_GI: Short guard interval was used
+ * @RX_FLAG_NO_SIGNAL_VAL: The signal strength value is not present.
+ *	Valid only for data frames (mainly A-MPDU)
  */
 enum mac80211_rx_flags {
 	RX_FLAG_MMIC_ERROR	= 1<<0,
@@ -671,6 +677,7 @@ enum mac80211_rx_flags {
 	RX_FLAG_HT		= 1<<9,
 	RX_FLAG_40MHZ		= 1<<10,
 	RX_FLAG_SHORT_GI	= 1<<11,
+	RX_FLAG_NO_SIGNAL_VAL	= 1<<12,
 };
 
 /**
@@ -851,6 +858,21 @@ struct ieee80211_channel_switch {
 };
 
 /**
+ * enum ieee80211_vif_flags - virtual interface flags
+ *
+ * @IEEE80211_VIF_BEACON_FILTER: the device performs beacon filtering
+ *	on this virtual interface to avoid unnecessary CPU wakeups
+ * @IEEE80211_VIF_SUPPORTS_CQM_RSSI: the device can do connection quality
+ *	monitoring on this virtual interface -- i.e. it can monitor
+ *	connection quality related parameters, such as the RSSI level and
+ *	provide notifications if configured trigger levels are reached.
+ */
+enum ieee80211_vif_flags {
+	IEEE80211_VIF_BEACON_FILTER		= BIT(0),
+	IEEE80211_VIF_SUPPORTS_CQM_RSSI		= BIT(1),
+};
+
+/**
  * struct ieee80211_vif - per-interface data
  *
  * Data in this structure is continually present for driver
@@ -862,6 +884,10 @@ struct ieee80211_channel_switch {
  * @addr: address of this interface
  * @p2p: indicates whether this AP or STA interface is a p2p
  *	interface, i.e. a GO or p2p-sta respectively
+ * @driver_flags: flags/capabilities the driver has for this interface,
+ *	these need to be set (or cleared) when the interface is added
+ *	or, if supported by the driver, the interface type is changed
+ *	at runtime, mac80211 will never touch this field
  * @drv_priv: data area for driver use, will always be aligned to
  *	sizeof(void *).
  */
@@ -870,6 +896,7 @@ struct ieee80211_vif {
 	struct ieee80211_bss_conf bss_conf;
 	u8 addr[ETH_ALEN];
 	bool p2p;
+	u32 driver_flags;
 	/* must be last */
 	u8 drv_priv[0] __attribute__((__aligned__(sizeof(void *))));
 };
@@ -901,6 +928,10 @@ static inline bool ieee80211_vif_is_mesh(struct ieee80211_vif *vif)
  * @IEEE80211_KEY_FLAG_SW_MGMT: This flag should be set by the driver for a
  *	CCMP key if it requires CCMP encryption of management frames (MFP) to
  *	be done in software.
+ * @IEEE80211_KEY_FLAG_PUT_IV_SPACE: This flag should be set by the driver
+ *	for a CCMP key if space should be prepared for the IV, but the IV
+ *	itself should not be generated. Do not set together with
+ *	@IEEE80211_KEY_FLAG_GENERATE_IV on the same key.
  */
 enum ieee80211_key_flags {
 	IEEE80211_KEY_FLAG_WMM_STA	= 1<<0,
@@ -908,6 +939,7 @@ enum ieee80211_key_flags {
 	IEEE80211_KEY_FLAG_GENERATE_MMIC= 1<<2,
 	IEEE80211_KEY_FLAG_PAIRWISE	= 1<<3,
 	IEEE80211_KEY_FLAG_SW_MGMT	= 1<<4,
+	IEEE80211_KEY_FLAG_PUT_IV_SPACE = 1<<5,
 };
 
 /**
@@ -953,6 +985,25 @@ struct ieee80211_key_conf {
  */
 enum set_key_cmd {
 	SET_KEY, DISABLE_KEY,
+};
+
+/**
+ * enum ieee80211_sta_state - station state
+ *
+ * @IEEE80211_STA_NOTEXIST: station doesn't exist at all,
+ *	this is a special state for add/remove transitions
+ * @IEEE80211_STA_NONE: station exists without special state
+ * @IEEE80211_STA_AUTH: station is authenticated
+ * @IEEE80211_STA_ASSOC: station is associated
+ * @IEEE80211_STA_AUTHORIZED: station is authorized (802.1X)
+ */
+enum ieee80211_sta_state {
+	/* NOTE: These need to be ordered correctly! */
+	IEEE80211_STA_NOTEXIST,
+	IEEE80211_STA_NONE,
+	IEEE80211_STA_AUTH,
+	IEEE80211_STA_ASSOC,
+	IEEE80211_STA_AUTHORIZED,
 };
 
 /**
@@ -1073,10 +1124,6 @@ enum sta_notify_cmd {
  * @IEEE80211_HW_MFP_CAPABLE:
  *	Hardware supports management frame protection (MFP, IEEE 802.11w).
  *
- * @IEEE80211_HW_BEACON_FILTER:
- *	Hardware supports dropping of irrelevant beacon frames to
- *	avoid waking up cpu.
- *
  * @IEEE80211_HW_SUPPORTS_STATIC_SMPS:
  *	Hardware supports static spatial multiplexing powersave,
  *	ie. can turn off all but one chain even on HT connections
@@ -1102,11 +1149,6 @@ enum sta_notify_cmd {
  *      When this flag is set, signaling beacon-loss will cause an immediate
  *      change to disassociated state.
  *
- * @IEEE80211_HW_SUPPORTS_CQM_RSSI:
- *	Hardware can do connection quality monitoring - i.e. it can monitor
- *	connection quality related parameters, such as the RSSI level and
- *	provide notifications if configured trigger levels are reached.
- *
  * @IEEE80211_HW_NEED_DTIM_PERIOD:
  *	This device needs to know the DTIM period for the BSS before
  *	associating.
@@ -1128,6 +1170,10 @@ enum sta_notify_cmd {
  * @IEEE80211_HW_TX_AMPDU_SETUP_IN_HW: The device handles TX A-MPDU session
  *	setup strictly in HW. mac80211 should not attempt to do this in
  *	software.
+ *
+ * @IEEE80211_HW_SCAN_WHILE_IDLE: The device can do hw scan while
+ *	being idle (i.e. mac80211 doesn't have to go idle-off during the
+ *	the scan).
  */
 enum ieee80211_hw_flags {
 	IEEE80211_HW_HAS_RATE_CONTROL			= 1<<0,
@@ -1144,16 +1190,17 @@ enum ieee80211_hw_flags {
 	IEEE80211_HW_PS_NULLFUNC_STACK			= 1<<11,
 	IEEE80211_HW_SUPPORTS_DYNAMIC_PS		= 1<<12,
 	IEEE80211_HW_MFP_CAPABLE			= 1<<13,
-	IEEE80211_HW_BEACON_FILTER			= 1<<14,
+	/* reuse bit 14 */
 	IEEE80211_HW_SUPPORTS_STATIC_SMPS		= 1<<15,
 	IEEE80211_HW_SUPPORTS_DYNAMIC_SMPS		= 1<<16,
 	IEEE80211_HW_SUPPORTS_UAPSD			= 1<<17,
 	IEEE80211_HW_REPORTS_TX_ACK_STATUS		= 1<<18,
 	IEEE80211_HW_CONNECTION_MONITOR			= 1<<19,
-	IEEE80211_HW_SUPPORTS_CQM_RSSI			= 1<<20,
+	/* reuse bit 20 */
 	IEEE80211_HW_SUPPORTS_PER_STA_GTK		= 1<<21,
 	IEEE80211_HW_AP_LINK_PS				= 1<<22,
 	IEEE80211_HW_TX_AMPDU_SETUP_IN_HW		= 1<<23,
+	IEEE80211_HW_SCAN_WHILE_IDLE			= 1<<24,
 };
 
 /**
@@ -1304,6 +1351,16 @@ ieee80211_get_alt_retry_rate(const struct ieee80211_hw *hw,
 }
 
 /**
+ * ieee80211_free_txskb - free TX skb
+ * @hw: the hardware
+ * @skb: the skb
+ *
+ * Free a transmit skb. Use this funtion when some failure
+ * to transmit happened and thus status cannot be reported.
+ */
+void ieee80211_free_txskb(struct ieee80211_hw *hw, struct sk_buff *skb);
+
+/**
  * DOC: Hardware crypto acceleration
  *
  * mac80211 is capable of taking advantage of many hardware
@@ -1423,15 +1480,15 @@ ieee80211_get_alt_retry_rate(const struct ieee80211_hw *hw,
  * DOC: Beacon filter support
  *
  * Some hardware have beacon filter support to reduce host cpu wakeups
- * which will reduce system power consumption. It usuallly works so that
+ * which will reduce system power consumption. It usually works so that
  * the firmware creates a checksum of the beacon but omits all constantly
  * changing elements (TSF, TIM etc). Whenever the checksum changes the
  * beacon is forwarded to the host, otherwise it will be just dropped. That
  * way the host will only receive beacons where some relevant information
  * (for example ERP protection or WMM settings) have changed.
  *
- * Beacon filter support is advertised with the %IEEE80211_HW_BEACON_FILTER
- * hardware capability. The driver needs to enable beacon filter support
+ * Beacon filter support is advertised with the %IEEE80211_VIF_BEACON_FILTER
+ * interface capability. The driver needs to enable beacon filter support
  * whenever power save is enabled, that is %IEEE80211_CONF_PS is set. When
  * power save is enabled, the stack will not check for beacon loss and the
  * driver needs to notify about loss of beacons with ieee80211_beacon_loss().
@@ -1583,13 +1640,16 @@ ieee80211_get_alt_retry_rate(const struct ieee80211_hw *hw,
  * the station sends a PS-Poll or a uAPSD trigger frame, mac80211
  * will inform the driver of this with the @allow_buffered_frames
  * callback; this callback is optional. mac80211 will then transmit
- * the frames as usual and set the %IEEE80211_TX_CTL_POLL_RESPONSE
+ * the frames as usual and set the %IEEE80211_TX_CTL_NO_PS_BUFFER
  * on each frame. The last frame in the service period (or the only
  * response to a PS-Poll) also has %IEEE80211_TX_STATUS_EOSP set to
  * indicate that it ends the service period; as this frame must have
  * TX status report it also sets %IEEE80211_TX_CTL_REQ_TX_STATUS.
  * When TX status is reported for this frame, the service period is
  * marked has having ended and a new one can be started by the peer.
+ *
+ * Additionally, non-bufferable MMPDUs can also be transmitted by
+ * mac80211 with the %IEEE80211_TX_CTL_NO_PS_BUFFER set in them.
  *
  * Another race condition can happen on some devices like iwlwifi
  * when there are frames queued for the station and it wakes up
@@ -1709,20 +1769,6 @@ enum ieee80211_ampdu_mlme_action {
 };
 
 /**
- * enum ieee80211_tx_sync_type - TX sync type
- * @IEEE80211_TX_SYNC_AUTH: sync TX for authentication
- *	(and possibly also before direct probe)
- * @IEEE80211_TX_SYNC_ASSOC: sync TX for association
- * @IEEE80211_TX_SYNC_ACTION: sync TX for action frame
- *	(not implemented yet)
- */
-enum ieee80211_tx_sync_type {
-	IEEE80211_TX_SYNC_AUTH,
-	IEEE80211_TX_SYNC_ASSOC,
-	IEEE80211_TX_SYNC_ACTION,
-};
-
-/**
  * enum ieee80211_frame_release_type - frame release reason
  * @IEEE80211_FRAME_RELEASE_PSPOLL: frame released for PS-Poll
  * @IEEE80211_FRAME_RELEASE_UAPSD: frame(s) released due to
@@ -1744,11 +1790,21 @@ enum ieee80211_frame_release_type {
  *	skb contains the buffer starting from the IEEE 802.11 header.
  *	The low-level driver should send the frame out based on
  *	configuration in the TX control data. This handler should,
- *	preferably, never fail and stop queues appropriately, more
- *	importantly, however, it must never fail for A-MPDU-queues.
- *	This function should return NETDEV_TX_OK except in very
- *	limited cases.
- *	Must be implemented and atomic.
+ *	preferably, never fail and stop queues appropriately.
+ *	This must be implemented if @tx_frags is not.
+ *	Must be atomic.
+ *
+ * @tx_frags: Called to transmit multiple fragments of a single MSDU.
+ *	This handler must consume all fragments, sending out some of
+ *	them only is useless and it can't ask for some of them to be
+ *	queued again. If the frame is not fragmented the queue has a
+ *	single SKB only. To avoid issues with the networking stack
+ *	when TX status is reported the frames should be removed from
+ *	the skb queue.
+ *	If this is used, the tx_info @vif and @sta pointers will be
+ *	invalid -- you must not use them in that case.
+ *	This must be implemented if @tx isn't.
+ *	Must be atomic.
  *
  * @start: Called before the first netdevice attached to the hardware
  *	is enabled. This should turn on the hardware and must turn on
@@ -1821,26 +1877,6 @@ enum ieee80211_frame_release_type {
  *	for association indication. The @changed parameter indicates which
  *	of the bss parameters has changed when a call is made. The callback
  *	can sleep.
- *
- * @tx_sync: Called before a frame is sent to an AP/GO. In the GO case, the
- *	driver should sync with the GO's powersaving so the device doesn't
- *	transmit the frame while the GO is asleep. In the regular AP case
- *	it may be used by drivers for devices implementing other restrictions
- *	on talking to APs, e.g. due to regulatory enforcement or just HW
- *	restrictions.
- *	This function is called for every authentication, association and
- *	action frame separately since applications might attempt to auth
- *	with multiple APs before chosing one to associate to. If it returns
- *	an error, the corresponding authentication, association or frame
- *	transmission is aborted and reported as having failed. It is always
- *	called after tuning to the correct channel.
- *	The callback might be called multiple times before @finish_tx_sync
- *	(but @finish_tx_sync will be called once for each) but in practice
- *	this is unlikely to happen. It can also refuse in that case if the
- *	driver cannot handle that situation.
- *	This callback can sleep.
- * @finish_tx_sync: Called as a counterpart to @tx_sync, unless that returned
- *	an error. This callback can sleep.
  *
  * @prepare_multicast: Prepare for multicast filter configuration.
  *	This callback is optional, and its return value is passed
@@ -1936,6 +1972,13 @@ enum ieee80211_frame_release_type {
  *	associated station, AP,  IBSS/WDS/mesh peer etc. For a VIF operating
  *	in AP mode, this callback will not be called when the flag
  *	%IEEE80211_HW_AP_LINK_PS is set. Must be atomic.
+ *
+ * @sta_state: Notifies low level driver about state transition of a
+ *	station (which can be the AP, a client, IBSS/WDS/mesh peer etc.)
+ *	This callback is mutually exclusive with @sta_add/@sta_remove.
+ *	It must not fail for down transitions but may fail for transitions
+ *	up the list of states.
+ *	The callback can sleep.
  *
  * @conf_tx: Configure TX queue parameters (EDCF (aifs, cw_min, cw_max),
  *	bursting) for a hardware TX queue.
@@ -2072,7 +2115,7 @@ enum ieee80211_frame_release_type {
  * @allow_buffered_frames: Prepare device to allow the given number of frames
  *	to go out to the given station. The frames will be sent by mac80211
  *	via the usual TX path after this call. The TX information for frames
- *	released will also have the %IEEE80211_TX_CTL_POLL_RESPONSE flag set
+ *	released will also have the %IEEE80211_TX_CTL_NO_PS_BUFFER flag set
  *	and the last one will also have %IEEE80211_TX_STATUS_EOSP set. In case
  *	frames from multiple TIDs are released and the driver might reorder
  *	them between the TIDs, it must set the %IEEE80211_TX_STATUS_EOSP flag
@@ -2085,6 +2128,8 @@ enum ieee80211_frame_release_type {
  */
 struct ieee80211_ops {
 	void (*tx)(struct ieee80211_hw *hw, struct sk_buff *skb);
+	void (*tx_frags)(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
+			 struct ieee80211_sta *sta, struct sk_buff_head *skbs);
 	int (*start)(struct ieee80211_hw *hw);
 	void (*stop)(struct ieee80211_hw *hw);
 #ifdef CONFIG_PM
@@ -2103,13 +2148,6 @@ struct ieee80211_ops {
 				 struct ieee80211_vif *vif,
 				 struct ieee80211_bss_conf *info,
 				 u32 changed);
-
-	int (*tx_sync)(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
-		       const u8 *bssid, enum ieee80211_tx_sync_type type);
-	void (*finish_tx_sync)(struct ieee80211_hw *hw,
-			       struct ieee80211_vif *vif,
-			       const u8 *bssid,
-			       enum ieee80211_tx_sync_type type);
 
 	u64 (*prepare_multicast)(struct ieee80211_hw *hw,
 				 struct netdev_hw_addr_list *mc_list);
@@ -2154,6 +2192,10 @@ struct ieee80211_ops {
 			  struct ieee80211_sta *sta);
 	void (*sta_notify)(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 			enum sta_notify_cmd, struct ieee80211_sta *sta);
+	int (*sta_state)(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
+			 struct ieee80211_sta *sta,
+			 enum ieee80211_sta_state old_state,
+			 enum ieee80211_sta_state new_state);
 	int (*conf_tx)(struct ieee80211_hw *hw,
 		       struct ieee80211_vif *vif, u16 queue,
 		       const struct ieee80211_tx_queue_params *params);
@@ -2659,6 +2701,19 @@ static inline struct sk_buff *ieee80211_beacon_get(struct ieee80211_hw *hw,
 {
 	return ieee80211_beacon_get_tim(hw, vif, NULL, NULL);
 }
+
+/**
+ * ieee80211_proberesp_get - retrieve a Probe Response template
+ * @hw: pointer obtained from ieee80211_alloc_hw().
+ * @vif: &struct ieee80211_vif pointer from the add_interface callback.
+ *
+ * Creates a Probe Response template which can, for example, be uploaded to
+ * hardware. The destination address should be set by the caller.
+ *
+ * Can only be called in AP mode.
+ */
+struct sk_buff *ieee80211_proberesp_get(struct ieee80211_hw *hw,
+					struct ieee80211_vif *vif);
 
 /**
  * ieee80211_pspoll_get - retrieve a PS Poll template
@@ -3275,7 +3330,7 @@ struct sk_buff *ieee80211_ap_probereq_get(struct ieee80211_hw *hw,
  *
  * @vif: &struct ieee80211_vif pointer from the add_interface callback.
  *
- * When beacon filtering is enabled with %IEEE80211_HW_BEACON_FILTER and
+ * When beacon filtering is enabled with %IEEE80211_VIF_BEACON_FILTER and
  * %IEEE80211_CONF_PS is set, the driver needs to inform whenever the
  * hardware is not receiving beacons with this function.
  */
@@ -3286,7 +3341,7 @@ void ieee80211_beacon_loss(struct ieee80211_vif *vif);
  *
  * @vif: &struct ieee80211_vif pointer from the add_interface callback.
  *
- * When beacon filtering is enabled with %IEEE80211_HW_BEACON_FILTER, and
+ * When beacon filtering is enabled with %IEEE80211_VIF_BEACON_FILTER, and
  * %IEEE80211_CONF_PS and %IEEE80211_HW_CONNECTION_MONITOR are set, the driver
  * needs to inform if the connection to the AP has been lost.
  *
@@ -3356,7 +3411,7 @@ void ieee80211_enable_dyn_ps(struct ieee80211_vif *vif);
  * @rssi_event: the RSSI trigger event type
  * @gfp: context flags
  *
- * When the %IEEE80211_HW_SUPPORTS_CQM_RSSI is set, and a connection quality
+ * When the %IEEE80211_VIF_SUPPORTS_CQM_RSSI is set, and a connection quality
  * monitoring is configured with an rssi threshold, the driver will inform
  * whenever the rssi level reaches the threshold.
  */
@@ -3461,9 +3516,12 @@ void ieee80211_send_bar(struct ieee80211_vif *vif, u8 *ra, u16 tid, u16 ssn);
  *
  * @IEEE80211_RC_HT_CHANGED: The HT parameters of the operating channel have
  *	changed, rate control algorithm can update its internal state if needed.
+ * @IEEE80211_RC_SMPS_CHANGED: The SMPS state of the station changed, the rate
+ *	control algorithm needs to adjust accordingly.
  */
 enum rate_control_changed {
-	IEEE80211_RC_HT_CHANGED = BIT(0)
+	IEEE80211_RC_HT_CHANGED		= BIT(0),
+	IEEE80211_RC_SMPS_CHANGED	= BIT(1),
 };
 
 /**
@@ -3472,6 +3530,8 @@ enum rate_control_changed {
  * @hw: The hardware the algorithm is invoked for.
  * @sband: The band this frame is being transmitted on.
  * @bss_conf: the current BSS configuration
+ * @skb: the skb that will be transmitted, the control information in it needs
+ *	to be filled in
  * @reported_rate: The rate control algorithm can fill this in to indicate
  *	which rate should be reported to userspace as the current rate and
  *	used for rate calculations in the mesh network.
@@ -3479,12 +3539,11 @@ enum rate_control_changed {
  *	RTS threshold
  * @short_preamble: whether mac80211 will request short-preamble transmission
  *	if the selected rate supports it
- * @max_rate_idx: user-requested maximum rate (not MCS for now)
+ * @max_rate_idx: user-requested maximum (legacy) rate
  *	(deprecated; this will be removed once drivers get updated to use
  *	rate_idx_mask)
- * @rate_idx_mask: user-requested rate mask (not MCS for now)
- * @skb: the skb that will be transmitted, the control information in it needs
- *	to be filled in
+ * @rate_idx_mask: user-requested (legacy) rate mask
+ * @rate_idx_mcs_mask: user-requested MCS rate mask
  * @bss: whether this frame is sent out in AP or IBSS mode
  */
 struct ieee80211_tx_rate_control {
@@ -3496,6 +3555,7 @@ struct ieee80211_tx_rate_control {
 	bool rts, short_preamble;
 	u8 max_rate_idx;
 	u32 rate_idx_mask;
+	u8 rate_idx_mcs_mask[IEEE80211_HT_MCS_MASK_LEN];
 	bool bss;
 };
 

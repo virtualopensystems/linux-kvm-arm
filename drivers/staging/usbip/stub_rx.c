@@ -367,15 +367,6 @@ static int get_pipe(struct stub_device *sdev, int epnum, int dir)
 	}
 
 	epd = &ep->desc;
-#if 0
-	/* epnum 0 is always control */
-	if (epnum == 0) {
-		if (dir == USBIP_DIR_OUT)
-			return usb_sndctrlpipe(udev, 0);
-		else
-			return usb_rcvctrlpipe(udev, 0);
-	}
-#endif
 	if (usb_endpoint_xfer_control(epd)) {
 		if (dir == USBIP_DIR_OUT)
 			return usb_sndctrlpipe(udev, epnum);
@@ -564,7 +555,7 @@ static void stub_rx_pdu(struct usbip_device *ud)
 	memset(&pdu, 0, sizeof(pdu));
 
 	/* 1. receive a pdu header */
-	ret = usbip_xmit(0, ud->tcp_socket, (char *) &pdu, sizeof(pdu), 0);
+	ret = usbip_recv(ud->tcp_socket, &pdu, sizeof(pdu));
 	if (ret != sizeof(pdu)) {
 		dev_err(dev, "recv a header, %d\n", ret);
 		usbip_event_add(ud, SDEV_EVENT_ERROR_TCP);

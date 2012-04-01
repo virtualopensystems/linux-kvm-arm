@@ -16,7 +16,6 @@
 #include <asm/mach/pci.h>
 
 static int debug_pci;
-static int use_firmware;
 
 /*
  * We can't use pci_find_device() here since we are
@@ -295,43 +294,6 @@ static inline int pdev_bad_for_parity(struct pci_dev *dev)
 }
 
 /*
- * Adjust the device resources from bus-centric to Linux-centric.
- */
-static void __devinit
-pdev_fixup_device_resources(struct pci_sys_data *root, struct pci_dev *dev)
-{
-	resource_size_t offset;
-	int i;
-
-	for (i = 0; i < PCI_NUM_RESOURCES; i++) {
-		if (dev->resource[i].start == 0)
-			continue;
-		if (dev->resource[i].flags & IORESOURCE_MEM)
-			offset = root->mem_offset;
-		else
-			offset = root->io_offset;
-
-		dev->resource[i].start += offset;
-		dev->resource[i].end   += offset;
-	}
-}
-
-static void __devinit
-pbus_assign_bus_resources(struct pci_bus *bus, struct pci_sys_data *root)
-{
-	struct pci_dev *dev = bus->self;
-	int i;
-
-	if (!dev) {
-		/*
-		 * Assign root bus resources.
-		 */
-		for (i = 0; i < 3; i++)
-			bus->resource[i] = root->resource[i];
-	}
-}
-
-/*
  * pcibios_fixup_bus - Called after each bus is probed,
  * but before its children are examined.
  */
@@ -341,16 +303,12 @@ void pcibios_fixup_bus(struct pci_bus *bus)
 	struct pci_dev *dev;
 	u16 features = PCI_COMMAND_SERR | PCI_COMMAND_PARITY | PCI_COMMAND_FAST_BACK;
 
-	pbus_assign_bus_resources(bus, root);
-
 	/*
 	 * Walk the devices on this bus, working out what we can
 	 * and can't support.
 	 */
 	list_for_each_entry(dev, &bus->devices, bus_list) {
 		u16 status;
-
-		pdev_fixup_device_resources(root, dev);
 
 		pci_read_config_word(dev, PCI_STATUS, &status);
 
@@ -417,43 +375,6 @@ EXPORT_SYMBOL(pcibios_fixup_bus);
 #endif
 
 /*
- * Convert from Linux-centric to bus-centric addresses for bridge devices.
- */
-void
-pcibios_resource_to_bus(struct pci_dev *dev, struct pci_bus_region *region,
-			 struct resource *res)
-{
-	struct pci_sys_data *root = dev->sysdata;
-	unsigned long offset = 0;
-
-	if (res->flags & IORESOURCE_IO)
-		offset = root->io_offset;
-	if (res->flags & IORESOURCE_MEM)
-		offset = root->mem_offset;
-
-	region->start = res->start - offset;
-	region->end   = res->end - offset;
-}
-EXPORT_SYMBOL(pcibios_resource_to_bus);
-
-void __devinit
-pcibios_bus_to_resource(struct pci_dev *dev, struct resource *res,
-			struct pci_bus_region *region)
-{
-	struct pci_sys_data *root = dev->sysdata;
-	unsigned long offset = 0;
-
-	if (res->flags & IORESOURCE_IO)
-		offset = root->io_offset;
-	if (res->flags & IORESOURCE_MEM)
-		offset = root->mem_offset;
-
-	res->start = region->start + offset;
-	res->end   = region->end + offset;
-}
-EXPORT_SYMBOL(pcibios_bus_to_resource);
-
-/*
  * Swizzle the device pin each time we cross a bridge.
  * This might update pin and returns the slot number.
  */
@@ -508,12 +429,18 @@ static void __init pcibios_init_hw(struct hw_pci *hw)
 		sys->busnr   = busnr;
 		sys->swizzle = hw->swizzle;
 		sys->map_irq = hw->map_irq;
-		sys->resource[0] = &ioport_resource;
-		sys->resource[1] = &iomem_resource;
+		INIT_LIST_HEAD(&sys->resources);
 
 		ret = hw->setup(nr, sys);
 
 		if (ret > 0) {
+			if (list_empty(&sys->resources)) {
+				pci_add_resource_offset(&sys->resources,
+					 &ioport_resource, sys->io_offset);
+				pci_add_resource_offset(&sys->resources,
+					 &iomem_resource, sys->mem_offset);
+			}
+
 			sys->bus = hw->scan(nr, sys);
 
 			if (!sys->bus)
@@ -536,6 +463,7 @@ void __init pci_common_init(struct hw_pci *hw)
 
 	INIT_LIST_HEAD(&hw->buses);
 
+	pci_add_flags(PCI_REASSIGN_ALL_RSRC);
 	if (hw->preinit)
 		hw->preinit();
 	pcibios_init_hw(hw);
@@ -547,7 +475,7 @@ void __init pci_common_init(struct hw_pci *hw)
 	list_for_each_entry(sys, &hw->buses, node) {
 		struct pci_bus *bus = sys->bus;
 
-		if (!use_firmware) {
+		if (!pci_has_flag(PCI_PROBE_ONLY)) {
 			/*
 			 * Size the bridge windows.
 			 */
@@ -571,13 +499,20 @@ void __init pci_common_init(struct hw_pci *hw)
 	}
 }
 
+#ifndef CONFIG_PCI_HOST_ITE8152
+void pcibios_set_master(struct pci_dev *dev)
+{
+	/* No special bus mastering setup handling */
+}
+#endif
+
 char * __init pcibios_setup(char *str)
 {
 	if (!strcmp(str, "debug")) {
 		debug_pci = 1;
 		return NULL;
 	} else if (!strcmp(str, "firmware")) {
-		use_firmware = 1;
+		pci_add_flags(PCI_PROBE_ONLY);
 		return NULL;
 	}
 	return str;

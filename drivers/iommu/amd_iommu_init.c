@@ -25,6 +25,7 @@
 #include <linux/interrupt.h>
 #include <linux/msi.h>
 #include <linux/amd-iommu.h>
+#include <linux/export.h>
 #include <asm/pci-direct.h>
 #include <asm/iommu.h>
 #include <asm/gart.h>
@@ -141,6 +142,12 @@ int amd_iommus_present;
 bool amd_iommu_np_cache __read_mostly;
 bool amd_iommu_iotlb_sup __read_mostly = true;
 
+u32 amd_iommu_max_pasids __read_mostly = ~0;
+
+bool amd_iommu_v2_present __read_mostly;
+
+bool amd_iommu_force_isolation __read_mostly;
+
 /*
  * The ACPI table parsing functions set this variable on an error
  */
@@ -188,6 +195,8 @@ static u32 rlookup_table_size;	/* size if the rlookup table */
  * the IOMMU used by this driver.
  */
 extern void iommu_flush_all_caches(struct amd_iommu *iommu);
+
+static int amd_iommu_enable_interrupts(void);
 
 static inline void update_last_devid(u16 devid)
 {
@@ -268,7 +277,7 @@ static void iommu_set_exclusion_range(struct amd_iommu *iommu)
 }
 
 /* Programs the physical address of the device table into the IOMMU hardware */
-static void __init iommu_set_device_table(struct amd_iommu *iommu)
+static void iommu_set_device_table(struct amd_iommu *iommu)
 {
 	u64 entry;
 
@@ -296,6 +305,16 @@ static void iommu_feature_disable(struct amd_iommu *iommu, u8 bit)
 
 	ctrl = readl(iommu->mmio_base + MMIO_CONTROL_OFFSET);
 	ctrl &= ~(1 << bit);
+	writel(ctrl, iommu->mmio_base + MMIO_CONTROL_OFFSET);
+}
+
+static void iommu_set_inv_tlb_timeout(struct amd_iommu *iommu, int timeout)
+{
+	u32 ctrl;
+
+	ctrl = readl(iommu->mmio_base + MMIO_CONTROL_OFFSET);
+	ctrl &= ~CTRL_INV_TO_MASK;
+	ctrl |= (timeout << CONTROL_INV_TIMEOUT) & CTRL_INV_TO_MASK;
 	writel(ctrl, iommu->mmio_base + MMIO_CONTROL_OFFSET);
 }
 
@@ -341,8 +360,6 @@ static void iommu_disable(struct amd_iommu *iommu)
  */
 static u8 * __init iommu_map_mmio_space(u64 address)
 {
-	u8 *ret;
-
 	if (!request_mem_region(address, MMIO_REGION_LENGTH, "amd_iommu")) {
 		pr_err("AMD-Vi: Can not reserve memory region %llx for mmio\n",
 			address);
@@ -350,13 +367,7 @@ static u8 * __init iommu_map_mmio_space(u64 address)
 		return NULL;
 	}
 
-	ret = ioremap_nocache(address, MMIO_REGION_LENGTH);
-	if (ret != NULL)
-		return ret;
-
-	release_mem_region(address, MMIO_REGION_LENGTH);
-
-	return NULL;
+	return ioremap_nocache(address, MMIO_REGION_LENGTH);
 }
 
 static void __init iommu_unmap_mmio_space(struct amd_iommu *iommu)
@@ -581,21 +592,69 @@ static void __init free_event_buffer(struct amd_iommu *iommu)
 	free_pages((unsigned long)iommu->evt_buf, get_order(EVT_BUFFER_SIZE));
 }
 
+/* allocates the memory where the IOMMU will log its events to */
+static u8 * __init alloc_ppr_log(struct amd_iommu *iommu)
+{
+	iommu->ppr_log = (u8 *)__get_free_pages(GFP_KERNEL | __GFP_ZERO,
+						get_order(PPR_LOG_SIZE));
+
+	if (iommu->ppr_log == NULL)
+		return NULL;
+
+	return iommu->ppr_log;
+}
+
+static void iommu_enable_ppr_log(struct amd_iommu *iommu)
+{
+	u64 entry;
+
+	if (iommu->ppr_log == NULL)
+		return;
+
+	entry = (u64)virt_to_phys(iommu->ppr_log) | PPR_LOG_SIZE_512;
+
+	memcpy_toio(iommu->mmio_base + MMIO_PPR_LOG_OFFSET,
+		    &entry, sizeof(entry));
+
+	/* set head and tail to zero manually */
+	writel(0x00, iommu->mmio_base + MMIO_PPR_HEAD_OFFSET);
+	writel(0x00, iommu->mmio_base + MMIO_PPR_TAIL_OFFSET);
+
+	iommu_feature_enable(iommu, CONTROL_PPFLOG_EN);
+	iommu_feature_enable(iommu, CONTROL_PPR_EN);
+}
+
+static void __init free_ppr_log(struct amd_iommu *iommu)
+{
+	if (iommu->ppr_log == NULL)
+		return;
+
+	free_pages((unsigned long)iommu->ppr_log, get_order(PPR_LOG_SIZE));
+}
+
+static void iommu_enable_gt(struct amd_iommu *iommu)
+{
+	if (!iommu_feature(iommu, FEATURE_GT))
+		return;
+
+	iommu_feature_enable(iommu, CONTROL_GT_EN);
+}
+
 /* sets a specific bit in the device table entry. */
 static void set_dev_entry_bit(u16 devid, u8 bit)
 {
-	int i = (bit >> 5) & 0x07;
-	int _bit = bit & 0x1f;
+	int i = (bit >> 6) & 0x03;
+	int _bit = bit & 0x3f;
 
-	amd_iommu_dev_table[devid].data[i] |= (1 << _bit);
+	amd_iommu_dev_table[devid].data[i] |= (1UL << _bit);
 }
 
 static int get_dev_entry_bit(u16 devid, u8 bit)
 {
-	int i = (bit >> 5) & 0x07;
-	int _bit = bit & 0x1f;
+	int i = (bit >> 6) & 0x03;
+	int _bit = bit & 0x3f;
 
-	return (amd_iommu_dev_table[devid].data[i] & (1 << _bit)) >> _bit;
+	return (amd_iommu_dev_table[devid].data[i] & (1UL << _bit)) >> _bit;
 }
 
 
@@ -698,6 +757,32 @@ static void __init init_iommu_from_pci(struct amd_iommu *iommu)
 	high = readl(iommu->mmio_base + MMIO_EXT_FEATURES + 4);
 
 	iommu->features = ((u64)high << 32) | low;
+
+	if (iommu_feature(iommu, FEATURE_GT)) {
+		int glxval;
+		u32 pasids;
+		u64 shift;
+
+		shift   = iommu->features & FEATURE_PASID_MASK;
+		shift >>= FEATURE_PASID_SHIFT;
+		pasids  = (1 << shift);
+
+		amd_iommu_max_pasids = min(amd_iommu_max_pasids, pasids);
+
+		glxval   = iommu->features & FEATURE_GLXVAL_MASK;
+		glxval >>= FEATURE_GLXVAL_SHIFT;
+
+		if (amd_iommu_max_glx_val == -1)
+			amd_iommu_max_glx_val = glxval;
+		else
+			amd_iommu_max_glx_val = min(amd_iommu_max_glx_val, glxval);
+	}
+
+	if (iommu_feature(iommu, FEATURE_GT) &&
+	    iommu_feature(iommu, FEATURE_PPR)) {
+		iommu->is_iommu_v2   = true;
+		amd_iommu_v2_present = true;
+	}
 
 	if (!is_rd890_iommu(iommu->dev))
 		return;
@@ -901,6 +986,7 @@ static void __init free_iommu_one(struct amd_iommu *iommu)
 {
 	free_command_buffer(iommu);
 	free_event_buffer(iommu);
+	free_ppr_log(iommu);
 	iommu_unmap_mmio_space(iommu);
 }
 
@@ -963,6 +1049,12 @@ static int __init init_iommu_one(struct amd_iommu *iommu, struct ivhd_header *h)
 	init_iommu_from_pci(iommu);
 	init_iommu_from_acpi(iommu, h);
 	init_iommu_devices(iommu);
+
+	if (iommu_feature(iommu, FEATURE_PPR)) {
+		iommu->ppr_log = alloc_ppr_log(iommu);
+		if (!iommu->ppr_log)
+			return -ENOMEM;
+	}
 
 	if (iommu->cap & (1UL << IOMMU_CAP_NPCACHE))
 		amd_iommu_np_cache = true;
@@ -1033,8 +1125,9 @@ static int iommu_setup_msi(struct amd_iommu *iommu)
 {
 	int r;
 
-	if (pci_enable_msi(iommu->dev))
-		return 1;
+	r = pci_enable_msi(iommu->dev);
+	if (r)
+		return r;
 
 	r = request_threaded_irq(iommu->dev->irq,
 				 amd_iommu_int_handler,
@@ -1044,24 +1137,36 @@ static int iommu_setup_msi(struct amd_iommu *iommu)
 
 	if (r) {
 		pci_disable_msi(iommu->dev);
-		return 1;
+		return r;
 	}
 
 	iommu->int_enabled = true;
-	iommu_feature_enable(iommu, CONTROL_EVT_INT_EN);
 
 	return 0;
 }
 
 static int iommu_init_msi(struct amd_iommu *iommu)
 {
+	int ret;
+
 	if (iommu->int_enabled)
-		return 0;
+		goto enable_faults;
 
 	if (pci_find_capability(iommu->dev, PCI_CAP_ID_MSI))
-		return iommu_setup_msi(iommu);
+		ret = iommu_setup_msi(iommu);
+	else
+		ret = -ENODEV;
 
-	return 1;
+	if (ret)
+		return ret;
+
+enable_faults:
+	iommu_feature_enable(iommu, CONTROL_EVT_INT_EN);
+
+	if (iommu->ppr_log != NULL)
+		iommu_feature_enable(iommu, CONTROL_PPFINT_EN);
+
+	return 0;
 }
 
 /****************************************************************************
@@ -1209,6 +1314,9 @@ static void iommu_init_flags(struct amd_iommu *iommu)
 	 * make IOMMU memory accesses cache coherent
 	 */
 	iommu_feature_enable(iommu, CONTROL_COHERENT_EN);
+
+	/* Set IOTLB invalidation timeout to 1s */
+	iommu_set_inv_tlb_timeout(iommu, CTRL_INV_TO_1S);
 }
 
 static void iommu_apply_resume_quirks(struct amd_iommu *iommu)
@@ -1274,8 +1382,9 @@ static void enable_iommus(void)
 		iommu_set_device_table(iommu);
 		iommu_enable_command_buffer(iommu);
 		iommu_enable_event_buffer(iommu);
+		iommu_enable_ppr_log(iommu);
+		iommu_enable_gt(iommu);
 		iommu_set_exclusion_range(iommu);
-		iommu_init_msi(iommu);
 		iommu_enable(iommu);
 		iommu_flush_all_caches(iommu);
 	}
@@ -1304,12 +1413,7 @@ static void amd_iommu_resume(void)
 	/* re-load the hardware */
 	enable_iommus();
 
-	/*
-	 * we have to flush after the IOMMUs are enabled because a
-	 * disabled IOMMU will never execute the commands we send
-	 */
-	for_each_iommu(iommu)
-		iommu_flush_all_caches(iommu);
+	amd_iommu_enable_interrupts();
 }
 
 static int amd_iommu_suspend(void)
@@ -1325,10 +1429,40 @@ static struct syscore_ops amd_iommu_syscore_ops = {
 	.resume = amd_iommu_resume,
 };
 
+static void __init free_on_init_error(void)
+{
+	amd_iommu_uninit_devices();
+
+	free_pages((unsigned long)amd_iommu_pd_alloc_bitmap,
+		   get_order(MAX_DOMAIN_ID/8));
+
+	free_pages((unsigned long)amd_iommu_rlookup_table,
+		   get_order(rlookup_table_size));
+
+	free_pages((unsigned long)amd_iommu_alias_table,
+		   get_order(alias_table_size));
+
+	free_pages((unsigned long)amd_iommu_dev_table,
+		   get_order(dev_table_size));
+
+	free_iommu_all();
+
+	free_unity_maps();
+
+#ifdef CONFIG_GART_IOMMU
+	/*
+	 * We failed to initialize the AMD IOMMU - try fallback to GART
+	 * if possible.
+	 */
+	gart_iommu_init();
+
+#endif
+}
+
 /*
- * This is the core init function for AMD IOMMU hardware in the system.
- * This function is called from the generic x86 DMA layer initialization
- * code.
+ * This is the hardware init function for AMD IOMMU in the system.
+ * This function is called either from amd_iommu_init or from the interrupt
+ * remapping setup code.
  *
  * This function basically parses the ACPI table for AMD IOMMU (IVRS)
  * three times:
@@ -1347,15 +1481,20 @@ static struct syscore_ops amd_iommu_syscore_ops = {
  *		remapping requirements parsed out of the ACPI table in
  *		this last pass.
  *
- * After that the hardware is initialized and ready to go. In the last
- * step we do some Linux specific things like registering the driver in
- * the dma_ops interface and initializing the suspend/resume support
- * functions. Finally it prints some information about AMD IOMMUs and
- * the driver state and enables the hardware.
+ * After everything is set up the IOMMUs are enabled and the necessary
+ * hotplug and suspend notifiers are registered.
  */
-static int __init amd_iommu_init(void)
+int __init amd_iommu_init_hardware(void)
 {
 	int i, ret = 0;
+
+	if (!amd_iommu_detected)
+		return -ENODEV;
+
+	if (amd_iommu_dev_table != NULL) {
+		/* Hardware already initialized */
+		return 0;
+	}
 
 	/*
 	 * First parse ACPI tables to find the largest Bus/Dev/Func
@@ -1373,9 +1512,8 @@ static int __init amd_iommu_init(void)
 	alias_table_size   = tbl_size(ALIAS_TABLE_ENTRY_SIZE);
 	rlookup_table_size = tbl_size(RLOOKUP_TABLE_ENTRY_SIZE);
 
-	ret = -ENOMEM;
-
 	/* Device table - directly used by all IOMMUs */
+	ret = -ENOMEM;
 	amd_iommu_dev_table = (void *)__get_free_pages(GFP_KERNEL | __GFP_ZERO,
 				      get_order(dev_table_size));
 	if (amd_iommu_dev_table == NULL)
@@ -1447,19 +1585,64 @@ static int __init amd_iommu_init(void)
 
 	enable_iommus();
 
+	amd_iommu_init_notifier();
+
+	register_syscore_ops(&amd_iommu_syscore_ops);
+
+out:
+	return ret;
+
+free:
+	free_on_init_error();
+
+	return ret;
+}
+
+static int amd_iommu_enable_interrupts(void)
+{
+	struct amd_iommu *iommu;
+	int ret = 0;
+
+	for_each_iommu(iommu) {
+		ret = iommu_init_msi(iommu);
+		if (ret)
+			goto out;
+	}
+
+out:
+	return ret;
+}
+
+/*
+ * This is the core init function for AMD IOMMU hardware in the system.
+ * This function is called from the generic x86 DMA layer initialization
+ * code.
+ *
+ * The function calls amd_iommu_init_hardware() to setup and enable the
+ * IOMMU hardware if this has not happened yet. After that the driver
+ * registers for the DMA-API and for the IOMMU-API as necessary.
+ */
+static int __init amd_iommu_init(void)
+{
+	int ret = 0;
+
+	ret = amd_iommu_init_hardware();
+	if (ret)
+		goto out;
+
+	ret = amd_iommu_enable_interrupts();
+	if (ret)
+		goto free;
+
 	if (iommu_pass_through)
 		ret = amd_iommu_init_passthrough();
 	else
 		ret = amd_iommu_init_dma_ops();
 
 	if (ret)
-		goto free_disable;
+		goto free;
 
 	amd_iommu_init_api();
-
-	amd_iommu_init_notifier();
-
-	register_syscore_ops(&amd_iommu_syscore_ops);
 
 	if (iommu_pass_through)
 		goto out;
@@ -1470,39 +1653,14 @@ static int __init amd_iommu_init(void)
 		printk(KERN_INFO "AMD-Vi: Lazy IO/TLB flushing enabled\n");
 
 	x86_platform.iommu_shutdown = disable_iommus;
+
 out:
 	return ret;
 
-free_disable:
+free:
 	disable_iommus();
 
-free:
-	amd_iommu_uninit_devices();
-
-	free_pages((unsigned long)amd_iommu_pd_alloc_bitmap,
-		   get_order(MAX_DOMAIN_ID/8));
-
-	free_pages((unsigned long)amd_iommu_rlookup_table,
-		   get_order(rlookup_table_size));
-
-	free_pages((unsigned long)amd_iommu_alias_table,
-		   get_order(alias_table_size));
-
-	free_pages((unsigned long)amd_iommu_dev_table,
-		   get_order(dev_table_size));
-
-	free_iommu_all();
-
-	free_unity_maps();
-
-#ifdef CONFIG_GART_IOMMU
-	/*
-	 * We failed to initialize the AMD IOMMU - try fallback to GART
-	 * if possible.
-	 */
-	gart_iommu_init();
-
-#endif
+	free_on_init_error();
 
 	goto out;
 }
@@ -1560,6 +1718,8 @@ static int __init parse_amd_iommu_options(char *str)
 			amd_iommu_unmap_flush = true;
 		if (strncmp(str, "off", 3) == 0)
 			amd_iommu_disabled = true;
+		if (strncmp(str, "force_isolation", 15) == 0)
+			amd_iommu_force_isolation = true;
 	}
 
 	return 1;
@@ -1572,3 +1732,9 @@ IOMMU_INIT_FINISH(amd_iommu_detect,
 		  gart_iommu_hole_init,
 		  0,
 		  0);
+
+bool amd_iommu_v2_supported(void)
+{
+	return amd_iommu_v2_present;
+}
+EXPORT_SYMBOL(amd_iommu_v2_supported);

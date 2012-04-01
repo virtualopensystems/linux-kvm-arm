@@ -56,7 +56,7 @@
  *
  * This function returns the inherited flags.
  */
-static int inherit_flags(const struct inode *dir, int mode)
+static int inherit_flags(const struct inode *dir, umode_t mode)
 {
 	int flags;
 	const struct ubifs_inode *ui = ubifs_inode(dir);
@@ -86,7 +86,7 @@ static int inherit_flags(const struct inode *dir, int mode)
  * case of failure.
  */
 struct inode *ubifs_new_inode(struct ubifs_info *c, const struct inode *dir,
-			      int mode)
+			      umode_t mode)
 {
 	struct inode *inode;
 	struct ubifs_inode *ui;
@@ -253,7 +253,7 @@ out:
 	return ERR_PTR(err);
 }
 
-static int ubifs_create(struct inode *dir, struct dentry *dentry, int mode,
+static int ubifs_create(struct inode *dir, struct dentry *dentry, umode_t mode,
 			struct nameidata *nd)
 {
 	struct inode *inode;
@@ -268,7 +268,7 @@ static int ubifs_create(struct inode *dir, struct dentry *dentry, int mode,
 	 * parent directory inode.
 	 */
 
-	dbg_gen("dent '%.*s', mode %#x in dir ino %lu",
+	dbg_gen("dent '%.*s', mode %#hx in dir ino %lu",
 		dentry->d_name.len, dentry->d_name.name, mode, dir->i_ino);
 
 	err = ubifs_budget_space(c, &req);
@@ -566,6 +566,7 @@ static int ubifs_unlink(struct inode *dir, struct dentry *dentry)
 	int sz_change = CALC_DENT_SIZE(dentry->d_name.len);
 	int err, budgeted = 1;
 	struct ubifs_budget_req req = { .mod_dent = 1, .dirtied_ino = 2 };
+	unsigned int saved_nlink = inode->i_nlink;
 
 	/*
 	 * Budget request settings: deletion direntry, deletion inode (+1 for
@@ -613,7 +614,7 @@ static int ubifs_unlink(struct inode *dir, struct dentry *dentry)
 out_cancel:
 	dir->i_size += sz_change;
 	dir_ui->ui_size = dir->i_size;
-	inc_nlink(inode);
+	set_nlink(inode, saved_nlink);
 	unlock_2_inodes(dir, inode);
 	if (budgeted)
 		ubifs_release_budget(c, &req);
@@ -704,15 +705,14 @@ out_cancel:
 	dir->i_size += sz_change;
 	dir_ui->ui_size = dir->i_size;
 	inc_nlink(dir);
-	inc_nlink(inode);
-	inc_nlink(inode);
+	set_nlink(inode, 2);
 	unlock_2_inodes(dir, inode);
 	if (budgeted)
 		ubifs_release_budget(c, &req);
 	return err;
 }
 
-static int ubifs_mkdir(struct inode *dir, struct dentry *dentry, int mode)
+static int ubifs_mkdir(struct inode *dir, struct dentry *dentry, umode_t mode)
 {
 	struct inode *inode;
 	struct ubifs_inode *dir_ui = ubifs_inode(dir);
@@ -725,7 +725,7 @@ static int ubifs_mkdir(struct inode *dir, struct dentry *dentry, int mode)
 	 * directory inode.
 	 */
 
-	dbg_gen("dent '%.*s', mode %#x in dir ino %lu",
+	dbg_gen("dent '%.*s', mode %#hx in dir ino %lu",
 		dentry->d_name.len, dentry->d_name.name, mode, dir->i_ino);
 
 	err = ubifs_budget_space(c, &req);
@@ -769,7 +769,7 @@ out_budg:
 }
 
 static int ubifs_mknod(struct inode *dir, struct dentry *dentry,
-		       int mode, dev_t rdev)
+		       umode_t mode, dev_t rdev)
 {
 	struct inode *inode;
 	struct ubifs_inode *ui;
@@ -977,6 +977,7 @@ static int ubifs_rename(struct inode *old_dir, struct dentry *old_dentry,
 	struct ubifs_budget_req ino_req = { .dirtied_ino = 1,
 			.dirtied_ino_d = ALIGN(old_inode_ui->data_len, 8) };
 	struct timespec time;
+	unsigned int saved_nlink;
 
 	/*
 	 * Budget request settings: deletion direntry, new direntry, removing
@@ -1059,13 +1060,14 @@ static int ubifs_rename(struct inode *old_dir, struct dentry *old_dentry,
 	if (unlink) {
 		/*
 		 * Directories cannot have hard-links, so if this is a
-		 * directory, decrement its @i_nlink twice because an empty
-		 * directory has @i_nlink 2.
+		 * directory, just clear @i_nlink.
 		 */
+		saved_nlink = new_inode->i_nlink;
 		if (is_dir)
+			clear_nlink(new_inode);
+		else
 			drop_nlink(new_inode);
 		new_inode->i_ctime = time;
-		drop_nlink(new_inode);
 	} else {
 		new_dir->i_size += new_sz;
 		ubifs_inode(new_dir)->ui_size = new_dir->i_size;
@@ -1102,9 +1104,7 @@ static int ubifs_rename(struct inode *old_dir, struct dentry *old_dentry,
 
 out_cancel:
 	if (unlink) {
-		if (is_dir)
-			inc_nlink(new_inode);
-		inc_nlink(new_inode);
+		set_nlink(new_inode, saved_nlink);
 	} else {
 		new_dir->i_size -= new_sz;
 		ubifs_inode(new_dir)->ui_size = new_dir->i_size;

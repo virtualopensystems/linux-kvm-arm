@@ -116,13 +116,8 @@ struct wl12xx_ps_poll_template {
 	u8 ta[ETH_ALEN];
 } __packed;
 
-struct wl12xx_qos_null_data_template {
-	struct ieee80211_header header;
-	__le16 qos_ctl;
-} __packed;
-
 struct wl12xx_arp_rsp_template {
-	struct ieee80211_hdr_3addr hdr;
+	/* not including ieee80211 header */
 
 	u8 llc_hdr[sizeof(rfc1042_header)];
 	__be16 llc_type;

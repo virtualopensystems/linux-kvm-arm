@@ -88,7 +88,6 @@ Revision History:
 #include <linux/crc32.h>
 #include <linux/dma-mapping.h>
 
-#include <asm/system.h>
 #include <asm/io.h>
 #include <asm/byteorder.h>
 #include <asm/uaccess.h>
@@ -336,7 +335,8 @@ static int amd8111e_init_ring(struct net_device *dev)
 	/* Allocating receive  skbs */
 	for (i = 0; i < NUM_RX_BUFFERS; i++) {
 
-		if (!(lp->rx_skbuff[i] = dev_alloc_skb(lp->rx_buff_len))) {
+		lp->rx_skbuff[i] = netdev_alloc_skb(dev, lp->rx_buff_len);
+		if (!lp->rx_skbuff[i]) {
 				/* Release previos allocated skbs */
 				for(--i; i >= 0 ;i--)
 					dev_kfree_skb(lp->rx_skbuff[i]);
@@ -499,7 +499,7 @@ static int amd8111e_restart(struct net_device *dev)
 	writel( VAL0 | APAD_XMT | REX_RTRY, mmio + CMD2 );
 
 	/* Setting the MAC address to the device */
-	for(i = 0; i < ETH_ADDR_LEN; i++)
+	for (i = 0; i < ETH_ALEN; i++)
 		writeb( dev->dev_addr[i], mmio + PADR + i );
 
 	/* Enable interrupt coalesce */
@@ -768,7 +768,8 @@ static int amd8111e_rx_poll(struct napi_struct *napi, int budget)
 			}
 			if(--rx_pkt_limit < 0)
 				goto rx_not_empty;
-			if(!(new_skb = dev_alloc_skb(lp->rx_buff_len))){
+			new_skb = netdev_alloc_skb(dev, lp->rx_buff_len);
+			if (!new_skb) {
 				/* if allocation fail,
 				   ignore that pkt and go to next one */
 				lp->rx_ring[rx_index].rx_flags &= RESET_RX_FLAGS;
@@ -1412,10 +1413,11 @@ static void amd8111e_get_drvinfo(struct net_device* dev, struct ethtool_drvinfo 
 {
 	struct amd8111e_priv *lp = netdev_priv(dev);
 	struct pci_dev *pci_dev = lp->pci_dev;
-	strcpy (info->driver, MODULE_NAME);
-	strcpy (info->version, MODULE_VERS);
-	sprintf(info->fw_version,"%u",chip_version);
-	strcpy (info->bus_info, pci_name(pci_dev));
+	strlcpy(info->driver, MODULE_NAME, sizeof(info->driver));
+	strlcpy(info->version, MODULE_VERS, sizeof(info->version));
+	snprintf(info->fw_version, sizeof(info->fw_version),
+		"%u", chip_version);
+	strlcpy(info->bus_info, pci_name(pci_dev), sizeof(info->bus_info));
 }
 
 static int amd8111e_get_regs_len(struct net_device *dev)
@@ -1549,7 +1551,7 @@ static int amd8111e_set_mac_address(struct net_device *dev, void *p)
 	memcpy(dev->dev_addr, addr->sa_data, dev->addr_len);
 	spin_lock_irq(&lp->lock);
 	/* Setting the MAC address to the device */
-	for(i = 0; i < ETH_ADDR_LEN; i++)
+	for (i = 0; i < ETH_ALEN; i++)
 		writeb( dev->dev_addr[i], lp->mmio + PADR + i );
 
 	spin_unlock_irq(&lp->lock);
@@ -1858,7 +1860,6 @@ static int __devinit amd8111e_probe_one(struct pci_dev *pdev,
 
 	dev = alloc_etherdev(sizeof(struct amd8111e_priv));
 	if (!dev) {
-		printk(KERN_ERR "amd8111e: Etherdev alloc failed, exiting.\n");
 		err = -ENOMEM;
 		goto err_free_reg;
 	}
@@ -1885,7 +1886,7 @@ static int __devinit amd8111e_probe_one(struct pci_dev *pdev,
 	}
 
 	/* Initializing MAC address */
-	for(i = 0; i < ETH_ADDR_LEN; i++)
+	for (i = 0; i < ETH_ALEN; i++)
 		dev->dev_addr[i] = readb(lp->mmio + PADR + i);
 
 	/* Setting user defined parametrs */

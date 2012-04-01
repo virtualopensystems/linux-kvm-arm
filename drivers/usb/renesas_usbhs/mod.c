@@ -50,7 +50,9 @@ static int usbhsm_autonomy_irq_vbus(struct usbhs_priv *priv,
 {
 	struct platform_device *pdev = usbhs_priv_to_pdev(priv);
 
-	return usbhsc_drvcllbck_notify_hotplug(pdev);
+	renesas_usbhs_call_notify_hotplug(pdev);
+
+	return 0;
 }
 
 void usbhs_mod_autonomy_mode(struct usbhs_priv *priv)
@@ -150,7 +152,7 @@ int usbhs_mod_probe(struct usbhs_priv *priv)
 
 	/* irq settings */
 	ret = request_irq(priv->irq, usbhs_interrupt,
-			  0, dev_name(dev), priv);
+			  priv->irqflags, dev_name(dev), priv);
 	if (ret) {
 		dev_err(dev, "irq request err\n");
 		goto mod_init_gadget_err;

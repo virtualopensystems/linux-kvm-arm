@@ -32,7 +32,6 @@
 #include <asm/memory.h>
 #include <mach/hardware.h>
 #include <asm/irq.h>
-#include <asm/system.h>
 #include <asm/tlbflush.h>
 #include <asm/pgtable.h>
 
@@ -515,3 +514,7 @@ void __init ixp2000_init_irq(void)
 	}
 }
 
+void ixp2000_restart(char mode, const char *cmd)
+{
+	ixp2000_reg_wrb(IXP2000_RESET0, RSTALL);
+}

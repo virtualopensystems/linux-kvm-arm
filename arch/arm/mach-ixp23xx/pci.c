@@ -28,7 +28,6 @@
 
 #include <asm/irq.h>
 #include <asm/sizes.h>
-#include <asm/system.h>
 #include <asm/mach/pci.h>
 #include <mach/hardware.h>
 
@@ -143,7 +142,8 @@ struct pci_ops ixp23xx_pci_ops = {
 
 struct pci_bus *ixp23xx_pci_scan_bus(int nr, struct pci_sys_data *sysdata)
 {
-	return pci_scan_bus(sysdata->busnr, &ixp23xx_pci_ops, sysdata);
+	return pci_scan_root_bus(NULL, sysdata->busnr, &ixp23xx_pci_ops,
+				 sysdata, &sysdata->resources);
 }
 
 int ixp23xx_pci_abort_handler(unsigned long addr, unsigned int fsr, struct pt_regs *regs)
@@ -280,9 +280,10 @@ int ixp23xx_pci_setup(int nr, struct pci_sys_data *sys)
 	if (nr >= 1)
 		return 0;
 
-	sys->resource[0] = &ixp23xx_pci_io_space;
-	sys->resource[1] = &ixp23xx_pci_mem_space;
-	sys->resource[2] = NULL;
+	pci_add_resource_offset(&sys->resources,
+				&ixp23xx_pci_io_space, sys->io_offset);
+	pci_add_resource_offset(&sys->resources,
+				&ixp23xx_pci_mem_space, sys->mem_offset);
 
 	return 1;
 }

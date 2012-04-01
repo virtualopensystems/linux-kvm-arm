@@ -17,7 +17,7 @@
  */
 
 #include <stdarg.h>
-#include <linux/module.h>
+#include <linux/module.h>	/* for KSYM_SYMBOL_LEN */
 #include <linux/types.h>
 #include <linux/string.h>
 #include <linux/ctype.h>
@@ -210,6 +210,26 @@ char *put_dec(char *buf, unsigned long long num)
 		rem = do_div(num, 100000);
 		buf = put_dec_full(buf, rem);
 	}
+}
+
+/*
+ * Convert passed number to decimal string.
+ * Returns the length of string.  On buffer overflow, returns 0.
+ *
+ * If speed is not important, use snprintf(). It's easy to read the code.
+ */
+int num_to_str(char *buf, int size, unsigned long long num)
+{
+	char tmp[21];		/* Enough for 2^64 in decimal */
+	int idx, len;
+
+	len = put_dec(tmp, num) - tmp;
+
+	if (len > size)
+		return 0;
+	for (idx = 0; idx < len; ++idx)
+		buf[idx] = tmp[len - idx - 1];
+	return  len;
 }
 
 #define ZEROPAD	1		/* pad with zero */
@@ -777,6 +797,18 @@ char *uuid_string(char *buf, char *end, const u8 *addr,
 	return string(buf, end, uuid, spec);
 }
 
+static
+char *netdev_feature_string(char *buf, char *end, const u8 *addr,
+		      struct printf_spec spec)
+{
+	spec.flags |= SPECIAL | SMALL | ZEROPAD;
+	if (spec.field_width == -1)
+		spec.field_width = 2 + 2 * sizeof(netdev_features_t);
+	spec.base = 16;
+
+	return number(buf, end, *(const netdev_features_t *)addr, spec);
+}
+
 int kptr_restrict __read_mostly;
 
 /*
@@ -824,6 +856,7 @@ int kptr_restrict __read_mostly;
  *       Do not use this feature without some mechanism to verify the
  *       correctness of the format string and va_list arguments.
  * - 'K' For a kernel pointer that should be hidden from unprivileged users
+ * - 'NF' For a netdev_features_t
  *
  * Note: The difference between 'S' and 'F' is that on ia64 and ppc64
  * function pointers are really function descriptors, which contain a
@@ -878,9 +911,15 @@ char *pointer(const char *fmt, char *buf, char *end, void *ptr,
 	case 'U':
 		return uuid_string(buf, end, ptr, spec, fmt);
 	case 'V':
-		return buf + vsnprintf(buf, end > buf ? end - buf : 0,
-				       ((struct va_format *)ptr)->fmt,
-				       *(((struct va_format *)ptr)->va));
+		{
+			va_list va;
+
+			va_copy(va, *((struct va_format *)ptr)->va);
+			buf += vsnprintf(buf, end > buf ? end - buf : 0,
+					 ((struct va_format *)ptr)->fmt, va);
+			va_end(va);
+			return buf;
+		}
 	case 'K':
 		/*
 		 * %pK cannot be used in IRQ context because its test
@@ -895,6 +934,12 @@ char *pointer(const char *fmt, char *buf, char *end, void *ptr,
 		      (kptr_restrict == 1 &&
 		       has_capability_noaudit(current, CAP_SYSLOG))))
 			ptr = NULL;
+		break;
+	case 'N':
+		switch (fmt[1]) {
+		case 'F':
+			return netdev_feature_string(buf, end, ptr, spec);
+		}
 		break;
 	}
 	spec.flags |= SMALL;

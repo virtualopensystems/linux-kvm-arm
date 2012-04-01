@@ -2,7 +2,7 @@
  *  arch/s390/kernel/setup.c
  *
  *  S390 version
- *    Copyright (C) IBM Corp. 1999,2010
+ *    Copyright (C) IBM Corp. 1999,2012
  *    Author(s): Hartmut Penner (hp@de.ibm.com),
  *               Martin Schwidefsky (schwidefsky@de.ibm.com)
  *
@@ -21,6 +21,7 @@
 #include <linux/module.h>
 #include <linux/sched.h>
 #include <linux/kernel.h>
+#include <linux/memblock.h>
 #include <linux/mm.h>
 #include <linux/stddef.h>
 #include <linux/unistd.h>
@@ -45,10 +46,11 @@
 #include <linux/kexec.h>
 #include <linux/crash_dump.h>
 #include <linux/memory.h>
+#include <linux/compat.h>
 
 #include <asm/ipl.h>
 #include <asm/uaccess.h>
-#include <asm/system.h>
+#include <asm/facility.h>
 #include <asm/smp.h>
 #include <asm/mmu_context.h>
 #include <asm/cpcmd.h>
@@ -58,9 +60,10 @@
 #include <asm/ptrace.h>
 #include <asm/sections.h>
 #include <asm/ebcdic.h>
-#include <asm/compat.h>
 #include <asm/kvm_virtio.h>
 #include <asm/diag.h>
+#include <asm/os_info.h>
+#include "entry.h"
 
 long psw_kernel_bits	= PSW_DEFAULT_KEY | PSW_MASK_BASE | PSW_ASC_PRIMARY |
 			  PSW_MASK_EA | PSW_MASK_BA;
@@ -93,6 +96,15 @@ struct mem_chunk __initdata memory_chunk[MEMORY_CHUNKS];
 
 int __initdata memory_end_set;
 unsigned long __initdata memory_end;
+
+unsigned long VMALLOC_START;
+EXPORT_SYMBOL(VMALLOC_START);
+
+unsigned long VMALLOC_END;
+EXPORT_SYMBOL(VMALLOC_END);
+
+struct page *vmemmap;
+EXPORT_SYMBOL(vmemmap);
 
 /* An array with a pointer to the lowcore of every CPU. */
 struct _lowcore *lowcore_ptr[NR_CPUS];
@@ -277,6 +289,15 @@ static int __init early_parse_mem(char *p)
 }
 early_param("mem", early_parse_mem);
 
+static int __init parse_vmalloc(char *arg)
+{
+	if (!arg)
+		return -EINVAL;
+	VMALLOC_END = (memparse(arg, &arg) + PAGE_SIZE - 1) & PAGE_MASK;
+	return 0;
+}
+early_param("vmalloc", parse_vmalloc);
+
 unsigned int user_mode = HOME_SPACE_MODE;
 EXPORT_SYMBOL_GPL(user_mode);
 
@@ -332,8 +353,9 @@ static void setup_addressing_mode(void)
 	}
 }
 
-static void __init
-setup_lowcore(void)
+void *restart_stack __attribute__((__section__(".data")));
+
+static void __init setup_lowcore(void)
 {
 	struct _lowcore *lc;
 
@@ -344,7 +366,7 @@ setup_lowcore(void)
 	lc = __alloc_bootmem_low(LC_PAGES * PAGE_SIZE, LC_PAGES * PAGE_SIZE, 0);
 	lc->restart_psw.mask = psw_kernel_bits;
 	lc->restart_psw.addr =
-		PSW_ADDR_AMODE | (unsigned long) psw_restart_int_handler;
+		PSW_ADDR_AMODE | (unsigned long) restart_int_handler;
 	lc->external_new_psw.mask = psw_kernel_bits |
 		PSW_MASK_DAT | PSW_MASK_MCHECK;
 	lc->external_new_psw.addr =
@@ -382,7 +404,6 @@ setup_lowcore(void)
 		__ctl_set_bit(14, 29);
 	}
 #else
-	lc->cmf_hpp = -1ULL;
 	lc->vdso_per_cpu_data = (unsigned long) &lc->paste[0];
 #endif
 	lc->sync_enter_timer = S390_lowcore.sync_enter_timer;
@@ -394,6 +415,24 @@ setup_lowcore(void)
 	lc->last_update_timer = S390_lowcore.last_update_timer;
 	lc->last_update_clock = S390_lowcore.last_update_clock;
 	lc->ftrace_func = S390_lowcore.ftrace_func;
+
+	restart_stack = __alloc_bootmem(ASYNC_SIZE, ASYNC_SIZE, 0);
+	restart_stack += ASYNC_SIZE;
+
+	/*
+	 * Set up PSW restart to call ipl.c:do_restart(). Copy the relevant
+	 * restart data to the absolute zero lowcore. This is necesary if
+	 * PSW restart is done on an offline CPU that has lowcore zero.
+	 */
+	lc->restart_stack = (unsigned long) restart_stack;
+	lc->restart_fn = (unsigned long) do_restart;
+	lc->restart_data = 0;
+	lc->restart_source = -1UL;
+	memcpy(&S390_lowcore.restart_stack, &lc->restart_stack,
+	       4*sizeof(unsigned long));
+	copy_to_absolute_zero(&S390_lowcore.restart_psw,
+			      &lc->restart_psw, sizeof(psw_t));
+
 	set_prefix((u32)(unsigned long) lc);
 	lowcore_ptr[0] = lc;
 }
@@ -478,8 +517,7 @@ EXPORT_SYMBOL_GPL(real_memory_size);
 
 static void __init setup_memory_end(void)
 {
-	unsigned long memory_size;
-	unsigned long max_mem;
+	unsigned long vmax, vmalloc_size, tmp;
 	int i;
 
 
@@ -489,11 +527,8 @@ static void __init setup_memory_end(void)
 		memory_end_set = 1;
 	}
 #endif
-	memory_size = 0;
+	real_memory_size = 0;
 	memory_end &= PAGE_MASK;
-
-	max_mem = memory_end ? min(VMEM_MAX_PHYS, memory_end) : VMEM_MAX_PHYS;
-	memory_end = min(max_mem, memory_end);
 
 	/*
 	 * Make sure all chunks are MAX_ORDER aligned so we don't need the
@@ -514,44 +549,48 @@ static void __init setup_memory_end(void)
 			chunk->addr = start;
 			chunk->size = end - start;
 		}
+		real_memory_size = max(real_memory_size,
+				       chunk->addr + chunk->size);
 	}
 
+	/* Choose kernel address space layout: 2, 3, or 4 levels. */
+#ifdef CONFIG_64BIT
+	vmalloc_size = VMALLOC_END ?: 128UL << 30;
+	tmp = (memory_end ?: real_memory_size) / PAGE_SIZE;
+	tmp = tmp * (sizeof(struct page) + PAGE_SIZE) + vmalloc_size;
+	if (tmp <= (1UL << 42))
+		vmax = 1UL << 42;	/* 3-level kernel page table */
+	else
+		vmax = 1UL << 53;	/* 4-level kernel page table */
+#else
+	vmalloc_size = VMALLOC_END ?: 96UL << 20;
+	vmax = 1UL << 31;		/* 2-level kernel page table */
+#endif
+	/* vmalloc area is at the end of the kernel address space. */
+	VMALLOC_END = vmax;
+	VMALLOC_START = vmax - vmalloc_size;
+
+	/* Split remaining virtual space between 1:1 mapping & vmemmap array */
+	tmp = VMALLOC_START / (PAGE_SIZE + sizeof(struct page));
+	tmp = VMALLOC_START - tmp * sizeof(struct page);
+	tmp &= ~((vmax >> 11) - 1);	/* align to page table level */
+	tmp = min(tmp, 1UL << MAX_PHYSMEM_BITS);
+	vmemmap = (struct page *) tmp;
+
+	/* Take care that memory_end is set and <= vmemmap */
+	memory_end = min(memory_end ?: real_memory_size, tmp);
+
+	/* Fixup memory chunk array to fit into 0..memory_end */
 	for (i = 0; i < MEMORY_CHUNKS; i++) {
 		struct mem_chunk *chunk = &memory_chunk[i];
 
-		real_memory_size = max(real_memory_size,
-				       chunk->addr + chunk->size);
-		if (chunk->addr >= max_mem) {
+		if (chunk->addr >= memory_end) {
 			memset(chunk, 0, sizeof(*chunk));
 			continue;
 		}
-		if (chunk->addr + chunk->size > max_mem)
-			chunk->size = max_mem - chunk->addr;
-		memory_size = max(memory_size, chunk->addr + chunk->size);
+		if (chunk->addr + chunk->size > memory_end)
+			chunk->size = memory_end - chunk->addr;
 	}
-	if (!memory_end)
-		memory_end = memory_size;
-}
-
-void *restart_stack __attribute__((__section__(".data")));
-
-/*
- * Setup new PSW and allocate stack for PSW restart interrupt
- */
-static void __init setup_restart_psw(void)
-{
-	psw_t psw;
-
-	restart_stack = __alloc_bootmem(ASYNC_SIZE, ASYNC_SIZE, 0);
-	restart_stack += ASYNC_SIZE;
-
-	/*
-	 * Setup restart PSW for absolute zero lowcore. This is necesary
-	 * if PSW restart is done on an offline CPU that has lowcore zero
-	 */
-	psw.mask = PSW_DEFAULT_KEY | PSW_MASK_BASE | PSW_MASK_EA | PSW_MASK_BA;
-	psw.addr = PSW_ADDR_AMODE | (unsigned long) psw_restart_int_handler;
-	copy_to_absolute_zero(&S390_lowcore.restart_psw, &psw, sizeof(psw));
 }
 
 static void __init setup_vmcoreinfo(void)
@@ -654,7 +693,6 @@ static int __init verify_crash_base(unsigned long crash_base,
 static void __init reserve_kdump_bootmem(unsigned long addr, unsigned long size,
 					 int type)
 {
-
 	create_mem_hole(memory_chunk, addr, size, type);
 }
 
@@ -709,7 +747,7 @@ static void __init reserve_crashkernel(void)
 {
 #ifdef CONFIG_CRASH_DUMP
 	unsigned long long crash_base, crash_size;
-	char *msg;
+	char *msg = NULL;
 	int rc;
 
 	rc = parse_crashkernel(boot_command_line, memory_end, &crash_size,
@@ -741,11 +779,11 @@ static void __init reserve_crashkernel(void)
 	pr_info("Reserving %lluMB of memory at %lluMB "
 		"for crashkernel (System RAM: %luMB)\n",
 		crash_size >> 20, crash_base >> 20, memory_end >> 20);
+	os_info_crashkernel_add(crash_base, crash_size);
 #endif
 }
 
-static void __init
-setup_memory(void)
+static void __init setup_memory(void)
 {
         unsigned long bootmap_size;
 	unsigned long start_pfn, end_pfn;
@@ -820,7 +858,8 @@ setup_memory(void)
 		end_chunk = min(end_chunk, end_pfn);
 		if (start_chunk >= end_chunk)
 			continue;
-		add_active_range(0, start_chunk, end_chunk);
+		memblock_add_node(PFN_PHYS(start_chunk),
+				  PFN_PHYS(end_chunk - start_chunk), 0);
 		pfn = max(start_chunk, start_pfn);
 		for (; pfn < end_chunk; pfn++)
 			page_set_storage_key(PFN_PHYS(pfn),
@@ -975,8 +1014,7 @@ static void __init setup_hwcaps(void)
  * was printed.
  */
 
-void __init
-setup_arch(char **cmdline_p)
+void __init setup_arch(char **cmdline_p)
 {
         /*
          * print what head.S has found out about the machine
@@ -1021,6 +1059,7 @@ setup_arch(char **cmdline_p)
 
 	parse_early_param();
 
+	os_info_init();
 	setup_ipl();
 	setup_memory_end();
 	setup_addressing_mode();
@@ -1029,7 +1068,6 @@ setup_arch(char **cmdline_p)
 	setup_memory();
 	setup_resources();
 	setup_vmcoreinfo();
-	setup_restart_psw();
 	setup_lowcore();
 
         cpu_init();

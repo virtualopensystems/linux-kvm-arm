@@ -19,7 +19,7 @@
 #include "include/audit.h"
 #include "include/policy.h"
 
-const char *op_table[] = {
+const char *const op_table[] = {
 	"null",
 
 	"sysctl",
@@ -73,7 +73,7 @@ const char *op_table[] = {
 	"profile_remove"
 };
 
-const char *audit_mode_names[] = {
+const char *const audit_mode_names[] = {
 	"normal",
 	"quiet_denied",
 	"quiet",
@@ -81,7 +81,7 @@ const char *audit_mode_names[] = {
 	"all"
 };
 
-static char *aa_audit_type[] = {
+static const char *const aa_audit_type[] = {
 	"AUDIT",
 	"ALLOWED",
 	"DENIED",
@@ -89,6 +89,7 @@ static char *aa_audit_type[] = {
 	"STATUS",
 	"ERROR",
 	"KILLED"
+	"AUTO"
 };
 
 /*
@@ -133,7 +134,7 @@ static void audit_pre(struct audit_buffer *ab, void *ca)
 		struct aa_profile *profile = sa->aad.profile;
 		pid_t pid;
 		rcu_read_lock();
-		pid = tsk->real_parent->pid;
+		pid = rcu_dereference(tsk->real_parent)->pid;
 		rcu_read_unlock();
 		audit_log_format(ab, " parent=%d", pid);
 		if (profile->ns != root_ns) {

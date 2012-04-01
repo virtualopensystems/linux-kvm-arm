@@ -47,7 +47,6 @@
 #include <linux/mutex.h>
 
 #include <linux/uaccess.h>
-#include <asm/system.h>
 
 static const struct proto_ops econet_ops;
 static struct hlist_head econet_sklist;
@@ -322,6 +321,7 @@ static int econet_sendmsg(struct kiocb *iocb, struct socket *sock,
 		/* Real hardware Econet.  We're not worthy etc. */
 #ifdef CONFIG_ECONET_NATIVE
 		unsigned short proto = 0;
+		int hlen, tlen;
 		int res;
 
 		if (len + 15 > dev->mtu) {
@@ -331,12 +331,14 @@ static int econet_sendmsg(struct kiocb *iocb, struct socket *sock,
 
 		dev_hold(dev);
 
-		skb = sock_alloc_send_skb(sk, len + LL_ALLOCATED_SPACE(dev),
+		hlen = LL_RESERVED_SPACE(dev);
+		tlen = dev->needed_tailroom;
+		skb = sock_alloc_send_skb(sk, len + hlen + tlen,
 					  msg->msg_flags & MSG_DONTWAIT, &err);
 		if (skb == NULL)
 			goto out_unlock;
 
-		skb_reserve(skb, LL_RESERVED_SPACE(dev));
+		skb_reserve(skb, hlen);
 		skb_reset_network_header(skb);
 
 		eb = (struct ec_cb *)&skb->cb;

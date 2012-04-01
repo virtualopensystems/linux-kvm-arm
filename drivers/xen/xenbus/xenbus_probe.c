@@ -257,10 +257,11 @@ int xenbus_dev_remove(struct device *_dev)
 	DPRINTK("%s", dev->nodename);
 
 	free_otherend_watch(dev);
-	free_otherend_details(dev);
 
 	if (drv->remove)
 		drv->remove(dev);
+
+	free_otherend_details(dev);
 
 	xenbus_switch_state(dev, XenbusStateClosed);
 	return 0;
@@ -291,14 +292,9 @@ void xenbus_dev_shutdown(struct device *_dev)
 EXPORT_SYMBOL_GPL(xenbus_dev_shutdown);
 
 int xenbus_register_driver_common(struct xenbus_driver *drv,
-				  struct xen_bus_type *bus,
-				  struct module *owner,
-				  const char *mod_name)
+				  struct xen_bus_type *bus)
 {
-	drv->driver.name = drv->name;
 	drv->driver.bus = &bus->bus;
-	drv->driver.owner = owner;
-	drv->driver.mod_name = mod_name;
 
 	return driver_register(&drv->driver);
 }
@@ -729,6 +725,8 @@ static int __init xenbus_init(void)
 
 	if (!xen_domain())
 		return -ENODEV;
+
+	xenbus_ring_ops_init();
 
 	if (xen_hvm_domain()) {
 		uint64_t v = 0;

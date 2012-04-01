@@ -733,7 +733,6 @@ static int __devinit sgiseeq_probe(struct platform_device *pdev)
 
 	dev = alloc_etherdev(sizeof (struct sgiseeq_private));
 	if (!dev) {
-		printk(KERN_ERR "Sgiseeq: Etherdev alloc failed, aborting.\n");
 		err = -ENOMEM;
 		goto err_out;
 	}
@@ -834,23 +833,7 @@ static struct platform_driver sgiseeq_driver = {
 	}
 };
 
-static int __init sgiseeq_module_init(void)
-{
-	if (platform_driver_register(&sgiseeq_driver)) {
-		printk(KERN_ERR "Driver registration failed\n");
-		return -ENODEV;
-	}
-
-	return 0;
-}
-
-static void __exit sgiseeq_module_exit(void)
-{
-	platform_driver_unregister(&sgiseeq_driver);
-}
-
-module_init(sgiseeq_module_init);
-module_exit(sgiseeq_module_exit);
+module_platform_driver(sgiseeq_driver);
 
 MODULE_DESCRIPTION("SGI Seeq 8003 driver");
 MODULE_AUTHOR("Linux/MIPS Mailing List <linux-mips@linux-mips.org>");

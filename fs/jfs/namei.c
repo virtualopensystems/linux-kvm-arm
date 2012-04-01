@@ -72,7 +72,7 @@ static inline void free_ea_wmap(struct inode *inode)
  * RETURN:	Errors from subroutines
  *
  */
-static int jfs_create(struct inode *dip, struct dentry *dentry, int mode,
+static int jfs_create(struct inode *dip, struct dentry *dentry, umode_t mode,
 		struct nameidata *nd)
 {
 	int rc = 0;
@@ -205,7 +205,7 @@ static int jfs_create(struct inode *dip, struct dentry *dentry, int mode,
  * note:
  * EACCESS: user needs search+write permission on the parent directory
  */
-static int jfs_mkdir(struct inode *dip, struct dentry *dentry, int mode)
+static int jfs_mkdir(struct inode *dip, struct dentry *dentry, umode_t mode)
 {
 	int rc = 0;
 	tid_t tid;		/* transaction id */
@@ -219,12 +219,6 @@ static int jfs_mkdir(struct inode *dip, struct dentry *dentry, int mode)
 	jfs_info("jfs_mkdir: dip:0x%p name:%s", dip, dentry->d_name.name);
 
 	dquot_initialize(dip);
-
-	/* link count overflow on parent directory ? */
-	if (dip->i_nlink == JFS_LINK_MAX) {
-		rc = -EMLINK;
-		goto out1;
-	}
 
 	/*
 	 * search parent directory for entry/freespace
@@ -806,9 +800,6 @@ static int jfs_link(struct dentry *old_dentry,
 	jfs_info("jfs_link: %s %s", old_dentry->d_name.name,
 		 dentry->d_name.name);
 
-	if (ip->i_nlink == JFS_LINK_MAX)
-		return -EMLINK;
-
 	dquot_initialize(dir);
 
 	tid = txBegin(ip->i_sb, 0);
@@ -1138,10 +1129,6 @@ static int jfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 				rc = -ENOTEMPTY;
 				goto out3;
 			}
-		} else if ((new_dir != old_dir) &&
-			   (new_dir->i_nlink == JFS_LINK_MAX)) {
-			rc = -EMLINK;
-			goto out3;
 		}
 	} else if (new_ip) {
 		IWRITE_LOCK(new_ip, RDWRLOCK_NORMAL);
@@ -1353,7 +1340,7 @@ static int jfs_rename(struct inode *old_dir, struct dentry *old_dentry,
  * FUNCTION:	Create a special file (device)
  */
 static int jfs_mknod(struct inode *dir, struct dentry *dentry,
-		int mode, dev_t rdev)
+		umode_t mode, dev_t rdev)
 {
 	struct jfs_inode_info *jfs_ip;
 	struct btstack btstack;

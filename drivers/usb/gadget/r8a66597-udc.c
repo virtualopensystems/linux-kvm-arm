@@ -663,11 +663,7 @@ static int sudmac_alloc_channel(struct r8a66597 *r8a66597,
 	ep->fifoctr = D0FIFOCTR;
 
 	/* dma mapping */
-	req->req.dma = dma_map_single(r8a66597_to_dev(ep->r8a66597),
-				req->req.buf, req->req.length,
-				dma->dir ? DMA_TO_DEVICE : DMA_FROM_DEVICE);
-
-	return 0;
+	return usb_gadget_map_request(&r8a66597->gadget, &req->req, dma->dir);
 }
 
 static void sudmac_free_channel(struct r8a66597 *r8a66597,
@@ -677,9 +673,7 @@ static void sudmac_free_channel(struct r8a66597 *r8a66597,
 	if (!r8a66597_is_sudmac(r8a66597))
 		return;
 
-	dma_unmap_single(r8a66597_to_dev(ep->r8a66597),
-			 req->req.dma, req->req.length,
-			 ep->dma->dir ? DMA_TO_DEVICE : DMA_FROM_DEVICE);
+	usb_gadget_unmap_request(&r8a66597->gadget, &req->req, ep->dma->dir);
 
 	r8a66597_bclr(r8a66597, DREQE, ep->fifosel);
 	r8a66597_change_curpipe(r8a66597, 0, 0, ep->fifosel);
@@ -1746,7 +1740,7 @@ static int r8a66597_start(struct usb_gadget *gadget,
 	struct r8a66597 *r8a66597 = gadget_to_r8a66597(gadget);
 
 	if (!driver
-			|| driver->speed < USB_SPEED_HIGH
+			|| driver->max_speed < USB_SPEED_HIGH
 			|| !driver->setup)
 		return -EINVAL;
 	if (!r8a66597)
@@ -1911,7 +1905,7 @@ static int __init r8a66597_probe(struct platform_device *pdev)
 
 	r8a66597->gadget.ops = &r8a66597_gadget_ops;
 	dev_set_name(&r8a66597->gadget.dev, "gadget");
-	r8a66597->gadget.is_dualspeed = 1;
+	r8a66597->gadget.max_speed = USB_SPEED_HIGH;
 	r8a66597->gadget.dev.parent = &pdev->dev;
 	r8a66597->gadget.dev.dma_mask = pdev->dev.dma_mask;
 	r8a66597->gadget.dev.release = pdev->dev.release;

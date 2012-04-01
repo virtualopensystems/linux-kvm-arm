@@ -77,7 +77,7 @@ static ssize_t ad9834_write(struct device *dev,
 		goto error_ret;
 
 	mutex_lock(&indio_dev->mlock);
-	switch (this_attr->address) {
+	switch ((u32) this_attr->address) {
 	case AD9834_REG_FREQ0:
 	case AD9834_REG_FREQ1:
 		ret = ad9834_write_frequency(st, this_attr->address, val);
@@ -153,7 +153,7 @@ static ssize_t ad9834_store_wavetype(struct device *dev,
 
 	mutex_lock(&indio_dev->mlock);
 
-	switch (this_attr->address) {
+	switch ((u32) this_attr->address) {
 	case 0:
 		if (sysfs_streq(buf, "sine")) {
 			st->control &= ~AD9834_MODE;
@@ -281,33 +281,36 @@ static struct attribute *ad9834_attributes[] = {
 	NULL,
 };
 
-static mode_t ad9834_attr_is_visible(struct kobject *kobj,
-				     struct attribute *attr, int n)
-{
-	struct device *dev = container_of(kobj, struct device, kobj);
-	struct iio_dev *indio_dev = dev_get_drvdata(dev);
-	struct ad9834_state *st = iio_priv(indio_dev);
-
-	mode_t mode = attr->mode;
-
-	if (((st->devid == ID_AD9833) || (st->devid == ID_AD9837)) &&
-		((attr == &iio_dev_attr_dds0_out1_enable.dev_attr.attr) ||
-		(attr == &iio_dev_attr_dds0_out1_wavetype.dev_attr.attr) ||
-		(attr ==
-		&iio_dev_attr_dds0_out1_wavetype_available.dev_attr.attr) ||
-		(attr == &iio_dev_attr_dds0_pincontrol_en.dev_attr.attr)))
-		mode = 0;
-
-	return mode;
-}
+static struct attribute *ad9833_attributes[] = {
+	&iio_dev_attr_dds0_freq0.dev_attr.attr,
+	&iio_dev_attr_dds0_freq1.dev_attr.attr,
+	&iio_const_attr_dds0_freq_scale.dev_attr.attr,
+	&iio_dev_attr_dds0_phase0.dev_attr.attr,
+	&iio_dev_attr_dds0_phase1.dev_attr.attr,
+	&iio_const_attr_dds0_phase_scale.dev_attr.attr,
+	&iio_dev_attr_dds0_freqsymbol.dev_attr.attr,
+	&iio_dev_attr_dds0_phasesymbol.dev_attr.attr,
+	&iio_dev_attr_dds0_out_enable.dev_attr.attr,
+	&iio_dev_attr_dds0_out0_wavetype.dev_attr.attr,
+	&iio_dev_attr_dds0_out0_wavetype_available.dev_attr.attr,
+	NULL,
+};
 
 static const struct attribute_group ad9834_attribute_group = {
 	.attrs = ad9834_attributes,
-	.is_visible = ad9834_attr_is_visible,
+};
+
+static const struct attribute_group ad9833_attribute_group = {
+	.attrs = ad9833_attributes,
 };
 
 static const struct iio_info ad9834_info = {
 	.attrs = &ad9834_attribute_group,
+	.driver_module = THIS_MODULE,
+};
+
+static const struct iio_info ad9833_info = {
+	.attrs = &ad9833_attribute_group,
 	.driver_module = THIS_MODULE,
 };
 
@@ -344,7 +347,15 @@ static int __devinit ad9834_probe(struct spi_device *spi)
 	st->reg = reg;
 	indio_dev->dev.parent = &spi->dev;
 	indio_dev->name = spi_get_device_id(spi)->name;
-	indio_dev->info = &ad9834_info;
+	switch (st->devid) {
+	case ID_AD9833:
+	case ID_AD9837:
+		indio_dev->info = &ad9833_info;
+		break;
+	default:
+		indio_dev->info = &ad9834_info;
+		break;
+	}
 	indio_dev->modes = INDIO_DIRECT_MODE;
 
 	/* Setup default messages */
@@ -435,31 +446,19 @@ static const struct spi_device_id ad9834_id[] = {
 	{"ad9838", ID_AD9838},
 	{}
 };
+MODULE_DEVICE_TABLE(spi, ad9834_id);
 
 static struct spi_driver ad9834_driver = {
 	.driver = {
 		.name	= "ad9834",
-		.bus	= &spi_bus_type,
 		.owner	= THIS_MODULE,
 	},
 	.probe		= ad9834_probe,
 	.remove		= __devexit_p(ad9834_remove),
 	.id_table	= ad9834_id,
 };
-
-static int __init ad9834_init(void)
-{
-	return spi_register_driver(&ad9834_driver);
-}
-module_init(ad9834_init);
-
-static void __exit ad9834_exit(void)
-{
-	spi_unregister_driver(&ad9834_driver);
-}
-module_exit(ad9834_exit);
+module_spi_driver(ad9834_driver);
 
 MODULE_AUTHOR("Michael Hennerich <hennerich@blackfin.uclinux.org>");
 MODULE_DESCRIPTION("Analog Devices AD9833/AD9834/AD9837/AD9838 DDS");
 MODULE_LICENSE("GPL v2");
-MODULE_ALIAS("spi:ad9834");

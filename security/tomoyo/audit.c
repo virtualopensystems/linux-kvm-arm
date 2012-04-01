@@ -112,7 +112,7 @@ out:
  *
  * Returns file type string.
  */
-static inline const char *tomoyo_filetype(const mode_t mode)
+static inline const char *tomoyo_filetype(const umode_t mode)
 {
 	switch (mode & S_IFMT) {
 	case S_IFREG:
@@ -180,7 +180,7 @@ static char *tomoyo_print_header(struct tomoyo_request_info *r)
 	for (i = 0; i < TOMOYO_MAX_PATH_STAT; i++) {
 		struct tomoyo_mini_stat *stat;
 		unsigned int dev;
-		mode_t mode;
+		umode_t mode;
 		if (!obj->stat_valid[i])
 			continue;
 		stat = &obj->stat[i];
@@ -446,11 +446,11 @@ void tomoyo_read_log(struct tomoyo_io_buffer *head)
  * tomoyo_poll_log - Wait for an audit log.
  *
  * @file: Pointer to "struct file".
- * @wait: Pointer to "poll_table".
+ * @wait: Pointer to "poll_table". Maybe NULL.
  *
  * Returns POLLIN | POLLRDNORM when ready to read an audit log.
  */
-int tomoyo_poll_log(struct file *file, poll_table *wait)
+unsigned int tomoyo_poll_log(struct file *file, poll_table *wait)
 {
 	if (tomoyo_log_count)
 		return POLLIN | POLLRDNORM;

@@ -276,7 +276,6 @@ static void ubifs_i_callback(struct rcu_head *head)
 {
 	struct inode *inode = container_of(head, struct inode, i_rcu);
 	struct ubifs_inode *ui = ubifs_inode(inode);
-	INIT_LIST_HEAD(&inode->i_dentry);
 	kmem_cache_free(ubifs_inode_slab, ui);
 }
 
@@ -420,9 +419,9 @@ static int ubifs_statfs(struct dentry *dentry, struct kstatfs *buf)
 	return 0;
 }
 
-static int ubifs_show_options(struct seq_file *s, struct vfsmount *mnt)
+static int ubifs_show_options(struct seq_file *s, struct dentry *root)
 {
-	struct ubifs_info *c = mnt->mnt_sb->s_fs_info;
+	struct ubifs_info *c = root->d_sb->s_fs_info;
 
 	if (c->mount_opts.unmount_mode == 2)
 		seq_printf(s, ",fast_unmount");
@@ -2077,15 +2076,13 @@ static int ubifs_fill_super(struct super_block *sb, void *data, int silent)
 		goto out_umount;
 	}
 
-	sb->s_root = d_alloc_root(root);
+	sb->s_root = d_make_root(root);
 	if (!sb->s_root)
-		goto out_iput;
+		goto out_umount;
 
 	mutex_unlock(&c->umount_mutex);
 	return 0;
 
-out_iput:
-	iput(root);
 out_umount:
 	ubifs_umount(c);
 out_unlock:

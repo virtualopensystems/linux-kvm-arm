@@ -169,7 +169,7 @@ static ssize_t set_type(struct device *dev, struct device_attribute *attr,
 	int shift;
 	u8 mask = to_sensor_dev_attr(attr)->index;
 
-	if (strict_strtoul(buf, 10, &val) < 0)
+	if (kstrtoul(buf, 10, &val) < 0)
 		return -EINVAL;
 	if (val != 1 && val != 2)
 		return -EINVAL;
@@ -216,7 +216,7 @@ static ssize_t set_min(struct device *dev, struct device_attribute *attr,
 	struct lm95241_data *data = i2c_get_clientdata(client);
 	long val;
 
-	if (strict_strtol(buf, 10, &val) < 0)
+	if (kstrtol(buf, 10, &val) < 0)
 		return -EINVAL;
 	if (val < -128000)
 		return -EINVAL;
@@ -254,7 +254,7 @@ static ssize_t set_max(struct device *dev, struct device_attribute *attr,
 	struct lm95241_data *data = i2c_get_clientdata(client);
 	long val;
 
-	if (strict_strtol(buf, 10, &val) < 0)
+	if (kstrtol(buf, 10, &val) < 0)
 		return -EINVAL;
 	if (val >= 256000)
 		return -EINVAL;
@@ -290,7 +290,7 @@ static ssize_t set_interval(struct device *dev, struct device_attribute *attr,
 	struct lm95241_data *data = i2c_get_clientdata(client);
 	unsigned long val;
 
-	if (strict_strtoul(buf, 10, &val) < 0)
+	if (kstrtoul(buf, 10, &val) < 0)
 		return -EINVAL;
 
 	data->interval = val * HZ / 1000;
@@ -455,19 +455,8 @@ static struct i2c_driver lm95241_driver = {
 	.address_list	= normal_i2c,
 };
 
-static int __init sensors_lm95241_init(void)
-{
-	return i2c_add_driver(&lm95241_driver);
-}
-
-static void __exit sensors_lm95241_exit(void)
-{
-	i2c_del_driver(&lm95241_driver);
-}
+module_i2c_driver(lm95241_driver);
 
 MODULE_AUTHOR("Davide Rizzo <elpa.rizzo@gmail.com>");
 MODULE_DESCRIPTION("LM95241 sensor driver");
 MODULE_LICENSE("GPL");
-
-module_init(sensors_lm95241_init);
-module_exit(sensors_lm95241_exit);

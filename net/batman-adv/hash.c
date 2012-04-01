@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006-2011 B.A.T.M.A.N. contributors:
+ * Copyright (C) 2006-2012 B.A.T.M.A.N. contributors:
  *
  * Simon Wunderlich, Marek Lindner
  *
@@ -25,7 +25,7 @@
 /* clears the hash */
 static void hash_init(struct hashtable_t *hash)
 {
-	int i;
+	uint32_t i;
 
 	for (i = 0 ; i < hash->size; i++) {
 		INIT_HLIST_HEAD(&hash->table[i]);
@@ -42,7 +42,7 @@ void hash_destroy(struct hashtable_t *hash)
 }
 
 /* allocates and clears the hash */
-struct hashtable_t *hash_new(int size)
+struct hashtable_t *hash_new(uint32_t size)
 {
 	struct hashtable_t *hash;
 

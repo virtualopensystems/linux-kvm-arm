@@ -36,7 +36,6 @@
 #include <mach/hardware.h>
 #include <mach/iomux-mx27.h>
 #include <asm/mach/time.h>
-#include <mach/audmux.h>
 #include <mach/irqs.h>
 #include <mach/ulpi.h>
 
@@ -359,18 +358,6 @@ static void __init pca100_init(void)
 
 	imx27_soc_init();
 
-	/* SSI unit */
-	mxc_audmux_v1_configure_port(MX27_AUDMUX_HPCR1_SSI0,
-				  MXC_AUDMUX_V1_PCR_SYN | /* 4wire mode */
-				  MXC_AUDMUX_V1_PCR_TFCSEL(3) |
-				  MXC_AUDMUX_V1_PCR_TCLKDIR | /* clock is output */
-				  MXC_AUDMUX_V1_PCR_RXDSEL(3));
-	mxc_audmux_v1_configure_port(3,
-				  MXC_AUDMUX_V1_PCR_SYN | /* 4wire mode */
-				  MXC_AUDMUX_V1_PCR_TFCSEL(0) |
-				  MXC_AUDMUX_V1_PCR_TFSDIR |
-				  MXC_AUDMUX_V1_PCR_RXDSEL(0));
-
 	ret = mxc_gpio_setup_multiple_pins(pca100_pins,
 			ARRAY_SIZE(pca100_pins), "PCA100");
 	if (ret)
@@ -442,4 +429,5 @@ MACHINE_START(PCA100, "phyCARD-i.MX27")
 	.handle_irq = imx27_handle_irq,
 	.init_machine = pca100_init,
 	.timer = &pca100_timer,
+	.restart	= mxc_restart,
 MACHINE_END

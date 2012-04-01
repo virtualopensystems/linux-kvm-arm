@@ -1,8 +1,5 @@
-#define _GNU_SOURCE
-#include <ctype.h>
 #include <dirent.h>
 #include <errno.h>
-#include <libgen.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -13,6 +10,7 @@
 #include <unistd.h>
 #include <inttypes.h>
 #include "build-id.h"
+#include "util.h"
 #include "debug.h"
 #include "symbol.h"
 #include "strlist.h"
@@ -52,6 +50,8 @@ struct symbol_conf symbol_conf = {
 
 int dso__name_len(const struct dso *dso)
 {
+	if (!dso)
+		return strlen("[unknown]");
 	if (verbose)
 		return dso->long_name_len;
 
@@ -262,6 +262,28 @@ static size_t symbol__fprintf(struct symbol *sym, FILE *fp)
 		       sym->binding == STB_GLOBAL ? 'g' :
 		       sym->binding == STB_LOCAL  ? 'l' : 'w',
 		       sym->name);
+}
+
+size_t symbol__fprintf_symname_offs(const struct symbol *sym,
+				    const struct addr_location *al, FILE *fp)
+{
+	unsigned long offset;
+	size_t length;
+
+	if (sym && sym->name) {
+		length = fprintf(fp, "%s", sym->name);
+		if (al) {
+			offset = al->addr - sym->start;
+			length += fprintf(fp, "+0x%lx", offset);
+		}
+		return length;
+	} else
+		return fprintf(fp, "[unknown]");
+}
+
+size_t symbol__fprintf_symname(const struct symbol *sym, FILE *fp)
+{
+	return symbol__fprintf_symname_offs(sym, NULL, fp);
 }
 
 void dso__set_long_name(struct dso *dso, char *name)
@@ -1757,7 +1779,7 @@ static int map_groups__set_modules_path_dir(struct map_groups *mg,
 		struct stat st;
 
 		/*sshfs might return bad dent->d_type, so we have to stat*/
-		sprintf(path, "%s/%s", dir_name, dent->d_name);
+		snprintf(path, sizeof(path), "%s/%s", dir_name, dent->d_name);
 		if (stat(path, &st))
 			continue;
 
@@ -1766,8 +1788,6 @@ static int map_groups__set_modules_path_dir(struct map_groups *mg,
 			    !strcmp(dent->d_name, ".."))
 				continue;
 
-			snprintf(path, sizeof(path), "%s/%s",
-				 dir_name, dent->d_name);
 			ret = map_groups__set_modules_path_dir(mg, path);
 			if (ret < 0)
 				goto out;
@@ -1787,9 +1807,6 @@ static int map_groups__set_modules_path_dir(struct map_groups *mg,
 						       dso_name);
 			if (map == NULL)
 				continue;
-
-			snprintf(path, sizeof(path), "%s/%s",
-				 dir_name, dent->d_name);
 
 			long_name = strdup(path);
 			if (long_name == NULL) {
@@ -2609,10 +2626,10 @@ int symbol__init(void)
 	symbol_conf.initialized = true;
 	return 0;
 
-out_free_dso_list:
-	strlist__delete(symbol_conf.dso_list);
 out_free_comm_list:
 	strlist__delete(symbol_conf.comm_list);
+out_free_dso_list:
+	strlist__delete(symbol_conf.dso_list);
 	return -1;
 }
 

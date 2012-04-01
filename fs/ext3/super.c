@@ -17,22 +17,12 @@
  */
 
 #include <linux/module.h>
-#include <linux/string.h>
-#include <linux/fs.h>
-#include <linux/time.h>
-#include <linux/jbd.h>
-#include <linux/ext3_fs.h>
-#include <linux/ext3_jbd.h>
-#include <linux/slab.h>
-#include <linux/init.h>
 #include <linux/blkdev.h>
 #include <linux/parser.h>
-#include <linux/buffer_head.h>
 #include <linux/exportfs.h>
-#include <linux/vfs.h>
+#include <linux/statfs.h>
 #include <linux/random.h>
 #include <linux/mount.h>
-#include <linux/namei.h>
 #include <linux/quotaops.h>
 #include <linux/seq_file.h>
 #include <linux/log2.h>
@@ -40,12 +30,12 @@
 
 #include <asm/uaccess.h>
 
+#define CREATE_TRACE_POINTS
+
+#include "ext3.h"
 #include "xattr.h"
 #include "acl.h"
 #include "namei.h"
-
-#define CREATE_TRACE_POINTS
-#include <trace/events/ext3.h>
 
 #ifdef CONFIG_EXT3_DEFAULTS_TO_ORDERED
   #define EXT3_MOUNT_DEFAULT_DATA_MODE EXT3_MOUNT_ORDERED_DATA
@@ -511,7 +501,6 @@ static int ext3_drop_inode(struct inode *inode)
 static void ext3_i_callback(struct rcu_head *head)
 {
 	struct inode *inode = container_of(head, struct inode, i_rcu);
-	INIT_LIST_HEAD(&inode->i_dentry);
 	kmem_cache_free(ext3_inode_cachep, EXT3_I(inode));
 }
 
@@ -611,9 +600,9 @@ static char *data_mode_string(unsigned long mode)
  *  - it's set to a non-default value OR
  *  - if the per-sb default is different from the global default
  */
-static int ext3_show_options(struct seq_file *seq, struct vfsmount *vfs)
+static int ext3_show_options(struct seq_file *seq, struct dentry *root)
 {
-	struct super_block *sb = vfs->mnt_sb;
+	struct super_block *sb = root->d_sb;
 	struct ext3_sb_info *sbi = EXT3_SB(sb);
 	struct ext3_super_block *es = sbi->s_es;
 	unsigned long def_mount_opts;
@@ -2047,10 +2036,9 @@ static int ext3_fill_super (struct super_block *sb, void *data, int silent)
 		ext3_msg(sb, KERN_ERR, "error: corrupt root inode, run e2fsck");
 		goto failed_mount3;
 	}
-	sb->s_root = d_alloc_root(root);
+	sb->s_root = d_make_root(root);
 	if (!sb->s_root) {
 		ext3_msg(sb, KERN_ERR, "error: get root dentry failed");
-		iput(root);
 		ret = -ENOMEM;
 		goto failed_mount3;
 	}
@@ -2060,9 +2048,10 @@ static int ext3_fill_super (struct super_block *sb, void *data, int silent)
 	EXT3_SB(sb)->s_mount_state |= EXT3_ORPHAN_FS;
 	ext3_orphan_cleanup(sb, es);
 	EXT3_SB(sb)->s_mount_state &= ~EXT3_ORPHAN_FS;
-	if (needs_recovery)
+	if (needs_recovery) {
+		ext3_mark_recovery_complete(sb, es);
 		ext3_msg(sb, KERN_INFO, "recovery complete");
-	ext3_mark_recovery_complete(sb, es);
+	}
 	ext3_msg(sb, KERN_INFO, "mounted filesystem with %s data mode",
 		test_opt(sb,DATA_FLAGS) == EXT3_MOUNT_JOURNAL_DATA ? "journal":
 		test_opt(sb,DATA_FLAGS) == EXT3_MOUNT_ORDERED_DATA ? "ordered":
@@ -2230,11 +2219,11 @@ static journal_t *ext3_get_dev_journal(struct super_block *sb,
 		goto out_bdev;
 	}
 	journal->j_private = sb;
-	ll_rw_block(READ, 1, &journal->j_sb_buffer);
-	wait_on_buffer(journal->j_sb_buffer);
-	if (!buffer_uptodate(journal->j_sb_buffer)) {
-		ext3_msg(sb, KERN_ERR, "I/O error on journal device");
-		goto out_journal;
+	if (!bh_uptodate_or_lock(journal->j_sb_buffer)) {
+		if (bh_submit_read(journal->j_sb_buffer)) {
+			ext3_msg(sb, KERN_ERR, "I/O error on journal device");
+			goto out_journal;
+		}
 	}
 	if (be32_to_cpu(journal->j_superblock->s_nr_users) != 1) {
 		ext3_msg(sb, KERN_ERR,
@@ -2910,7 +2899,7 @@ static int ext3_quota_on(struct super_block *sb, int type, int format_id,
 		return -EINVAL;
 
 	/* Quotafile not on the same filesystem? */
-	if (path->mnt->mnt_sb != sb)
+	if (path->dentry->d_sb != sb)
 		return -EXDEV;
 	/* Journaling quota? */
 	if (EXT3_SB(sb)->s_qf_names[type]) {

@@ -21,7 +21,6 @@
 #include <asm/page.h>
 #include <asm/pgtable.h>
 #include <asm/r4kcache.h>
-#include <asm/system.h>
 #include <asm/mmu_context.h>
 #include <asm/war.h>
 
@@ -223,7 +222,7 @@ static void __cpuinit probe_octeon(void)
 		break;
 
 	default:
-		panic("Unsupported Cavium Networks CPU type\n");
+		panic("Unsupported Cavium Networks CPU type");
 		break;
 	}
 

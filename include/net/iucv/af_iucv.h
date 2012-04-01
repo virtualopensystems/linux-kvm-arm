@@ -27,7 +27,6 @@ enum {
 	IUCV_OPEN,
 	IUCV_BOUND,
 	IUCV_LISTEN,
-	IUCV_SEVERED,
 	IUCV_DISCONN,
 	IUCV_CLOSING,
 	IUCV_CLOSED
@@ -63,6 +62,7 @@ struct sock_msg_q {
 #define AF_IUCV_FLAG_SYN 0x2
 #define AF_IUCV_FLAG_FIN 0x4
 #define AF_IUCV_FLAG_WIN 0x8
+#define AF_IUCV_FLAG_SHT 0x10
 
 struct af_iucv_trans_hdr {
 	u16 magic;
@@ -114,6 +114,7 @@ struct iucv_sock {
 	spinlock_t		accept_q_lock;
 	struct sock		*parent;
 	struct iucv_path	*path;
+	struct net_device	*hs_dev;
 	struct sk_buff_head	send_skb_q;
 	struct sk_buff_head	backlog_skb_q;
 	struct sock_msg_q	message_q;
@@ -132,6 +133,7 @@ struct iucv_sock {
 /* iucv socket options (SOL_IUCV) */
 #define SO_IPRMDATA_MSG	0x0080		/* send/recv IPRM_DATA msgs */
 #define SO_MSGLIMIT	0x1000		/* get/set IUCV MSGLIMIT */
+#define SO_MSGSIZE	0x0800		/* get maximum msgsize */
 
 /* iucv related control messages (scm) */
 #define SCM_IUCV_TRGCLS	0x0001		/* target class control message */
@@ -146,7 +148,6 @@ unsigned int iucv_sock_poll(struct file *file, struct socket *sock,
 			    poll_table *wait);
 void iucv_sock_link(struct iucv_sock_list *l, struct sock *s);
 void iucv_sock_unlink(struct iucv_sock_list *l, struct sock *s);
-int  iucv_sock_wait_cnt(struct sock *sk, unsigned long timeo);
 void iucv_accept_enqueue(struct sock *parent, struct sock *sk);
 void iucv_accept_unlink(struct sock *sk);
 struct sock *iucv_accept_dequeue(struct sock *parent, struct socket *newsock);

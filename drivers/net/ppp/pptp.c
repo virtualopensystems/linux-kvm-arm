@@ -23,7 +23,7 @@
 #include <linux/ppp_channel.h>
 #include <linux/ppp_defs.h>
 #include <linux/if_pppox.h>
-#include <linux/if_ppp.h>
+#include <linux/ppp-ioctl.h>
 #include <linux/notifier.h>
 #include <linux/file.h>
 #include <linux/in.h>
@@ -162,7 +162,7 @@ static void del_chan(struct pppox_sock *sock)
 {
 	spin_lock(&chan_lock);
 	clear_bit(sock->proto.pptp.src_addr.call_id, callid_bitmap);
-	rcu_assign_pointer(callid_sock[sock->proto.pptp.src_addr.call_id], NULL);
+	RCU_INIT_POINTER(callid_sock[sock->proto.pptp.src_addr.call_id], NULL);
 	spin_unlock(&chan_lock);
 	synchronize_rcu();
 }
@@ -481,7 +481,7 @@ static int pptp_connect(struct socket *sock, struct sockaddr *uservaddr,
 
 	po->chan.mtu = dst_mtu(&rt->dst);
 	if (!po->chan.mtu)
-		po->chan.mtu = PPP_MTU;
+		po->chan.mtu = PPP_MRU;
 	ip_rt_put(rt);
 	po->chan.mtu -= PPTP_HEADER_OVERHEAD;
 
@@ -585,8 +585,8 @@ static int pptp_create(struct net *net, struct socket *sock)
 	po = pppox_sk(sk);
 	opt = &po->proto.pptp;
 
-	opt->seq_sent = 0; opt->seq_recv = 0;
-	opt->ack_recv = 0; opt->ack_sent = 0;
+	opt->seq_sent = 0; opt->seq_recv = 0xffffffff;
+	opt->ack_recv = 0; opt->ack_sent = 0xffffffff;
 
 	error = 0;
 out:
@@ -670,10 +670,8 @@ static int __init pptp_init_module(void)
 	pr_info("PPTP driver version " PPTP_DRIVER_VERSION "\n");
 
 	callid_sock = vzalloc((MAX_CALLID + 1) * sizeof(void *));
-	if (!callid_sock) {
-		pr_err("PPTP: cann't allocate memory\n");
+	if (!callid_sock)
 		return -ENOMEM;
-	}
 
 	err = gre_add_protocol(&gre_pptp_protocol, GREPROTO_PPTP);
 	if (err) {

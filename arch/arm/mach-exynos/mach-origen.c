@@ -20,15 +20,16 @@
 #include <linux/regulator/machine.h>
 #include <linux/mfd/max8997.h>
 #include <linux/lcd.h>
+#include <linux/rfkill-gpio.h>
 
 #include <asm/mach/arch.h>
+#include <asm/hardware/gic.h>
 #include <asm/mach-types.h>
 
 #include <video/platform_lcd.h>
 
 #include <plat/regs-serial.h>
 #include <plat/regs-fb-v4.h>
-#include <plat/exynos4.h>
 #include <plat/cpu.h>
 #include <plat/devs.h>
 #include <plat/sdhci.h>
@@ -41,7 +42,10 @@
 #include <plat/fb.h>
 #include <plat/mfc.h>
 
+#include <mach/ohci.h>
 #include <mach/map.h>
+
+#include "common.h"
 
 /* Following are default values for UCON, ULCON and UFCON UART registers */
 #define ORIGEN_UCON_DEFAULT	(S3C2410_UCON_TXILEVEL |	\
@@ -232,6 +236,7 @@ static struct regulator_init_data __initdata max8997_ldo9_data = {
 		.min_uV		= 2800000,
 		.max_uV		= 2800000,
 		.apply_uV	= 1,
+		.always_on	= 1,
 		.valid_ops_mask	= REGULATOR_CHANGE_STATUS,
 		.state_mem	= {
 			.disabled	= 1,
@@ -275,6 +280,7 @@ static struct regulator_init_data __initdata max8997_ldo14_data = {
 		.min_uV		= 1800000,
 		.max_uV		= 1800000,
 		.apply_uV	= 1,
+		.always_on	= 1,
 		.valid_ops_mask	= REGULATOR_CHANGE_STATUS,
 		.state_mem	= {
 			.disabled	= 1,
@@ -290,6 +296,7 @@ static struct regulator_init_data __initdata max8997_ldo17_data = {
 		.min_uV		= 3300000,
 		.max_uV		= 3300000,
 		.apply_uV	= 1,
+		.always_on	= 1,
 		.valid_ops_mask	= REGULATOR_CHANGE_STATUS,
 		.state_mem	= {
 			.disabled	= 1,
@@ -409,7 +416,7 @@ static struct max8997_regulator_data __initdata origen_max8997_regulators[] = {
 	{ MAX8997_BUCK7,	&max8997_buck7_data },
 };
 
-struct max8997_platform_data __initdata origen_max8997_pdata = {
+static struct max8997_platform_data __initdata origen_max8997_pdata = {
 	.num_regulators = ARRAY_SIZE(origen_max8997_regulators),
 	.regulators	= origen_max8997_regulators,
 
@@ -481,6 +488,16 @@ static void __init origen_ehci_init(void)
 	struct s5p_ehci_platdata *pdata = &origen_ehci_pdata;
 
 	s5p_ehci_set_platdata(pdata);
+}
+
+/* USB OHCI */
+static struct exynos4_ohci_platdata origen_ohci_pdata;
+
+static void __init origen_ohci_init(void)
+{
+	struct exynos4_ohci_platdata *pdata = &origen_ohci_pdata;
+
+	exynos4_ohci_set_platdata(pdata);
 }
 
 static struct gpio_keys_button origen_gpio_keys_table[] = {
@@ -584,8 +601,26 @@ static struct s3c_fb_pd_win origen_fb_win0 = {
 static struct s3c_fb_platdata origen_lcd_pdata __initdata = {
 	.win[0]		= &origen_fb_win0,
 	.vidcon0	= VIDCON0_VIDOUT_RGB | VIDCON0_PNRMODE_RGB,
-	.vidcon1	= VIDCON1_INV_HSYNC | VIDCON1_INV_VSYNC,
+	.vidcon1	= VIDCON1_INV_HSYNC | VIDCON1_INV_VSYNC |
+				VIDCON1_INV_VCLK,
 	.setup_gpio	= exynos4_fimd0_gpio_setup_24bpp,
+};
+
+/* Bluetooth rfkill gpio platform data */
+struct rfkill_gpio_platform_data origen_bt_pdata = {
+	.reset_gpio	= EXYNOS4_GPX2(2),
+	.shutdown_gpio	= -1,
+	.type		= RFKILL_TYPE_BLUETOOTH,
+	.name		= "origen-bt",
+};
+
+/* Bluetooth Platform device */
+static struct platform_device origen_device_bluetooth = {
+	.name		= "rfkill_gpio",
+	.id		= -1,
+	.dev		= {
+		.platform_data	= &origen_bt_pdata,
+	},
 };
 
 static struct platform_device *origen_devices[] __initdata = {
@@ -599,22 +634,20 @@ static struct platform_device *origen_devices[] __initdata = {
 	&s5p_device_fimc1,
 	&s5p_device_fimc2,
 	&s5p_device_fimc3,
+	&s5p_device_fimc_md,
 	&s5p_device_fimd0,
+	&s5p_device_g2d,
 	&s5p_device_hdmi,
 	&s5p_device_i2c_hdmiphy,
+	&s5p_device_jpeg,
 	&s5p_device_mfc,
 	&s5p_device_mfc_l,
 	&s5p_device_mfc_r,
 	&s5p_device_mixer,
-	&exynos4_device_pd[PD_LCD0],
-	&exynos4_device_pd[PD_TV],
-	&exynos4_device_pd[PD_G3D],
-	&exynos4_device_pd[PD_LCD1],
-	&exynos4_device_pd[PD_CAM],
-	&exynos4_device_pd[PD_GPS],
-	&exynos4_device_pd[PD_MFC],
+	&exynos4_device_ohci,
 	&origen_device_gpiokeys,
 	&origen_lcd_hv070wsa,
+	&origen_device_bluetooth,
 };
 
 /* LCD Backlight data */
@@ -628,6 +661,16 @@ static struct platform_pwm_backlight_data origen_bl_data = {
 	.pwm_period_ns	= 1000,
 };
 
+static void __init origen_bt_setup(void)
+{
+	gpio_request(EXYNOS4_GPA0(0), "GPIO BT_UART");
+	/* 4 UART Pins configuration */
+	s3c_gpio_cfgrange_nopull(EXYNOS4_GPA0(0), 4, S3C_GPIO_SFN(2));
+	/* Setup BT Reset, this gpio will be requesed by rfkill-gpio */
+	s3c_gpio_cfgpin(EXYNOS4_GPX2(2), S3C_GPIO_OUTPUT);
+	s3c_gpio_setpull(EXYNOS4_GPX2(2), S3C_GPIO_PULL_NONE);
+}
+
 static void s5p_tv_setup(void)
 {
 	/* Direct HPD to HDMI chip */
@@ -638,7 +681,7 @@ static void s5p_tv_setup(void)
 
 static void __init origen_map_io(void)
 {
-	s5p_init_io(NULL, 0, S5P_VA_CHIPID);
+	exynos_init_io(NULL, 0);
 	s3c24xx_init_clocks(24000000);
 	s3c24xx_init_uarts(origen_uartcfgs, ARRAY_SIZE(origen_uartcfgs));
 }
@@ -670,6 +713,7 @@ static void __init origen_machine_init(void)
 	s3c_sdhci0_set_platdata(&origen_hsmmc0_pdata);
 
 	origen_ehci_init();
+	origen_ohci_init();
 	clk_xusbxti.rate = 24000000;
 
 	s5p_tv_setup();
@@ -679,14 +723,9 @@ static void __init origen_machine_init(void)
 
 	platform_add_devices(origen_devices, ARRAY_SIZE(origen_devices));
 
-	s5p_device_fimd0.dev.parent = &exynos4_device_pd[PD_LCD0].dev;
-
-	s5p_device_hdmi.dev.parent = &exynos4_device_pd[PD_TV].dev;
-	s5p_device_mixer.dev.parent = &exynos4_device_pd[PD_TV].dev;
-
-	s5p_device_mfc.dev.parent = &exynos4_device_pd[PD_MFC].dev;
-
 	samsung_bl_set(&origen_bl_gpio_info, &origen_bl_data);
+
+	origen_bt_setup();
 }
 
 MACHINE_START(ORIGEN, "ORIGEN")
@@ -694,7 +733,9 @@ MACHINE_START(ORIGEN, "ORIGEN")
 	.atag_offset	= 0x100,
 	.init_irq	= exynos4_init_irq,
 	.map_io		= origen_map_io,
+	.handle_irq	= gic_handle_irq,
 	.init_machine	= origen_machine_init,
 	.timer		= &exynos4_timer,
 	.reserve	= &origen_reserve,
+	.restart	= exynos4_restart,
 MACHINE_END

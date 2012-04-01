@@ -55,7 +55,6 @@
 #include <linux/crc32.h>
 
 #include <asm/bootinfo.h>
-#include <asm/system.h>
 #include <asm/bitops.h>
 #include <asm/pgtable.h>
 #include <asm/io.h>
@@ -1108,10 +1107,9 @@ static int korina_probe(struct platform_device *pdev)
 	int rc;
 
 	dev = alloc_etherdev(sizeof(struct korina_private));
-	if (!dev) {
-		printk(KERN_ERR DRV_NAME ": alloc_etherdev failed\n");
+	if (!dev)
 		return -ENOMEM;
-	}
+
 	SET_NETDEV_DEV(dev, &pdev->dev);
 	lp = netdev_priv(dev);
 
@@ -1150,7 +1148,6 @@ static int korina_probe(struct platform_device *pdev)
 
 	lp->td_ring = kmalloc(TD_RING_SIZE + RD_RING_SIZE, GFP_KERNEL);
 	if (!lp->td_ring) {
-		printk(KERN_ERR DRV_NAME ": cannot allocate descriptors\n");
 		rc = -ENXIO;
 		goto probe_err_td_ring;
 	}
@@ -1230,18 +1227,7 @@ static struct platform_driver korina_driver = {
 	.remove = korina_remove,
 };
 
-static int __init korina_init_module(void)
-{
-	return platform_driver_register(&korina_driver);
-}
-
-static void korina_cleanup_module(void)
-{
-	return platform_driver_unregister(&korina_driver);
-}
-
-module_init(korina_init_module);
-module_exit(korina_cleanup_module);
+module_platform_driver(korina_driver);
 
 MODULE_AUTHOR("Philip Rischel <rischelp@idt.com>");
 MODULE_AUTHOR("Felix Fietkau <nbd@openwrt.org>");

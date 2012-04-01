@@ -24,12 +24,13 @@
 #include <mach/addr-map.h>
 #include <mach/mfp-pxa910.h>
 #include <mach/pxa910.h>
+#include <mach/irqs.h>
 
 #include "common.h"
 
-#define TTCDKB_GPIO_EXT0(x)	(NR_BUILTIN_GPIO + ((x < 0) ? 0 :	\
+#define TTCDKB_GPIO_EXT0(x)	(MMP_NR_BUILTIN_GPIO + ((x < 0) ? 0 :	\
 				((x < 16) ? x : 15)))
-#define TTCDKB_GPIO_EXT1(x)	(NR_BUILTIN_GPIO + 16 + ((x < 0) ? 0 :	\
+#define TTCDKB_GPIO_EXT1(x)	(MMP_NR_BUILTIN_GPIO + 16 + ((x < 0) ? 0 : \
 				((x < 16) ? x : 15)))
 
 /*
@@ -37,7 +38,7 @@
  * 16 board interrupts -- PCA9575 GPIO expander
  * 24 board interrupts -- 88PM860x PMIC
  */
-#define TTCDKB_NR_IRQS		(IRQ_BOARD_START + 16 + 16 + 24)
+#define TTCDKB_NR_IRQS		(MMP_NR_IRQS + 16 + 16 + 24)
 
 static unsigned long ttc_dkb_pin_config[] __initdata = {
 	/* UART2 */
@@ -122,13 +123,15 @@ static struct platform_device ttc_dkb_device_onenand = {
 };
 
 static struct platform_device *ttc_dkb_devices[] = {
+	&pxa910_device_gpio,
+	&pxa910_device_rtc,
 	&ttc_dkb_device_onenand,
 };
 
 static struct pca953x_platform_data max7312_data[] = {
 	{
 		.gpio_base	= TTCDKB_GPIO_EXT0(0),
-		.irq_base	= IRQ_BOARD_START,
+		.irq_base	= MMP_NR_IRQS,
 	},
 };
 
@@ -136,7 +139,7 @@ static struct i2c_board_info ttc_dkb_i2c_info[] = {
 	{
 		.type		= "max7312",
 		.addr		= 0x23,
-		.irq		= IRQ_GPIO(80),
+		.irq		= MMP_GPIO_TO_IRQ(80),
 		.platform_data	= &max7312_data,
 	},
 };
@@ -159,4 +162,5 @@ MACHINE_START(TTC_DKB, "PXA910-based TTC_DKB Development Platform")
 	.init_irq       = pxa910_init_irq,
 	.timer          = &pxa910_timer,
 	.init_machine   = ttc_dkb_init,
+	.restart	= mmp_restart,
 MACHINE_END

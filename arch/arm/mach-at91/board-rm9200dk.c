@@ -41,6 +41,7 @@
 #include <mach/hardware.h>
 #include <mach/board.h>
 #include <mach/at91rm9200_mc.h>
+#include <mach/at91_ramc.h>
 
 #include "generic.h"
 
@@ -65,13 +66,15 @@ static void __init dk_init_early(void)
 	at91_set_serial_console(0);
 }
 
-static struct at91_eth_data __initdata dk_eth_data = {
+static struct macb_platform_data __initdata dk_eth_data = {
 	.phy_irq_pin	= AT91_PIN_PC4,
 	.is_rmii	= 1,
 };
 
 static struct at91_usbh_data __initdata dk_usbh_data = {
 	.ports		= 2,
+	.vbus_pin	= {-EINVAL, -EINVAL},
+	.overcurrent_pin= {-EINVAL, -EINVAL},
 };
 
 static struct at91_udc_data __initdata dk_udc_data = {
@@ -80,16 +83,19 @@ static struct at91_udc_data __initdata dk_udc_data = {
 };
 
 static struct at91_cf_data __initdata dk_cf_data = {
+	.irq_pin	= -EINVAL,
 	.det_pin	= AT91_PIN_PB0,
+	.vcc_pin	= -EINVAL,
 	.rst_pin	= AT91_PIN_PC5,
-	// .irq_pin	= ... not connected
-	// .vcc_pin	= ... always powered
 };
 
 #ifndef CONFIG_MTD_AT91_DATAFLASH_CARD
 static struct at91_mmc_data __initdata dk_mmc_data = {
 	.slot_b		= 0,
 	.wire4		= 1,
+	.det_pin	= -EINVAL,
+	.wp_pin		= -EINVAL,
+	.vcc_pin	= -EINVAL,
 };
 #endif
 
@@ -143,7 +149,9 @@ static struct atmel_nand_data __initdata dk_nand_data = {
 	.cle		= 21,
 	.det_pin	= AT91_PIN_PB1,
 	.rdy_pin	= AT91_PIN_PC2,
-	// .enable_pin	= ... not there
+	.enable_pin	= -EINVAL,
+	.ecc_mode	= NAND_ECC_SOFT,
+	.on_flash_bbt	= 1,
 	.parts		= dk_nand_partition,
 	.num_parts	= ARRAY_SIZE(dk_nand_partition),
 };

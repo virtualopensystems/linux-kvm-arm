@@ -975,7 +975,7 @@ static struct spi_board_info bfin_spi_board_info[] __initdata = {
 	},
 #endif
 
-#if defined(CONFIG_SND_BF5XX_SOC_AD193X) || defined(CONFIG_SND_BF5XX_SOC_AD193X_MODULE)
+#ifdef CONFIG_SND_SOC_AD193X_SPI
 	{
 		.modalias = "ad193x",
 		.max_speed_hz = 3125000,     /* max spi clock (SCK) speed in HZ */
@@ -1420,7 +1420,7 @@ static struct spi_board_info bfin_spi_board_info[] __initdata = {
 #endif
 };
 
-#if defined(CONFIG_SPI_BFIN) || defined(CONFIG_SPI_BFIN_MODULE)
+#if defined(CONFIG_SPI_BFIN5XX) || defined(CONFIG_SPI_BFIN5XX_MODULE)
 /* SPI controller data */
 static struct bfin5xx_spi_master bfin_spi0_info = {
 	.num_chipselect = MAX_CTRL_CS + MAX_BLACKFIN_GPIOS,
@@ -1462,7 +1462,7 @@ static struct platform_device bfin_spi0_device = {
 
 /* SPORT SPI controller data */
 static struct bfin5xx_spi_master bfin_sport_spi0_info = {
-	.num_chipselect = 1, /* master only supports one device */
+	.num_chipselect = MAX_BLACKFIN_GPIOS,
 	.enable_dma = 0,  /* master don't support DMA */
 	.pin_req = {P_SPORT0_DTPRI, P_SPORT0_TSCLK, P_SPORT0_DRPRI,
 		P_SPORT0_RSCLK, P_SPORT0_TFS, P_SPORT0_RFS, 0},
@@ -1492,7 +1492,7 @@ static struct platform_device bfin_sport_spi0_device = {
 };
 
 static struct bfin5xx_spi_master bfin_sport_spi1_info = {
-	.num_chipselect = 1, /* master only supports one device */
+	.num_chipselect = MAX_BLACKFIN_GPIOS,
 	.enable_dma = 0,  /* master don't support DMA */
 	.pin_req = {P_SPORT1_DTPRI, P_SPORT1_TSCLK, P_SPORT1_DRPRI,
 		P_SPORT1_RSCLK, P_SPORT1_TFS, P_SPORT1_RFS, 0},
@@ -1554,6 +1554,71 @@ static struct platform_device bfin_lq035q1_device = {
 	.resource	= bfin_lq035q1_resources,
 	.dev		= {
 		.platform_data = &bfin_lq035q1_data,
+	},
+};
+#endif
+
+#if defined(CONFIG_VIDEO_BLACKFIN_CAPTURE) \
+	|| defined(CONFIG_VIDEO_BLACKFIN_CAPTURE_MODULE)
+#include <linux/videodev2.h>
+#include <media/blackfin/bfin_capture.h>
+#include <media/blackfin/ppi.h>
+
+static const unsigned short ppi_req[] = {
+	P_PPI0_D0, P_PPI0_D1, P_PPI0_D2, P_PPI0_D3,
+	P_PPI0_D4, P_PPI0_D5, P_PPI0_D6, P_PPI0_D7,
+	P_PPI0_CLK, P_PPI0_FS1, P_PPI0_FS2,
+	0,
+};
+
+static const struct ppi_info ppi_info = {
+	.type = PPI_TYPE_PPI,
+	.dma_ch = CH_PPI,
+	.irq_err = IRQ_PPI_ERROR,
+	.base = (void __iomem *)PPI_CONTROL,
+	.pin_req = ppi_req,
+};
+
+#if defined(CONFIG_VIDEO_VS6624) \
+	|| defined(CONFIG_VIDEO_VS6624_MODULE)
+static struct v4l2_input vs6624_inputs[] = {
+	{
+		.index = 0,
+		.name = "Camera",
+		.type = V4L2_INPUT_TYPE_CAMERA,
+		.std = V4L2_STD_UNKNOWN,
+	},
+};
+
+static struct bcap_route vs6624_routes[] = {
+	{
+		.input = 0,
+		.output = 0,
+	},
+};
+
+static const unsigned vs6624_ce_pin = GPIO_PF10;
+
+static struct bfin_capture_config bfin_capture_data = {
+	.card_name = "BF537",
+	.inputs = vs6624_inputs,
+	.num_inputs = ARRAY_SIZE(vs6624_inputs),
+	.routes = vs6624_routes,
+	.i2c_adapter_id = 0,
+	.board_info = {
+		.type = "vs6624",
+		.addr = 0x10,
+		.platform_data = (void *)&vs6624_ce_pin,
+	},
+	.ppi_info = &ppi_info,
+	.ppi_control = (PACK_EN | DLEN_8 | XFR_TYPE | 0x0020),
+};
+#endif
+
+static struct platform_device bfin_capture_device = {
+	.name = "bfin_capture",
+	.dev = {
+		.platform_data = &bfin_capture_data,
 	},
 };
 #endif
@@ -2106,7 +2171,7 @@ static unsigned long adt7316_i2c_data[2] = {
 #endif
 
 static struct i2c_board_info __initdata bfin_i2c_board_info[] = {
-#if defined(CONFIG_SND_BF5XX_SOC_AD193X) || defined(CONFIG_SND_BF5XX_SOC_AD193X_MODULE)
+#ifdef CONFIG_SND_SOC_AD193X_I2C
 	{
 		I2C_BOARD_INFO("ad1937", 0x04),
 	},
@@ -2528,6 +2593,21 @@ static struct platform_device bfin_ac97_pcm = {
 };
 #endif
 
+#if defined(CONFIG_SND_BF5XX_SOC_AD73311) || \
+				defined(CONFIG_SND_BF5XX_SOC_AD73311_MODULE)
+static const unsigned ad73311_gpio[] = {
+	GPIO_PF4,
+};
+
+static struct platform_device bfin_ad73311_machine = {
+	.name = "bfin-snd-ad73311",
+	.id = 1,
+	.dev = {
+		.platform_data = (void *)ad73311_gpio,
+	},
+};
+#endif
+
 #if defined(CONFIG_SND_SOC_AD73311) || defined(CONFIG_SND_SOC_AD73311_MODULE)
 static struct platform_device bfin_ad73311_codec_device = {
 	.name = "ad73311",
@@ -2716,7 +2796,7 @@ static struct platform_device *stamp_devices[] __initdata = {
 	&net2272_bfin_device,
 #endif
 
-#if defined(CONFIG_SPI_BFIN) || defined(CONFIG_SPI_BFIN_MODULE)
+#if defined(CONFIG_SPI_BFIN5XX) || defined(CONFIG_SPI_BFIN5XX_MODULE)
 	&bfin_spi0_device,
 #endif
 
@@ -2731,6 +2811,11 @@ static struct platform_device *stamp_devices[] __initdata = {
 
 #if defined(CONFIG_FB_BFIN_LQ035Q1) || defined(CONFIG_FB_BFIN_LQ035Q1_MODULE)
 	&bfin_lq035q1_device,
+#endif
+
+#if defined(CONFIG_VIDEO_BLACKFIN_CAPTURE) \
+	|| defined(CONFIG_VIDEO_BLACKFIN_CAPTURE_MODULE)
+	&bfin_capture_device,
 #endif
 
 #if defined(CONFIG_SERIAL_BFIN) || defined(CONFIG_SERIAL_BFIN_MODULE)
@@ -2790,6 +2875,11 @@ static struct platform_device *stamp_devices[] __initdata = {
 
 #if defined(CONFIG_SND_BF5XX_AC97) || defined(CONFIG_SND_BF5XX_AC97_MODULE)
 	&bfin_ac97_pcm,
+#endif
+
+#if defined(CONFIG_SND_BF5XX_SOC_AD73311) || \
+		defined(CONFIG_SND_BF5XX_SOC_AD73311_MODULE)
+	&bfin_ad73311_machine,
 #endif
 
 #if defined(CONFIG_SND_SOC_AD73311) || defined(CONFIG_SND_SOC_AD73311_MODULE)
@@ -2923,9 +3013,10 @@ void native_machine_restart(char *cmd)
  * Currently the MAC address is saved in Flash by U-Boot
  */
 #define FLASH_MAC	0x203f0000
-void bfin_get_ether_addr(char *addr)
+int bfin_get_ether_addr(char *addr)
 {
 	*(u32 *)(&(addr[0])) = bfin_read32(FLASH_MAC);
 	*(u16 *)(&(addr[4])) = bfin_read16(FLASH_MAC + 4);
+	return 0;
 }
 EXPORT_SYMBOL(bfin_get_ether_addr);

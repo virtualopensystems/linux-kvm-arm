@@ -1,7 +1,7 @@
 /*******************************************************************************
 
   Intel(R) Gigabit Ethernet Linux driver
-  Copyright(c) 2007-2011 Intel Corporation.
+  Copyright(c) 2007-2012 Intel Corporation.
 
   This program is free software; you can redistribute it and/or modify it
   under the terms and conditions of the GNU General Public License,
@@ -36,6 +36,7 @@
 #include <linux/ethtool.h>
 #include <linux/sched.h>
 #include <linux/slab.h>
+#include <linux/pm_runtime.h>
 
 #include "igb.h"
 
@@ -148,7 +149,8 @@ static int igb_get_settings(struct net_device *netdev, struct ethtool_cmd *ecmd)
 				   SUPPORTED_1000baseT_Full|
 				   SUPPORTED_Autoneg |
 				   SUPPORTED_TP);
-		ecmd->advertising = ADVERTISED_TP;
+		ecmd->advertising = (ADVERTISED_TP |
+				     ADVERTISED_Pause);
 
 		if (hw->mac.autoneg == 1) {
 			ecmd->advertising |= ADVERTISED_Autoneg;
@@ -165,7 +167,8 @@ static int igb_get_settings(struct net_device *netdev, struct ethtool_cmd *ecmd)
 
 		ecmd->advertising = (ADVERTISED_1000baseT_Full |
 				     ADVERTISED_FIBRE |
-				     ADVERTISED_Autoneg);
+				     ADVERTISED_Autoneg |
+				     ADVERTISED_Pause);
 
 		ecmd->port = PORT_FIBRE;
 	}
@@ -673,25 +676,22 @@ static void igb_get_drvinfo(struct net_device *netdev,
 			    struct ethtool_drvinfo *drvinfo)
 {
 	struct igb_adapter *adapter = netdev_priv(netdev);
-	char firmware_version[32];
 	u16 eeprom_data;
 
-	strncpy(drvinfo->driver,  igb_driver_name, sizeof(drvinfo->driver) - 1);
-	strncpy(drvinfo->version, igb_driver_version,
-		sizeof(drvinfo->version) - 1);
+	strlcpy(drvinfo->driver,  igb_driver_name, sizeof(drvinfo->driver));
+	strlcpy(drvinfo->version, igb_driver_version, sizeof(drvinfo->version));
 
 	/* EEPROM image version # is reported as firmware version # for
 	 * 82575 controllers */
 	adapter->hw.nvm.ops.read(&adapter->hw, 5, 1, &eeprom_data);
-	sprintf(firmware_version, "%d.%d-%d",
+	snprintf(drvinfo->fw_version, sizeof(drvinfo->fw_version),
+		"%d.%d-%d",
 		(eeprom_data & 0xF000) >> 12,
 		(eeprom_data & 0x0FF0) >> 4,
 		eeprom_data & 0x000F);
 
-	strncpy(drvinfo->fw_version, firmware_version,
-		sizeof(drvinfo->fw_version) - 1);
-	strncpy(drvinfo->bus_info, pci_name(adapter->pdev),
-		sizeof(drvinfo->bus_info) - 1);
+	strlcpy(drvinfo->bus_info, pci_name(adapter->pdev),
+		sizeof(drvinfo->bus_info));
 	drvinfo->n_stats = IGB_STATS_LEN;
 	drvinfo->testinfo_len = IGB_TEST_LEN;
 	drvinfo->regdump_len = igb_get_regs_len(netdev);
@@ -1577,7 +1577,9 @@ static int igb_clean_test_rings(struct igb_ring *rx_ring,
 	union e1000_adv_rx_desc *rx_desc;
 	struct igb_rx_buffer *rx_buffer_info;
 	struct igb_tx_buffer *tx_buffer_info;
+	struct netdev_queue *txq;
 	u16 rx_ntc, tx_ntc, count = 0;
+	unsigned int total_bytes = 0, total_packets = 0;
 
 	/* initialize next to clean and descriptor values */
 	rx_ntc = rx_ring->next_to_clean;
@@ -1601,6 +1603,8 @@ static int igb_clean_test_rings(struct igb_ring *rx_ring,
 
 		/* unmap buffer on tx side */
 		tx_buffer_info = &tx_ring->tx_buffer_info[tx_ntc];
+		total_bytes += tx_buffer_info->bytecount;
+		total_packets += tx_buffer_info->gso_segs;
 		igb_unmap_and_free_tx_resource(tx_ring, tx_buffer_info);
 
 		/* increment rx/tx next to clean counters */
@@ -1614,6 +1618,9 @@ static int igb_clean_test_rings(struct igb_ring *rx_ring,
 		/* fetch next descriptor */
 		rx_desc = IGB_RX_DESC(rx_ring, rx_ntc);
 	}
+
+	txq = netdev_get_tx_queue(tx_ring->netdev, tx_ring->queue_index);
+	netdev_tx_completed_queue(txq, total_packets, total_bytes);
 
 	/* re-map buffers to ring, store next to clean values */
 	igb_alloc_rx_buffers(rx_ring, count);
@@ -2162,6 +2169,19 @@ static void igb_get_strings(struct net_device *netdev, u32 stringset, u8 *data)
 	}
 }
 
+static int igb_ethtool_begin(struct net_device *netdev)
+{
+	struct igb_adapter *adapter = netdev_priv(netdev);
+	pm_runtime_get_sync(&adapter->pdev->dev);
+	return 0;
+}
+
+static void igb_ethtool_complete(struct net_device *netdev)
+{
+	struct igb_adapter *adapter = netdev_priv(netdev);
+	pm_runtime_put(&adapter->pdev->dev);
+}
+
 static const struct ethtool_ops igb_ethtool_ops = {
 	.get_settings           = igb_get_settings,
 	.set_settings           = igb_set_settings,
@@ -2188,6 +2208,8 @@ static const struct ethtool_ops igb_ethtool_ops = {
 	.get_ethtool_stats      = igb_get_ethtool_stats,
 	.get_coalesce           = igb_get_coalesce,
 	.set_coalesce           = igb_set_coalesce,
+	.begin			= igb_ethtool_begin,
+	.complete		= igb_ethtool_complete,
 };
 
 void igb_set_ethtool_ops(struct net_device *netdev)

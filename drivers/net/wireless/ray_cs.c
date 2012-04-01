@@ -53,7 +53,6 @@
 #include <net/iw_handler.h>
 
 #include <asm/io.h>
-#include <asm/system.h>
 #include <asm/byteorder.h>
 #include <asm/uaccess.h>
 
@@ -2426,7 +2425,7 @@ static void rx_authenticate(ray_dev_t *local, struct rcs __iomem *prcs,
 			    unsigned int pkt_addr, int rx_len)
 {
 	UCHAR buff[256];
-	struct rx_msg *msg = (struct rx_msg *)buff;
+	struct ray_rx_msg *msg = (struct ray_rx_msg *) buff;
 
 	del_timer(&local->timer);
 
@@ -2513,7 +2512,7 @@ static void rx_deauthenticate(ray_dev_t *local, struct rcs __iomem *prcs,
 			      unsigned int pkt_addr, int rx_len)
 {
 /*  UCHAR buff[256];
-    struct rx_msg *msg = (struct rx_msg *)buff;
+    struct ray_rx_msg *msg = (struct ray_rx_msg *) buff;
 */
 	pr_debug("Deauthentication frame received\n");
 	local->authentication_state = UNAUTHENTICATED;

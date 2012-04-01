@@ -26,7 +26,6 @@
  *
  */
 
-#include <asm/system.h>
 #include <asm/uaccess.h>
 #include <linux/types.h>
 #include <linux/capability.h>
@@ -951,7 +950,7 @@ static int ipmr_cache_report(struct mr_table *mrt,
 	rcu_read_unlock();
 	if (ret < 0) {
 		if (net_ratelimit())
-			printk(KERN_WARNING "mroute: pending queue full, dropping entries.\n");
+			pr_warn("mroute: pending queue full, dropping entries\n");
 		kfree_skb(skb);
 	}
 
@@ -1225,7 +1224,7 @@ int ip_mroute_setsockopt(struct sock *sk, int optname, char __user *optval, unsi
 
 		ret = ip_ra_control(sk, 1, mrtsock_destruct);
 		if (ret == 0) {
-			RCU_INIT_POINTER(mrt->mroute_sk, sk);
+			rcu_assign_pointer(mrt->mroute_sk, sk);
 			IPV4_DEVCONF_ALL(net, MC_FORWARDING)++;
 		}
 		rtnl_unlock();
@@ -1520,7 +1519,6 @@ static int ipmr_device_event(struct notifier_block *this, unsigned long event, v
 	struct mr_table *mrt;
 	struct vif_device *v;
 	int ct;
-	LIST_HEAD(list);
 
 	if (event != NETDEV_UNREGISTER)
 		return NOTIFY_DONE;
@@ -1529,10 +1527,9 @@ static int ipmr_device_event(struct notifier_block *this, unsigned long event, v
 		v = &mrt->vif_table[0];
 		for (ct = 0; ct < mrt->maxvif; ct++, v++) {
 			if (v->dev == dev)
-				vif_delete(mrt, ct, 1, &list);
+				vif_delete(mrt, ct, 1, NULL);
 		}
 	}
-	unregister_netdevice_many(&list);
 	return NOTIFY_DONE;
 }
 
@@ -2540,7 +2537,7 @@ int __init ip_mr_init(void)
 		goto reg_notif_fail;
 #ifdef CONFIG_IP_PIMSM_V2
 	if (inet_add_protocol(&pim_protocol, IPPROTO_PIM) < 0) {
-		printk(KERN_ERR "ip_mr_init: can't add PIM protocol\n");
+		pr_err("%s: can't add PIM protocol\n", __func__);
 		err = -EAGAIN;
 		goto add_proto_fail;
 	}

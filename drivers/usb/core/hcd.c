@@ -658,7 +658,7 @@ error:
 				len > offsetof(struct usb_device_descriptor,
 						bDeviceProtocol))
 			((struct usb_device_descriptor *) ubuf)->
-					bDeviceProtocol = 1;
+				bDeviceProtocol = USB_HUB_PR_HS_SINGLE_TT;
 	}
 
 	/* any errors get returned through the urb completion */
@@ -1168,20 +1168,6 @@ int usb_hcd_check_unlink_urb(struct usb_hcd *hcd, struct urb *urb,
 	if (urb->unlinked)
 		return -EBUSY;
 	urb->unlinked = status;
-
-	/* IRQ setup can easily be broken so that USB controllers
-	 * never get completion IRQs ... maybe even the ones we need to
-	 * finish unlinking the initial failed usb_set_address()
-	 * or device descriptor fetch.
-	 */
-	if (!HCD_SAW_IRQ(hcd) && !is_root_hub(urb->dev)) {
-		dev_warn(hcd->self.controller, "Unlink after no-IRQ?  "
-			"Controller is probably using the wrong IRQ.\n");
-		set_bit(HCD_FLAG_SAW_IRQ, &hcd->flags);
-		if (hcd->shared_hcd)
-			set_bit(HCD_FLAG_SAW_IRQ, &hcd->shared_hcd->flags);
-	}
-
 	return 0;
 }
 EXPORT_SYMBOL_GPL(usb_hcd_check_unlink_urb);
@@ -1412,11 +1398,10 @@ int usb_hcd_map_urb_for_dma(struct usb_hcd *hcd, struct urb *urb,
 					ret = -EAGAIN;
 				else
 					urb->transfer_flags |= URB_DMA_MAP_SG;
-				if (n != urb->num_sgs) {
-					urb->num_sgs = n;
+				urb->num_mapped_sgs = n;
+				if (n != urb->num_sgs)
 					urb->transfer_flags |=
 							URB_DMA_SG_COMBINED;
-				}
 			} else if (urb->sg) {
 				struct scatterlist *sg = urb->sg;
 				urb->transfer_dma = dma_map_page(
@@ -2148,16 +2133,12 @@ irqreturn_t usb_hcd_irq (int irq, void *__hcd)
 	 */
 	local_irq_save(flags);
 
-	if (unlikely(HCD_DEAD(hcd) || !HCD_HW_ACCESSIBLE(hcd))) {
+	if (unlikely(HCD_DEAD(hcd) || !HCD_HW_ACCESSIBLE(hcd)))
 		rc = IRQ_NONE;
-	} else if (hcd->driver->irq(hcd) == IRQ_NONE) {
+	else if (hcd->driver->irq(hcd) == IRQ_NONE)
 		rc = IRQ_NONE;
-	} else {
-		set_bit(HCD_FLAG_SAW_IRQ, &hcd->flags);
-		if (hcd->shared_hcd)
-			set_bit(HCD_FLAG_SAW_IRQ, &hcd->shared_hcd->flags);
+	else
 		rc = IRQ_HANDLED;
-	}
 
 	local_irq_restore(flags);
 	return rc;
@@ -2371,7 +2352,7 @@ static int usb_hcd_request_irqs(struct usb_hcd *hcd,
 					"io mem" : "io base",
 					(unsigned long long)hcd->rsrc_start);
 	} else {
-		hcd->irq = -1;
+		hcd->irq = 0;
 		if (hcd->rsrc_start)
 			dev_info(hcd->self.controller, "%s 0x%08llx\n",
 					(hcd->driver->flags & HCD_MEMORY) ?
@@ -2466,8 +2447,10 @@ int usb_add_hcd(struct usb_hcd *hcd,
 			&& device_can_wakeup(&hcd->self.root_hub->dev))
 		dev_dbg(hcd->self.controller, "supports USB remote wakeup\n");
 
-	/* enable irqs just before we start the controller */
-	if (usb_hcd_is_primary_hcd(hcd)) {
+	/* enable irqs just before we start the controller,
+	 * if the BIOS provides legacy PCI irqs.
+	 */
+	if (usb_hcd_is_primary_hcd(hcd) && irqnum) {
 		retval = usb_hcd_request_irqs(hcd, irqnum, irqflags);
 		if (retval)
 			goto err_request_irq;
@@ -2525,7 +2508,7 @@ err_register_root_hub:
 	clear_bit(HCD_FLAG_POLL_RH, &hcd->flags);
 	del_timer_sync(&hcd->rh_timer);
 err_hcd_driver_start:
-	if (usb_hcd_is_primary_hcd(hcd) && hcd->irq >= 0)
+	if (usb_hcd_is_primary_hcd(hcd) && hcd->irq > 0)
 		free_irq(irqnum, hcd);
 err_request_irq:
 err_hcd_driver_setup:
@@ -2590,7 +2573,7 @@ void usb_remove_hcd(struct usb_hcd *hcd)
 	del_timer_sync(&hcd->rh_timer);
 
 	if (usb_hcd_is_primary_hcd(hcd)) {
-		if (hcd->irq >= 0)
+		if (hcd->irq > 0)
 			free_irq(hcd->irq, hcd);
 	}
 

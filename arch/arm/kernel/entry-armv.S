@@ -15,16 +15,19 @@
  *  that causes it to save wrong values...  Be aware!
  */
 
+#include <asm/assembler.h>
 #include <asm/memory.h>
 #include <asm/glue-df.h>
 #include <asm/glue-pf.h>
 #include <asm/vfpmacros.h>
+#ifndef CONFIG_MULTI_IRQ_HANDLER
 #include <mach/entry-macro.S>
+#endif
 #include <asm/thread_notify.h>
 #include <asm/unwind.h>
 #include <asm/unistd.h>
 #include <asm/tls.h>
-#include <asm/system.h>
+#include <asm/system_info.h>
 
 #include "entry-header.S"
 #include <asm/entry-macro-multi.S>
@@ -36,12 +39,11 @@
 #ifdef CONFIG_MULTI_IRQ_HANDLER
 	ldr	r1, =handle_arch_irq
 	mov	r0, sp
-	ldr	r1, [r1]
 	adr	lr, BSYM(9997f)
-	teq	r1, #0
-	movne	pc, r1
-#endif
+	ldr	pc, [r1]
+#else
 	arch_irq_handler_default
+#endif
 9997:
 	.endm
 
@@ -791,7 +793,7 @@ __kuser_cmpxchg64:				@ 0xffff0f60
 	smp_dmb	arm
 	rsbs	r0, r3, #0			@ set returned val and C flag
 	ldmfd	sp!, {r4, r5, r6, r7}
-	bx	lr
+	usr_ret	lr
 
 #elif !defined(CONFIG_SMP)
 
@@ -1102,7 +1104,6 @@ __stubs_start:
  * get out of that mode without clobbering one register.
  */
 vector_fiq:
-	disable_fiq
 	subs	pc, lr, #4
 
 /*=============================================================================

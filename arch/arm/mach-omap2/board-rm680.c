@@ -1,5 +1,5 @@
 /*
- * Board support file for Nokia RM-680.
+ * Board support file for Nokia RM-680/696.
  *
  * Copyright (C) 2010 Nokia
  *
@@ -25,7 +25,7 @@
 #include <plat/mmc.h>
 #include <plat/usb.h>
 #include <plat/gpmc.h>
-#include <plat/common.h>
+#include "common.h"
 #include <plat/onenand.h>
 
 #include "mux.h"
@@ -120,7 +120,7 @@ static void __init rm680_peripherals_init(void)
 				ARRAY_SIZE(rm680_peripherals_devices));
 	rm680_i2c_init();
 	gpmc_onenand_init(board_onenand_data);
-	omap2_hsmmc_init(mmc);
+	omap_hsmmc_init(mmc);
 }
 
 #ifdef CONFIG_OMAP_MUX
@@ -149,6 +149,20 @@ MACHINE_START(NOKIA_RM680, "Nokia RM-680 board")
 	.map_io		= omap3_map_io,
 	.init_early	= omap3630_init_early,
 	.init_irq	= omap3_init_irq,
+	.handle_irq	= omap3_intc_handle_irq,
 	.init_machine	= rm680_init,
 	.timer		= &omap3_timer,
+	.restart	= omap_prcm_restart,
+MACHINE_END
+
+MACHINE_START(NOKIA_RM696, "Nokia RM-696 board")
+	.atag_offset	= 0x100,
+	.reserve	= omap_reserve,
+	.map_io		= omap3_map_io,
+	.init_early	= omap3630_init_early,
+	.init_irq	= omap3_init_irq,
+	.handle_irq	= omap3_intc_handle_irq,
+	.init_machine	= rm680_init,
+	.timer		= &omap3_timer,
+	.restart	= omap_prcm_restart,
 MACHINE_END

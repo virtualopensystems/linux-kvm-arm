@@ -13,14 +13,13 @@
 #include <linux/kernel.h>
 #include <linux/init.h>
 #include <linux/platform_device.h>
+#include <linux/gpio.h>
 #include <linux/leds.h>
 #include <linux/of_platform.h>
 #include <linux/of_gpio.h>
 #include <linux/slab.h>
 #include <linux/workqueue.h>
 #include <linux/module.h>
-
-#include <asm/gpio.h>
 
 struct gpio_led_data {
 	struct led_classdev cdev;
@@ -293,21 +292,9 @@ static struct platform_driver gpio_led_driver = {
 	},
 };
 
-MODULE_ALIAS("platform:leds-gpio");
-
-static int __init gpio_led_init(void)
-{
-	return platform_driver_register(&gpio_led_driver);
-}
-
-static void __exit gpio_led_exit(void)
-{
-	platform_driver_unregister(&gpio_led_driver);
-}
-
-module_init(gpio_led_init);
-module_exit(gpio_led_exit);
+module_platform_driver(gpio_led_driver);
 
 MODULE_AUTHOR("Raphael Assenat <raph@8d.com>, Trent Piepho <tpiepho@freescale.com>");
 MODULE_DESCRIPTION("GPIO LED driver");
 MODULE_LICENSE("GPL");
+MODULE_ALIAS("platform:leds-gpio");

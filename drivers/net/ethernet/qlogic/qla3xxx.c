@@ -1735,10 +1735,11 @@ static void ql_get_drvinfo(struct net_device *ndev,
 			   struct ethtool_drvinfo *drvinfo)
 {
 	struct ql3_adapter *qdev = netdev_priv(ndev);
-	strncpy(drvinfo->driver, ql3xxx_driver_name, 32);
-	strncpy(drvinfo->version, ql3xxx_driver_version, 32);
-	strncpy(drvinfo->fw_version, "N/A", 32);
-	strncpy(drvinfo->bus_info, pci_name(qdev->pdev), 32);
+	strlcpy(drvinfo->driver, ql3xxx_driver_name, sizeof(drvinfo->driver));
+	strlcpy(drvinfo->version, ql3xxx_driver_version,
+		sizeof(drvinfo->version));
+	strlcpy(drvinfo->bus_info, pci_name(qdev->pdev),
+		sizeof(drvinfo->bus_info));
 	drvinfo->regdump_len = 0;
 	drvinfo->eedump_len = 0;
 }
@@ -2835,7 +2836,7 @@ static int ql_create_send_free_list(struct ql3_adapter *qdev)
 		req_q_curr++;
 		tx_cb->oal = kmalloc(512, GFP_KERNEL);
 		if (tx_cb->oal == NULL)
-			return -1;
+			return -ENOMEM;
 	}
 	return 0;
 }
@@ -3016,7 +3017,6 @@ static int ql_adapter_initialize(struct ql3_adapter *qdev)
 		(void __iomem *)port_regs;
 	u32 delay = 10;
 	int status = 0;
-	unsigned long hw_flags = 0;
 
 	if (ql_mii_setup(qdev))
 		return -1;
@@ -3227,9 +3227,9 @@ static int ql_adapter_initialize(struct ql3_adapter *qdev)
 		value = ql_read_page0_reg(qdev, &port_regs->portStatus);
 		if (value & PORT_STATUS_IC)
 			break;
-		spin_unlock_irqrestore(&qdev->hw_lock, hw_flags);
+		spin_unlock_irq(&qdev->hw_lock);
 		msleep(500);
-		spin_lock_irqsave(&qdev->hw_lock, hw_flags);
+		spin_lock_irq(&qdev->hw_lock);
 	} while (--delay);
 
 	if (delay == 0) {
@@ -3804,7 +3804,6 @@ static int __devinit ql3xxx_probe(struct pci_dev *pdev,
 
 	ndev = alloc_etherdev(sizeof(struct ql3_adapter));
 	if (!ndev) {
-		pr_err("%s could not alloc etherdev\n", pci_name(pdev));
 		err = -ENOMEM;
 		goto err_out_free_regions;
 	}

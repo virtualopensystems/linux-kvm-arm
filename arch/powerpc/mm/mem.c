@@ -51,6 +51,7 @@
 #include <asm/vdso.h>
 #include <asm/fixmap.h>
 #include <asm/swiotlb.h>
+#include <asm/rtas.h>
 
 #include "mmu_decl.h"
 
@@ -199,7 +200,7 @@ void __init do_init_bootmem(void)
 		unsigned long start_pfn, end_pfn;
 		start_pfn = memblock_region_memory_base_pfn(reg);
 		end_pfn = memblock_region_memory_end_pfn(reg);
-		add_active_range(0, start_pfn, end_pfn);
+		memblock_set_node(0, (phys_addr_t)ULLONG_MAX, 0);
 	}
 
 	/* Add all physical memory to the bootmem map, mark each area
@@ -457,9 +458,9 @@ void flush_dcache_icache_page(struct page *page)
 #endif
 #ifdef CONFIG_BOOKE
 	{
-		void *start = kmap_atomic(page, KM_PPC_SYNC_ICACHE);
+		void *start = kmap_atomic(page);
 		__flush_dcache_icache(start);
-		kunmap_atomic(start, KM_PPC_SYNC_ICACHE);
+		kunmap_atomic(start);
 	}
 #elif defined(CONFIG_8xx) || defined(CONFIG_PPC64)
 	/* On 8xx there is no need to kmap since highmem is not supported */
@@ -553,7 +554,7 @@ void update_mmu_cache(struct vm_area_struct *vma, unsigned long address,
 #if (defined(CONFIG_PPC_BOOK3E_64) || defined(CONFIG_PPC_FSL_BOOK3E)) \
 	&& defined(CONFIG_HUGETLB_PAGE)
 	if (is_vm_hugetlb_page(vma))
-		book3e_hugetlb_preload(vma->vm_mm, address, *ptep);
+		book3e_hugetlb_preload(vma, address, *ptep);
 #endif
 }
 
@@ -585,3 +586,23 @@ static int add_system_ram_resources(void)
 	return 0;
 }
 subsys_initcall(add_system_ram_resources);
+
+#ifdef CONFIG_STRICT_DEVMEM
+/*
+ * devmem_is_allowed(): check to see if /dev/mem access to a certain address
+ * is valid. The argument is a physical page number.
+ *
+ * Access has to be given to non-kernel-ram areas as well, these contain the
+ * PCI mmio resources as well as potential bios/acpi data regions.
+ */
+int devmem_is_allowed(unsigned long pfn)
+{
+	if (iomem_is_exclusive(pfn << PAGE_SHIFT))
+		return 0;
+	if (!page_is_ram(pfn))
+		return 1;
+	if (page_is_rtas_user_buf(pfn))
+		return 1;
+	return 0;
+}
+#endif /* CONFIG_STRICT_DEVMEM */

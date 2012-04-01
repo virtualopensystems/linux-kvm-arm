@@ -439,7 +439,7 @@ static void de_rx (struct de_private *de)
 			  rx_tail, status, len, copying_skb);
 
 		buflen = copying_skb ? (len + RX_OFFSET) : de->rx_buf_sz;
-		copy_skb = dev_alloc_skb (buflen);
+		copy_skb = netdev_alloc_skb(de->dev, buflen);
 		if (unlikely(!copy_skb)) {
 			de->net_stats.rx_dropped++;
 			drop = 1;
@@ -1283,11 +1283,9 @@ static int de_refill_rx (struct de_private *de)
 	for (i = 0; i < DE_RX_RING_SIZE; i++) {
 		struct sk_buff *skb;
 
-		skb = dev_alloc_skb(de->rx_buf_sz);
+		skb = netdev_alloc_skb(de->dev, de->rx_buf_sz);
 		if (!skb)
 			goto err_out;
-
-		skb->dev = de->dev;
 
 		de->rx_skb[i].mapping = pci_map_single(de->pdev,
 			skb->data, de->rx_buf_sz, PCI_DMA_FROMDEVICE);
@@ -1598,9 +1596,9 @@ static void de_get_drvinfo (struct net_device *dev,struct ethtool_drvinfo *info)
 {
 	struct de_private *de = netdev_priv(dev);
 
-	strcpy (info->driver, DRV_NAME);
-	strcpy (info->version, DRV_VERSION);
-	strcpy (info->bus_info, pci_name(de->pdev));
+	strlcpy(info->driver, DRV_NAME, sizeof(info->driver));
+	strlcpy(info->version, DRV_VERSION, sizeof(info->version));
+	strlcpy(info->bus_info, pci_name(de->pdev), sizeof(info->bus_info));
 	info->eedump_len = DE_EEPROM_SIZE;
 }
 

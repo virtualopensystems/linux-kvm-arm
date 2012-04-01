@@ -23,6 +23,7 @@
 
 #include <asm/cacheflush.h>
 #include <asm/hardware/cache-l2x0.h>
+#include <asm/smp_scu.h>
 
 #include <plat/cpu.h>
 #include <plat/pm.h>
@@ -37,29 +38,29 @@
 #include <mach/pmu.h>
 
 static struct sleep_save exynos4_set_clksrc[] = {
-	{ .reg = S5P_CLKSRC_MASK_TOP			, .val = 0x00000001, },
-	{ .reg = S5P_CLKSRC_MASK_CAM			, .val = 0x11111111, },
-	{ .reg = S5P_CLKSRC_MASK_TV			, .val = 0x00000111, },
-	{ .reg = S5P_CLKSRC_MASK_LCD0			, .val = 0x00001111, },
-	{ .reg = S5P_CLKSRC_MASK_MAUDIO			, .val = 0x00000001, },
-	{ .reg = S5P_CLKSRC_MASK_FSYS			, .val = 0x01011111, },
-	{ .reg = S5P_CLKSRC_MASK_PERIL0			, .val = 0x01111111, },
-	{ .reg = S5P_CLKSRC_MASK_PERIL1			, .val = 0x01110111, },
-	{ .reg = S5P_CLKSRC_MASK_DMC			, .val = 0x00010000, },
+	{ .reg = EXYNOS4_CLKSRC_MASK_TOP		, .val = 0x00000001, },
+	{ .reg = EXYNOS4_CLKSRC_MASK_CAM		, .val = 0x11111111, },
+	{ .reg = EXYNOS4_CLKSRC_MASK_TV			, .val = 0x00000111, },
+	{ .reg = EXYNOS4_CLKSRC_MASK_LCD0		, .val = 0x00001111, },
+	{ .reg = EXYNOS4_CLKSRC_MASK_MAUDIO		, .val = 0x00000001, },
+	{ .reg = EXYNOS4_CLKSRC_MASK_FSYS		, .val = 0x01011111, },
+	{ .reg = EXYNOS4_CLKSRC_MASK_PERIL0		, .val = 0x01111111, },
+	{ .reg = EXYNOS4_CLKSRC_MASK_PERIL1		, .val = 0x01110111, },
+	{ .reg = EXYNOS4_CLKSRC_MASK_DMC		, .val = 0x00010000, },
 };
 
 static struct sleep_save exynos4210_set_clksrc[] = {
-	{ .reg = S5P_CLKSRC_MASK_LCD1			, .val = 0x00001111, },
+	{ .reg = EXYNOS4210_CLKSRC_MASK_LCD1		, .val = 0x00001111, },
 };
 
 static struct sleep_save exynos4_epll_save[] = {
-	SAVE_ITEM(S5P_EPLL_CON0),
-	SAVE_ITEM(S5P_EPLL_CON1),
+	SAVE_ITEM(EXYNOS4_EPLL_CON0),
+	SAVE_ITEM(EXYNOS4_EPLL_CON1),
 };
 
 static struct sleep_save exynos4_vpll_save[] = {
-	SAVE_ITEM(S5P_VPLL_CON0),
-	SAVE_ITEM(S5P_VPLL_CON1),
+	SAVE_ITEM(EXYNOS4_VPLL_CON0),
+	SAVE_ITEM(EXYNOS4_VPLL_CON1),
 };
 
 static struct sleep_save exynos4_core_save[] = {
@@ -154,13 +155,6 @@ static struct sleep_save exynos4_core_save[] = {
 	SAVE_ITEM(S5P_SROM_BC3),
 };
 
-static struct sleep_save exynos4_l2cc_save[] = {
-	SAVE_ITEM(S5P_VA_L2CC + L2X0_TAG_LATENCY_CTRL),
-	SAVE_ITEM(S5P_VA_L2CC + L2X0_DATA_LATENCY_CTRL),
-	SAVE_ITEM(S5P_VA_L2CC + L2X0_PREFETCH_CTRL),
-	SAVE_ITEM(S5P_VA_L2CC + L2X0_POWER_CTRL),
-	SAVE_ITEM(S5P_VA_L2CC + L2X0_AUX_CTRL),
-};
 
 /* For Cortex-A9 Diagnostic and Power control register */
 static unsigned int save_arm_register[2];
@@ -181,7 +175,6 @@ static void exynos4_pm_prepare(void)
 	u32 tmp;
 
 	s3c_pm_do_save(exynos4_core_save, ARRAY_SIZE(exynos4_core_save));
-	s3c_pm_do_save(exynos4_l2cc_save, ARRAY_SIZE(exynos4_l2cc_save));
 	s3c_pm_do_save(exynos4_epll_save, ARRAY_SIZE(exynos4_epll_save));
 	s3c_pm_do_save(exynos4_vpll_save, ARRAY_SIZE(exynos4_vpll_save));
 
@@ -205,33 +198,12 @@ static void exynos4_pm_prepare(void)
 
 }
 
-static int exynos4_pm_add(struct sys_device *sysdev)
+static int exynos4_pm_add(struct device *dev, struct subsys_interface *sif)
 {
 	pm_cpu_prep = exynos4_pm_prepare;
 	pm_cpu_sleep = exynos4_cpu_suspend;
 
 	return 0;
-}
-
-/* This function copy from linux/arch/arm/kernel/smp_scu.c */
-
-void exynos4_scu_enable(void __iomem *scu_base)
-{
-	u32 scu_ctrl;
-
-	scu_ctrl = __raw_readl(scu_base);
-	/* already enabled? */
-	if (scu_ctrl & 1)
-		return;
-
-	scu_ctrl |= 1;
-	__raw_writel(scu_ctrl, scu_base);
-
-	/*
-	 * Ensure that the data accessed by CPU0 before the SCU was
-	 * initialised is visible to the other CPUs.
-	 */
-	flush_cache_all();
 }
 
 static unsigned long pll_base_rate;
@@ -259,7 +231,7 @@ static void exynos4_restore_pll(void)
 		locktime = (3000 / pll_in_rate) * p_div;
 		lockcnt = locktime * 10000 / (10000 / pll_in_rate);
 
-		__raw_writel(lockcnt, S5P_EPLL_LOCK);
+		__raw_writel(lockcnt, EXYNOS4_EPLL_LOCK);
 
 		s3c_pm_do_restore_core(exynos4_epll_save,
 					ARRAY_SIZE(exynos4_epll_save));
@@ -277,7 +249,7 @@ static void exynos4_restore_pll(void)
 		locktime = 750;
 		lockcnt = locktime * 10000 / (10000 / pll_in_rate);
 
-		__raw_writel(lockcnt, S5P_VPLL_LOCK);
+		__raw_writel(lockcnt, EXYNOS4_VPLL_LOCK);
 
 		s3c_pm_do_restore_core(exynos4_vpll_save,
 					ARRAY_SIZE(exynos4_vpll_save));
@@ -288,21 +260,23 @@ static void exynos4_restore_pll(void)
 
 	do {
 		if (epll_wait) {
-			pll_con = __raw_readl(S5P_EPLL_CON0);
-			if (pll_con & (1 << S5P_EPLLCON0_LOCKED_SHIFT))
+			pll_con = __raw_readl(EXYNOS4_EPLL_CON0);
+			if (pll_con & (1 << EXYNOS4_EPLLCON0_LOCKED_SHIFT))
 				epll_wait = 0;
 		}
 
 		if (vpll_wait) {
-			pll_con = __raw_readl(S5P_VPLL_CON0);
-			if (pll_con & (1 << S5P_VPLLCON0_LOCKED_SHIFT))
+			pll_con = __raw_readl(EXYNOS4_VPLL_CON0);
+			if (pll_con & (1 << EXYNOS4_VPLLCON0_LOCKED_SHIFT))
 				vpll_wait = 0;
 		}
 	} while (epll_wait || vpll_wait);
 }
 
-static struct sysdev_driver exynos4_pm_driver = {
-	.add		= exynos4_pm_add,
+static struct subsys_interface exynos4_pm_interface = {
+	.name		= "exynos4_pm",
+	.subsys		= &exynos4_subsys,
+	.add_dev	= exynos4_pm_add,
 };
 
 static __init int exynos4_pm_drvinit(void)
@@ -325,7 +299,7 @@ static __init int exynos4_pm_drvinit(void)
 		clk_put(pll_base);
 	}
 
-	return sysdev_driver_register(&exynos4_sysclass, &exynos4_pm_driver);
+	return subsys_interface_register(&exynos4_pm_interface);
 }
 arch_initcall(exynos4_pm_drvinit);
 
@@ -402,13 +376,8 @@ static void exynos4_pm_resume(void)
 
 	exynos4_restore_pll();
 
-	exynos4_scu_enable(S5P_VA_SCU);
-
-#ifdef CONFIG_CACHE_L2X0
-	s3c_pm_do_restore_core(exynos4_l2cc_save, ARRAY_SIZE(exynos4_l2cc_save));
-	outer_inv_all();
-	/* enable L2X0*/
-	writel_relaxed(1, S5P_VA_L2CC + L2X0_CTRL);
+#ifdef CONFIG_SMP
+	scu_enable(S5P_VA_SCU);
 #endif
 
 early_wakeup:

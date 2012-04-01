@@ -155,19 +155,14 @@ int hv_init(void)
 	union hv_x64_msr_hypercall_contents hypercall_msr;
 	void *virtaddr = NULL;
 
-	memset(hv_context.synic_event_page, 0, sizeof(void *) * MAX_NUM_CPUS);
+	memset(hv_context.synic_event_page, 0, sizeof(void *) * NR_CPUS);
 	memset(hv_context.synic_message_page, 0,
-	       sizeof(void *) * MAX_NUM_CPUS);
+	       sizeof(void *) * NR_CPUS);
 
 	if (!query_hypervisor_presence())
 		goto cleanup;
 
 	max_leaf = query_hypervisor_info();
-
-	rdmsrl(HV_X64_MSR_GUEST_OS_ID, hv_context.guestid);
-
-	if (hv_context.guestid != 0)
-		goto cleanup;
 
 	/* Write our OS info */
 	wrmsrl(HV_X64_MSR_GUEST_OS_ID, HV_LINUX_GUEST_ID);
@@ -236,6 +231,9 @@ cleanup:
 void hv_cleanup(void)
 {
 	union hv_x64_msr_hypercall_contents hypercall_msr;
+
+	/* Reset our OS id */
+	wrmsrl(HV_X64_MSR_GUEST_OS_ID, 0);
 
 	kfree(hv_context.signal_event_buffer);
 	hv_context.signal_event_buffer = NULL;

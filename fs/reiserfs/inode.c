@@ -4,9 +4,9 @@
 
 #include <linux/time.h>
 #include <linux/fs.h>
-#include <linux/reiserfs_fs.h>
-#include <linux/reiserfs_acl.h>
-#include <linux/reiserfs_xattr.h>
+#include "reiserfs.h"
+#include "acl.h"
+#include "xattr.h"
 #include <linux/exportfs.h>
 #include <linux/pagemap.h>
 #include <linux/highmem.h>
@@ -1766,7 +1766,7 @@ static int reiserfs_new_symlink(struct reiserfs_transaction_handle *th, struct i
    for the fresh inode.  This can only be done outside a transaction, so
    if we return non-zero, we also end the transaction.  */
 int reiserfs_new_inode(struct reiserfs_transaction_handle *th,
-		       struct inode *dir, int mode, const char *symname,
+		       struct inode *dir, umode_t mode, const char *symname,
 		       /* 0 for regular, EMTRY_DIR_SIZE for dirs,
 		          strlen (symname) for symlinks) */
 		       loff_t i_size, struct dentry *dentry,

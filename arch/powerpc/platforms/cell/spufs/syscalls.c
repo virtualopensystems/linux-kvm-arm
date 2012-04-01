@@ -60,7 +60,7 @@ out:
 }
 
 static long do_spu_create(const char __user *pathname, unsigned int flags,
-		mode_t mode, struct file *neighbor)
+		umode_t mode, struct file *neighbor)
 {
 	struct path path;
 	struct dentry *dentry;
@@ -70,8 +70,6 @@ static long do_spu_create(const char __user *pathname, unsigned int flags,
 	ret = PTR_ERR(dentry);
 	if (!IS_ERR(dentry)) {
 		ret = spufs_create(&path, dentry, flags, mode, neighbor);
-		mutex_unlock(&path.dentry->d_inode->i_mutex);
-		dput(dentry);
 		path_put(&path);
 	}
 

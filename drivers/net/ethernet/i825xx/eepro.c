@@ -148,7 +148,6 @@ static const char version[] =
 #include <linux/bitops.h>
 #include <linux/ethtool.h>
 
-#include <asm/system.h>
 #include <asm/io.h>
 #include <asm/dma.h>
 
@@ -1563,7 +1562,7 @@ eepro_rx(struct net_device *dev)
 
 			dev->stats.rx_bytes+=rcv_size;
 			rcv_size &= 0x3fff;
-			skb = dev_alloc_skb(rcv_size+5);
+			skb = netdev_alloc_skb(dev, rcv_size + 5);
 			if (skb == NULL) {
 				printk(KERN_NOTICE "%s: Memory squeeze, dropping packet.\n", dev->name);
 				dev->stats.rx_dropped++;
@@ -1726,9 +1725,10 @@ static int eepro_ethtool_get_settings(struct net_device *dev,
 static void eepro_ethtool_get_drvinfo(struct net_device *dev,
 					struct ethtool_drvinfo *drvinfo)
 {
-	strcpy(drvinfo->driver, DRV_NAME);
-	strcpy(drvinfo->version, DRV_VERSION);
-	sprintf(drvinfo->bus_info, "ISA 0x%lx", dev->base_addr);
+	strlcpy(drvinfo->driver, DRV_NAME, sizeof(drvinfo->driver));
+	strlcpy(drvinfo->version, DRV_VERSION, sizeof(drvinfo->version));
+	snprintf(drvinfo->bus_info, sizeof(drvinfo->bus_info),
+		"ISA 0x%lx", dev->base_addr);
 }
 
 static const struct ethtool_ops eepro_ethtool_ops = {

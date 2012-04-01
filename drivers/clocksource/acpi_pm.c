@@ -23,6 +23,7 @@
 #include <linux/init.h>
 #include <linux/pci.h>
 #include <linux/delay.h>
+#include <linux/async.h>
 #include <asm/io.h>
 
 /*
@@ -143,7 +144,7 @@ DECLARE_PCI_FIXUP_EARLY(PCI_VENDOR_ID_SERVERWORKS, PCI_DEVICE_ID_SERVERWORKS_LE,
 #ifndef CONFIG_X86_64
 #include <asm/mach_timer.h>
 #define PMTMR_EXPECTED_RATE \
-  ((CALIBRATE_LATCH * (PMTMR_TICKS_PER_SEC >> 10)) / (CLOCK_TICK_RATE>>10))
+  ((CALIBRATE_LATCH * (PMTMR_TICKS_PER_SEC >> 10)) / (PIT_TICK_RATE>>10))
 /*
  * Some boards have the PMTMR running way too fast. We check
  * the PMTMR rate against PIT channel 2 to catch these cases.
@@ -179,17 +180,15 @@ static int verify_pmtmr_rate(void)
 /* Number of reads we try to get two different values */
 #define ACPI_PM_READ_CHECKS 10000
 
-static int __init init_acpi_pm_clocksource(void)
+static void __init acpi_pm_clocksource_async(void *unused, async_cookie_t cookie)
 {
 	cycle_t value1, value2;
 	unsigned int i, j = 0;
 
-	if (!pmtmr_ioport)
-		return -ENODEV;
 
 	/* "verify" this timing source: */
 	for (j = 0; j < ACPI_PM_MONOTONICITY_CHECKS; j++) {
-		udelay(100 * j);
+		usleep_range(100 * j, 100 * j + 100);
 		value1 = clocksource_acpi_pm.read(&clocksource_acpi_pm);
 		for (i = 0; i < ACPI_PM_READ_CHECKS; i++) {
 			value2 = clocksource_acpi_pm.read(&clocksource_acpi_pm);
@@ -203,23 +202,32 @@ static int __init init_acpi_pm_clocksource(void)
 			       " 0x%#llx, 0x%#llx - aborting.\n",
 			       value1, value2);
 			pmtmr_ioport = 0;
-			return -EINVAL;
+			return;
 		}
 		if (i == ACPI_PM_READ_CHECKS) {
 			printk(KERN_INFO "PM-Timer failed consistency check "
 			       " (0x%#llx) - aborting.\n", value1);
 			pmtmr_ioport = 0;
-			return -ENODEV;
+			return;
 		}
 	}
 
 	if (verify_pmtmr_rate() != 0){
 		pmtmr_ioport = 0;
-		return -ENODEV;
+		return;
 	}
 
-	return clocksource_register_hz(&clocksource_acpi_pm,
+	clocksource_register_hz(&clocksource_acpi_pm,
 						PMTMR_TICKS_PER_SEC);
+}
+
+static int __init init_acpi_pm_clocksource(void)
+{
+	if (!pmtmr_ioport)
+		return -ENODEV;
+
+	async_schedule(acpi_pm_clocksource_async, NULL);
+	return 0;
 }
 
 /* We use fs_initcall because we want the PCI fixups to have run

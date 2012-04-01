@@ -36,7 +36,7 @@
 #include <linux/usb/usbnet.h>
 #include <linux/slab.h>
 
-#define DRIVER_VERSION "08-Nov-2011"
+#define DRIVER_VERSION "22-Dec-2011"
 #define DRIVER_NAME "asix"
 
 /* ASIX AX8817X based USB 2.0 Ethernet Devices */
@@ -305,88 +305,40 @@ asix_write_cmd_async(struct usbnet *dev, u8 cmd, u16 value, u16 index,
 
 static int asix_rx_fixup(struct usbnet *dev, struct sk_buff *skb)
 {
-	u8  *head;
-	u32  header;
-	char *packet;
-	struct sk_buff *ax_skb;
-	u16 size;
+	int offset = 0;
 
-	head = (u8 *) skb->data;
-	memcpy(&header, head, sizeof(header));
-	le32_to_cpus(&header);
-	packet = head + sizeof(header);
+	while (offset + sizeof(u32) < skb->len) {
+		struct sk_buff *ax_skb;
+		u16 size;
+		u32 header = get_unaligned_le32(skb->data + offset);
 
-	skb_pull(skb, 4);
-
-	while (skb->len > 0) {
-		if ((header & 0x07ff) != ((~header >> 16) & 0x07ff))
-			netdev_err(dev->net, "asix_rx_fixup() Bad Header Length\n");
+		offset += sizeof(u32);
 
 		/* get the packet length */
-		size = (u16) (header & 0x000007ff);
-
-		if ((skb->len) - ((size + 1) & 0xfffe) == 0) {
-			u8 alignment = (unsigned long)skb->data & 0x3;
-			if (alignment != 0x2) {
-				/*
-				 * not 16bit aligned so use the room provided by
-				 * the 32 bit header to align the data
-				 *
-				 * note we want 16bit alignment as MAC header is
-				 * 14bytes thus ip header will be aligned on
-				 * 32bit boundary so accessing ipheader elements
-				 * using a cast to struct ip header wont cause
-				 * an unaligned accesses.
-				 */
-				u8 realignment = (alignment + 2) & 0x3;
-				memmove(skb->data - realignment,
-					skb->data,
-					size);
-				skb->data -= realignment;
-				skb_set_tail_pointer(skb, size);
-			}
-			return 2;
+		size = (u16) (header & 0x7ff);
+		if (size != ((~header >> 16) & 0x07ff)) {
+			netdev_err(dev->net, "asix_rx_fixup() Bad Header Length\n");
+			return 0;
 		}
 
-		if (size > dev->net->mtu + ETH_HLEN) {
+		if ((size > dev->net->mtu + ETH_HLEN) ||
+		    (size + offset > skb->len)) {
 			netdev_err(dev->net, "asix_rx_fixup() Bad RX Length %d\n",
 				   size);
 			return 0;
 		}
-		ax_skb = skb_clone(skb, GFP_ATOMIC);
-		if (ax_skb) {
-			u8 alignment = (unsigned long)packet & 0x3;
-			ax_skb->len = size;
-
-			if (alignment != 0x2) {
-				/*
-				 * not 16bit aligned use the room provided by
-				 * the 32 bit header to align the data
-				 */
-				u8 realignment = (alignment + 2) & 0x3;
-				memmove(packet - realignment, packet, size);
-				packet -= realignment;
-			}
-			ax_skb->data = packet;
-			skb_set_tail_pointer(ax_skb, size);
-			usbnet_skb_return(dev, ax_skb);
-		} else {
+		ax_skb = netdev_alloc_skb_ip_align(dev->net, size);
+		if (!ax_skb)
 			return 0;
-		}
 
-		skb_pull(skb, (size + 1) & 0xfffe);
+		skb_put(ax_skb, size);
+		memcpy(ax_skb->data, skb->data + offset, size);
+		usbnet_skb_return(dev, ax_skb);
 
-		if (skb->len == 0)
-			break;
-
-		head = (u8 *) skb->data;
-		memcpy(&header, head, sizeof(header));
-		le32_to_cpus(&header);
-		packet = head + sizeof(header);
-		skb_pull(skb, 4);
+		offset += (size + 1) & 0xfffe;
 	}
 
-	if (skb->len < 0) {
+	if (skb->len != offset) {
 		netdev_err(dev->net, "asix_rx_fixup() Bad SKB Length %d\n",
 			   skb->len);
 		return 0;
@@ -689,6 +641,10 @@ asix_get_wol(struct net_device *net, struct ethtool_wolinfo *wolinfo)
 	}
 	wolinfo->supported = WAKE_PHY | WAKE_MAGIC;
 	wolinfo->wolopts = 0;
+	if (opt & AX_MONITOR_LINK)
+		wolinfo->wolopts |= WAKE_PHY;
+	if (opt & AX_MONITOR_MAGIC)
+		wolinfo->wolopts |= WAKE_MAGIC;
 }
 
 static int
@@ -974,6 +930,7 @@ static int ax88772_link_reset(struct usbnet *dev)
 
 static int ax88772_reset(struct usbnet *dev)
 {
+	struct asix_data *data = (struct asix_data *)&dev->data;
 	int ret, embd_phy;
 	u16 rx_ctl;
 
@@ -1050,6 +1007,13 @@ static int ax88772_reset(struct usbnet *dev)
 		dbg("Write IPG,IPG1,IPG2 failed: %d", ret);
 		goto out;
 	}
+
+	/* Rewrite MAC address */
+	memcpy(data->mac_addr, dev->net->dev_addr, ETH_ALEN);
+	ret = asix_write_cmd(dev, AX_CMD_WRITE_NODE_ID, 0, 0, ETH_ALEN,
+							data->mac_addr);
+	if (ret < 0)
+		goto out;
 
 	/* Set RX_CTL to default values with 2k buffer, and enable cactus */
 	ret = asix_write_rx_ctl(dev, AX_DEFAULT_RX_CTL);
@@ -1148,7 +1112,7 @@ static int ax88772_bind(struct usbnet *dev, struct usb_interface *intf)
 	return 0;
 }
 
-static struct ethtool_ops ax88178_ethtool_ops = {
+static const struct ethtool_ops ax88178_ethtool_ops = {
 	.get_drvinfo		= asix_get_drvinfo,
 	.get_link		= asix_get_link,
 	.get_msglevel		= usbnet_get_msglevel,
@@ -1313,6 +1277,13 @@ static int ax88178_reset(struct usbnet *dev)
 	mii_nway_restart(&dev->mii);
 
 	ret = asix_write_medium_mode(dev, AX88178_MEDIUM_DEFAULT);
+	if (ret < 0)
+		return ret;
+
+	/* Rewrite MAC address */
+	memcpy(data->mac_addr, dev->net->dev_addr, ETH_ALEN);
+	ret = asix_write_cmd(dev, AX_CMD_WRITE_NODE_ID, 0, 0, ETH_ALEN,
+							data->mac_addr);
 	if (ret < 0)
 		return ret;
 
@@ -1522,7 +1493,7 @@ static const struct driver_info ax88772_info = {
 	.status = asix_status,
 	.link_reset = ax88772_link_reset,
 	.reset = ax88772_reset,
-	.flags = FLAG_ETHER | FLAG_FRAMING_AX | FLAG_LINK_INTR,
+	.flags = FLAG_ETHER | FLAG_FRAMING_AX | FLAG_LINK_INTR | FLAG_MULTI_PACKET,
 	.rx_fixup = asix_rx_fixup,
 	.tx_fixup = asix_tx_fixup,
 };
@@ -1579,6 +1550,10 @@ static const struct usb_device_id	products [] = {
 	// Sitecom LN-029 "USB 2.0 10/100 Ethernet adapter"
 	USB_DEVICE (0x6189, 0x182d),
 	.driver_info =  (unsigned long) &ax8817x_info,
+}, {
+	// Sitecom LN-031 "USB 2.0 10/100/1000 Ethernet adapter"
+	USB_DEVICE (0x0df6, 0x0056),
+	.driver_info =  (unsigned long) &ax88178_info,
 }, {
 	// corega FEther USB2-TX
 	USB_DEVICE (0x07aa, 0x0017),
@@ -1674,17 +1649,7 @@ static struct usb_driver asix_driver = {
 	.supports_autosuspend = 1,
 };
 
-static int __init asix_init(void)
-{
- 	return usb_register(&asix_driver);
-}
-module_init(asix_init);
-
-static void __exit asix_exit(void)
-{
- 	usb_deregister(&asix_driver);
-}
-module_exit(asix_exit);
+module_usb_driver(asix_driver);
 
 MODULE_AUTHOR("David Hollis");
 MODULE_VERSION(DRIVER_VERSION);

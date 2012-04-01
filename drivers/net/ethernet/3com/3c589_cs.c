@@ -50,7 +50,6 @@
 
 #include <asm/uaccess.h>
 #include <asm/io.h>
-#include <asm/system.h>
 
 /* To minimize the size of the driver source I only define operating
    constants if they are used several times.  You'll need the manual
@@ -468,9 +467,10 @@ static void tc589_reset(struct net_device *dev)
 static void netdev_get_drvinfo(struct net_device *dev,
 			       struct ethtool_drvinfo *info)
 {
-	strcpy(info->driver, DRV_NAME);
-	strcpy(info->version, DRV_VERSION);
-	sprintf(info->bus_info, "PCMCIA 0x%lx", dev->base_addr);
+	strlcpy(info->driver, DRV_NAME, sizeof(info->driver));
+	strlcpy(info->version, DRV_VERSION, sizeof(info->version));
+	snprintf(info->bus_info, sizeof(info->bus_info),
+		"PCMCIA 0x%lx", dev->base_addr);
 }
 
 static const struct ethtool_ops netdev_ethtool_ops = {
@@ -818,7 +818,7 @@ static int el3_rx(struct net_device *dev)
 	    short pkt_len = rx_status & 0x7ff;
 	    struct sk_buff *skb;
 
-	    skb = dev_alloc_skb(pkt_len+5);
+	    skb = netdev_alloc_skb(dev, pkt_len + 5);
 
 	    netdev_dbg(dev, "    Receiving packet size %d status %4.4x.\n",
 		       pkt_len, rx_status);

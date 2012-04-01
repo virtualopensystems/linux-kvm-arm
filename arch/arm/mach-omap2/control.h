@@ -16,7 +16,6 @@
 #ifndef __ARCH_ARM_MACH_OMAP2_CONTROL_H
 #define __ARCH_ARM_MACH_OMAP2_CONTROL_H
 
-#include <mach/io.h>
 #include <mach/ctrl_module_core_44xx.h>
 #include <mach/ctrl_module_wkup_44xx.h>
 #include <mach/ctrl_module_pad_core_44xx.h>
@@ -52,8 +51,8 @@
 #define OMAP343X_CONTROL_PADCONFS_WKUP	0xa00
 #define OMAP343X_CONTROL_GENERAL_WKUP	0xa60
 
-/* TI816X spefic control submodules */
-#define TI816X_CONTROL_DEVCONF		0x600
+/* TI81XX spefic control submodules */
+#define TI81XX_CONTROL_DEVCONF		0x600
 
 /* Control register offsets - read/write with omap_ctrl_{read,write}{bwl}() */
 
@@ -244,8 +243,8 @@
 #define OMAP3_PADCONF_SAD2D_MSTANDBY   0x250
 #define OMAP3_PADCONF_SAD2D_IDLEACK    0x254
 
-/* TI816X CONTROL_DEVCONF register offsets */
-#define TI816X_CONTROL_DEVICE_ID	(TI816X_CONTROL_DEVCONF + 0x000)
+/* TI81XX CONTROL_DEVCONF register offsets */
+#define TI81XX_CONTROL_DEVICE_ID	(TI81XX_CONTROL_DEVCONF + 0x000)
 
 /*
  * REVISIT: This list of registers is not comprehensive - there are more
@@ -337,6 +336,11 @@
 #define AM35XX_VPFE_VBUSP_SW_RST	BIT(2)
 #define AM35XX_HECC_SW_RST		BIT(3)
 #define AM35XX_VPFE_PCLK_SW_RST		BIT(4)
+
+/*
+ * CONTROL AM33XX STATUS register
+ */
+#define AM33XX_CONTROL_STATUS		0x040
 
 /*
  * CONTROL OMAP STATUS register to identify OMAP3 features

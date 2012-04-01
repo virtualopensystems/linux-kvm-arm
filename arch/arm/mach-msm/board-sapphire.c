@@ -18,7 +18,7 @@
 #include <linux/input.h>
 #include <linux/interrupt.h>
 #include <linux/irq.h>
-#include <linux/sysdev.h>
+#include <linux/device.h>
 
 #include <linux/delay.h>
 
@@ -27,7 +27,6 @@
 #include <asm/mach/arch.h>
 #include <asm/mach/map.h>
 #include <asm/mach/flash.h>
-#include <asm/system.h>
 #include <mach/system.h>
 #include <mach/vreg.h>
 #include <mach/board.h>

@@ -293,7 +293,7 @@ xfs_compat_ioc_bulkstat(
 		int res;
 
 		error = xfs_bulkstat_one_compat(mp, inlast, bulkreq.ubuffer,
-				sizeof(compat_xfs_bstat_t), 0, &res);
+				sizeof(compat_xfs_bstat_t), NULL, &res);
 	} else if (cmd == XFS_IOC_FSBULKSTAT_32) {
 		error = xfs_bulkstat(mp, &inlast, &count,
 			xfs_bulkstat_one_compat, sizeof(compat_xfs_bstat_t),
@@ -454,23 +454,23 @@ xfs_compat_attrmulti_by_handle(
 					&ops[i].am_length, ops[i].am_flags);
 			break;
 		case ATTR_OP_SET:
-			ops[i].am_error = mnt_want_write(parfilp->f_path.mnt);
+			ops[i].am_error = mnt_want_write_file(parfilp);
 			if (ops[i].am_error)
 				break;
 			ops[i].am_error = xfs_attrmulti_attr_set(
 					dentry->d_inode, attr_name,
 					compat_ptr(ops[i].am_attrvalue),
 					ops[i].am_length, ops[i].am_flags);
-			mnt_drop_write(parfilp->f_path.mnt);
+			mnt_drop_write_file(parfilp);
 			break;
 		case ATTR_OP_REMOVE:
-			ops[i].am_error = mnt_want_write(parfilp->f_path.mnt);
+			ops[i].am_error = mnt_want_write_file(parfilp);
 			if (ops[i].am_error)
 				break;
 			ops[i].am_error = xfs_attrmulti_attr_remove(
 					dentry->d_inode, attr_name,
 					ops[i].am_flags);
-			mnt_drop_write(parfilp->f_path.mnt);
+			mnt_drop_write_file(parfilp);
 			break;
 		default:
 			ops[i].am_error = EINVAL;

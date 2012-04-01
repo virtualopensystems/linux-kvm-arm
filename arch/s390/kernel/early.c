@@ -29,6 +29,7 @@
 #include <asm/sysinfo.h>
 #include <asm/cpcmd.h>
 #include <asm/sclp.h>
+#include <asm/facility.h>
 #include "entry.h"
 
 /*
@@ -262,25 +263,8 @@ static noinline __init void setup_lowcore_early(void)
 
 static noinline __init void setup_facility_list(void)
 {
-	unsigned long nr;
-
-	S390_lowcore.stfl_fac_list = 0;
-	asm volatile(
-		"	.insn	s,0xb2b10000,0(0)\n" /* stfl */
-		"0:\n"
-		EX_TABLE(0b,0b) : "=m" (S390_lowcore.stfl_fac_list));
-	memcpy(&S390_lowcore.stfle_fac_list, &S390_lowcore.stfl_fac_list, 4);
-	nr = 4;				/* # bytes stored by stfl */
-	if (test_facility(7)) {
-		/* More facility bits available with stfle */
-		register unsigned long reg0 asm("0") = MAX_FACILITY_BIT/64 - 1;
-		asm volatile(".insn s,0xb2b00000,%0" /* stfle */
-			     : "=m" (S390_lowcore.stfle_fac_list), "+d" (reg0)
-			     : : "cc");
-		nr = (reg0 + 1) * 8;	/* # bytes stored by stfle */
-	}
-	memset((char *) S390_lowcore.stfle_fac_list + nr, 0,
-	       MAX_FACILITY_BIT/8 - nr);
+	stfle(S390_lowcore.stfle_fac_list,
+	      ARRAY_SIZE(S390_lowcore.stfle_fac_list));
 }
 
 static noinline __init void setup_hpage(void)
@@ -434,18 +418,22 @@ static void __init append_to_cmdline(size_t (*ipl_data)(char *, size_t))
 	}
 }
 
-static void __init setup_boot_command_line(void)
+static inline int has_ebcdic_char(const char *str)
 {
 	int i;
 
-	/* convert arch command line to ascii */
-	for (i = 0; i < ARCH_COMMAND_LINE_SIZE; i++)
-		if (COMMAND_LINE[i] & 0x80)
-			break;
-	if (i < ARCH_COMMAND_LINE_SIZE)
-		EBCASC(COMMAND_LINE, ARCH_COMMAND_LINE_SIZE);
-	COMMAND_LINE[ARCH_COMMAND_LINE_SIZE-1] = 0;
+	for (i = 0; str[i]; i++)
+		if (str[i] & 0x80)
+			return 1;
+	return 0;
+}
 
+static void __init setup_boot_command_line(void)
+{
+	COMMAND_LINE[ARCH_COMMAND_LINE_SIZE - 1] = 0;
+	/* convert arch command line to ascii if necessary */
+	if (has_ebcdic_char(COMMAND_LINE))
+		EBCASC(COMMAND_LINE, ARCH_COMMAND_LINE_SIZE);
 	/* copy arch command line */
 	strlcpy(boot_command_line, strstrip(COMMAND_LINE),
 		ARCH_COMMAND_LINE_SIZE);

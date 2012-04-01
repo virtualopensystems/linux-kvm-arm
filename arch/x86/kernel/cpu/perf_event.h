@@ -33,6 +33,7 @@ enum extra_reg_type {
 
 	EXTRA_REG_RSP_0 = 0,	/* offcore_response_0 */
 	EXTRA_REG_RSP_1 = 1,	/* offcore_response_1 */
+	EXTRA_REG_LBR   = 2,	/* lbr_select */
 
 	EXTRA_REG_MAX		/* number of entries needed */
 };
@@ -45,6 +46,7 @@ struct event_constraint {
 	u64	code;
 	u64	cmask;
 	int	weight;
+	int	overlap;
 };
 
 struct amd_nb {
@@ -129,6 +131,8 @@ struct cpu_hw_events {
 	void				*lbr_context;
 	struct perf_branch_stack	lbr_stack;
 	struct perf_branch_entry	lbr_entries[MAX_LBR_ENTRIES];
+	struct er_account		*lbr_sel;
+	u64				br_sel;
 
 	/*
 	 * Intel host/guest exclude bits
@@ -146,20 +150,47 @@ struct cpu_hw_events {
 	/*
 	 * AMD specific bits
 	 */
-	struct amd_nb		*amd_nb;
+	struct amd_nb			*amd_nb;
+	/* Inverted mask of bits to clear in the perf_ctr ctrl registers */
+	u64				perf_ctr_virt_mask;
 
 	void				*kfree_on_online;
 };
 
-#define __EVENT_CONSTRAINT(c, n, m, w) {\
+#define __EVENT_CONSTRAINT(c, n, m, w, o) {\
 	{ .idxmsk64 = (n) },		\
 	.code = (c),			\
 	.cmask = (m),			\
 	.weight = (w),			\
+	.overlap = (o),			\
 }
 
 #define EVENT_CONSTRAINT(c, n, m)	\
-	__EVENT_CONSTRAINT(c, n, m, HWEIGHT(n))
+	__EVENT_CONSTRAINT(c, n, m, HWEIGHT(n), 0)
+
+/*
+ * The overlap flag marks event constraints with overlapping counter
+ * masks. This is the case if the counter mask of such an event is not
+ * a subset of any other counter mask of a constraint with an equal or
+ * higher weight, e.g.:
+ *
+ *  c_overlaps = EVENT_CONSTRAINT_OVERLAP(0, 0x09, 0);
+ *  c_another1 = EVENT_CONSTRAINT(0, 0x07, 0);
+ *  c_another2 = EVENT_CONSTRAINT(0, 0x38, 0);
+ *
+ * The event scheduler may not select the correct counter in the first
+ * cycle because it needs to know which subsequent events will be
+ * scheduled. It may fail to schedule the events then. So we set the
+ * overlap flag for such constraints to give the scheduler a hint which
+ * events to select for counter rescheduling.
+ *
+ * Care must be taken as the rescheduling algorithm is O(n!) which
+ * will increase scheduling cycles for an over-commited system
+ * dramatically.  The number of such EVENT_CONSTRAINT_OVERLAP() macros
+ * and its counter masks must be kept at a minimum.
+ */
+#define EVENT_CONSTRAINT_OVERLAP(c, n, m)	\
+	__EVENT_CONSTRAINT(c, n, m, HWEIGHT(n), 1)
 
 /*
  * Constraint on the Event code.
@@ -235,6 +266,34 @@ union perf_capabilities {
 	u64	capabilities;
 };
 
+struct x86_pmu_quirk {
+	struct x86_pmu_quirk *next;
+	void (*func)(void);
+};
+
+union x86_pmu_config {
+	struct {
+		u64 event:8,
+		    umask:8,
+		    usr:1,
+		    os:1,
+		    edge:1,
+		    pc:1,
+		    interrupt:1,
+		    __reserved1:1,
+		    en:1,
+		    inv:1,
+		    cmask:8,
+		    event2:4,
+		    __reserved2:4,
+		    go:1,
+		    ho:1;
+	} bits;
+	u64 value;
+};
+
+#define X86_CONFIG(args...) ((union x86_pmu_config){.bits = {args}}).value
+
 /*
  * struct x86_pmu - generic x86 pmu
  */
@@ -259,6 +318,11 @@ struct x86_pmu {
 	int		num_counters_fixed;
 	int		cntval_bits;
 	u64		cntval_mask;
+	union {
+			unsigned long events_maskl;
+			unsigned long events_mask[BITS_TO_LONGS(ARCH_PERFMON_EVENTS_COUNT)];
+	};
+	int		events_mask_len;
 	int		apic;
 	u64		max_period;
 	struct event_constraint *
@@ -268,13 +332,23 @@ struct x86_pmu {
 	void		(*put_event_constraints)(struct cpu_hw_events *cpuc,
 						 struct perf_event *event);
 	struct event_constraint *event_constraints;
-	void		(*quirks)(void);
+	struct x86_pmu_quirk *quirks;
 	int		perfctr_second_write;
 
+	/*
+	 * sysfs attrs
+	 */
+	int		attr_rdpmc;
+	struct attribute **format_attrs;
+
+	/*
+	 * CPU Hotplug hooks
+	 */
 	int		(*cpu_prepare)(int cpu);
 	void		(*cpu_starting)(int cpu);
 	void		(*cpu_dying)(int cpu);
 	void		(*cpu_dead)(int cpu);
+	void		(*flush_branch_stack)(void);
 
 	/*
 	 * Intel Arch Perfmon v2+
@@ -296,6 +370,8 @@ struct x86_pmu {
 	 */
 	unsigned long	lbr_tos, lbr_from, lbr_to; /* MSR base regs       */
 	int		lbr_nr;			   /* hardware stack size */
+	u64		lbr_sel_mask;		   /* LBR_SELECT valid bits */
+	const int	*lbr_sel_map;		   /* lbr_select mappings */
 
 	/*
 	 * Extra registers for events
@@ -308,6 +384,15 @@ struct x86_pmu {
 	 */
 	struct perf_guest_switch_msr *(*guest_get_msrs)(int *nr);
 };
+
+#define x86_add_quirk(func_)						\
+do {									\
+	static struct x86_pmu_quirk __quirk __initdata = {		\
+		.func = func_,						\
+	};								\
+	__quirk.next = x86_pmu.quirks;					\
+	x86_pmu.quirks = &__quirk;					\
+} while (0)
 
 #define ERF_NO_HT_SHARING	1
 #define ERF_HAS_RSP_1		2
@@ -372,9 +457,11 @@ void x86_pmu_disable_all(void);
 static inline void __x86_pmu_enable_event(struct hw_perf_event *hwc,
 					  u64 enable_mask)
 {
+	u64 disable_mask = __this_cpu_read(cpu_hw_events.perf_ctr_virt_mask);
+
 	if (hwc->extra_reg.reg)
 		wrmsrl(hwc->extra_reg.reg, hwc->extra_reg.config);
-	wrmsrl(hwc->config_base, hwc->config | enable_mask);
+	wrmsrl(hwc->config_base, (hwc->config | enable_mask) & ~disable_mask);
 }
 
 void x86_pmu_enable_all(int added);
@@ -397,6 +484,15 @@ int x86_pmu_handle_irq(struct pt_regs *regs);
 extern struct event_constraint emptyconstraint;
 
 extern struct event_constraint unconstrained;
+
+static inline bool kernel_ip(unsigned long ip)
+{
+#ifdef CONFIG_X86_32
+	return ip > PAGE_OFFSET;
+#else
+	return (long)ip < 0;
+#endif
+}
 
 #ifdef CONFIG_CPU_SUP_AMD
 
@@ -477,6 +573,10 @@ void intel_pmu_lbr_init_core(void);
 void intel_pmu_lbr_init_nhm(void);
 
 void intel_pmu_lbr_init_atom(void);
+
+void intel_pmu_lbr_init_snb(void);
+
+int intel_pmu_setup_lbr_filter(struct perf_event *event);
 
 int p4_pmu_init(void);
 

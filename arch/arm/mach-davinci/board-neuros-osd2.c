@@ -30,7 +30,6 @@
 #include <asm/mach-types.h>
 #include <asm/mach/arch.h>
 
-#include <mach/dm644x.h>
 #include <mach/common.h>
 #include <mach/i2c.h>
 #include <mach/serial.h>
@@ -39,7 +38,9 @@
 #include <mach/mmc.h>
 #include <mach/usb.h>
 
-#define NEUROS_OSD2_PHY_ID		"0:01"
+#include "davinci.h"
+
+#define NEUROS_OSD2_PHY_ID		"davinci_mdio-0:01"
 #define LXT971_PHY_ID			0x001378e2
 #define LXT971_PHY_MASK			0xfffffff0
 
@@ -278,4 +279,5 @@ MACHINE_START(NEUROS_OSD2, "Neuros OSD2")
 	.timer		= &davinci_timer,
 	.init_machine = davinci_ntosd2_init,
 	.dma_zone_size	= SZ_128M,
+	.restart	= davinci_restart,
 MACHINE_END

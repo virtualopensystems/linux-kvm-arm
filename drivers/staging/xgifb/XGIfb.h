@@ -3,8 +3,8 @@
 #include <linux/ioctl.h>
 #include <linux/types.h>
 
-#include "vb_struct.h"
 #include "vgatypes.h"
+#include "vb_struct.h"
 
 enum xgifb_display_type {
 	XGIFB_DISP_NONE = 0,
@@ -86,9 +86,12 @@ struct xgifb_video_info {
 	unsigned int refresh_rate;
 
 	enum xgifb_display_type display2; /* the second display output type */
+	bool display2_force;
 	unsigned char hasVB;
 	unsigned char TV_type;
 	unsigned char TV_plug;
+
+	struct XGI21_LVDSCapStruct lvds_data;
 
 	enum XGI_CHIP_TYPE chip;
 	unsigned char revision_id;

@@ -28,7 +28,6 @@
 #define __RTS51X_TRANSPORT_H
 
 #include <linux/kernel.h>
-#include <linux/version.h>
 
 #include "rts51x.h"
 #include "rts51x_chip.h"
@@ -74,7 +73,7 @@ int rts51x_start_epc_transfer(struct rts51x_chip *chip);
 void rts51x_cancel_epc_transfer(struct rts51x_chip *chip);
 #endif
 
-int rts51x_get_epc_status(struct rts51x_chip *chip, u16 * status);
+int rts51x_get_epc_status(struct rts51x_chip *chip, u16 *status);
 void rts51x_invoke_transport(struct scsi_cmnd *srb, struct rts51x_chip *chip);
 
 #endif /* __RTS51X_TRANSPORT_H */

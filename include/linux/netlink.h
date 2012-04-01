@@ -8,7 +8,7 @@
 #define NETLINK_UNUSED		1	/* Unused number				*/
 #define NETLINK_USERSOCK	2	/* Reserved for user mode socket protocols 	*/
 #define NETLINK_FIREWALL	3	/* Firewalling hook				*/
-#define NETLINK_INET_DIAG	4	/* INET socket monitoring			*/
+#define NETLINK_SOCK_DIAG	4	/* socket monitoring				*/
 #define NETLINK_NFLOG		5	/* netfilter/iptables ULOG */
 #define NETLINK_XFRM		6	/* ipsec */
 #define NETLINK_SELINUX		7	/* SELinux event notifications */
@@ -26,6 +26,8 @@
 #define NETLINK_ECRYPTFS	19
 #define NETLINK_RDMA		20
 #define NETLINK_CRYPTO		21	/* Crypto layer */
+
+#define NETLINK_INET_DIAG	NETLINK_SOCK_DIAG
 
 #define MAX_LINKS 32		
 
@@ -223,6 +225,7 @@ struct netlink_callback {
 	int			(*dump)(struct sk_buff * skb,
 					struct netlink_callback *cb);
 	int			(*done)(struct netlink_callback *cb);
+	void			*data;
 	u16			family;
 	u16			min_dump_alloc;
 	unsigned int		prev_seq, seq;
@@ -235,22 +238,8 @@ struct netlink_notify {
 	int protocol;
 };
 
-static __inline__ struct nlmsghdr *
-__nlmsg_put(struct sk_buff *skb, u32 pid, u32 seq, int type, int len, int flags)
-{
-	struct nlmsghdr *nlh;
-	int size = NLMSG_LENGTH(len);
-
-	nlh = (struct nlmsghdr*)skb_put(skb, NLMSG_ALIGN(size));
-	nlh->nlmsg_type = type;
-	nlh->nlmsg_len = size;
-	nlh->nlmsg_flags = flags;
-	nlh->nlmsg_pid = pid;
-	nlh->nlmsg_seq = seq;
-	if (!__builtin_constant_p(size) || NLMSG_ALIGN(size) - size != 0)
-		memset(NLMSG_DATA(nlh) + len, 0, NLMSG_ALIGN(size) - size);
-	return nlh;
-}
+struct nlmsghdr *
+__nlmsg_put(struct sk_buff *skb, u32 pid, u32 seq, int type, int len, int flags);
 
 #define NLMSG_NEW(skb, pid, seq, type, len, flags) \
 ({	if (unlikely(skb_tailroom(skb) < (int)NLMSG_SPACE(len))) \
@@ -260,11 +249,16 @@ __nlmsg_put(struct sk_buff *skb, u32 pid, u32 seq, int type, int len, int flags)
 #define NLMSG_PUT(skb, pid, seq, type, len) \
 	NLMSG_NEW(skb, pid, seq, type, len, 0)
 
+struct netlink_dump_control {
+	int (*dump)(struct sk_buff *skb, struct netlink_callback *);
+	int (*done)(struct netlink_callback*);
+	void *data;
+	u16 min_dump_alloc;
+};
+
 extern int netlink_dump_start(struct sock *ssk, struct sk_buff *skb,
 			      const struct nlmsghdr *nlh,
-			      int (*dump)(struct sk_buff *skb, struct netlink_callback*),
-			      int (*done)(struct netlink_callback*),
-			      u16 min_dump_alloc);
+			      struct netlink_dump_control *control);
 
 
 #define NL_NONROOT_RECV 0x1

@@ -27,7 +27,6 @@
 #include <linux/io.h>
 #include <linux/smsc911x.h>
 #include <linux/mmc/host.h>
-#include <linux/gpio.h>
 
 #include <mach/hardware.h>
 #include <asm/mach-types.h>
@@ -36,7 +35,7 @@
 
 #include <plat/mcspi.h>
 #include <plat/board.h>
-#include <plat/common.h>
+#include "common.h"
 #include <plat/gpmc.h>
 #include <mach/board-zoom.h>
 
@@ -424,7 +423,7 @@ static void __init omap_ldp_init(void)
 	board_nand_init(ldp_nand_partitions,
 		ARRAY_SIZE(ldp_nand_partitions), ZOOM_NAND_CS, 0);
 
-	omap2_hsmmc_init(mmc);
+	omap_hsmmc_init(mmc);
 	ldp_display_init();
 }
 
@@ -434,6 +433,8 @@ MACHINE_START(OMAP_LDP, "OMAP LDP board")
 	.map_io		= omap3_map_io,
 	.init_early	= omap3430_init_early,
 	.init_irq	= omap3_init_irq,
+	.handle_irq	= omap3_intc_handle_irq,
 	.init_machine	= omap_ldp_init,
 	.timer		= &omap3_timer,
+	.restart	= omap_prcm_restart,
 MACHINE_END
