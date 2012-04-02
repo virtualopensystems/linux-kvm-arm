@@ -27,11 +27,12 @@
 #define PTRS_PER_PGD2	512
 #define PGD2_ORDER	get_order(PTRS_PER_PGD2 * sizeof(pgd_t))
 
-extern pgd_t *kvm_hyp_pgd;
-extern struct mutex kvm_hyp_pgd_mutex;
+int create_hyp_mappings(void *from, void *to);
+void free_hyp_pmds(void);
 
-int create_hyp_mappings(pgd_t *hyp_pgd, void *from, void *to);
-void free_hyp_pmds(pgd_t *hyp_pgd);
+int kvm_hyp_pgd_alloc(void);
+pgd_t *kvm_hyp_pgd_get(void);
+void kvm_hyp_pgd_free(void);
 
 int kvm_alloc_stage2_pgd(struct kvm *kvm);
 void kvm_free_stage2_pgd(struct kvm *kvm);

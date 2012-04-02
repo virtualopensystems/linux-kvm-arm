@@ -111,7 +111,7 @@ int kvm_arch_init_vm(struct kvm *kvm, unsigned long type)
 		goto out_fail_alloc;
 	mutex_init(&kvm->arch.pgd_mutex);
 
-	ret = create_hyp_mappings(kvm_hyp_pgd, kvm, kvm + 1);
+	ret = create_hyp_mappings(kvm, kvm + 1);
 	if (ret)
 		goto out_free_stage2_pgd;
 
@@ -210,7 +210,7 @@ struct kvm_vcpu *kvm_arch_vcpu_create(struct kvm *kvm, unsigned int id)
 	if (err)
 		goto free_vcpu;
 
-	err = create_hyp_mappings(kvm_hyp_pgd, vcpu, vcpu + 1);
+	err = create_hyp_mappings(vcpu, vcpu + 1);
 	if (err)
 		goto free_vcpu;
 
@@ -627,7 +627,7 @@ static void cpu_init_hyp_mode(void *vector)
 
 	cpu_set_vector(vector);
 
-	pgd_ptr = virt_to_phys(kvm_hyp_pgd);
+	pgd_ptr = virt_to_phys(kvm_hyp_pgd_get());
 	stack_page = __get_cpu_var(kvm_arm_hyp_stack_page);
 	hyp_stack_ptr = stack_page + PAGE_SIZE;
 
@@ -672,8 +672,8 @@ static int init_hyp_mode(void)
 	/*
 	 * Allocate Hyp level-1 page table
 	 */
-	kvm_hyp_pgd = kzalloc(PTRS_PER_PGD * sizeof(pgd_t), GFP_KERNEL);
-	if (!kvm_hyp_pgd)
+	err = kvm_hyp_pgd_alloc();
+	if (err)
 		goto out_free_stack_pages;
 
 	init_phys_addr = virt_to_phys(__kvm_hyp_init);
@@ -683,8 +683,9 @@ static int init_hyp_mode(void)
 	/*
 	 * Create identity mapping for the init code.
 	 */
-	hyp_idmap_add(kvm_hyp_pgd, (unsigned long)init_phys_addr,
-				   (unsigned long)init_end_phys_addr);
+	hyp_idmap_add(kvm_hyp_pgd_get(),
+		      (unsigned long)init_phys_addr,
+		      (unsigned long)init_end_phys_addr);
 
 	/*
 	 * Execute the init code on each CPU.
@@ -701,14 +702,14 @@ static int init_hyp_mode(void)
 	/*
 	 * Unmap the identity mapping
 	 */
-	hyp_idmap_del(kvm_hyp_pgd, (unsigned long)init_phys_addr,
-				   (unsigned long)init_end_phys_addr);
+	hyp_idmap_del(kvm_hyp_pgd_get(),
+		      (unsigned long)init_phys_addr,
+		      (unsigned long)init_end_phys_addr);
 
 	/*
 	 * Map the Hyp-code called directly from the host
 	 */
-	err = create_hyp_mappings(kvm_hyp_pgd,
-				  __kvm_hyp_code_start, __kvm_hyp_code_end);
+	err = create_hyp_mappings(__kvm_hyp_code_start, __kvm_hyp_code_end);
 	if (err) {
 		kvm_err("Cannot map world-switch code\n");
 		goto out_free_mappings;
@@ -719,8 +720,7 @@ static int init_hyp_mode(void)
 	 */
 	for_each_possible_cpu(cpu) {
 		char *stack_page = (char *)per_cpu(kvm_arm_hyp_stack_page, cpu);
-		err = create_hyp_mappings(kvm_hyp_pgd,
-					  stack_page, stack_page + PAGE_SIZE);
+		err = create_hyp_mappings(stack_page, stack_page + PAGE_SIZE);
 
 		if (err) {
 			kvm_err("Cannot map hyp stack\n");
@@ -737,12 +737,11 @@ static int init_hyp_mode(void)
 
 	return 0;
 out_free_mappings:
-	free_hyp_pmds(kvm_hyp_pgd);
-	kfree(kvm_hyp_pgd);
+	free_hyp_pmds();
+	kvm_hyp_pgd_free();
 out_free_stack_pages:
 	for_each_possible_cpu(cpu)
 		free_page(per_cpu(kvm_arm_hyp_stack_page, cpu));
-	kvm_hyp_pgd = NULL;
 	return err;
 }
 
@@ -775,11 +774,10 @@ void kvm_arch_exit(void)
 {
 	int cpu;
 
-	free_hyp_pmds(kvm_hyp_pgd);
+	free_hyp_pmds();
 	for_each_possible_cpu(cpu)
 		free_page(per_cpu(kvm_arm_hyp_stack_page, cpu));
-	kfree(kvm_hyp_pgd);
-	kvm_hyp_pgd = NULL;
+	kvm_hyp_pgd_free();
 }
 
 static int arm_init(void)

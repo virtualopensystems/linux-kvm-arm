@@ -25,8 +25,8 @@
 
 #include "trace.h"
 
-pgd_t *kvm_hyp_pgd;
-DEFINE_MUTEX(kvm_hyp_pgd_mutex);
+static pgd_t *kvm_hyp_pgd;
+static DEFINE_MUTEX(kvm_hyp_pgd_mutex);
 
 static void free_ptes(pmd_t *pmd, unsigned long addr)
 {
@@ -44,12 +44,11 @@ static void free_ptes(pmd_t *pmd, unsigned long addr)
 
 /**
  * free_hyp_pmds - free a Hyp-mode level-2 tables and child level-3 tables
- * @hypd_pgd:	The Hyp-mode page table pointer
  *
  * Assumes this is a page table used strictly in Hyp-mode and therefore contains
  * only mappings in the kernel memory area, which is above PAGE_OFFSET.
  */
-void free_hyp_pmds(pgd_t *hyp_pgd)
+void free_hyp_pmds(void)
 {
 	pgd_t *pgd;
 	pud_t *pud;
@@ -58,7 +57,7 @@ void free_hyp_pmds(pgd_t *hyp_pgd)
 
 	mutex_lock(&kvm_hyp_pgd_mutex);
 	for (addr = PAGE_OFFSET; addr != 0; addr += PGDIR_SIZE) {
-		pgd = hyp_pgd + pgd_index(addr);
+		pgd = kvm_hyp_pgd + pgd_index(addr);
 		pud = pud_offset(pgd, addr);
 
 		BUG_ON(pud_bad(*pud));
@@ -119,7 +118,6 @@ static int create_hyp_pmd_mappings(pud_t *pud, unsigned long start,
 
 /**
  * create_hyp_mappings - map a kernel virtual address range in Hyp mode
- * @hyp_pgd:	The allocated hypervisor level-1 table
  * @from:	The virtual kernel start address of the range
  * @to:		The virtual kernel end address of the range (exclusive)
  *
@@ -128,7 +126,7 @@ static int create_hyp_pmd_mappings(pud_t *pud, unsigned long start,
  *
  * Note: Wrapping around zero in the "to" address is not supported.
  */
-int create_hyp_mappings(pgd_t *hyp_pgd, void *from, void *to)
+int create_hyp_mappings(void *from, void *to)
 {
 	unsigned long start = (unsigned long)from;
 	unsigned long end = (unsigned long)to;
@@ -144,7 +142,7 @@ int create_hyp_mappings(pgd_t *hyp_pgd, void *from, void *to)
 
 	mutex_lock(&kvm_hyp_pgd_mutex);
 	for (addr = start; addr < end; addr = next) {
-		pgd = hyp_pgd + pgd_index(addr);
+		pgd = kvm_hyp_pgd + pgd_index(addr);
 		pud = pud_offset(pgd, addr);
 
 		if (pud_none_or_clear_bad(pud)) {
@@ -577,4 +575,24 @@ int kvm_unmap_hva(struct kvm *kvm, unsigned long hva)
 		__kvm_tlb_flush_vmid(kvm);
 
 	return 0;
+}
+
+int kvm_hyp_pgd_alloc(void)
+{
+	kvm_hyp_pgd = kzalloc(PTRS_PER_PGD * sizeof(pgd_t), GFP_KERNEL);
+	if (!kvm_hyp_pgd)
+		return -ENOMEM;
+
+	return 0;
+}
+
+pgd_t *kvm_hyp_pgd_get(void)
+{
+	return kvm_hyp_pgd;
+}
+
+void kvm_hyp_pgd_free(void)
+{
+	kfree(kvm_hyp_pgd);
+	kvm_hyp_pgd = NULL;
 }
