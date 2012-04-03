@@ -747,8 +747,7 @@ typedef struct
  * The 16bit integer is stored twice in a 32bit integer
  * For example, for version 1 the value would be 0x00010001
  */
-//#define _MALI_API_VERSION 10
-#define _MALI_API_VERSION 9
+#define _MALI_API_VERSION 10
 #define _MALI_UK_API_VERSION _MAKE_VERSION_ID(_MALI_API_VERSION)
 
 /**
