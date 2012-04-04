@@ -441,11 +441,9 @@ static int handle_one_vic(struct vic_device *vic, struct pt_regs *regs)
 	u32 stat, irq;
 	int handled = 0;
 
-	stat = readl_relaxed(vic->base + VIC_IRQ_STATUS);
-	while (stat) {
+	while ((stat = readl_relaxed(vic->base + VIC_IRQ_STATUS))) {
 		irq = ffs(stat) - 1;
 		handle_IRQ(irq_domain_to_irq(&vic->domain, irq), regs);
-		stat &= ~(1 << irq);
 		handled = 1;
 	}
 
