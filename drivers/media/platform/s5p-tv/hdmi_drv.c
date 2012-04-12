@@ -31,6 +31,8 @@
 #include <linux/pm_runtime.h>
 #include <linux/clk.h>
 #include <linux/regulator/consumer.h>
+#include <linux/of.h>
+#include <linux/of_i2c.h>
 
 #include <media/s5p_hdmi.h>
 #include <media/v4l2-common.h>
@@ -840,6 +842,56 @@ static int hdmi_enum_dv_presets(struct v4l2_subdev *sd,
 		preset);
 }
 
+#ifdef CONFIG_OF
+/* Heavily based[1] on v4l2_i2c_new_subdev_board()
+ *
+ * [1] Copy-pasted, that is
+ */
+struct v4l2_subdev *hdmi_of_get_i2c_subdev(struct v4l2_device *v4l2_dev,
+	struct device_node *np, const char *propname)
+{
+	struct v4l2_subdev *sd = NULL;
+	struct i2c_client *client;
+	struct device_node *cnp;
+
+	BUG_ON(!v4l2_dev);
+
+	cnp = of_parse_phandle(np, propname, 0);
+	if (!cnp) {
+		dev_err(v4l2_dev->dev, "Can't find subdev %s\n", propname);
+		goto err;
+	}
+
+	client = of_find_i2c_device_by_node(cnp);
+	if (!client) {
+		dev_err(v4l2_dev->dev, "subdev %s doesn't reference correct node\n",
+			propname);
+		goto err;
+	}
+
+	if (client == NULL || client->driver == NULL)
+		goto err;
+
+	/* Lock the module so we can safely get the v4l2_subdev pointer */
+	if (!try_module_get(client->driver->driver.owner))
+		goto err;
+	sd = i2c_get_clientdata(client);
+
+	/* Register with the v4l2_device which increases the module's
+	   use count as well. */
+	if (v4l2_device_register_subdev(v4l2_dev, sd)) {
+		printk(KERN_ERR "%s: failed to register subdev\n", __func__);
+		sd = NULL;
+	}
+	/* Decrease the module use count to match the first try_module_get. */
+	module_put(client->driver->driver.owner);
+err:
+	of_node_put(cnp);
+
+	return sd;
+}
+#endif
+
 static const struct v4l2_subdev_core_ops hdmi_sd_core_ops = {
 	.s_power = hdmi_s_power,
 };
@@ -1008,6 +1060,12 @@ static struct v4l2_subdev *hdmi_get_subdev(
 	struct i2c_adapter *adapter;
 	struct device *dev = hdmi_dev->dev;
 
+#ifdef CONFIG_OF
+	if (dev->of_node)
+		return hdmi_of_get_i2c_subdev(&hdmi_dev->v4l2_dev,
+					   dev->of_node, propname);
+#endif
+
 	if (!bdinfo) {
 		dev_err(dev, "%s info is missing in platform data\n",
 			propname);
@@ -1046,7 +1104,7 @@ static int hdmi_probe(struct platform_device *pdev)
 
 	dev_dbg(dev, "probe start\n");
 
-	if (!pdata) {
+	if (!pdata && !dev->of_node) {
 		dev_err(dev, "platform data is missing\n");
 		ret = -ENODEV;
 		goto fail;
@@ -1171,6 +1229,13 @@ static int hdmi_remove(struct platform_device *pdev)
 	return 0;
 }
 
+#ifdef CONFIG_OF
+static struct of_device_id hdmi_dt_match[] = {
+	{ .compatible = "samsung,s5pv210-hdmi" },
+	{ },
+};
+#endif
+
 static struct platform_driver hdmi_driver __refdata = {
 	.probe = hdmi_probe,
 	.remove = hdmi_remove,
@@ -1179,6 +1244,7 @@ static struct platform_driver hdmi_driver __refdata = {
 		.name = "s5p-hdmi",
 		.owner = THIS_MODULE,
 		.pm = &hdmi_pm_ops,
+		.of_match_table = of_match_ptr(hdmi_dt_match),
 	}
 };
 
