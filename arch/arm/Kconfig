@@ -1584,6 +1584,12 @@ config HAVE_ARM_TWD
 	help
 	  This options enables support for the ARM timer and watchdog unit
 
+config BIG_LITTLE
+	bool "big.LITTLE support (Experimental)"
+	depends on CPU_V7 && EXPERIMENTAL
+	help
+	  This option enables support for the big.LITTLE architecture.
+
 choice
 	prompt "Memory split"
 	default VMSPLIT_3G
