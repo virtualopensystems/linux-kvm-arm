@@ -73,6 +73,42 @@
 		status = "okay";
 	};
 
+	lcd_fimd0: lcd_panel0 {
+		compatible = "lcd-powercontrol";
+		vcc-lcd-supply = <&buck7_reg>;
+		lcd-reset-gpio = <&gpe3 4 0>;
+		lcd-htiming = <64 16 48 1024>;
+		lcd-vtiming = <64 16 3 600>;
+	};
+
+	fimd@11C00000 {
+		samsung,fimd-display = <&lcd_fimd0>;
+		samsung,fimd-vidout-rgb;
+		samsung,fimd-inv-hsync;
+		samsung,fimd-inv-vsync;
+		samsung,fimd-inv-vclk;
+		samsung,fimd-frame-rate = <60>;
+
+		samsung,power-domain = <&pd_lcd0>;
+
+		pinctrl-0 = <&lcd0_sync &lcd0_clk &lcd0_en &lcd0_data &pwm0_out>;
+		pinctrl-names = "default";
+
+		window0 {
+			samsung,fimd-win-id = <0>;
+			samsung,fimd-win-bpp = <32 24>;
+			samsung,fimd-win-res = <1024 600>;
+			samsung,fimd-win-vres = <1024 600>;
+		};
+
+		window1 {
+			samsung,fimd-win-id = <1>;
+			samsung,fimd-win-bpp = <32 24>;
+			samsung,fimd-win-res = <1024 600>;
+			samsung,fimd-win-vres = <1024 600>;
+		};
+	};
+
 	i2c@13860000 {
 		status = "okay";
 		samsung,i2c-sda-delay = <100>;

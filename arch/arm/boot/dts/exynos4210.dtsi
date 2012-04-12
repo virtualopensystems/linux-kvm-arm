@@ -57,8 +57,8 @@
 		compatible = "samsung,pinctrl-exynos4210";
 		reg = <0x11000000 0x1000>;
 		interrupts = <0 46 0>;
-
 		wakup_eint: wakeup-interrupt-controller {
+
 			compatible = "samsung,exynos4210-wakeup-eint";
 			interrupt-parent = <&gic>;
 			interrupts = <0 32 0>;
@@ -75,6 +75,13 @@
 		interrupt-parent = <&combiner>;
 		reg = <0x100C0000 0x100>;
 		interrupts = <2 4>;
+	};
+
+	fimd@11C00000 {
+		compatible = "samsung,exynos4210-fimd";
+		interrupt-parent = <&combiner>;
+		reg = <0x11C00000 0x8000>;
+		interrupts = <11 1>, <11 0>, <11 2>;
 	};
 
 	usb@12580000 {
