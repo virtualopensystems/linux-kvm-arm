@@ -1,0 +1,14 @@
+* Silicon Image Mobile HD Link (MHL) 9234
+
+Required properties :
+ - compatible : "sil,mhl-9234"
+ - reg        : i2c device address
+ - gpio-reset : gpio line used to reset IC
+
+Example:
+
+	mhl@39 {
+		compatible = "sil,mhl-9234";
+		reg = <0x39>;
+		gpio-reset = <&gpf3 4 0 0 0>;
+	};

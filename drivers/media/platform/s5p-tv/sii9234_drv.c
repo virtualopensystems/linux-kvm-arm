@@ -22,6 +22,8 @@
 #include <linux/pm_runtime.h>
 #include <linux/regulator/machine.h>
 #include <linux/slab.h>
+#include <linux/of.h>
+#include <linux/of_gpio.h>
 
 #include <mach/gpio.h>
 #include <plat/gpio-cfg.h>
@@ -337,7 +339,16 @@ static int sii9234_probe(struct i2c_client *client,
 		return PTR_ERR(ctx->power);
 	}
 
-	ctx->gpio_n_reset = pdata->gpio_n_reset;
+	if (dev->of_node) {
+		ctx->gpio_n_reset = of_get_named_gpio(dev->of_node, "gpio-reset", 0);
+		if (!gpio_is_valid(ctx->gpio_n_reset)) {
+			ret = -ENODEV;
+			goto fail_power;
+		}
+	} else {
+		ctx->gpio_n_reset = pdata->gpio_n_reset;
+	}
+
 	ret = gpio_request(ctx->gpio_n_reset, "MHL_RST");
 	if (ret) {
 		dev_err(dev, "failed to acquire MHL_RST gpio\n");
@@ -392,6 +403,13 @@ static int sii9234_remove(struct i2c_client *client)
 	return 0;
 }
 
+#ifdef CONFIG_OF
+static const struct of_device_id sii9234_dt_match[] = {
+	{ .compatible = "sil,mhl-9234" },
+	{ },
+};
+MODULE_DEVICE_TABLE(of, sii9234_dt_match);
+#endif
 
 static const struct i2c_device_id sii9234_id[] = {
 	{ "SII9234", 0 },
@@ -404,6 +422,7 @@ static struct i2c_driver sii9234_driver = {
 		.name	= "sii9234",
 		.owner	= THIS_MODULE,
 		.pm = &sii9234_pm_ops,
+		.of_match_table = of_match_ptr(sii9234_dt_match),
 	},
 	.probe		= sii9234_probe,
 	.remove		= sii9234_remove,
