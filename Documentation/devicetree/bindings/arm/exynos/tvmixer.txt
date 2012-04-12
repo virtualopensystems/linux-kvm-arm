@@ -1,0 +1,26 @@
+* Samsung video/graphics mixer and blender
+
+Mixer blends graphics data from multiple sources and sends resulting
+data to TVOUT module.
+
+
+Required properties:
+
+ - compatible : "samsung,s5pv210-tvmixer"
+ - reg : shall contain memory addresses and sizes of mixer and video
+   processor devices
+ - reg-names : "mxr" for mixer's address/size and "vp" to for video
+   processor's.
+ - interrupt-names : shall contain "irq"
+
+
+Example:
+
+	tvmixer@12c10000 {
+		compatible = "samsung,s5pv210-tvmixer";
+		reg = <0x12c10000 0x10000>,
+		      <0x12c00000 0x10000>;
+		reg-names = "mxr", "vp";
+		interrupts = <0 123 0>;
+		interrupt-names = "irq";
+	};

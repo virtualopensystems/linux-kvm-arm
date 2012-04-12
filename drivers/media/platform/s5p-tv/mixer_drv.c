@@ -448,6 +448,14 @@ static int mxr_remove(struct platform_device *pdev)
 	return 0;
 }
 
+#ifdef CONFIG_OF
+static const struct of_device_id mxr_dt_match[] = {
+	{ .compatible = "samsung,s5pv210-tvmixer" },
+	{ },
+};
+MODULE_DEVICE_TABLE(of, mxr_dt_match);
+#endif
+
 static struct platform_driver mxr_driver __refdata = {
 	.probe = mxr_probe,
 	.remove = mxr_remove,
@@ -455,6 +463,7 @@ static struct platform_driver mxr_driver __refdata = {
 		.name = MXR_DRIVER_NAME,
 		.owner = THIS_MODULE,
 		.pm = &mxr_pm_ops,
+		.of_match_table = of_match_ptr(mxr_dt_match),
 	}
 };
 
