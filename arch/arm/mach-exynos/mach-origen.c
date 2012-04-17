@@ -929,7 +929,7 @@ static void __init origen_power_init(void)
 
 static void __init origen_reserve(void)
 {
-	s5p_mfc_reserve_mem(0x43000000, 8 << 20, 0x51000000, 8 << 20);
+	s5p_mfc_reserve_mem(0x43000000, 32 << 20, 0x51000000, 32 << 20);
 }
 
 static void __init origen_machine_init(void)
