@@ -1,6 +1,6 @@
 config MALI400MP
         bool "Enable MALI integration"
-        default y
+        default n
         ---help---
                 This enables MALI 3D graphics driver. Required to use hardware accelerated OpenGL ES 2.0 and 1.1.
 
