@@ -119,6 +119,11 @@ else
 	else
 		cp arch/$ARCH/boot/$KBUILD_IMAGE "$tmpdir/boot/vmlinuz-$version"
 	fi
+	# Copy device tree files if generated
+	stat arch/$ARCH/boot/*.dtb && {
+		mkdir -p "$tmpdir/boot/dt-$version"
+		cp arch/$ARCH/boot/*.dtb "$tmpdir/boot/dt-$version"
+	}
 fi
 
 if grep -q '^CONFIG_MODULES=y' .config ; then
