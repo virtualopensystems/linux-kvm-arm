@@ -26,7 +26,6 @@
 #include <xen/interface/memory.h>
 #include <xen/interface/physdev.h>
 #include <xen/features.h>
-
 #include "xen-ops.h"
 #include "vdso.h"
 
@@ -84,8 +83,8 @@ static void __init xen_add_extra_mem(u64 start, u64 size)
 		__set_phys_to_machine(pfn, INVALID_P2M_ENTRY);
 }
 
-static unsigned long __init xen_release_chunk(unsigned long start,
-					      unsigned long end)
+static unsigned long __init xen_do_chunk(unsigned long start,
+					 unsigned long end, bool release)
 {
 	struct xen_memory_reservation reservation = {
 		.address_bits = 0,
@@ -96,30 +95,108 @@ static unsigned long __init xen_release_chunk(unsigned long start,
 	unsigned long pfn;
 	int ret;
 
-	for(pfn = start; pfn < end; pfn++) {
+	for (pfn = start; pfn < end; pfn++) {
+		unsigned long frame;
 		unsigned long mfn = pfn_to_mfn(pfn);
 
-		/* Make sure pfn exists to start with */
-		if (mfn == INVALID_P2M_ENTRY || mfn_to_pfn(mfn) != pfn)
-			continue;
-
-		set_xen_guest_handle(reservation.extent_start, &mfn);
+		if (release) {
+			/* Make sure pfn exists to start with */
+			if (mfn == INVALID_P2M_ENTRY || mfn_to_pfn(mfn) != pfn)
+				continue;
+			frame = mfn;
+		} else {
+			if (mfn != INVALID_P2M_ENTRY)
+				continue;
+			frame = pfn;
+		}
+		set_xen_guest_handle(reservation.extent_start, &frame);
 		reservation.nr_extents = 1;
 
-		ret = HYPERVISOR_memory_op(XENMEM_decrease_reservation,
+		ret = HYPERVISOR_memory_op(release ? XENMEM_decrease_reservation : XENMEM_populate_physmap,
 					   &reservation);
-		WARN(ret != 1, "Failed to release pfn %lx err=%d\n", pfn, ret);
+		WARN(ret != 1, "Failed to %s pfn %lx err=%d\n",
+		     release ? "release" : "populate", pfn, ret);
+
 		if (ret == 1) {
-			__set_phys_to_machine(pfn, INVALID_P2M_ENTRY);
+			if (!early_set_phys_to_machine(pfn, release ? INVALID_P2M_ENTRY : frame)) {
+				if (release)
+					break;
+				set_xen_guest_handle(reservation.extent_start, &frame);
+				reservation.nr_extents = 1;
+				ret = HYPERVISOR_memory_op(XENMEM_decrease_reservation,
+							   &reservation);
+				break;
+			}
 			len++;
-		}
+		} else
+			break;
 	}
-	printk(KERN_INFO "Freeing  %lx-%lx pfn range: %lu pages freed\n",
-	       start, end, len);
+	if (len)
+		printk(KERN_INFO "%s %lx-%lx pfn range: %lu pages %s\n",
+		       release ? "Freeing" : "Populating",
+		       start, end, len,
+		       release ? "freed" : "added");
 
 	return len;
 }
+static unsigned long __init xen_populate_chunk(
+	const struct e820entry *list, size_t map_size,
+	unsigned long max_pfn, unsigned long *last_pfn,
+	unsigned long credits_left)
+{
+	const struct e820entry *entry;
+	unsigned int i;
+	unsigned long done = 0;
+	unsigned long dest_pfn;
 
+	for (i = 0, entry = list; i < map_size; i++, entry++) {
+		unsigned long credits = credits_left;
+		unsigned long s_pfn;
+		unsigned long e_pfn;
+		unsigned long pfns;
+		long capacity;
+
+		if (credits <= 0)
+			break;
+
+		if (entry->type != E820_RAM)
+			continue;
+
+		e_pfn = PFN_UP(entry->addr + entry->size);
+
+		/* We only care about E820 after the xen_start_info->nr_pages */
+		if (e_pfn <= max_pfn)
+			continue;
+
+		s_pfn = PFN_DOWN(entry->addr);
+		/* If the E820 falls within the nr_pages, we want to start
+		 * at the nr_pages PFN.
+		 * If that would mean going past the E820 entry, skip it
+		 */
+		if (s_pfn <= max_pfn) {
+			capacity = e_pfn - max_pfn;
+			dest_pfn = max_pfn;
+		} else {
+			/* last_pfn MUST be within E820_RAM regions */
+			if (*last_pfn && e_pfn >= *last_pfn)
+				s_pfn = *last_pfn;
+			capacity = e_pfn - s_pfn;
+			dest_pfn = s_pfn;
+		}
+		/* If we had filled this E820_RAM entry, go to the next one. */
+		if (capacity <= 0)
+			continue;
+
+		if (credits > capacity)
+			credits = capacity;
+
+		pfns = xen_do_chunk(dest_pfn, dest_pfn + credits, false);
+		done += pfns;
+		credits_left -= pfns;
+		*last_pfn = (dest_pfn + pfns);
+	}
+	return done;
+}
 static unsigned long __init xen_set_identity_and_release(
 	const struct e820entry *list, size_t map_size, unsigned long nr_pages)
 {
@@ -142,7 +219,6 @@ static unsigned long __init xen_set_identity_and_release(
 	 */
 	for (i = 0, entry = list; i < map_size; i++, entry++) {
 		phys_addr_t end = entry->addr + entry->size;
-
 		if (entry->type == E820_RAM || i == map_size - 1) {
 			unsigned long start_pfn = PFN_DOWN(start);
 			unsigned long end_pfn = PFN_UP(end);
@@ -152,8 +228,8 @@ static unsigned long __init xen_set_identity_and_release(
 
 			if (start_pfn < end_pfn) {
 				if (start_pfn < nr_pages)
-					released += xen_release_chunk(
-						start_pfn, min(end_pfn, nr_pages));
+					released += xen_do_chunk(
+						start_pfn, min(end_pfn, nr_pages), true);
 
 				identity += set_phys_range_identity(
 					start_pfn, end_pfn);
@@ -162,8 +238,10 @@ static unsigned long __init xen_set_identity_and_release(
 		}
 	}
 
-	printk(KERN_INFO "Released %lu pages of unused memory\n", released);
-	printk(KERN_INFO "Set %ld page(s) to 1-1 mapping\n", identity);
+	if (released)
+		printk(KERN_INFO "Released %lu pages of unused memory\n", released);
+	if (identity)
+		printk(KERN_INFO "Set %ld page(s) to 1-1 mapping\n", identity);
 
 	return released;
 }
@@ -182,16 +260,42 @@ static unsigned long __init xen_get_max_pages(void)
 	 * the current maximum rather than the static maximum. In this
 	 * case the e820 map provided to us will cover the static
 	 * maximum region.
+	 *
+	 * The dom0_mem=min:X,max:Y tweaks options differently depending
+	 * on the version, but in general this is what we get:
+	 *                | XENMEM_maximum_reser  | nr_pages
+	 * --------------++-----------------------+-------------------
+	 *  no dom0_mem   | INT_MAX               | max_phys_pfn
+	 *  =3G           | INT_MAX               | 786432
+	 *  =max:3G       | 786432                | 786432
+	 *  =min:1G,max:3G| INT_MAX               | max_phys_fn
+	 *  =1G,max:3G    | INT_MAX               | 262144
+	 *  =min:1G,max:3G,2G | INT_MAX           | max_phys_fn
+	 *
+	 * The =3G is often used and it lead to us initially setting
+	 * 786432 and allowing dom0 to balloon up to the max_physical_pfn.
+	 * This is at odd with the classic XenOClassic so lets emulate
+	 * the classic behavior.
 	 */
 	if (xen_initial_domain()) {
 		ret = HYPERVISOR_memory_op(XENMEM_maximum_reservation, &domid);
 		if (ret > 0)
 			max_pages = ret;
+		if (ret == -1UL)
+			max_pages = xen_start_info->nr_pages;
 	}
 
 	return min(max_pages, MAX_DOMAIN_PAGES);
 }
-
+static unsigned long xen_get_current_pages(void)
+{
+	domid_t domid = DOMID_SELF;
+	int ret;
+	ret = HYPERVISOR_memory_op(XENMEM_current_reservation, &domid);
+	if (ret > 0)
+		return ret;
+	return 0;
+}
 static void xen_align_and_add_e820_region(u64 start, u64 size, int type)
 {
 	u64 end = start + size;
@@ -217,7 +321,9 @@ char * __init xen_memory_setup(void)
 	int rc;
 	struct xen_memory_map memmap;
 	unsigned long max_pages;
+	unsigned long last_pfn = 0;
 	unsigned long extra_pages = 0;
+	unsigned long populated;
 	int i;
 	int op;
 
@@ -257,8 +363,23 @@ char * __init xen_memory_setup(void)
 	 */
 	xen_released_pages = xen_set_identity_and_release(
 		map, memmap.nr_entries, max_pfn);
-	extra_pages += xen_released_pages;
 
+	/*
+	 * Populate back the non-RAM pages and E820 gaps that had been
+	 * released. But cap it as certain regions cannot be repopulated.
+	 */
+	if (xen_get_current_pages())
+		xen_released_pages = min(max_pfn - xen_get_current_pages(),
+				xen_released_pages);
+	populated = xen_populate_chunk(map, memmap.nr_entries,
+			max_pfn, &last_pfn, xen_released_pages);
+
+	extra_pages += (xen_released_pages - populated);
+
+	if (last_pfn > max_pfn) {
+		max_pfn = min(MAX_DOMAIN_PAGES, last_pfn);
+		mem_end = PFN_PHYS(max_pfn);
+	}
 	/*
 	 * Clamp the amount of extra memory to a EXTRA_MEM_RATIO
 	 * factor the base size.  On non-highmem systems, the base
@@ -272,7 +393,6 @@ char * __init xen_memory_setup(void)
 	 */
 	extra_pages = min(EXTRA_MEM_RATIO * min(max_pfn, PFN_DOWN(MAXMEM)),
 			  extra_pages);
-
 	i = 0;
 	while (i < memmap.nr_entries) {
 		u64 addr = map[i].addr;
