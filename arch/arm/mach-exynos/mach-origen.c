@@ -679,7 +679,25 @@ static struct s3c_fb_pd_win origen_fb_win0 = {
 	.xres			= 1024,
 	.yres			= 600,
 	.max_bpp		= 32,
-	.default_bpp		= 24,
+	.default_bpp		= 32,
+	.virtual_x		= 1024,
+	.virtual_y		= 2 * 600,
+};
+
+static struct s3c_fb_pd_win origen_fb_win1 = {
+	.xres			= 1024,
+	.yres			= 600,
+	.max_bpp		= 32,
+	.default_bpp		= 32,
+	.virtual_x		= 1024,
+	.virtual_y		= 2 * 600,
+};
+
+static struct s3c_fb_pd_win origen_fb_win2 = {
+	.xres			= 1024,
+	.yres			= 600,
+	.max_bpp		= 32,
+	.default_bpp		= 32,
 	.virtual_x		= 1024,
 	.virtual_y		= 2 * 600,
 };
@@ -697,6 +715,8 @@ static struct fb_videomode origen_lcd_timing = {
 
 static struct s3c_fb_platdata origen_lcd_pdata __initdata = {
 	.win[0]		= &origen_fb_win0,
+	.win[1]		= &origen_fb_win1,
+	.win[2]		= &origen_fb_win2,
 	.vtiming	= &origen_lcd_timing,
 	.vidcon0	= VIDCON0_VIDOUT_RGB | VIDCON0_PNRMODE_RGB,
 	.vidcon1	= VIDCON1_INV_HSYNC | VIDCON1_INV_VSYNC |
