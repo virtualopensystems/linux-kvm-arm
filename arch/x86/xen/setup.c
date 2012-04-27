@@ -287,7 +287,15 @@ static unsigned long __init xen_get_max_pages(void)
 
 	return min(max_pages, MAX_DOMAIN_PAGES);
 }
-
+static unsigned long xen_get_current_pages(void)
+{
+	domid_t domid = DOMID_SELF;
+	int ret;
+	ret = HYPERVISOR_memory_op(XENMEM_current_reservation, &domid);
+	if (ret > 0)
+		return ret;
+	return 0;
+}
 static void xen_align_and_add_e820_region(u64 start, u64 size, int type)
 {
 	u64 end = start + size;
@@ -358,7 +366,11 @@ char * __init xen_memory_setup(void)
 
 	/*
 	 * Populate back the non-RAM pages and E820 gaps that had been
-	 * released. */
+	 * released. But cap it as certain regions cannot be repopulated.
+	 */
+	if (xen_get_current_pages())
+		xen_released_pages = min(max_pfn - xen_get_current_pages(),
+				xen_released_pages);
 	populated = xen_populate_chunk(map, memmap.nr_entries,
 			max_pfn, &last_pfn, xen_released_pages);
 
