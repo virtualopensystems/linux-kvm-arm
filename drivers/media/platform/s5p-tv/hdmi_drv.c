@@ -342,11 +342,9 @@ static void hdmi_reg_init(struct hdmi_device *hdev)
 	/* enable HPD interrupts */
 	hdmi_write_mask(hdev, HDMI_INTC_CON, ~0, HDMI_INTC_EN_GLOBAL |
 		HDMI_INTC_EN_HPD_PLUG | HDMI_INTC_EN_HPD_UNPLUG);
-	/* choose DVI mode */
+	/* choose HDMI mode */
 	hdmi_write_mask(hdev, HDMI_MODE_SEL,
-		HDMI_MODE_DVI_EN, HDMI_MODE_MASK);
-	hdmi_write_mask(hdev, HDMI_CON_2, ~0,
-		HDMI_DVI_PERAMBLE_EN | HDMI_DVI_BAND_EN);
+		HDMI_MODE_HDMI_EN, HDMI_MODE_MASK);
 	/* disable bluescreen */
 	hdmi_write_mask(hdev, HDMI_CON_0, 0, HDMI_BLUE_SCR_EN);
 	/* choose bluescreen (fecal) color */
