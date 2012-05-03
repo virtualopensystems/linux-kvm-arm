@@ -69,6 +69,8 @@ struct s3c_fb;
 #define VIDOSD_C(win, variant) (OSD_BASE(win, variant) + 0x08)
 #define VIDOSD_D(win, variant) (OSD_BASE(win, variant) + 0x0C)
 
+#define S3CFB_WIN_SET_PIXEL_ALPHA	_IOW('F', 204, __u32)
+
 /**
  * struct s3c_fb_variant - fb variant information
  * @is_2443: Set if S3C2443/S3C2416 style hardware.
@@ -1018,6 +1020,33 @@ static int s3c_fb_wait_for_vsync(struct s3c_fb *sfb, u32 crtc)
 	return 0;
 }
 
+int s3cfb_set_alpha_blending(struct s3c_fb *ctrl, int id)
+{
+	u32 avalue = 0, cfg;
+
+	if (id == 0) {
+		dev_err(ctrl->dev, "[fb%d] does not support alpha blending\n",
+				id);
+		return -EINVAL;
+	}
+
+	cfg = readl(ctrl->regs + S3C_WINCON(id));
+	cfg |= (1 << 0);
+	writel(cfg, ctrl->regs + S3C_WINCON(id));
+	cfg = readl(ctrl->regs + S3C_WINSHMAP);
+	cfg |= S3C_WINSHMAP_CH_ENABLE(id);
+	writel(cfg, ctrl->regs + S3C_WINSHMAP);
+	cfg = readl(ctrl->regs + S3C_WINCON(id));
+	cfg &= ~(S3C_WINCON_BLD_MASK | S3C_WINCON_ALPHA_SEL_MASK);
+
+	cfg |= (S3C_WINCON_BLD_PIXEL | S3C_WINCON_ALPHA1_SEL);
+	writel(cfg, ctrl->regs + S3C_WINCON(id));
+	writel(avalue, ctrl->regs + S3C_VIDOSD_C(id));
+
+	cfg = readl(ctrl->regs + S3C_WINCON(id));
+	return 0;
+}
+
 static int s3c_fb_ioctl(struct fb_info *info, unsigned int cmd,
 			unsigned long arg)
 {
@@ -1034,6 +1063,9 @@ static int s3c_fb_ioctl(struct fb_info *info, unsigned int cmd,
 		}
 
 		ret = s3c_fb_wait_for_vsync(sfb, crtc);
+		break;
+	case S3CFB_WIN_SET_PIXEL_ALPHA:
+		ret = s3cfb_set_alpha_blending(sfb, win->index);
 		break;
 	default:
 		ret = -ENOTTY;
@@ -1271,8 +1303,6 @@ static int s3c_fb_probe_win(struct s3c_fb *sfb, unsigned int win_no,
 		fb_set_cmap(&fbinfo->cmap, fbinfo);
 	else
 		dev_err(sfb->dev, "failed to allocate fb cmap\n");
-
-	s3c_fb_set_par(fbinfo);
 
 	dev_dbg(sfb->dev, "about to register framebuffer\n");
 
