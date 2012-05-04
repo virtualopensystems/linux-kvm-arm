@@ -1074,8 +1074,23 @@ static int s3c_fb_ioctl(struct fb_info *info, unsigned int cmd,
 	return ret;
 }
 
+int s3c_fb_release(struct fb_info *info, int user)
+{
+	struct s3c_fb_win *win = info->par;
+	struct s3c_fb *sfb = win->parent;
+	void __iomem *regs = sfb->regs;
+	int win_no = win->index;
+
+	if (win_no != 2) {
+		printk(KERN_DEBUG"Releasing window %d\n", win_no);
+		writel(0, regs + WINCON(win_no));
+	}
+	return 0;
+}
+
 static struct fb_ops s3c_fb_ops = {
 	.owner		= THIS_MODULE,
+	.fb_release     = s3c_fb_release,
 	.fb_check_var	= s3c_fb_check_var,
 	.fb_set_par	= s3c_fb_set_par,
 	.fb_blank	= s3c_fb_blank,
