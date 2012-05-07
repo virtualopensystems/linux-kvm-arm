@@ -8,20 +8,18 @@
 
 static void enable_hotplug_cpu(int cpu)
 {
-	if (!cpu_present(cpu)) {
+	if (!cpu_present(cpu))
 		arch_register_cpu(cpu);
-		set_cpu_present(cpu, true);
-		(void)cpu_up(cpu);
-	}
+
+	set_cpu_present(cpu, true);
 }
 
 static void disable_hotplug_cpu(int cpu)
 {
-	if (cpu_present(cpu)) {
-		(void)cpu_down(cpu);
-		set_cpu_present(cpu, false);
+	if (cpu_present(cpu))
 		arch_unregister_cpu(cpu);
-	}
+
+	set_cpu_present(cpu, false);
 }
 
 static int vcpu_online(unsigned int cpu)
@@ -55,6 +53,7 @@ static void vcpu_hotplug(unsigned int cpu)
 		enable_hotplug_cpu(cpu);
 		break;
 	case 0:
+		(void)cpu_down(cpu);
 		disable_hotplug_cpu(cpu);
 		break;
 	default:
