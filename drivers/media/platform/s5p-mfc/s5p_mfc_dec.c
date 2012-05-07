@@ -196,6 +196,16 @@ static struct mfc_control controls[] = {
 		.default_value = 1,
 		.is_volatile = 1,
 	},
+	{
+		.id = V4L2_CID_CODEC_FRAME_TAG,
+		.type = V4L2_CTRL_TYPE_INTEGER,
+		.name = "Frame Tag",
+		.minimum = 0,
+		.maximum = INT_MAX,
+		.step = 1,
+		.default_value = 0,
+		.is_volatile = 1,
+	},
 };
 
 #define NUM_CTRLS ARRAY_SIZE(controls)
@@ -724,6 +734,9 @@ static int s5p_mfc_dec_s_ctrl(struct v4l2_ctrl *ctrl)
 	case V4L2_CID_MPEG_VIDEO_DECODER_SLICE_INTERFACE:
 		ctx->slice_interface = ctrl->val;
 		break;
+	case V4L2_CID_CODEC_FRAME_TAG:
+		ctx->frame_tag = ctrl->val;
+		break;
 	default:
 		mfc_err("Invalid control 0x%08x\n", ctrl->id);
 		return -EINVAL;
@@ -757,6 +770,9 @@ static int s5p_mfc_dec_g_v_ctrl(struct v4l2_ctrl *ctrl)
 			v4l2_err(&dev->v4l2_dev, "Decoding not initialised\n");
 			return -EINVAL;
 		}
+		break;
+	case V4L2_CID_CODEC_FRAME_TAG:
+		ctrl->val = s5p_mfc_hw_call(dev->mfc_ops, get_frame_tag, ctx);
 		break;
 	}
 	return 0;

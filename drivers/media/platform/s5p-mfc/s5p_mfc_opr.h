@@ -77,6 +77,7 @@ struct s5p_mfc_hw_ops {
 	unsigned int (*get_pic_type_bot)(struct s5p_mfc_ctx *ctx);
 	unsigned int (*get_crop_info_h)(struct s5p_mfc_ctx *ctx);
 	unsigned int (*get_crop_info_v)(struct s5p_mfc_ctx *ctx);
+	unsigned int (*get_frame_tag)(struct s5p_mfc_ctx *ctx);
 };
 
 void s5p_mfc_init_hw_ops(struct s5p_mfc_dev *dev);
