@@ -1523,9 +1523,7 @@ module_init(xlblk_init);
 
 static void __exit xlblk_exit(void)
 {
-	xenbus_unregister_driver(&blkfront_driver);
-	unregister_blkdev(XENVBD_MAJOR, DEV_NAME);
-	kfree(minors);
+	return xenbus_unregister_driver(&blkfront_driver);
 }
 module_exit(xlblk_exit);
 
