@@ -378,7 +378,9 @@ static struct regulator_init_data __initdata max8997_buck3_data = {
 	.constraints	= {
 		.name		= "VDD_G3D_1.1V",
 		.min_uV		= 900000,
-		.max_uV		= 1100000,
+		.max_uV		= 1200000,
+		.always_on	= 1,
+		.boot_on	= 1,
 		.valid_ops_mask	= REGULATOR_CHANGE_VOLTAGE |
 					REGULATOR_CHANGE_STATUS,
 		.state_mem	= {
