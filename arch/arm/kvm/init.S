@@ -105,6 +105,11 @@ __do_hyp_init:
 	mcr	p15, 4, r0, c1, c0, 0	@ HSCR
 	isb
 
+	@ make CNTP_* and CNTPCT accessible from PL1
+	mrc	p15, 4, r0, c14, c1, 0	@ CNTHCTL
+	orr	r0, r0, #3		@ PL1PCEN | PL1PCTEN
+	mcr	p15, 4, r0, c14, c1, 0	@ CNTHCTL
+
 	@ Set stack pointer and return to the kernel
 	pop	{r0, r1, r2, r12}
 	mov	sp, r1
