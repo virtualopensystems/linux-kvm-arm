@@ -202,6 +202,11 @@ static irqreturn_t arch_timer_handler(int irq, void *dev_id)
 	return IRQ_NONE;
 }
 
+static irqreturn_t arch_timer_virt_handler(int irq, void *dev_id)
+{
+	return arch_timer_handler(irq, dev_id);
+}
+
 static void arch_timer_disable(void)
 {
 	unsigned long ctrl;
@@ -407,6 +412,9 @@ static int __init arch_timer_register(void)
 
 		if (!arch_timer_ppi[i])
 			continue;
+
+		if (i == VIRT_PPI)
+			handler = arch_timer_virt_handler;
 
 		err = request_percpu_irq(arch_timer_ppi[i], handler,
 					 "arch_timer", arch_timer_evt);
