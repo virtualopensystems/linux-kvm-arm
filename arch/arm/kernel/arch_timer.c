@@ -50,6 +50,8 @@ struct arch_timer_reg_ops {
 
 static struct arch_timer_reg_ops __percpu **arch_timer_reg_ops;
 
+static irq_handler_t arch_timer_virt_external_handler;
+
 /*
  * Architected system timer support.
  */
@@ -204,6 +206,19 @@ static irqreturn_t arch_timer_handler(int irq, void *dev_id)
 
 static irqreturn_t arch_timer_virt_handler(int irq, void *dev_id)
 {
+	if (arch_timer_virt_external_handler) {
+		unsigned long ctrl;
+
+		ctrl = arch_timer_virt_reg_read(ARCH_TIMER_REG_CTRL);
+		if (ctrl & ARCH_TIMER_CTRL_IT_STAT) {
+			ctrl |= ARCH_TIMER_CTRL_IT_MASK;
+			arch_timer_virt_reg_write(ARCH_TIMER_REG_CTRL, ctrl);
+			return arch_timer_virt_external_handler(irq, NULL);
+		}
+
+		return IRQ_NONE;
+	}
+
 	return arch_timer_handler(irq, dev_id);
 }
 
@@ -508,4 +523,38 @@ int __init arch_timer_sched_clock_init(void)
 
 	setup_sched_clock(arch_counter_get_cnt32, 32, arch_timer_rate);
 	return 0;
+}
+
+static void arch_timer_switch_cpu_to_phys(void *dummy)
+{
+	u32 cvall, cvalh, val;
+
+	pr_info("Switching CPU%d to physical timer\n", smp_processor_id());
+
+	asm volatile("mrrc p15, 3, %0, %1, c14	\n" /* Read CNTV_CVAL */
+		     "mcrr p15, 2, %0, %1, c14	\n" /* Write CNTP_CVAL */
+		     : "=r" (cvall), "=r" (cvalh));
+
+	isb();
+	
+	val = arch_timer_virt_reg_read(ARCH_TIMER_REG_CTRL);
+	arch_timer_virt_reg_write(ARCH_TIMER_REG_CTRL,
+				  val & ~ARCH_TIMER_CTRL_ENABLE);
+	arch_timer_phys_reg_write(ARCH_TIMER_REG_CTRL, val);
+	*__this_cpu_ptr(arch_timer_reg_ops) = &arch_timer_phys_ops;
+}
+
+void arch_timer_switch_to_phys(irq_handler_t handler)
+{
+	int cpu;
+
+	if (!arch_timer_use_virtual)
+		return;
+
+	for_each_online_cpu(cpu)
+		smp_call_function_single(cpu, arch_timer_switch_cpu_to_phys,
+					 NULL, 1);
+
+	arch_timer_use_virtual = false;
+	arch_timer_virt_external_handler = handler;
 }
