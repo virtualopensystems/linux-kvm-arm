@@ -342,7 +342,26 @@ ENDPROC(__kvm_flush_vm_context)
 2:
 #endif
 .endm
-	
+
+#define PL1P_ENABLE	3
+#define PL1P_DISABLE	3
+
+.macro save_timer_state	vcpup
+	@ Allow physical timer access for the host
+	mrc	p15, 4, r2, c14, c1, 0	@ CNTHCTL
+	orr	r2, r2, #PL1P_ENABLE
+	mcr	p15, 4, r2, c14, c1, 0	@ CNTHCTL
+.endm
+
+.macro restore_timer_state vcpup
+	@ Disallow physical timer access for the guest
+	mrc	p15, 4, r2, c14, c1, 0	@ CNTHCTL
+	bic	r2, r2, #PL1P_DISABLE
+	mcr	p15, 4, r2, c14, c1, 0	@ CNTHCTL
+
+	isb
+.endm
+
 /* Configures the HSTR (Hyp System Trap Register) on entry/return
  * (hardware reset value is 0) */
 .macro set_hstr entry
@@ -401,6 +420,7 @@ ENTRY(__kvm_vcpu_run)
 	store_mode_state sp, fiq
 
 	restore_vgic_state r0
+	restore_timer_state r0
 
 	@ Store hardware CP15 state and load guest state
 	read_cp15_state
@@ -490,6 +510,7 @@ __kvm_vcpu_return:
 	read_cp15_state 1, r1
 	write_cp15_state
 
+	save_timer_state r1
 	save_vgic_state	r1
 
 	load_mode_state sp, fiq

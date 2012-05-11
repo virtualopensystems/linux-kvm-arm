@@ -25,6 +25,7 @@
 #define KVM_COALESCED_MMIO_PAGE_OFFSET 1
 
 #include <asm/kvm_vgic.h>
+#include <asm/kvm_arch_timer.h>
 
 /* We don't currently support large pages. */
 #define KVM_HPAGE_GFN_SHIFT(x)	0
@@ -50,6 +51,9 @@ struct kvm_arch {
 
 	/* Interrupt controller */
 	struct vgic_dist	vgic;
+
+	/* Timer */
+	struct arch_timer_kvm	timer;
 };
 
 #define EXCEPTION_NONE      0
@@ -133,6 +137,7 @@ struct kvm_vcpu_arch {
 
 	/* VGIC state */
 	struct vgic_cpu vgic_cpu;
+	struct arch_timer_cpu timer_cpu;
 };
 
 struct kvm_vm_stat {
