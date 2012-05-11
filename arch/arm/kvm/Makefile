@@ -22,3 +22,4 @@ kvm-arm-y += arm.o guest.o mmu.o emulate.o reset.o coproc.o
 
 obj-$(CONFIG_KVM) += kvm-arm.o
 obj-$(CONFIG_KVM_ARM_VGIC) += vgic.o
+obj-$(CONFIG_KVM_ARM_TIMER) += timer.o
