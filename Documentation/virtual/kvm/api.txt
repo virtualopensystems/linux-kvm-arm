@@ -600,7 +600,7 @@ struct kvm_fpu {
 4.24 KVM_CREATE_IRQCHIP
 
 Capability: KVM_CAP_IRQCHIP
-Architectures: x86, ia64
+Architectures: x86, ia64, ARM
 Type: vm ioctl
 Parameters: none
 Returns: 0 on success, -1 on error
@@ -608,14 +608,14 @@ Returns: 0 on success, -1 on error
 Creates an interrupt controller model in the kernel.  On x86, creates a virtual
 ioapic, a virtual PIC (two PICs, nested), and sets up future vcpus to have a
 local APIC.  IRQ routing for GSIs 0-15 is set to both PIC and IOAPIC; GSI 16-23
-only go to the IOAPIC.  On ia64, a IOSAPIC is created.
-
+only go to the IOAPIC.  On ia64, a IOSAPIC is created. On ARM, a GIC is
+created.
 
 4.25 KVM_IRQ_LINE
 
 Capability: KVM_CAP_IRQCHIP
 Architectures: x86, ia64, arm
-Type: vm ioctl
+Type: vm ioctl (and vcpu_ioctl on ARM)
 Parameters: struct kvm_irq_level
 Returns: 0 on success, -1 on error
 
@@ -624,9 +624,21 @@ On some architectures it is required that an interrupt controller model has
 been previously created with KVM_CREATE_IRQCHIP.  Note that edge-triggered
 interrupts require the level to be set to 1 and then back to 0.
 
-ARM uses two types of interrupt lines per CPU: IRQ and FIQ.  The value of the
-irq field should be (vcpu_index << 1) for IRQs and ((vcpu_index << 1) | 1) for
-FIQs. Level is used to raise/lower the line.
+ARM can signal an interrupt either at the CPU level, or at the
+in-kernel irqchip (GIC), with the following convention:
+
+- CPU signaling: ARM uses two types of interrupt lines per CPU: IRQ
+  and FIQ.  The value of the irq field should be (vcpu_index << 1) for
+  IRQs and ((vcpu_index << 1) | 1) for FIQs. As there's a limit of 8
+  CPUs, irq is between 0 and 15. This is a vm_ioctl.
+
+- GIC signaling: If signaling a PPI, this is a vcpu_ioctl, and irq is
+  between 16 and 31. If signaling a SPI, this is a vm_ioctl, and irq
+  is above 31. Values between 0 and 15 would designate a SGI, which
+  should never be injected from user-space, thus avoiding any conflict
+  with the CPU signaling method.
+
+In both cases, level is used to raise/lower the line.
 
 struct kvm_irq_level {
 	union {
