@@ -1033,5 +1033,9 @@ int kvm_vgic_init(struct kvm *kvm)
 
 out:
 	mutex_unlock(&kvm->lock);
+
+	if (!ret)
+		kvm_timer_init(kvm);
+
 	return ret;
 }
