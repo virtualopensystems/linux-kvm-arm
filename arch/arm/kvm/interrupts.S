@@ -343,10 +343,33 @@ ENDPROC(__kvm_flush_vm_context)
 #endif
 .endm
 
+#ifdef CONFIG_KVM_ARM_TIMER
+#define PL1P_ENABLE	3
+#define PL1P_DISABLE	2
+#else
 #define PL1P_ENABLE	3
 #define PL1P_DISABLE	3
+#endif
 
 .macro save_timer_state	vcpup
+#ifdef CONFIG_KVM_ARM_TIMER
+	ldr	r4, [\vcpup, #VCPU_KVM]
+	ldr	r2, [r4, #KVM_TIMER_ENABLED]
+	cmp	r2, #0
+	beq	1f
+
+	mrc	p15, 0, r2, c14, c3, 1	@ CNTV_CTL
+	and	r2, #3
+	str	r2, [\vcpup, #VCPU_TIMER_CNTV_CTL]
+	bic	r2, #1			@ Clear ENABLE
+	mcr	p15, 0, r2, c14, c3, 1	@ CNTV_CTL
+
+	mrrc	p15, 3, r2, r3, c14	@ CNTV_CVAL
+	str	r3, [\vcpup, #VCPU_TIMER_CNTV_CVALH]
+	str	r2, [\vcpup, #VCPU_TIMER_CNTV_CVALL]
+
+1:
+#endif
 	@ Allow physical timer access for the host
 	mrc	p15, 4, r2, c14, c1, 0	@ CNTHCTL
 	orr	r2, r2, #PL1P_ENABLE
@@ -359,6 +382,26 @@ ENDPROC(__kvm_flush_vm_context)
 	bic	r2, r2, #PL1P_DISABLE
 	mcr	p15, 4, r2, c14, c1, 0	@ CNTHCTL
 
+#ifdef CONFIG_KVM_ARM_TIMER
+	ldr	r4, [\vcpup, #VCPU_KVM]
+	ldr	r2, [r4, #KVM_TIMER_ENABLED]
+	cmp	r2, #0
+	beq	1f
+
+	ldr	r3, [\vcpup, #VCPU_TIMER_CNTV_CVALH]
+	ldr	r2, [\vcpup, #VCPU_TIMER_CNTV_CVALL]
+	mcrr	p15, 3, r2, r3, c14	@ CNTV_CVAL
+
+	ldr	r3, [r4, #KVM_TIMER_CNTVOFF_H]
+	ldr	r2, [r4, #KVM_TIMER_CNTVOFF_L]
+	mcrr	p15, 4, r2, r3, c14	@ CNTVOFF
+	isb
+
+	ldr	r2, [\vcpup, #VCPU_TIMER_CNTV_CTL]
+	and	r2, #3
+	mcr	p15, 0, r2, c14, c3, 1	@ CNTV_CTL
+1:
+#endif
 	isb
 .endm
 

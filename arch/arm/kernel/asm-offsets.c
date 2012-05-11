@@ -194,6 +194,14 @@ int main(void)
   DEFINE(VCPU_VGIC_APR,		offsetof(struct kvm_vcpu, arch.vgic_cpu.vgic_apr));
   DEFINE(VCPU_VGIC_LR,		offsetof(struct kvm_vcpu, arch.vgic_cpu.vgic_lr));
   DEFINE(VCPU_VGIC_NR_LR,	offsetof(struct kvm_vcpu, arch.vgic_cpu.nr_lr));
+#ifdef CONFIG_KVM_ARM_TIMER
+  DEFINE(VCPU_TIMER_CNTV_CTL,	offsetof(struct kvm_vcpu, arch.timer_cpu.cntv_ctl));
+  DEFINE(VCPU_TIMER_CNTV_CVALH,	offsetof(struct kvm_vcpu, arch.timer_cpu.cntv_cval_high));
+  DEFINE(VCPU_TIMER_CNTV_CVALL,	offsetof(struct kvm_vcpu, arch.timer_cpu.cntv_cval_low));
+  DEFINE(KVM_TIMER_CNTVOFF_H,	offsetof(struct kvm, arch.timer.cntvoff32.cntvoff_high));
+  DEFINE(KVM_TIMER_CNTVOFF_L,	offsetof(struct kvm, arch.timer.cntvoff32.cntvoff_low));
+  DEFINE(KVM_TIMER_ENABLED,	offsetof(struct kvm, arch.timer.enabled));
+#endif
   DEFINE(KVM_VGIC_VCTRL,	offsetof(struct kvm, arch.vgic.vctrl_base));
 #endif
   DEFINE(KVM_VTTBR,		offsetof(struct kvm, arch.vttbr));

@@ -590,6 +590,7 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 		update_vttbr(vcpu->kvm);
 
 		kvm_vgic_sync_to_cpu(vcpu);
+		kvm_timer_sync_to_cpu(vcpu);
 
 		/*
 		 * Make sure preemption is disabled while calling handle_exit
@@ -640,6 +641,7 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 			exit_reason = ret; /* 0 == KVM_EXIT_UNKNOWN */
 		}
 
+		kvm_timer_sync_from_cpu(vcpu);
 		kvm_vgic_sync_from_cpu(vcpu);
 	}
 
