@@ -567,6 +567,7 @@ static void (*wifi_status_cb)(struct platform_device *, int state);
 static int origen_wifi_status_register(void (*notify_func)
 		(struct platform_device *, int state))
 {
+	/* Assign sdhci_s3c_notify_change to wifi_status_cb */
 	if (!notify_func)
 		return -EAGAIN;
 	else
@@ -612,8 +613,11 @@ static void origen_wlan_setup_power(bool val)
  */
 static int origen_wifi_set_detect(bool val)
 {
+
 	if (!wifi_status_cb) {
-		printk(KERN_WARNING "WLAN: Nobody to notify\n");
+		pr_warning("ORIGEN: WLAN: No callback \n"
+		"ORIGEN: WLAN: MMC should boot earlier than net \n");
+
 		return -EAGAIN;
 	}
 	if (true == val) {
