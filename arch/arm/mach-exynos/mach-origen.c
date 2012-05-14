@@ -555,6 +555,7 @@ static struct s3c_sdhci_platdata origen_hsmmc3_pdata __initdata = {
 	.max_width		= 4,
 	.host_caps		= MMC_CAP_4_BIT_DATA |
 			MMC_CAP_MMC_HIGHSPEED | MMC_CAP_SD_HIGHSPEED,
+	.pm_caps		= MMC_PM_KEEP_POWER,
 	.cd_type		= S3C_SDHCI_CD_EXTERNAL,
 	.ext_cd_init		= origen_wifi_status_register,
 };
