@@ -442,6 +442,7 @@ int kvm_handle_cp15_32(struct kvm_vcpu *vcpu, struct kvm_run *run)
 int kvm_handle_wfi(struct kvm_vcpu *vcpu, struct kvm_run *run)
 {
 	trace_kvm_wfi(vcpu->arch.regs.pc);
+	vcpu->stat.wfi_exits++;
 	if (!vcpu->arch.irq_lines)
 		vcpu->arch.wait_for_interrupts = 1;
 	return 0;

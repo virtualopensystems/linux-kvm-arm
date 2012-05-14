@@ -24,7 +24,20 @@
 #include <asm/kvm_asm.h>
 #include <asm/kvm_emulate.h>
 
+#define VM_STAT(x) { #x, offsetof(struct kvm, stat.x), KVM_STAT_VM }
+#define VCPU_STAT(x) { #x, offsetof(struct kvm_vcpu, stat.x), KVM_STAT_VCPU }
+
 struct kvm_stats_debugfs_item debugfs_entries[] = {
+	/* vcpu stats */
+	VCPU_STAT(exits),
+	VCPU_STAT(mmio_exits),
+	VCPU_STAT(kmmio_exits),
+	VCPU_STAT(wfi_exits),
+	VCPU_STAT(irq_exits),
+	VCPU_STAT(halt_wakeup),
+
+	/* vm stats */
+	VM_STAT(remote_tlb_flush),
 	{ NULL }
 };
 

@@ -121,6 +121,11 @@ struct kvm_vm_stat {
 };
 
 struct kvm_vcpu_stat {
+	u32 exits;
+	u32 mmio_exits;
+	u32 kmmio_exits;
+	u32 wfi_exits;
+	u32 irq_exits;
 	u32 halt_wakeup;
 };
 
