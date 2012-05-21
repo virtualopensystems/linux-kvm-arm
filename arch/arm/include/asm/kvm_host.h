@@ -75,6 +75,12 @@ enum cp15_regs {
 	c2_TTBR1_high,		/* TTBR1 top 32 bits */
 	c2_TTBCR,		/* Translation Table Base Control R. */
 	c3_DACR,		/* Domain Access Control Register */
+	c5_DFSR,		/* Data Fault Status Register */
+	c5_IFSR,		/* Instruction Fault Status Register */
+	c5_ADFSR,		/* Auxilary Data Fault Status Register */
+	c5_AIFSR,		/* Auxilary Instruction Fault Status Register */
+	c6_DFAR,		/* Data Fault Address Register */
+	c6_IFAR,		/* Instruction Fault Address Register */
 	c10_PRRR,		/* Primary Region Remap Register */
 	c10_NMRR,		/* Normal Memory Remap Register */
 	c13_CID,		/* Context ID Register */

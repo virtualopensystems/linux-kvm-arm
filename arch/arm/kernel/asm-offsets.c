@@ -155,6 +155,12 @@ int main(void)
   DEFINE(VCPU_TTBR1,		offsetof(struct kvm_vcpu, arch.cp15[c2_TTBR1]));
   DEFINE(VCPU_TTBCR,		offsetof(struct kvm_vcpu, arch.cp15[c2_TTBCR]));
   DEFINE(VCPU_DACR,		offsetof(struct kvm_vcpu, arch.cp15[c3_DACR]));
+  DEFINE(VCPU_DFSR,		offsetof(struct kvm_vcpu, arch.cp15[c5_DFSR]));
+  DEFINE(VCPU_IFSR,		offsetof(struct kvm_vcpu, arch.cp15[c5_IFSR]));
+  DEFINE(VCPU_ADFSR,		offsetof(struct kvm_vcpu, arch.cp15[c5_ADFSR]));
+  DEFINE(VCPU_AIFSR,		offsetof(struct kvm_vcpu, arch.cp15[c5_AIFSR]));
+  DEFINE(VCPU_DFAR,		offsetof(struct kvm_vcpu, arch.cp15[c6_DFAR]));
+  DEFINE(VCPU_IFAR,		offsetof(struct kvm_vcpu, arch.cp15[c6_IFAR]));
   DEFINE(VCPU_PRRR,		offsetof(struct kvm_vcpu, arch.cp15[c10_PRRR]));
   DEFINE(VCPU_NMRR,		offsetof(struct kvm_vcpu, arch.cp15[c10_NMRR]));
   DEFINE(VCPU_CID,		offsetof(struct kvm_vcpu, arch.cp15[c13_CID]));

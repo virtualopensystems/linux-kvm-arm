@@ -180,13 +180,26 @@ ENDPROC(__kvm_flush_vm_context)
 	mrc	p15, 0, r3, c13, c0, 2	@ TID_URW
 	mrc	p15, 0, r4, c13, c0, 3	@ TID_URO
 	mrc	p15, 0, r5, c13, c0, 4	@ TID_PRIV
+	mrc	p15, 0, r6, c5, c0, 0	@ DFSR
+	mrc	p15, 0, r7, c5, c0, 1	@ IFSR
+	mrc	p15, 0, r8, c5, c1, 0	@ ADFSR
+	mrc	p15, 0, r9, c5, c1, 1	@ AIFSR
+	mrc	p15, 0, r10, c6, c0, 0	@ DFAR
+	mrc	p15, 0, r11, c6, c0, 2	@ IFAR
+
 	.if \vcpu == 0
-	push	{r2-r5}			@ Push CP15 registers
+	push	{r2-r11}		@ Push CP15 registers
 	.else
 	str	r2, [\vcpup, #VCPU_CID]
 	str	r3, [\vcpup, #VCPU_TID_URW]
 	str	r4, [\vcpup, #VCPU_TID_URO]
 	str	r5, [\vcpup, #VCPU_TID_PRIV]
+	str	r6, [\vcpup, #VCPU_DFSR]
+	str	r7, [\vcpup, #VCPU_IFSR]
+	str	r8, [\vcpup, #VCPU_ADFSR]
+	str	r9, [\vcpup, #VCPU_AIFSR]
+	str	r10, [\vcpup, #VCPU_DFAR]
+	str	r11, [\vcpup, #VCPU_IFAR]
 	.endif
 .endm
 
@@ -197,18 +210,30 @@ ENDPROC(__kvm_flush_vm_context)
  */
 .macro write_cp15_state vcpu=0, vcpup
 	.if \vcpu == 0
-	pop	{r2-r5}
+	pop	{r2-r11}
 	.else
 	ldr	r2, [\vcpup, #VCPU_CID]
 	ldr	r3, [\vcpup, #VCPU_TID_URW]
 	ldr	r4, [\vcpup, #VCPU_TID_URO]
 	ldr	r5, [\vcpup, #VCPU_TID_PRIV]
+	ldr	r6, [\vcpup, #VCPU_DFSR]
+	ldr	r7, [\vcpup, #VCPU_IFSR]
+	ldr	r8, [\vcpup, #VCPU_ADFSR]
+	ldr	r9, [\vcpup, #VCPU_AIFSR]
+	ldr	r10, [\vcpup, #VCPU_DFAR]
+	ldr	r11, [\vcpup, #VCPU_IFAR]
 	.endif
 
 	mcr	p15, 0, r2, c13, c0, 1	@ CID
 	mcr	p15, 0, r3, c13, c0, 2	@ TID_URW
 	mcr	p15, 0, r4, c13, c0, 3	@ TID_URO
 	mcr	p15, 0, r5, c13, c0, 4	@ TID_PRIV
+	mcr	p15, 0, r6, c5, c0, 0	@ DFSR
+	mcr	p15, 0, r7, c5, c0, 1	@ IFSR
+	mcr	p15, 0, r8, c5, c1, 0	@ ADFSR
+	mcr	p15, 0, r9, c5, c1, 1	@ AIFSR
+	mcr	p15, 0, r10, c6, c0, 0	@ DFAR
+	mcr	p15, 0, r11, c6, c0, 2	@ IFAR
 
 	.if \vcpu == 0
 	pop	{r2-r11}
