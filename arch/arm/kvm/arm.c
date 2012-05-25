@@ -655,8 +655,6 @@ static int init_hyp_mode(void)
 	/*
 	 * Allocate stack pages for Hypervisor-mode
 	 */
-	for_each_possible_cpu(cpu)
-		per_cpu(kvm_arm_hyp_stack_page, cpu) = 0;
 	for_each_possible_cpu(cpu) {
 		unsigned long stack_page;
 
