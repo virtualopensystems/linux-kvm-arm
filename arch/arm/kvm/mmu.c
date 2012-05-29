@@ -60,10 +60,9 @@ void free_hyp_pmds(void)
 		pgd = kvm_hyp_pgd + pgd_index(addr);
 		pud = pud_offset(pgd, addr);
 
-		BUG_ON(pud_bad(*pud));
-
 		if (pud_none(*pud))
 			continue;
+		BUG_ON(pud_bad(*pud));
 
 		pmd = pmd_offset(pud, addr);
 		free_ptes(pmd, addr);
