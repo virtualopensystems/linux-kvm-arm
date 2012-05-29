@@ -173,7 +173,7 @@ out:
  * addresses). Clears the allocated pages.
  *
  * Note we don't need locking here as this is only called when the VM is
- * destroyed, which can only be done once.
+ * created, which can only be done once.
  */
 int kvm_alloc_stage2_pgd(struct kvm *kvm)
 {
