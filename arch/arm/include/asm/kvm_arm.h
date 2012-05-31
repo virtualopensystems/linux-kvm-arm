@@ -63,6 +63,7 @@
  * The bits we set in HCR:
  * TAC:		Trap ACTLR
  * TSC:		Trap SMC
+ * TSW:		Trap cache operations by set/way
  * TWI:		Trap WFI
  * BSU_IS:	Upgrade barriers to the inner shareable domain
  * FB:		Force broadcast of all maintainance operations
@@ -71,8 +72,9 @@
  * FMO:		Override CPSR.F and enable signaling with VF
  * SWIO:	Turn set/way invalidates into set/way clean+invalidate
  */
-#define HCR_GUEST_MASK (HCR_TSC | HCR_TWI | HCR_VM | HCR_BSU_IS | HCR_FB | \
-			HCR_TAC | HCR_AMO | HCR_IMO | HCR_FMO | HCR_SWIO)
+#define HCR_GUEST_MASK (HCR_TSC | HCR_TSW | HCR_TWI | HCR_VM | HCR_BSU_IS | \
+			HCR_FB | HCR_TAC | HCR_AMO | HCR_IMO | HCR_FMO | \
+			HCR_SWIO)
 #define HCR_VIRT_EXCP_MASK (HCR_VA | HCR_VI | HCR_VF)
 
 /* System Control Register (SCTLR) bits */

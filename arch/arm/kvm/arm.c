@@ -36,6 +36,7 @@
 #include <asm/mman.h>
 #include <asm/idmap.h>
 #include <asm/tlbflush.h>
+#include <asm/cacheflush.h>
 #include <asm/cputype.h>
 #include <asm/kvm_arm.h>
 #include <asm/kvm_asm.h>
@@ -270,6 +271,15 @@ void kvm_arch_vcpu_uninit(struct kvm_vcpu *vcpu)
 void kvm_arch_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
 {
 	vcpu->cpu = cpu;
+
+	/*
+	 * Check whether this vcpu requires the cache to be flushed on
+	 * this physical CPU. This is a consequence of doing dcache
+	 * operations by set/way on this vcpu. We do it here in order
+	 * to be in a non-preemptible section.
+	 */
+	if (cpumask_test_and_clear_cpu(cpu, &vcpu->arch.require_dcache_flush))
+		flush_cache_all(); /* We'd really want v7_flush_dcache_all() */
 }
 
 void kvm_arch_vcpu_put(struct kvm_vcpu *vcpu)

@@ -294,6 +294,31 @@ static bool read_actlr(struct kvm_vcpu *vcpu,
 	return true;
 }
 
+static bool write_dcsw(struct kvm_vcpu *vcpu,
+		       const struct coproc_params *p,
+		       unsigned long cp15_reg)
+{
+	u32 val;
+
+	val = *vcpu_reg(vcpu, p->Rt1);
+
+	switch(p->CRm) {
+	case 6:			/* Upgrade DCISW to DCCISW, as per HCR.SWIO */
+	case 14:		/* DCCISW */
+		asm volatile("mcr p15, 0, %0, c7, c14, 2" : : "r" (val));
+		break;
+
+	case 10:		/* DCCSW */
+		asm volatile("mcr p15, 0, %0, c7, c10, 2" : : "r" (val));
+		break;
+	}
+
+	cpumask_setall(&vcpu->arch.require_dcache_flush);
+	cpumask_clear_cpu(vcpu->cpu, &vcpu->arch.require_dcache_flush);
+
+	return true;
+}
+
 static bool access_cp15_reg(struct kvm_vcpu *vcpu,
 			    const struct coproc_params *p,
 			    unsigned long cp15_reg)
@@ -340,6 +365,15 @@ static const struct coproc_emulate coproc_emulate[] = {
 	 */
 	{ CRn( 1), CRm( 0), Op1( 0), Op2( 1), is32, WRITE, ignore_write},
 	{ CRn( 1), CRm( 0), Op1( 0), Op2( 1), is32, READ,  read_actlr},
+	/*
+	 * DC{C,I,CI}SW operations:
+	 */
+	{ CRn( 7), CRm( 6), Op1( 0), Op2( 2), is32,  WRITE, write_dcsw},
+	{ CRn( 7), CRm( 6), Op1( 0), Op2( 2), is32,  READ,  read_zero},
+	{ CRn( 7), CRm(10), Op1( 0), Op2( 2), is32,  WRITE, write_dcsw},
+	{ CRn( 7), CRm(10), Op1( 0), Op2( 2), is32,  READ,  read_zero},
+	{ CRn( 7), CRm(14), Op1( 0), Op2( 2), is32,  WRITE, write_dcsw},
+	{ CRn( 7), CRm(14), Op1( 0), Op2( 2), is32,  READ,  read_zero},
 	/*
 	 * L2CTLR access (guest wants to know #CPUs).
 	 *

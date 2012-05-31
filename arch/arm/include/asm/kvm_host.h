@@ -112,6 +112,9 @@ struct kvm_vcpu_arch {
 	u64 pc_ipa2;		/* same as above, but for non-aligned wide thumb
 				   instructions */
 
+	/* dcache set/way operation pending */
+	cpumask_t require_dcache_flush;
+
 	/* IO related fields */
 	bool mmio_sign_extend;	/* for byte/halfword loads */
 	u32 mmio_rd;
