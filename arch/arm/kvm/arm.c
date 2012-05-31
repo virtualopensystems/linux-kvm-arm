@@ -497,6 +497,7 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 
 		update_vttbr(vcpu->kvm);
 
+		preempt_disable();
 		local_irq_disable();
 		kvm_guest_enter();
 		vcpu->mode = IN_GUEST_MODE;
@@ -510,6 +511,7 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 		trace_kvm_exit(vcpu->arch.regs.pc);
 
 		ret = handle_exit(vcpu, run, ret);
+		preempt_enable();
 		if (ret) {
 			kvm_err("Error in handle_exit\n");
 			break;
