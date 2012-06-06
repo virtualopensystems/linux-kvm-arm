@@ -308,8 +308,20 @@ static bool xen_batched_set_pte(pte_t *ptep, pte_t pteval)
 
 static inline void __xen_set_pte(pte_t *ptep, pte_t pteval)
 {
-	if (!xen_batched_set_pte(ptep, pteval))
-		native_set_pte(ptep, pteval);
+	if (!xen_batched_set_pte(ptep, pteval)) {
+		/*
+		 * Could call native_set_pte() here and trap and
+		 * emulate the PTE write but with 32-bit guests this
+		 * needs two traps (one for each of the two 32-bit
+		 * words in the PTE) so do one hypercall directly
+		 * instead.
+		 */
+		struct mmu_update u;
+
+		u.ptr = virt_to_machine(ptep).maddr | MMU_NORMAL_PT_UPDATE;
+		u.val = pte_val_ma(pteval);
+		HYPERVISOR_mmu_update(&u, 1, NULL, DOMID_SELF);
+	}
 }
 
 static void xen_set_pte(pte_t *ptep, pte_t pteval)
