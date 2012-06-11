@@ -246,6 +246,7 @@ static bool read_actlr(struct kvm_vcpu *vcpu,
 
 	asm volatile("mrc p15, 0, %0, c1, c0, 1\n" : "=r" (actlr));
 	/* Make the SMP bit consistent with the guest configuration */
+	/* TODO: Check emualted processor for bit accuracy */
 	if (atomic_read(&vcpu->kvm->online_vcpus) > 1)
 		actlr |= 1U << 6;
 	else
