@@ -86,6 +86,7 @@ ENTRY(__kvm_flush_vm_context)
 
 	hvc	#0			@ switch back to svc-mode, see hyp_svc
 	bx lr
+ENDPROC(__kvm_flush_vm_context)
 
 @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 @  Hypervisor world-switch code
