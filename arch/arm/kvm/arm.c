@@ -768,9 +768,59 @@ out_err:
 	return err;
 }
 
+static void cpu_exit_hyp_mode(void *vector)
+{
+	cpu_set_vector(vector);
+
+	/*
+	 * Disable Hyp-MMU for each cpu
+	 */
+	asm volatile ("hvc	#0");
+}
+
+static int exit_hyp_mode(void)
+{
+	phys_addr_t exit_phys_addr, exit_end_phys_addr;
+	int cpu;
+
+	exit_phys_addr = virt_to_phys(__kvm_hyp_exit);
+	exit_end_phys_addr = virt_to_phys(__kvm_hyp_exit_end);
+	BUG_ON(exit_phys_addr & 0x1f);
+
+	/*
+	 * Create identity mapping for the exit code.
+	 */
+	hyp_idmap_add(kvm_hyp_pgd_get(),
+		      (unsigned long)exit_phys_addr,
+		      (unsigned long)exit_end_phys_addr);
+
+	/*
+	 * Execute the exit code on each CPU.
+	 *
+	 * Note: The stack is not mapped yet, so don't do anything else than
+	 * initializing the hypervisor mode on each CPU using a local stack
+	 * space for temporary storage.
+	 */
+	for_each_online_cpu(cpu) {
+		smp_call_function_single(cpu, cpu_exit_hyp_mode,
+					 (void *)(long)exit_phys_addr, 1);
+	}
+
+	/*
+	 * Unmap the identity mapping
+	 */
+	hyp_idmap_del(kvm_hyp_pgd_get(),
+		      (unsigned long)exit_phys_addr,
+		      (unsigned long)exit_end_phys_addr);
+
+	return 0;
+}
+
 void kvm_arch_exit(void)
 {
 	int cpu;
+
+	exit_hyp_mode();
 
 	free_hyp_pmds();
 	for_each_possible_cpu(cpu)

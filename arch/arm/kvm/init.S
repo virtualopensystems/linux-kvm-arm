@@ -113,3 +113,31 @@ __do_hyp_init:
 	__kvm_init_sp:
 	.globl __kvm_hyp_init_end
 __kvm_hyp_init_end:
+
+
+	.align 12
+__kvm_hyp_exit:
+	.globl __kvm_hyp_exit
+
+	@ Hyp-mode exception vector
+	nop
+	nop
+	nop
+	nop
+	nop
+	b	__do_hyp_exit
+	nop
+	nop
+
+__do_hyp_exit:
+	@ Clear the MMU bit in the HSCR
+	mrc	p15, 4, sp, c1, c0, 0	@ HSCR
+	bic	sp, sp, #1
+
+	isb
+	mcr	p15, 4, sp, c1, c0, 0	@ HSCR
+	isb
+	eret
+
+	.globl __kvm_hyp_exit_end
+__kvm_hyp_exit_end:
