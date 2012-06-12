@@ -69,7 +69,7 @@ ENTRY(__kvm_tlb_flush_vmid)
 ENDPROC(__kvm_tlb_flush_vmid)
 
 @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-@ Flush TLBs and instruction caches of current CPU for all VMIDs
+@  Flush TLBs and instruction caches of current CPU for all VMIDs
 @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
 /*
