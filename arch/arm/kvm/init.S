@@ -80,7 +80,7 @@ __do_hyp_init:
 	mcr	p15, 4, r0, c10, c2, 1
 
 	@ Set the HSCTLR to:
-	@  - ARM/THUMB exceptions: ARM
+	@  - ARM/THUMB exceptions: Kernel config (Thumb-2 kernel)
 	@  - Endianness: Kernel config
 	@  - Fast Interrupt Features: Kernel config
 	@  - Write permission implies XN: disabled
@@ -94,7 +94,8 @@ __do_hyp_init:
 	mrc	p15, 0, r1, c1, c0, 0	@ SCTLR
 	ldr	r12, =(HSCTLR_EE | HSCTLR_FI)
 	and	r1, r1, r12
-	ldr	r12, =(HSCTLR_M | HSCTLR_A | HSCTLR_I)
+ ARM(	ldr	r12, =(HSCTLR_M | HSCTLR_A | HSCTLR_I)			)
+ THUMB(	ldr	r12, =(HSCTLR_M | HSCTLR_A | HSCTLR_I | HSCTLR_TE)	)
 	orr	r1, r1, r12
 	orr	r0, r0, r1
 	isb

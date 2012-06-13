@@ -28,7 +28,6 @@
 #define VCPU_FIQ_SPSR		(VCPU_FIQ_REG(7))
 
 	.text
-	.arm
 	.align	PAGE_SHIFT
 
 __kvm_hyp_code_start:
@@ -65,7 +64,7 @@ ENTRY(__kvm_tlb_flush_vmid)
 
 	pop	{r2, r3}
 	hvc	#0			@ Back to SVC
-	mov	pc, lr
+	bx	lr
 ENDPROC(__kvm_tlb_flush_vmid)
 
 @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
@@ -85,7 +84,7 @@ ENTRY(__kvm_flush_vm_context)
 	isb
 
 	hvc	#0			@ switch back to svc-mode, see hyp_svc
-	bx lr
+	bx	lr
 ENDPROC(__kvm_flush_vm_context)
 
 @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
@@ -375,11 +374,13 @@ __kvm_vcpu_return:
 	pop	{r4-r12}		@ Pop r4-r12
 	pop	{r2}			@ Pop r13_usr
 	msr	sp_usr, r2
+	ldr	r2, [sp, #4]		@ Get svc-cpsr in case we need if for
+					@ the __irq_svc call
 
 	hvc	#0			@ switch back to svc-mode, see hyp_svc
 
 	cmp	r0, #ARM_EXCEPTION_IRQ
-	bne	return_to_ioctl
+	bxne	lr			@ return to IOCTL
 
 	/*
 	 * It's time to launch the kernel IRQ handler for IRQ exceptions. This
@@ -396,7 +397,6 @@ __kvm_vcpu_return:
 	 *      0x0:   r0
 	 */
 	adr	r1, irq_kernel_resume	@ Where to resume
-	mrs	r2, cpsr		@ CPSR when we return
 	push	{r0 - r2}
 	mov	r0, sp
 	b	__irq_svc
@@ -404,11 +404,7 @@ __kvm_vcpu_return:
 irq_kernel_resume:
 	pop	{r0}
 	add	sp, sp, #8
-
-return_to_ioctl:
-THUMB(	orr	lr, lr, #1)
-	mov	pc, lr
-
+	bx	lr			@ return to IOCTL
 
 @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 @  Hypervisor exception vector and handlers
@@ -447,29 +443,28 @@ THUMB(	orr	lr, lr, #1)
  * executing guest code SVC mode (with a VMID != 0).
  */
 	.text
-	.arm
 
 	.align 5
 __kvm_hyp_vector:
 	.globl __kvm_hyp_vector
 
 	@ Hyp-mode exception vector
-	b	hyp_reset
-	b	hyp_undef
-	b	hyp_svc
-	b	hyp_pabt
-	b	hyp_dabt
-	b	hyp_hvc
-	b	hyp_irq
-	b	hyp_fiq
+	W(b)	hyp_reset
+	W(b)	hyp_undef
+	W(b)	hyp_svc
+	W(b)	hyp_pabt
+	W(b)	hyp_dabt
+	W(b)	hyp_hvc
+	W(b)	hyp_irq
+	W(b)	hyp_fiq
 
 	.align
 hyp_reset:
-	sub	pc, pc, #8
+	b	hyp_reset
 
 	.align
 hyp_undef:
-	sub	pc, pc, #8
+	b	hyp_undef
 
 	.align
 hyp_svc:
@@ -484,11 +479,11 @@ hyp_svc:
 
 	.align
 hyp_pabt:
-	sub	pc, pc, #8
+	b	hyp_pabt
 
 	.align
 hyp_dabt:
-	sub	pc, pc, #8
+	b	hyp_dabt
 
 	.align
 hyp_hvc:
@@ -573,7 +568,7 @@ hyp_irq:
 
 	.align
 hyp_fiq:
-	sub	pc, pc, #8
+	b	hyp_fiq
 
 	.ltorg
 
