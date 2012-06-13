@@ -426,10 +426,10 @@ irq_kernel_resume:
  *    Switching to Hyp mode is done through a simple HVC instructions. The
  *    exception vector code will check that the HVC comes from VMID==0 and if
  *    so will store the necessary state on the Hyp stack, which will look like
- *    this (see the hyp_hvc handler):
+ *    this (growing downwards, see the hyp_hvc handler):
  *      ...
- *      Hyp_Sp + 4: lr_usr
- *      Hyp_Sp    : spsr (Host-SVC cpsr)
+ *      Hyp_Sp + 4: spsr (Host-SVC cpsr)
+ *      Hyp_Sp    : lr_usr
  *
  * Hyp-ABI: Switching from Hyp-mode to host kernel SVC mode:
  *    When returning from Hyp mode to SVC mode, another HVC instruction is
