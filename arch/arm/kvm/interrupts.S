@@ -85,7 +85,7 @@ ENTRY(__kvm_flush_vm_context)
 	isb
 
 	hvc	#0			@ switch back to svc-mode, see hyp_svc
-	bx lr
+	mov	pc, lr
 ENDPROC(__kvm_flush_vm_context)
 
 @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
@@ -406,7 +406,6 @@ irq_kernel_resume:
 	add	sp, sp, #8
 
 return_to_ioctl:
-THUMB(	orr	lr, lr, #1)
 	mov	pc, lr
 
 

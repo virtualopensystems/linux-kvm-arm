@@ -21,7 +21,7 @@ config KVM
 	select PREEMPT_NOTIFIERS
 	select ANON_INODES
 	select KVM_MMIO
-	depends on CPU_V7 && ARM_VIRT_EXT
+	depends on CPU_V7 && ARM_VIRT_EXT && (!THUMB2_KERNEL)
 	---help---
 	  Support hosting virtualized guest machines. You will also
 	  need to select one or more of the processor modules below.
