@@ -396,8 +396,14 @@ static int invalid_io_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa)
 	unsigned long instr;
 	phys_addr_t pc_ipa;
 
+	if (vcpu->arch.pc_ipa & 1) {
+		kvm_err("I/O Abort from invalid instruction address? Wrong!\n");
+		return -EINVAL;
+	}
+
 	if (vcpu->arch.pc_ipa & (1U << 11)) {
 		/* LPAE PAR format */
+		/* TODO: Check if this ever happens - called from Hyp mode */
 		pc_ipa = vcpu->arch.pc_ipa & PAGE_MASK & ((1ULL << 32) - 1);
 	} else {
 		/* VMSAv7 PAR format */
@@ -405,14 +411,16 @@ static int invalid_io_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa)
 	}
 	pc_ipa += vcpu->arch.regs.pc & ~PAGE_MASK;
 
+	if (vcpu->arch.regs.cpsr & PSR_T_BIT) {
+		/* TODO: Check validity of PC IPA and IPA2!!! */
+		/* Need to decode thumb instructions as well */
+		kvm_err("Thumb guest support not there yet :(\n");
+		return -EINVAL;
+	}
+
 	if (kvm_read_guest(vcpu->kvm, pc_ipa, &instr, sizeof(instr))) {
 		kvm_err("Could not copy guest instruction\n");
 		return -EFAULT;
-	}
-
-	if (vcpu->arch.regs.cpsr & PSR_T_BIT) {
-		/* Need to decode thumb instructions as well */
-		return -EINVAL;
 	}
 
 	return kvm_emulate_mmio_ls(vcpu, fault_ipa, instr);

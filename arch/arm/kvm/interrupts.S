@@ -540,9 +540,21 @@ guest_trap:
 	ands	r2, r2, #1
 	bne	2f
 	mrs	r3, ELR_hyp
-	mcr	p15, 0, r3, c7, c8, 0	@ VA to PA, V2PCWPR
+	mcr	p15, 0, r3, c7, c8, 0	@ VA to PA, ATS1CPR
 	mrrc	p15, 0, r4, r5, c7	@ PAR
 	add	r6, r1, #VCPU_PC_IPA
+	strd	r4, r5, [r6]
+
+	@ Check if we might have a wide thumb instruction spill-over
+	ldr	r5, =0xfff
+	bic	r4, r3, r5		@ clear page mask
+	sub	r5, r5, #1		@ last 2-byte page bounday, 0xffe
+	cmp	r4, r5
+	bne	2f
+	add	r4, r3, #2		@ _really_ unlikely!
+	mcr	p15, 0, r4, c7, c8, 0	@ VA to PA, ATS1CPR
+	mrrc	p15, 0, r4, r5, c7	@ PAR
+	add	r6, r1, #VCPU_PC_IPA2
 	strd	r4, r5, [r6]
 
 2:	mrc	p15, 4, r2, c6, c0, 0	@ HDFAR

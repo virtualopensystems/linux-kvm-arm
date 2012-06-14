@@ -176,6 +176,7 @@ int main(void)
   DEFINE(VCPU_HIFAR,		offsetof(struct kvm_vcpu, arch.hifar));
   DEFINE(VCPU_HPFAR,		offsetof(struct kvm_vcpu, arch.hpfar));
   DEFINE(VCPU_PC_IPA,		offsetof(struct kvm_vcpu, arch.pc_ipa));
+  DEFINE(VCPU_PC_IPA2,		offsetof(struct kvm_vcpu, arch.pc_ipa2));
   DEFINE(KVM_VTTBR,		offsetof(struct kvm, arch.vttbr));
 #endif
   return 0; 

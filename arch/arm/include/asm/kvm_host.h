@@ -97,6 +97,8 @@ struct kvm_vcpu_arch {
 	u32 hifar;		/* Hyp Inst. Fault Address Register */
 	u32 hpfar;		/* Hyp IPA Fault Address Register */
 	u64 pc_ipa;		/* IPA for the current PC (VA to PA result) */
+	u64 pc_ipa2;		/* same as above, but for non-aligned wide thumb
+				   instructions */
 
 	/* IO related fields */
 	bool mmio_sign_extend;	/* for byte/halfword loads */
