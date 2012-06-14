@@ -422,7 +422,7 @@ static int (*arm_exit_handlers[])(struct kvm_vcpu *vcpu, struct kvm_run *r) = {
 	[HSR_EC_DABT_HYP]	= handle_dabt_hyp,
 };
 
-static inline int handle_exit(struct kvm_vcpu *vcpu, struct kvm_run *run,
+static int handle_exit(struct kvm_vcpu *vcpu, struct kvm_run *run,
 			      int exception_index)
 {
 	unsigned long hsr_ec;
