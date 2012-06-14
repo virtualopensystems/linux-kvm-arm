@@ -318,7 +318,7 @@ ENTRY(__kvm_vcpu_run)
 	@ Load return state (r0 now points to vcpu->arch.regs.pc)
 	ldmia	r0, {r2, r3}
 	msr	ELR_hyp, r2
-	msr	spsr, r3
+	msr	SPSR_cxsf, r3
 
 	@ Load remaining registers and do the switch
 	sub	r0, r0, #(VCPU_PC - VCPU_USR_REGS)
