@@ -657,9 +657,9 @@ static int kvm_ls_length(struct kvm_vcpu *vcpu, u32 instr)
 int kvm_emulate_mmio_ls(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
 			unsigned long instr)
 {
-	unsigned long rd, rn, offset, len;
+	unsigned long rd, rn, offset, len, instr_len;
 	int index;
-	bool is_write;
+	bool is_write, is_thumb;
 
 	trace_kvm_mmio_emulate(vcpu->arch.regs.pc, instr, vcpu->arch.regs.cpsr);
 
@@ -694,8 +694,53 @@ int kvm_emulate_mmio_ls(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
 
 	/*
 	 * The MMIO instruction is emulated and should not be re-executed
-	 * in the guest. (XXX We don't support Thumb instructions yet).
+	 * in the guest.
 	 */
-	*vcpu_pc(vcpu) += 4;
+	is_thumb = !!(*vcpu_cpsr(vcpu) & PSR_T_BIT);
+	if (is_thumb && !is_wide_instruction(instr))
+		instr_len = 2;
+	else
+		instr_len = 4;
+
+	*vcpu_pc(vcpu) += instr_len;
+	kvm_adjust_itstate(vcpu);
 	return 0;
+}
+
+/**
+ * adjust_itstate - adjust ITSTATE when emulating instructions in IT-block
+ * @vcpu:	The VCPU pointer
+ *
+ * When exceptions occur while instructions are executed in Thumb IF-THEN
+ * blocks, the ITSTATE field of the CPSR is not advanved (updated), so we have
+ * to do this little bit of work manually. The fields map like this:
+ *
+ * IT[7:0] -> CPSR[26:25],CPSR[15:10]
+ */
+void kvm_adjust_itstate(struct kvm_vcpu *vcpu)
+{
+	unsigned long itbits, cond;
+	unsigned long cpsr = *vcpu_cpsr(vcpu);
+	bool is_thumb = cpsr & PSR_T_BIT;
+
+	BUG_ON(is_thumb && (cpsr & PSR_IT_MASK));
+
+	if (!(cpsr & PSR_IT_MASK))
+		return;
+
+	cond = (cpsr & 0xe000) >> 13;
+	itbits = (cpsr & 0x1c00) >> (10 - 2);
+	itbits |= (cpsr & (0x3 << 25)) >> 25;
+
+	/* Perform ITAdvance (see page A-52 in ARM DDI 0406C) */
+	if ((itbits & 0x7) == 0)
+		itbits = cond = 0;
+	else
+		itbits = (itbits << 1) & 0x1f;
+
+	cpsr &= ~PSR_IT_MASK;
+	cpsr |= cond << 13;
+	cpsr |= (itbits & 0x1c) << (10 - 2);
+	cpsr |= (itbits & 0x3) << 25;
+	*vcpu_cpsr(vcpu) = cpsr;
 }

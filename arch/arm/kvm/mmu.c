@@ -493,6 +493,7 @@ static int io_mem_abort(struct kvm_vcpu *vcpu, struct kvm_run *run,
 	 * in the guest.
 	 */
 	*vcpu_pc(vcpu) += instr_len;
+	kvm_adjust_itstate(vcpu);
 	return 0;
 }
 
