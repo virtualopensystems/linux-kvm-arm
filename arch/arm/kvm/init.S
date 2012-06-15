@@ -131,9 +131,9 @@ __kvm_hyp_exit:
 	nop
 
 __do_hyp_exit:
-	@ Clear the MMU bit in the HSCR
+	@ Clear the MMU and TE bits in the HSCR
 	mrc	p15, 4, sp, c1, c0, 0	@ HSCR
-	bic	sp, sp, #1
+	bic	sp, sp, #((1 << 30) | (1 << 0))
 
 	isb
 	mcr	p15, 4, sp, c1, c0, 0	@ HSCR
