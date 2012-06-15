@@ -101,6 +101,7 @@ struct kvm_vcpu_arch {
 				   instructions */
 
 	/* IO related fields */
+	bool mmio_sign_extend;	/* for byte/halfword loads */
 	u32 mmio_rd;
 
 	/* Interrupt related fields */
