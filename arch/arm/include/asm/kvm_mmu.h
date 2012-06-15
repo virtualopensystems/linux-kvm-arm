@@ -34,4 +34,9 @@ int kvm_hyp_pgd_alloc(void);
 pgd_t *kvm_hyp_pgd_get(void);
 void kvm_hyp_pgd_free(void);
 
+int kvm_alloc_stage2_pgd(struct kvm *kvm);
+void kvm_free_stage2_pgd(struct kvm *kvm);
+
+int kvm_handle_guest_abort(struct kvm_vcpu *vcpu, struct kvm_run *run);
+
 #endif /* __ARM_KVM_MMU_H__ */

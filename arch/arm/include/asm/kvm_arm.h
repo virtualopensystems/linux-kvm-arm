@@ -62,7 +62,7 @@
  * SWIO:	Turn set/way invalidates into set/way clean+invalidate
  */
 #define HCR_GUEST_MASK (HCR_TSC | HCR_TWI | HCR_VM | HCR_BSU_IS | HCR_FB | \
-			HCR_AMO | HCR_IMO | HCR_FMO | HCR_FMO | HCR_SWIO)
+			HCR_TAC | HCR_AMO | HCR_IMO | HCR_FMO | HCR_SWIO)
 
 /* Hyp System Control Register (HSCTLR) bits */
 #define HSCTLR_TE	(1 << 30)
