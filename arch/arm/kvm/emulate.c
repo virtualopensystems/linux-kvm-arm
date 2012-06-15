@@ -377,7 +377,8 @@ static int emulate_cp15(struct kvm_vcpu *vcpu,
 
 		/* Skip instruction, since it was emulated */
 		instr_len = ((vcpu->arch.hsr >> 25) & 1) ? 4 : 2;
-		*vcpu_reg(vcpu, 15) += instr_len;
+		*vcpu_pc(vcpu) += instr_len;
+		kvm_adjust_itstate(vcpu);
 		return 0;
 	}
 
