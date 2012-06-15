@@ -722,9 +722,9 @@ void kvm_adjust_itstate(struct kvm_vcpu *vcpu)
 {
 	unsigned long itbits, cond;
 	unsigned long cpsr = *vcpu_cpsr(vcpu);
-	bool is_thumb = cpsr & PSR_T_BIT;
+	bool is_arm = !(cpsr & PSR_T_BIT);
 
-	BUG_ON(is_thumb && (cpsr & PSR_IT_MASK));
+	BUG_ON(is_arm && (cpsr & PSR_IT_MASK));
 
 	if (!(cpsr & PSR_IT_MASK))
 		return;
