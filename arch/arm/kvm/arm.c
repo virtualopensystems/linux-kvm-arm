@@ -490,13 +490,21 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 		if (vcpu->arch.wait_for_interrupts)
 			kvm_vcpu_block(vcpu);
 
-		/*
+		/**************************************************************
 		 * Enter the guest
 		 */
 		trace_kvm_entry(vcpu->arch.regs.pc);
 
 		update_vttbr(vcpu->kvm);
 
+		/*
+		 * Make sure preemption is disabled while calling handle_exit
+		 * as exit handling touches CPU-specific resources, such as
+		 * caches, and we must stay on the same CPU.
+		 *
+		 * Code that might sleep must disable preemption and access
+		 * CPU-specific resources first.
+		 */
 		preempt_disable();
 		local_irq_disable();
 		kvm_guest_enter();
@@ -509,6 +517,9 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 		local_irq_enable();
 
 		trace_kvm_exit(vcpu->arch.regs.pc);
+		/*
+		 * Back from guest
+		 *************************************************************/
 
 		ret = handle_exit(vcpu, run, ret);
 		preempt_enable();
