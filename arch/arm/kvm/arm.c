@@ -535,8 +535,7 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 	return ret;
 }
 
-static int kvm_arch_vm_ioctl_irq_line(struct kvm *kvm,
-				      struct kvm_irq_level *irq_level)
+int kvm_vm_ioctl_irq_line(struct kvm *kvm, struct kvm_irq_level *irq_level)
 {
 	int mask;
 	unsigned int vcpu_idx;
@@ -596,20 +595,7 @@ int kvm_vm_ioctl_get_dirty_log(struct kvm *kvm, struct kvm_dirty_log *log)
 long kvm_arch_vm_ioctl(struct file *filp,
 		       unsigned int ioctl, unsigned long arg)
 {
-	struct kvm *kvm = filp->private_data;
-	void __user *argp = (void __user *)arg;
-
-	switch (ioctl) {
-	case KVM_IRQ_LINE: {
-		struct kvm_irq_level irq_event;
-
-		if (copy_from_user(&irq_event, argp, sizeof irq_event))
-			return -EFAULT;
-		return kvm_arch_vm_ioctl_irq_line(kvm, &irq_event);
-	}
-	default:
-		return -EINVAL;
-	}
+	return -EINVAL;
 }
 
 static void cpu_set_vector(void *vector)
