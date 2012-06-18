@@ -590,6 +590,15 @@ int kvm_unmap_hva(struct kvm *kvm, unsigned long hva)
 	return 0;
 }
 
+void kvm_set_spte_hva(struct kvm *kvm, unsigned long hva, pte_t pte)
+{
+	/*
+	 * TODO: Support this operation and potentially mark pages read-only
+	 * and handle permission faults from guests.
+	 */
+	kvm_err("Guest pte changed, VMs may crash!\n");
+}
+
 int kvm_hyp_pgd_alloc(void)
 {
 	kvm_hyp_pgd = kzalloc(PTRS_PER_PGD * sizeof(pgd_t), GFP_KERNEL);
