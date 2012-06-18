@@ -7,6 +7,8 @@
  * A copy of the licence is included with the program, and can also be obtained from Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
+#include <linux/version.h>
+
 #include <linux/slab.h>
 #include <linux/pagemap.h>
 #include <linux/mm.h>
@@ -24,6 +26,10 @@
  * @file mali_osk_specific.c
  * Implementation of per-OS Kernel level specifics
  */
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 5, 0)
+#define do_mmap do_mmap_pgoff
+#endif
 
 _mali_osk_errcode_t _mali_osk_specific_indirect_mmap( _mali_uk_mem_mmap_s *args )
 {
