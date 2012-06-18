@@ -52,8 +52,8 @@ TRACE_EVENT(kvm_mmio_emulate,
 
 	TP_fast_assign(
 		__entry->vcpu_pc		= vcpu_pc;
-		__entry->vcpu_pc		= instr;
-		__entry->vcpu_pc		= cpsr;
+		__entry->intr			= instr;
+		__entry->cpsr			= cpsr;
 	),
 
 	TP_printk("Emulate MMIO at: 0x%08lx (instr: %08lx, cpsr: %08lx)",
