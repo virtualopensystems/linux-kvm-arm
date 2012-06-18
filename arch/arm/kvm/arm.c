@@ -42,10 +42,8 @@
 static DEFINE_PER_CPU(unsigned long, kvm_arm_hyp_stack_page);
 
 /* The VMID used in the VTTBR */
-#define VMID_BITS               8
-#define VMID_MASK               ((1 << VMID_BITS) - 1)
-#define VMID_FIRST_GENERATION	(1 << VMID_BITS)
-static u64 next_vmid;		/* The next available VMID in the sequence */
+static atomic64_t kvm_vmid_gen = ATOMIC64_INIT(1);
+static u8 kvm_next_vmid;
 DEFINE_SPINLOCK(kvm_vmid_lock);
 
 int kvm_arch_hardware_enable(void *garbage)
@@ -115,8 +113,8 @@ int kvm_arch_init_vm(struct kvm *kvm, unsigned long type)
 	if (ret)
 		goto out_free_stage2_pgd;
 
-	/* Mark the initial VMID invalid */
-	kvm->arch.vmid = 0;
+	/* Mark the initial VMID generation invalid */
+	kvm->arch.vmid_gen = 0;
 
 	return ret;
 out_free_stage2_pgd:
@@ -326,44 +324,44 @@ static void update_vttbr(struct kvm *kvm)
 {
 	phys_addr_t pgd_phys;
 
-	spin_lock(&kvm_vmid_lock);
-
 	/*
 	 *  Check that the VMID is still valid.
 	 *  (The hardware supports only 256 values with the value zero
-	 *   reserved for the host, so we check if an assigned value has rolled
-	 *   over a sequence, which requires us to assign a new value and flush
-	 *   necessary caches and TLBs on all CPUs.)
+	 *   reserved for the host, so we check if an assigned value belongs to
+	 *   a previous generation, which which requires us to assign a new
+	 *   value. If we're the first to use a VMID for the new generation,
+	 *   we must flush necessary caches and TLBs on all CPUs.)
 	 */
-	if (unlikely((kvm->arch.vmid ^ next_vmid) >> VMID_BITS)) {
-		/* Check for a new VMID generation */
-		if (unlikely((next_vmid & VMID_MASK) == 0)) {
-			/* Check for the (very unlikely) 64-bit wrap around */
-			if (unlikely(next_vmid == 0))
-				next_vmid = VMID_FIRST_GENERATION;
+	if (likely(kvm->arch.vmid_gen == atomic64_read(&kvm_vmid_gen)))
+		return;
 
-			next_vmid++;
+	spin_lock(&kvm_vmid_lock);
 
-			/* This does nothing on UP */
-			smp_call_function(reset_vm_context, NULL, 1);
+	/* First user of a new VMID generation? */
+	if (unlikely(kvm_next_vmid == 0)) {
+		atomic64_inc(&kvm_vmid_gen);
+		kvm_next_vmid = 1;
 
-			/*
-			 * On SMP we know no other CPUs can use this CPU's or
-			 * each other's VMID since the kvm_vmid_lock blocks
-			 * them from reentry to the guest.
-			 */
+		/* This does nothing on UP */
+		smp_call_function(reset_vm_context, NULL, 1);
 
-			reset_vm_context(NULL);
-		}
+		/*
+		 * On SMP we know no other CPUs can use this CPU's or
+		 * each other's VMID since the kvm_vmid_lock blocks
+		 * them from reentry to the guest.
+		 */
 
-		kvm->arch.vmid = next_vmid++;
-
-		/* update vttbr to be used with the new vmid */
-		pgd_phys = virt_to_phys(kvm->arch.pgd);
-		kvm->arch.vttbr = pgd_phys & ((1LLU << 40) - 1)
-				  & ~((2 << VTTBR_X) - 1);
-		kvm->arch.vttbr |= (kvm->arch.vmid & VMID_MASK) << 48;
+		reset_vm_context(NULL);
 	}
+
+	kvm->arch.vmid = kvm_next_vmid;
+	kvm_next_vmid++;
+
+	/* update vttbr to be used with the new vmid */
+	pgd_phys = virt_to_phys(kvm->arch.pgd);
+	kvm->arch.vttbr = pgd_phys & ((1LLU << 40) - 1)
+			  & ~((2 << VTTBR_X) - 1);
+	kvm->arch.vttbr |= (u64)(kvm->arch.vmid) << 48;
 
 	spin_unlock(&kvm_vmid_lock);
 }
@@ -478,8 +476,7 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 		/*
 		 * Check conditions before entering the guest
 		 */
-		if (need_resched())
-			kvm_resched(vcpu);
+		cond_resched();
 
 		if (signal_pending(current)) {
 			ret = -EINTR;
@@ -752,15 +749,6 @@ int kvm_arch_init(void *opaque)
 	err = init_hyp_mode();
 	if (err)
 		goto out_err;
-
-	/*
-	 * The upper 56 bits of VMIDs are used to identify the generation
-	 * counter, so VMIDs initialized to 0, having generation == 0, will
-	 * never be considered valid and therefor a new VMID must always be
-	 * assigned. Whent he VMID generation rolls over, we start from
-	 * VMID_FIRST_GENERATION again.
-	 */
-	next_vmid = VMID_FIRST_GENERATION;
 
 	return 0;
 out_err:
