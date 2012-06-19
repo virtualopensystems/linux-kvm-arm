@@ -29,6 +29,8 @@
 #include <linux/seq_file.h>
 #include <linux/ratelimit.h>
 
+#include <linux/irqchip/gic.h>
+
 unsigned long irq_err_count;
 
 int arch_show_interrupts(struct seq_file *p, int prec)
@@ -71,7 +73,9 @@ void handle_IRQ(unsigned int irq, struct pt_regs *regs)
  * Interrupt controllers supported by the kernel.
  */
 static const struct of_device_id intctrl_of_match[] __initconst = {
-	/* IRQ controllers { .compatible, .data } info to go here */
+#ifdef CONFIG_ARM_GIC
+	{ .compatible = "arm,cortex-a9-gic", .data = gic_of_init, },
+#endif
 	{}
 };
 

@@ -102,6 +102,8 @@ menu "System Type"
 
 endmenu
 
+source "drivers/irqchip/Kconfig"
+
 menu "Bus support"
 
 config ARM_AMBA
