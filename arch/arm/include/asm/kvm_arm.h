@@ -40,8 +40,10 @@
 #define HCR_BSU_IS	(1 << 10)
 #define HCR_FB		(1 << 9)
 #define HCR_VA		(1 << 8)
-#define HCR_VI		(1 << 7)
-#define HCR_VF		(1 << 6)
+#define HCR_VI_BIT_NR	7
+#define HCR_VF_BIT_NR	6
+#define HCR_VI		(1 << HCR_VI_BIT_NR)
+#define HCR_VF		(1 << HCR_VF_BIT_NR)
 #define HCR_AMO		(1 << 5)
 #define HCR_IMO		(1 << 4)
 #define HCR_FMO		(1 << 3)

@@ -534,10 +534,11 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 
 int kvm_vm_ioctl_irq_line(struct kvm *kvm, struct kvm_irq_level *irq_level)
 {
-	int mask;
 	unsigned int vcpu_idx;
 	struct kvm_vcpu *vcpu;
-	unsigned long old, new, *ptr;
+	unsigned long *ptr;
+	bool set;
+	int bit_nr;
 
 	vcpu_idx = irq_level->irq >> 1;
 	if (vcpu_idx >= KVM_MAX_VCPUS)
@@ -547,24 +548,24 @@ int kvm_vm_ioctl_irq_line(struct kvm *kvm, struct kvm_irq_level *irq_level)
 	if (!vcpu)
 		return -EINVAL;
 
-	if ((irq_level->irq & 1) == KVM_ARM_IRQ_LINE)
-		mask = HCR_VI;
-	else /* KVM_ARM_FIQ_LINE */
-		mask = HCR_VF;
-
 	trace_kvm_set_irq(irq_level->irq, irq_level->level, 0);
 
-	ptr = (unsigned long *)&vcpu->arch.irq_lines;
-	do {
-		old = ACCESS_ONCE(*ptr);
-		if (irq_level->level)
-			new = old | mask;
-		else
-			new = old & ~mask;
+	if ((irq_level->irq & 1) == KVM_ARM_IRQ_LINE)
+		bit_nr = HCR_VI_BIT_NR;
+	else /* KVM_ARM_FIQ_LINE */
+		bit_nr = HCR_VF_BIT_NR;
 
-		if (new == old)
-			return 0; /* no change */
-	} while (cmpxchg(ptr, old, new) != old);
+	ptr = (unsigned long *)&vcpu->arch.irq_lines;
+	if (irq_level->level)
+		set = test_and_set_bit(bit_nr, ptr);
+	else
+		set = test_and_clear_bit(bit_nr, ptr);
+
+	/*
+	 * If we didn't change anything, no need to wake up or kick other CPUs
+	 */
+	if (!!set == !!irq_level->level)
+		return 0;
 
 	/*
 	 * The vcpu irq_lines field was updated, wake up sleeping VCPUs and
