@@ -478,7 +478,6 @@ static int io_mem_abort(struct kvm_vcpu *vcpu, struct kvm_run *run,
 	instr_len = ((vcpu->arch.hsr >> 25) & 1) ? 4 : 2;
 
 	/* Export MMIO operations to user space */
-	run->exit_reason = KVM_EXIT_MMIO;
 	run->mmio.is_write = is_write;
 	run->mmio.phys_addr = fault_ipa;
 	run->mmio.len = len;
@@ -498,7 +497,7 @@ static int io_mem_abort(struct kvm_vcpu *vcpu, struct kvm_run *run,
 	 */
 	*vcpu_pc(vcpu) += instr_len;
 	kvm_adjust_itstate(vcpu);
-	return 0;
+	return KVM_EXIT_MMIO;
 }
 
 #define HSR_ABT_FS	(0x3f)
