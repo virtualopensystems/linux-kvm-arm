@@ -44,7 +44,7 @@ MODULE_DESCRIPTION("Samsung HDMI");
 MODULE_LICENSE("GPL");
 
 /* default preset configured on probe */
-#define HDMI_DEFAULT_PRESET V4L2_DV_480P59_94
+#define HDMI_DEFAULT_PRESET V4L2_DV_1080P60
 
 struct hdmi_pulse {
 	u32 beg;
