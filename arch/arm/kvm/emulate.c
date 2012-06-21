@@ -674,7 +674,6 @@ int kvm_emulate_mmio_ls(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
 	rd = (instr & INSTR_LS_RD_MASK) >> INSTR_LS_RD_SHIFT;
 	len = kvm_ls_length(vcpu, instr);
 
-	vcpu->run->exit_reason = KVM_EXIT_MMIO;
 	vcpu->run->mmio.is_write = is_write;
 	vcpu->run->mmio.phys_addr = fault_ipa;
 	vcpu->run->mmio.len = len;
@@ -705,7 +704,7 @@ int kvm_emulate_mmio_ls(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
 
 	*vcpu_pc(vcpu) += instr_len;
 	kvm_adjust_itstate(vcpu);
-	return 0;
+	return KVM_EXIT_MMIO;
 }
 
 /**
