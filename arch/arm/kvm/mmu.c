@@ -199,12 +199,11 @@ static void free_guest_pages(pte_t *pte, unsigned long addr)
 	unsigned int i;
 	struct page *page;
 
-	for (i = 0; i < PTRS_PER_PTE; i++, addr += PAGE_SIZE) {
-		if (!pte_present(*pte))
-			goto next_page;
-		page = pfn_to_page(pte_pfn(*pte));
-		put_page(page);
-next_page:
+	for (i = 0; i < PTRS_PER_PTE; i++) {
+		if (pte_present(*pte)) {
+			page = pfn_to_page(pte_pfn(*pte));
+			put_page(page);
+		}
 		pte++;
 	}
 }
