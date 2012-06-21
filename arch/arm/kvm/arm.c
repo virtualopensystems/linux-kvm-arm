@@ -413,7 +413,8 @@ static int handle_dabt_hyp(struct kvm_vcpu *vcpu, struct kvm_run *run)
 	return -EINVAL; /* Squash warning */
 }
 
-static int (*arm_exit_handlers[])(struct kvm_vcpu *vcpu, struct kvm_run *r) = {
+typedef int (*exit_handle_fn)(struct kvm_vcpu *, struct kvm_run *);
+static exit_handle_fn arm_exit_handlers[] = {
 	[HSR_EC_WFI]		= kvm_handle_wfi,
 	[HSR_EC_CP15_32]	= kvm_handle_cp15_32,
 	[HSR_EC_CP15_64]	= kvm_handle_cp15_64,
@@ -435,7 +436,7 @@ static int (*arm_exit_handlers[])(struct kvm_vcpu *vcpu, struct kvm_run *r) = {
  * exit to QEMU.
  */
 static int handle_exit(struct kvm_vcpu *vcpu, struct kvm_run *run,
-			      int exception_index)
+		       int exception_index)
 {
 	unsigned long hsr_ec;
 
