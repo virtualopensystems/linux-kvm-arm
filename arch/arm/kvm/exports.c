@@ -17,3 +17,5 @@
  */
 
 #include <linux/module.h>
+
+EXPORT_SYMBOL_GPL(smp_send_reschedule);

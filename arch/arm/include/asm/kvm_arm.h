@@ -19,4 +19,10 @@
 #ifndef __ARM_KVM_ARM_H__
 #define __ARM_KVM_ARM_H__
 
+/* Supported Processor Types */
+#define CORTEX_A15	(0xC0F)
+
+/* Multiprocessor Affinity Register */
+#define MPIDR_CPUID	(0x3 << 0)
+
 #endif /* __ARM_KVM_ARM_H__ */
