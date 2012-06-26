@@ -238,26 +238,27 @@ int kvm_cpu_has_pending_timer(struct kvm_vcpu *vcpu)
 	return 0;
 }
 
+int __attribute_const__ kvm_target_cpu(void)
+{
+	unsigned int midr;
+
+	midr = read_cpuid_id();
+	switch ((midr >> 4) & 0xfff) {
+	case CORTEX_A15:
+		return CORTEX_A15;
+	default:
+		return -EINVAL;
+	}
+}
+
 int kvm_arch_vcpu_init(struct kvm_vcpu *vcpu)
 {
-	unsigned long cpsr;
-	unsigned long sctlr;
+	int ret;
 
+	ret = kvm_reset_vcpu(vcpu);
+	if (ret < 0)
+		return ret;
 
-	/* Init execution CPSR */
-	asm volatile ("mrs	%[cpsr], cpsr" :
-			[cpsr] "=r" (cpsr));
-	vcpu->arch.regs.cpsr = SVC_MODE | PSR_I_BIT | PSR_F_BIT | PSR_A_BIT |
-				(cpsr & PSR_E_BIT);
-
-	/* Init SCTLR with MMU disabled */
-	asm volatile ("mrc	p15, 0, %[sctlr], c1, c0, 0" :
-			[sctlr] "=r" (sctlr));
-	vcpu->arch.cp15[c1_SCTLR] = sctlr & ~1U;
-
-	/* Compute guest MPIDR */
-	vcpu->arch.cp15[c0_MPIDR] = (read_cpuid_mpidr() & ~0xff)
-				    | vcpu->vcpu_id;
 	return 0;
 }
 
@@ -791,6 +792,11 @@ out_free_stack_pages:
 int kvm_arch_init(void *opaque)
 {
 	int err;
+
+	if (kvm_target_cpu() < 0) {
+		kvm_err("Target CPU not supported!\n");
+		return -EINVAL;
+	}
 
 	err = init_hyp_mode();
 	if (err)

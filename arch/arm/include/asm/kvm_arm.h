@@ -21,6 +21,12 @@
 
 #include <asm/types.h>
 
+/* Supported Processor Types */
+#define CORTEX_A15	(0xC0F)
+
+/* Multiprocessor Affinity Register */
+#define MPIDR_CPUID	(0x3 << 0)
+
 /* Hyp Configuration Register (HCR) bits */
 #define HCR_TGE		(1 << 27)
 #define HCR_TVM		(1 << 26)
