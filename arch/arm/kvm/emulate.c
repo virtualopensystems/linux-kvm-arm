@@ -250,14 +250,21 @@ static bool read_actlr(struct kvm_vcpu *vcpu,
 {
 	u32 actlr;
 
-	asm volatile("mrc p15, 0, %0, c1, c0, 1\n" : "=r" (actlr));
-	/* Make the SMP bit consistent with the guest configuration */
-	/* TODO: Check emualted processor for bit accuracy */
-	if (atomic_read(&vcpu->kvm->online_vcpus) > 1)
-		actlr |= 1U << 6;
-	else
-		actlr &= ~(1U << 6);
-	*vcpu_reg(vcpu, p->Rt1) = actlr;
+	switch (kvm_target_cpu()) {
+	case CORTEX_A15:
+		asm volatile("mrc p15, 0, %0, c1, c0, 1\n" : "=r" (actlr));
+		/* Make the SMP bit consistent with the guest configuration */
+		if (atomic_read(&vcpu->kvm->online_vcpus) > 1)
+			actlr |= 1U << 6;
+		else
+			actlr &= ~(1U << 6);
+		*vcpu_reg(vcpu, p->Rt1) = actlr;
+		break;
+	default:
+		asm volatile("mrc p15, 0, %0, c1, c0, 1\n" : "=r" (actlr));
+		*vcpu_reg(vcpu, p->Rt1) = actlr;
+		break;
+	}
 
 	return true;
 }
