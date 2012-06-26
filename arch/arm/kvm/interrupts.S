@@ -188,9 +188,10 @@ ENDPROC(__kvm_flush_vm_context)
 	mrc	p15, 0, r9, c5, c1, 1	@ AIFSR
 	mrc	p15, 0, r10, c6, c0, 0	@ DFAR
 	mrc	p15, 0, r11, c6, c0, 2	@ IFAR
+	mrc	p15, 0, r12, c12, c0, 0	@ VBAR
 
 	.if \vcpu == 0
-	push	{r2-r11}		@ Push CP15 registers
+	push	{r2-r12}		@ Push CP15 registers
 	.else
 	str	r2, [\vcpup, #VCPU_CID]
 	str	r3, [\vcpup, #VCPU_TID_URW]
@@ -202,6 +203,7 @@ ENDPROC(__kvm_flush_vm_context)
 	str	r9, [\vcpup, #VCPU_AIFSR]
 	str	r10, [\vcpup, #VCPU_DFAR]
 	str	r11, [\vcpup, #VCPU_IFAR]
+	str	r12, [\vcpup, #VCPU_VBAR]
 	.endif
 .endm
 
@@ -212,7 +214,7 @@ ENDPROC(__kvm_flush_vm_context)
  */
 .macro write_cp15_state vcpu=0, vcpup
 	.if \vcpu == 0
-	pop	{r2-r11}
+	pop	{r2-r12}
 	.else
 	ldr	r2, [\vcpup, #VCPU_CID]
 	ldr	r3, [\vcpup, #VCPU_TID_URW]
@@ -224,6 +226,7 @@ ENDPROC(__kvm_flush_vm_context)
 	ldr	r9, [\vcpup, #VCPU_AIFSR]
 	ldr	r10, [\vcpup, #VCPU_DFAR]
 	ldr	r11, [\vcpup, #VCPU_IFAR]
+	ldr	r12, [\vcpup, #VCPU_VBAR]
 	.endif
 
 	mcr	p15, 0, r2, c13, c0, 1	@ CID
@@ -236,6 +239,7 @@ ENDPROC(__kvm_flush_vm_context)
 	mcr	p15, 0, r9, c5, c1, 1	@ AIFSR
 	mcr	p15, 0, r10, c6, c0, 0	@ DFAR
 	mcr	p15, 0, r11, c6, c0, 2	@ IFAR
+	mcr	p15, 0, r12, c12, c0, 0	@ VBAR
 
 	.if \vcpu == 0
 	pop	{r2-r11}
@@ -267,9 +271,9 @@ ENDPROC(__kvm_flush_vm_context)
  * (hardware reset value is 0) */
 .macro set_hstr entry
 	mrc	p15, 4, r2, c1, c1, 3
-	ldr	r3, =0x9e00
+	ldr	r3, =0x8e00
 	.if \entry == 1
-	orr	r2, r2, r3		@ Trap CR{9,10,11,12,15}
+	orr	r2, r2, r3		@ Trap CR{9,10,11,15}
 	.else
 	bic	r2, r2, r3		@ Don't trap any CRx accesses
 	.endif

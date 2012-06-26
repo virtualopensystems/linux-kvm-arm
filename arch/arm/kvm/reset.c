@@ -61,6 +61,7 @@ static u32 a15_cp15_regs_reset[][2] = {
 	{ c6_IFAR,		UNKNOWN },
 	{ c10_PRRR,		0x00098AA4 },
 	{ c10_NMRR,		0x44E048E0 },
+	{ c12_VBAR,		0x00000000 },
 	{ c13_CID,		0x00000000 },
 	{ c13_TID_URW,		UNKNOWN },
 	{ c13_TID_URO,		UNKNOWN },

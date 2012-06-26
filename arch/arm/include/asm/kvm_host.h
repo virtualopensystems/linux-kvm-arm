@@ -88,6 +88,7 @@ enum cp15_regs {
 	c6_IFAR,		/* Instruction Fault Address Register */
 	c10_PRRR,		/* Primary Region Remap Register */
 	c10_NMRR,		/* Normal Memory Remap Register */
+	c12_VBAR,		/* Vector Base Address Register */
 	c13_CID,		/* Context ID Register */
 	c13_TID_URW,		/* Thread ID, User R/W */
 	c13_TID_URO,		/* Thread ID, User R/O */
