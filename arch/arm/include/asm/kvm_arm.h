@@ -75,6 +75,11 @@
 			HCR_TAC | HCR_AMO | HCR_IMO | HCR_FMO | HCR_SWIO)
 #define HCR_VIRT_EXCP_MASK (HCR_VA | HCR_VI | HCR_VF)
 
+/* System Control Register (SCTLR) bits */
+#define SCTLR_TE	(1 << 30)
+#define SCTLR_EE	(1 << 25)
+#define SCTLR_V		(1 << 13)
+
 /* Hyp System Control Register (HSCTLR) bits */
 #define HSCTLR_TE	(1 << 30)
 #define HSCTLR_EE	(1 << 25)

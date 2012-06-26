@@ -744,3 +744,57 @@ void kvm_adjust_itstate(struct kvm_vcpu *vcpu)
 	cpsr |= (itbits & 0x3) << 25;
 	*vcpu_cpsr(vcpu) = cpsr;
 }
+
+/******************************************************************************
+ * Inject exceptions into the guest
+ *****************************************************************************/
+
+static u32 exc_vector_base(struct kvm_vcpu *vcpu)
+{
+	u32 sctlr = vcpu->arch.cp15[c1_SCTLR];
+	u32 vbar = vcpu->arch.cp15[c12_VBAR];
+
+	if (sctlr & SCTLR_V)
+		return 0xffff0000;
+	else /* always have security exceptions */
+		return vbar;
+}
+
+/**
+ * kvm_inject_undefined - inject an undefined exception into the guest
+ * @vcpu: The VCPU to receive the undefined exception
+ *
+ * It is assumed that this code is called from the VCPU thread and that the
+ * VCPU therefore is not currently executing guest code.
+ *
+ * Modelled after TakeUndefInstrException() pseudocode.
+ */
+void kvm_inject_undefined(struct kvm_vcpu *vcpu)
+{
+	u32 new_lr_value;
+	u32 new_spsr_value;
+	u32 cpsr = *vcpu_cpsr(vcpu);
+	u32 sctlr = vcpu->arch.cp15[c1_SCTLR];
+	bool is_thumb = (cpsr & PSR_T_BIT);
+	u32 vect_offset = 4;
+	u32 return_offset = (is_thumb) ? 2 : 4;
+
+	new_spsr_value = cpsr;
+	new_lr_value = *vcpu_pc(vcpu) - return_offset;
+
+	*vcpu_cpsr(vcpu) = (cpsr & ~MODE_MASK) | UND_MODE;
+	*vcpu_cpsr(vcpu) |= PSR_I_BIT;
+	*vcpu_cpsr(vcpu) &= ~(PSR_IT_MASK | PSR_J_BIT | PSR_E_BIT | PSR_T_BIT);
+
+	if (sctlr & SCTLR_TE)
+		*vcpu_cpsr(vcpu) |= PSR_T_BIT;
+	if (sctlr & SCTLR_EE)
+		*vcpu_cpsr(vcpu) |= PSR_E_BIT;
+
+	/* Note: These now point to UND banked copies */
+	*vcpu_spsr(vcpu) = cpsr;
+	*vcpu_reg(vcpu, 14) = new_lr_value;
+
+	/* Branch to exception vector */
+	*vcpu_pc(vcpu) = exc_vector_base(vcpu) + vect_offset;
+}
