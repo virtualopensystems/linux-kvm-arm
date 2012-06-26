@@ -186,22 +186,26 @@ static void print_cp_instr(const struct coproc_params *p)
 
 int kvm_handle_cp10_id(struct kvm_vcpu *vcpu, struct kvm_run *run)
 {
-	return -EINVAL;
+	kvm_inject_undefined(vcpu);
+	return 0;
 }
 
 int kvm_handle_cp_0_13_access(struct kvm_vcpu *vcpu, struct kvm_run *run)
 {
-	return -EINVAL;
+	kvm_inject_undefined(vcpu);
+	return 0;
 }
 
 int kvm_handle_cp14_load_store(struct kvm_vcpu *vcpu, struct kvm_run *run)
 {
-	return -EINVAL;
+	kvm_inject_undefined(vcpu);
+	return 0;
 }
 
 int kvm_handle_cp14_access(struct kvm_vcpu *vcpu, struct kvm_run *run)
 {
-	return -EINVAL;
+	kvm_inject_undefined(vcpu);
+	return 0;
 }
 
 static bool ignore_write(struct kvm_vcpu *vcpu,
@@ -384,6 +388,8 @@ static int emulate_cp15(struct kvm_vcpu *vcpu,
 	kvm_err("Unsupported guest CP15 access at: %08x\n",
 		vcpu->arch.regs.pc);
 	print_cp_instr(params);
+	kvm_inject_undefined(vcpu);
+	return 0;
 fail:
 	return -EINVAL;
 }

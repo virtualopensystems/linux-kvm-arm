@@ -393,13 +393,12 @@ static int handle_hvc(struct kvm_vcpu *vcpu, struct kvm_run *run)
 {
 	/*
 	 * Guest called HVC instruction:
-	 * So far we are not doing anything here, but in the longer run we are
-	 * probably going to have some hypercall interface entry point
-	 * starting from here.
+	 * Let it know we don't want that by injecting an undefined exception.
 	 */
 	kvm_debug("hvc: %x (at %08x)", vcpu->arch.hsr & ((1 << 16) - 1),
 				     vcpu->arch.regs.pc);
 	kvm_debug("         HSR: %8x", vcpu->arch.hsr);
+	kvm_inject_undefined(vcpu);
 	return 0;
 }
 
