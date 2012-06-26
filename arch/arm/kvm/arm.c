@@ -212,9 +212,11 @@ struct kvm_vcpu *kvm_arch_vcpu_create(struct kvm *kvm, unsigned int id)
 
 	err = create_hyp_mappings(vcpu, vcpu + 1);
 	if (err)
-		goto free_vcpu;
+		goto vcpu_uninit;
 
 	return vcpu;
+vcpu_uninit:
+	kvm_vcpu_uninit(vcpu);
 free_vcpu:
 	kmem_cache_free(kvm_vcpu_cache, vcpu);
 out:
