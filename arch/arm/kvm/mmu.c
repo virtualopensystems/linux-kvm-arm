@@ -324,10 +324,22 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
 	pte_t new_pte;
 	pfn_t pfn;
 	int ret;
+	bool write_fault, writable;
+
+	/* TODO: Use instr. decoding for non-ISV to determine r/w fault */
+	if ((vcpu->arch.hsr & HSR_ISV) && !(vcpu->arch.hsr & HSR_WNR))
+		write_fault = false;
+	else
+		write_fault = true;
+
+	if ((vcpu->arch.hsr & HSR_FSC_TYPE) == FSC_PERM && !write_fault) {
+		kvm_err("Unexpected L2 read permission error\n");
+		return -EFAULT;
+	}
 
 	/* preemption disabled for handle_exit, gfn_to_pfn may sleep */
 	preempt_enable();
-	pfn = gfn_to_pfn(vcpu->kvm, gfn);
+	pfn = gfn_to_pfn_prot(vcpu->kvm, gfn, write_fault, &writable);
 	preempt_disable();
 
 	if (is_error_pfn(pfn)) {
@@ -341,6 +353,8 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
 
 	mutex_lock(&vcpu->kvm->arch.pgd_mutex);
 	new_pte = pfn_pte(pfn, PAGE_KVM_GUEST);
+	if (writable)
+		new_pte |= L_PTE2_WRITE;
 	ret = stage2_set_pte(vcpu->kvm, fault_ipa, &new_pte);
 	if (ret)
 		put_page(pfn_to_page(pfn));
@@ -465,9 +479,9 @@ static int io_mem_abort(struct kvm_vcpu *vcpu, struct kvm_run *run,
 		return -EFAULT;
 	}
 
-	is_write = ((vcpu->arch.hsr >> 6) & 1);
-	sign_extend = ((vcpu->arch.hsr >> 21) & 1);
-	rd = (vcpu->arch.hsr >> 16) & 0xf;
+	is_write = vcpu->arch.hsr & HSR_WNR;
+	sign_extend = vcpu->arch.hsr & HSR_SSE;
+	rd = (vcpu->arch.hsr & HSR_SRT_MASK) >> HSR_SRT_SHIFT;
 	BUG_ON(rd > 15);
 
 	if (rd == 15) {
@@ -476,7 +490,7 @@ static int io_mem_abort(struct kvm_vcpu *vcpu, struct kvm_run *run,
 	}
 
 	/* Get instruction length in bytes */
-	instr_len = ((vcpu->arch.hsr >> 25) & 1) ? 4 : 2;
+	instr_len = (vcpu->arch.hsr & HSR_IL) ? 4 : 2;
 
 	/* Export MMIO operations to user space */
 	run->mmio.is_write = is_write;
@@ -501,9 +515,6 @@ static int io_mem_abort(struct kvm_vcpu *vcpu, struct kvm_run *run,
 	vcpu->stat.mmio_exits++;
 	return KVM_EXIT_MMIO;
 }
-
-#define HSR_ABT_FS	(0x3f)
-#define HPFAR_MASK	(~0xf)
 
 /**
  * kvm_handle_guest_abort - handles all 2nd stage aborts
@@ -530,9 +541,9 @@ int kvm_handle_guest_abort(struct kvm_vcpu *vcpu, struct kvm_run *run)
 	is_iabt = (hsr_ec == HSR_EC_IABT);
 
 	/* Check that the second stage fault is a translation fault */
-	fault_status = vcpu->arch.hsr & HSR_ABT_FS;
-	if ((fault_status & 0x3c) != 0x4) {
-		kvm_err("Unsupported fault status: EC=%lx DFCS=%lx\n",
+	fault_status = (vcpu->arch.hsr & HSR_FSC_TYPE);
+	if (fault_status != FSC_FAULT && fault_status != FSC_PERM) {
+		kvm_err("Unsupported fault status: EC=%#lx DFCS=%#lx\n",
 			hsr_ec, fault_status);
 		return -EFAULT;
 	}
@@ -561,15 +572,14 @@ int kvm_handle_guest_abort(struct kvm_vcpu *vcpu, struct kvm_run *run)
 	return user_mem_abort(vcpu, fault_ipa, gfn, memslot);
 }
 
-int kvm_unmap_hva(struct kvm *kvm, unsigned long hva)
+static bool hva_to_gpa(struct kvm *kvm, unsigned long hva, gpa_t *gpa)
 {
 	struct kvm_memslots *slots;
 	struct kvm_memory_slot *memslot;
-	int needs_stage2_flush = 0;
+	bool found = false;
 
+	mutex_lock(&kvm->slots_lock);
 	slots = kvm_memslots(kvm);
-
-	/* we only care about the pages that the guest sees */
 	kvm_for_each_memslot(memslot, slots) {
 		unsigned long start = memslot->userspace_addr;
 		unsigned long end;
@@ -577,27 +587,55 @@ int kvm_unmap_hva(struct kvm *kvm, unsigned long hva)
 		end = start + (memslot->npages << PAGE_SHIFT);
 		if (hva >= start && hva < end) {
 			gpa_t gpa_offset = hva - start;
-			gpa_t gpa = (memslot->base_gfn << PAGE_SHIFT) +
-				     gpa_offset;
-
-			stage2_set_pte(kvm, gpa, &null_pte);
-			needs_stage2_flush = 1;
+			*gpa = (memslot->base_gfn << PAGE_SHIFT) + gpa_offset;
+			found = true;
+			/* no overlapping memslots allowed: break */
+			break;
 		}
 	}
 
-	if (needs_stage2_flush)
-		__kvm_tlb_flush_vmid(kvm);
+	mutex_unlock(&kvm->slots_lock);
+	return found;
+}
 
+int kvm_unmap_hva(struct kvm *kvm, unsigned long hva)
+{
+	bool found;
+	gpa_t gpa;
+
+	if (!kvm->arch.pgd)
+		return 0;
+
+	mutex_lock(&kvm->arch.pgd_mutex);
+	found = hva_to_gpa(kvm, hva, &gpa);
+	if (found) {
+		stage2_set_pte(kvm, gpa, &null_pte);
+		__kvm_tlb_flush_vmid(kvm);
+	}
+	mutex_unlock(&kvm->arch.pgd_mutex);
 	return 0;
 }
 
 void kvm_set_spte_hva(struct kvm *kvm, unsigned long hva, pte_t pte)
 {
-	/*
-	 * TODO: Support this operation and potentially mark pages read-only
-	 * and handle permission faults from guests.
-	 */
-	kvm_err("Guest pte changed, VMs may crash!\n");
+	gpa_t gpa;
+	bool found;
+
+	if (!kvm->arch.pgd)
+		return;
+
+	mutex_lock(&kvm->arch.pgd_mutex);
+	found = hva_to_gpa(kvm, hva, &gpa);
+	if (found) {
+		stage2_set_pte(kvm, gpa, &pte);
+		/*
+		 * Ignore return code from stage2_set_pte, since -ENOMEM would
+		 * indicate this IPA is is not mapped and there is no harm
+		 * that the PTE changed.
+		 */
+		__kvm_tlb_flush_vmid(kvm);
+	}
+	mutex_unlock(&kvm->arch.pgd_mutex);
 }
 
 int kvm_hyp_pgd_alloc(void)

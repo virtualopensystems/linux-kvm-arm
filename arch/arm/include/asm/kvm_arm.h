@@ -147,6 +147,18 @@
 #define HSR_ISS		(HSR_IL - 1)
 #define HSR_ISV_SHIFT	(24)
 #define HSR_ISV		(1U << HSR_ISV_SHIFT)
+#define HSR_SRT_SHIFT	(16)
+#define HSR_SRT_MASK	(0xf << HSR_SRT_SHIFT)
+#define HSR_FSC		(0x3f)
+#define HSR_FSC_TYPE	(0x3c)
+#define HSR_SSE		(1 << 21)
+#define HSR_WNR		(1 << 6)
+
+#define FSC_FAULT	(0x04)
+#define FSC_PERM	(0x0c)
+
+/* Hyp Prefetch Fault Address Register (HPFAR/HDFAR) */
+#define HPFAR_MASK	(~0xf)
 
 #define HSR_EC_UNKNOWN	(0x00)
 #define HSR_EC_WFI	(0x01)
