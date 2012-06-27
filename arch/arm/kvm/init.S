@@ -30,6 +30,7 @@
 @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 	.text
 	.arm
+        .pushsection    .hyp.idmap.text,"ax"
 	.align 12
 __kvm_hyp_init:
 	.globl __kvm_hyp_init
@@ -117,7 +118,6 @@ __do_hyp_init:
 	.globl __kvm_hyp_init_end
 __kvm_hyp_init_end:
 
-
 	.align 12
 __kvm_hyp_exit:
 	.globl __kvm_hyp_exit
@@ -144,3 +144,5 @@ __do_hyp_exit:
 
 	.globl __kvm_hyp_exit_end
 __kvm_hyp_exit_end:
+
+	.popsection

@@ -1,5 +1,6 @@
 #include <linux/module.h>
 #include <linux/kernel.h>
+#include <linux/slab.h>
 
 #include <asm/cputype.h>
 #include <asm/idmap.h>
@@ -60,11 +61,18 @@ static void idmap_add_pud(pgd_t *pgd, unsigned long addr, unsigned long end,
 	} while (pud++, addr = next, addr != end);
 }
 
-static void identity_mapping_add(pgd_t *pgd, unsigned long addr,
-				 unsigned long end, unsigned long prot)
+static void identity_mapping_add(pgd_t *pgd, const char *text_start,
+				 const char *text_end, unsigned long prot)
 {
+	unsigned long addr, end;
 	unsigned long next;
 
+	addr = virt_to_phys(text_start);
+	end = virt_to_phys(text_end);
+
+	pr_info("Setting up static %sidentity map for 0x%llx - 0x%llx\n",
+		prot ? "HYP " : "",
+		(long long)addr, (long long)end);
 	prot |= PMD_TYPE_SECT | PMD_SECT_AP_WRITE | PMD_SECT_AF;
 
 	if (cpu_architecture() <= CPU_ARCH_ARMv5TEJ && !cpu_is_xscale())
@@ -81,30 +89,19 @@ extern char  __idmap_text_start[], __idmap_text_end[];
 
 static int __init init_static_idmap(void)
 {
-	phys_addr_t idmap_start, idmap_end;
-
 	idmap_pgd = pgd_alloc(&init_mm);
 	if (!idmap_pgd)
 		return -ENOMEM;
 
-	/* Add an identity mapping for the physical address of the section. */
-	idmap_start = virt_to_phys((void *)__idmap_text_start);
-	idmap_end = virt_to_phys((void *)__idmap_text_end);
-
-	pr_info("Setting up static identity map for 0x%llx - 0x%llx\n",
-		(long long)idmap_start, (long long)idmap_end);
-	identity_mapping_add(idmap_pgd, idmap_start, idmap_end, 0);
+	identity_mapping_add(idmap_pgd, __idmap_text_start,
+			     __idmap_text_end, 0);
 
 	return 0;
 }
 early_initcall(init_static_idmap);
 
-#ifdef CONFIG_KVM_ARM_HOST
-void hyp_idmap_add(pgd_t *pgd, unsigned long addr, unsigned long end)
-{
-	identity_mapping_add(pgd, addr, end, PMD_SECT_AP1);
-}
-EXPORT_SYMBOL_GPL(hyp_idmap_add);
+#ifdef CONFIG_ARM_VIRT_EXT
+pgd_t *hyp_pgd;
 
 static void hyp_idmap_del_pmd(pgd_t *pgd, unsigned long addr)
 {
@@ -113,17 +110,25 @@ static void hyp_idmap_del_pmd(pgd_t *pgd, unsigned long addr)
 
 	pud = pud_offset(pgd, addr);
 	pmd = pmd_offset(pud, addr);
-	pmd_free(NULL, pmd);
 	pud_clear(pud);
+	clean_pmd_entry(pmd);
+	pmd_free(NULL, (pmd_t *)((unsigned long)pmd & PAGE_MASK));
 }
+
+extern char  __hyp_idmap_text_start[], __hyp_idmap_text_end[];
 
 /*
  * This version actually frees the underlying pmds for all pgds in range and
  * clear the pgds themselves afterwards.
  */
-void hyp_idmap_del(pgd_t *pgd, unsigned long addr, unsigned long end)
+void hyp_idmap_teardown(void)
 {
+	unsigned long addr, end;
 	unsigned long next;
+	pgd_t *pgd = hyp_pgd;
+
+	addr = virt_to_phys(__hyp_idmap_text_start);
+	end = virt_to_phys(__hyp_idmap_text_end);
 
 	pgd += pgd_index(addr);
 	do {
@@ -132,7 +137,20 @@ void hyp_idmap_del(pgd_t *pgd, unsigned long addr, unsigned long end)
 			hyp_idmap_del_pmd(pgd, addr);
 	} while (pgd++, addr = next, addr < end);
 }
-EXPORT_SYMBOL_GPL(hyp_idmap_del);
+EXPORT_SYMBOL_GPL(hyp_idmap_teardown);
+
+static int __init hyp_init_static_idmap(void)
+{
+	hyp_pgd = kzalloc(PTRS_PER_PGD * sizeof(pgd_t), GFP_KERNEL);
+	if (!hyp_pgd)
+		return -ENOMEM;
+
+	identity_mapping_add(hyp_pgd, __hyp_idmap_text_start,
+			     __hyp_idmap_text_end, PMD_SECT_AP1);
+
+	return 0;
+}
+early_initcall(hyp_init_static_idmap);
 #endif
 
 /*

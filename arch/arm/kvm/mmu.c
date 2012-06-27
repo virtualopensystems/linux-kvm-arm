@@ -19,6 +19,7 @@
 #include <linux/mman.h>
 #include <linux/kvm_host.h>
 #include <trace/events/kvm.h>
+#include <asm/idmap.h>
 #include <asm/pgalloc.h>
 #include <asm/kvm_arm.h>
 #include <asm/kvm_mmu.h>
@@ -27,7 +28,6 @@
 
 #include "trace.h"
 
-static pgd_t *kvm_hyp_pgd;
 static DEFINE_MUTEX(kvm_hyp_pgd_mutex);
 
 static void free_ptes(pmd_t *pmd, unsigned long addr)
@@ -59,7 +59,7 @@ void free_hyp_pmds(void)
 
 	mutex_lock(&kvm_hyp_pgd_mutex);
 	for (addr = PAGE_OFFSET; addr != 0; addr += PGDIR_SIZE) {
-		pgd = kvm_hyp_pgd + pgd_index(addr);
+		pgd = hyp_pgd + pgd_index(addr);
 		pud = pud_offset(pgd, addr);
 
 		if (pud_none(*pud))
@@ -143,7 +143,7 @@ int create_hyp_mappings(void *from, void *to)
 
 	mutex_lock(&kvm_hyp_pgd_mutex);
 	for (addr = start; addr < end; addr = next) {
-		pgd = kvm_hyp_pgd + pgd_index(addr);
+		pgd = hyp_pgd + pgd_index(addr);
 		pud = pud_offset(pgd, addr);
 
 		if (pud_none_or_clear_bad(pud)) {
@@ -638,24 +638,4 @@ void kvm_set_spte_hva(struct kvm *kvm, unsigned long hva, pte_t pte)
 		__kvm_tlb_flush_vmid(kvm);
 	}
 	mutex_unlock(&kvm->arch.pgd_mutex);
-}
-
-int kvm_hyp_pgd_alloc(void)
-{
-	kvm_hyp_pgd = kzalloc(PTRS_PER_PGD * sizeof(pgd_t), GFP_KERNEL);
-	if (!kvm_hyp_pgd)
-		return -ENOMEM;
-
-	return 0;
-}
-
-pgd_t *kvm_hyp_pgd_get(void)
-{
-	return kvm_hyp_pgd;
-}
-
-void kvm_hyp_pgd_free(void)
-{
-	kfree(kvm_hyp_pgd);
-	kvm_hyp_pgd = NULL;
 }
