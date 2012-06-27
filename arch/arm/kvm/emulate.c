@@ -235,13 +235,38 @@ static bool read_l2ctlr(struct kvm_vcpu *vcpu,
 {
 	u32 l2ctlr, ncores;
 
-	asm volatile("mrc p15, 1, %0, c9, c0, 2\n" : "=r" (l2ctlr));
-	l2ctlr &= ~(3 << 24);
-	ncores = atomic_read(&vcpu->kvm->online_vcpus) - 1;
-	l2ctlr |= (ncores & 3) << 24;
-	*vcpu_reg(vcpu, p->Rt1) = l2ctlr;
+	switch (kvm_target_cpu()) {
+	case CORTEX_A15:
+		asm volatile("mrc p15, 1, %0, c9, c0, 2\n" : "=r" (l2ctlr));
+		l2ctlr &= ~(3 << 24);
+		ncores = atomic_read(&vcpu->kvm->online_vcpus) - 1;
+		l2ctlr |= (ncores & 3) << 24;
+		*vcpu_reg(vcpu, p->Rt1) = l2ctlr;
+		return true;
+	default:
+		return false;
+	}
+}
 
-	return true;
+static bool write_l2ctlr(struct kvm_vcpu *vcpu,
+			 const struct coproc_params *p,
+			 unsigned long arg)
+{
+	return false;
+}
+
+static bool access_l2ectlr(struct kvm_vcpu *vcpu,
+			   const struct coproc_params *p,
+			   unsigned long arg)
+{
+	switch (kvm_target_cpu()) {
+	case CORTEX_A15:
+		if (!p->is_write)
+			*vcpu_reg(vcpu, p->Rt1) = 0;
+		return true;
+	default:
+		return false;
+	}
 }
 
 static bool read_actlr(struct kvm_vcpu *vcpu,
@@ -321,6 +346,8 @@ static const struct coproc_emulate coproc_emulate[] = {
 	 * FIXME: Hack Alert: Read zero as default case.
 	 */
 	{ CRn( 9), CRm( 0), Op1( 1), Op2( 2), is32,  READ,  read_l2ctlr},
+	{ CRn( 9), CRm( 0), Op1( 1), Op2( 2), is32,  WRITE, write_l2ctlr},
+	{ CRn( 9), CRm( 0), Op1( 1), Op2( 3), is32,  READ,  access_l2ectlr},
 	{ CRn( 9), CRm(DF), Op1(DF), Op2(DF), is32,  WRITE, ignore_write},
 	{ CRn( 9), CRm(DF), Op1(DF), Op2(DF), is32,  READ,  read_zero},
 
@@ -383,7 +410,7 @@ static int emulate_cp15(struct kvm_vcpu *vcpu,
 
 		/* If function fails, it should complain. */
 		if (!e->f(vcpu, params, e->arg))
-			goto fail;
+			goto undef;
 
 		/* Skip instruction, since it was emulated */
 		instr_len = ((vcpu->arch.hsr >> 25) & 1) ? 4 : 2;
@@ -395,10 +422,9 @@ static int emulate_cp15(struct kvm_vcpu *vcpu,
 	kvm_err("Unsupported guest CP15 access at: %08x\n",
 		vcpu->arch.regs.pc);
 	print_cp_instr(params);
+undef:
 	kvm_inject_undefined(vcpu);
 	return 0;
-fail:
-	return -EINVAL;
 }
 
 /**
