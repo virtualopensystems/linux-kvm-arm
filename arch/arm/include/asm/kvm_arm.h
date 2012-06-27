@@ -108,6 +108,17 @@
 #define TTBCR_T0SZ	3
 #define HTCR_MASK	(TTBCR_T0SZ | TTBCR_IRGN0 | TTBCR_ORGN0 | TTBCR_SH0)
 
+/* Hyp System Trap Register */
+#define HSTR_T(x)	(1 << x)
+#define HSTR_TTEE	(1 << 16)
+#define HSTR_TJDBX	(1 << 17)
+
+/* Hyp Coprocessor Trap Register */
+#define HCPTR_TCP(x)	(1 << x)
+#define HCPTR_TCP_MASK	(0x3fff)
+#define HCPTR_TASE	(1 << 15)
+#define HCPTR_TTA	(1 << 20)
+#define HCPTR_TCPAC	(1 << 31)
 
 /* Virtualization Translation Control Register (VTCR) bits */
 #define VTCR_SH0	(3 << 12)

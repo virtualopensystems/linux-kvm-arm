@@ -271,13 +271,26 @@ ENDPROC(__kvm_flush_vm_context)
  * (hardware reset value is 0) */
 .macro set_hstr entry
 	mrc	p15, 4, r2, c1, c1, 3
-	ldr	r3, =0x8e00
+	ldr	r3, =(HSTR_T(9) | HSTR_T(10) | HSTR_T(11) | HSTR_T(15))
 	.if \entry == 1
 	orr	r2, r2, r3		@ Trap CR{9,10,11,15}
 	.else
 	bic	r2, r2, r3		@ Don't trap any CRx accesses
 	.endif
 	mcr	p15, 4, r2, c1, c1, 3
+.endm
+
+/* Configures the HCPTR (Hyp Coprocessor Trap Register) on entry/return
+ * (hardware reset value is 0) */
+.macro set_hcptr entry
+	mrc	p15, 4, r2, c1, c1, 2
+	ldr	r3, =(HCPTR_TTA)
+	.if \entry == 1
+	orr	r2, r2, r3		@ Trap some coproc-accesses
+	.else
+	bic	r2, r2, r3		@ Don't trap any coproc- accesses
+	.endif
+	mcr	p15, 4, r2, c1, c1, 2
 .endm
 
 /* Enable/Disable: stage-2 trans., trap interrupts, trap wfi, trap smc */
@@ -326,8 +339,9 @@ ENTRY(__kvm_vcpu_run)
 	@ Configure Hyp-role
 	configure_hyp_role 1, r0
 
-	@ Trap coprocessor CRx for all x except 2 and 14
+	@ Trap coprocessor CRx accesses
 	set_hstr 1
+	set_hcptr 1
 
 	@ Write configured ID register into MIDR alias
 	ldr	r1, [r0, #VCPU_MIDR]
@@ -375,6 +389,7 @@ __kvm_vcpu_return:
 
 	@ Don't trap coprocessor accesses for host kernel
 	set_hstr 0
+	set_hcptr 0
 
 	@ Reset Hyp-role
 	configure_hyp_role 0, r1
