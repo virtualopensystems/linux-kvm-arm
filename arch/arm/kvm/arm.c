@@ -496,6 +496,8 @@ static int vcpu_pre_guest_enter(struct kvm_vcpu *vcpu, int *exit_reason)
 	if (check_new_vmid_gen(vcpu->kvm))
 		return 1;
 
+	BUG_ON(__vcpu_mode(*vcpu_cpsr(vcpu)) == 0xf);
+
 	return 0;
 }
 

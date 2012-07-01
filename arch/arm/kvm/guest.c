@@ -98,6 +98,9 @@ int kvm_arch_vcpu_ioctl_set_regs(struct kvm_vcpu *vcpu, struct kvm_regs *regs)
 {
 	struct kvm_vcpu_regs *vcpu_regs = &vcpu->arch.regs;
 
+	if (__vcpu_mode(regs->cpsr) == 0xf)
+		return -EINVAL;
+
 	memcpy(&(vcpu_regs->usr_regs[0]), regs->regs0_7, sizeof(u32) * 8);
 	memcpy(&(vcpu_regs->usr_regs[8]), regs->usr_regs8_12, sizeof(u32) * 5);
 	memcpy(&(vcpu_regs->fiq_regs[0]), regs->fiq_regs8_12, sizeof(u32) * 5);
