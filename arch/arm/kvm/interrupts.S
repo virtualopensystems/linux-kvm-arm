@@ -330,12 +330,6 @@ ENTRY(__kvm_vcpu_run)
 
 	push	{r0}			@ Push the VCPU pointer
 
-	@ Set up guest memory translation
-	ldr	r1, [r0, #VCPU_KVM]	@ r1 points to kvm struct
-	add	r1, r1, #KVM_VTTBR
-	ldrd	r2, r3, [r1]
-	mcrr	p15, 6, r2, r3, c2	@ Write VTTBR
-
 	@ Configure Hyp-role
 	configure_hyp_role 1, r0
 
@@ -365,12 +359,23 @@ ENTRY(__kvm_vcpu_run)
 	msr	ELR_hyp, r2
 	msr	SPSR_cxsf, r3
 
+	@ Set up guest memory translation
+	ldr	r1, [r0, #-(VCPU_PC - VCPU_KVM)]	@ r1 points to kvm struct
+	add	r1, r1, #KVM_VTTBR
+	ldrd	r2, r3, [r1]
+	mcrr	p15, 6, r2, r3, c2	@ Write VTTBR
+
 	@ Load remaining registers and do the switch
 	sub	r0, r0, #(VCPU_PC - VCPU_USR_REGS)
 	ldmia	r0, {r0-r12}
 	eret
 
 __kvm_vcpu_return:
+	@ Set VMID == 0
+	mov	r2, #0
+	mov	r3, #0
+	mcrr	p15, 6, r2, r3, c2	@ Write VTTBR
+
 	@ Store return state
 	mrs	r2, ELR_hyp
 	mrs	r3, spsr
@@ -401,11 +406,6 @@ __kvm_vcpu_return:
 	@ Back to hardware MPIDR
 	mrc	p15, 0, r2, c0, c0, 5
 	mcr	p15, 4, r2, c0, c0, 5
-
-	@ Set VMID == 0
-	mov	r2, #0
-	mov	r3, #0
-	mcrr	p15, 6, r2, r3, c2	@ Write VTTBR
 
 	@ Store guest CP15 state and restore host state
 	read_cp15_state 1, r1
