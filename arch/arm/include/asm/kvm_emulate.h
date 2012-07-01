@@ -24,9 +24,11 @@
 
 u32 *vcpu_reg_mode(struct kvm_vcpu *vcpu, u8 reg_num, enum vcpu_mode mode);
 
-static inline enum vcpu_mode vcpu_mode(struct kvm_vcpu *vcpu)
+static inline u8 __vcpu_mode(u32 cpsr)
 {
-	u8 modes_table[16] = {
+	u8 modes_table[32] = {
+		0xf, 0xf, 0xf, 0xf, 0xf, 0xf, 0xf, 0xf,
+		0xf, 0xf, 0xf, 0xf, 0xf, 0xf, 0xf, 0xf,
 		MODE_USR,	/* 0x0 */
 		MODE_FIQ,	/* 0x1 */
 		MODE_IRQ,	/* 0x2 */
@@ -36,10 +38,17 @@ static inline enum vcpu_mode vcpu_mode(struct kvm_vcpu *vcpu)
 		0xf, 0xf, 0xf,
 		MODE_UND,	/* 0xb */
 		0xf, 0xf, 0xf,
-		MODE_SYS};	/* 0xf */
+		MODE_SYS	/* 0xf */
+	};
 
-	BUG_ON(modes_table[vcpu->arch.regs.cpsr & 0xf] == 0xf);
-	return modes_table[vcpu->arch.regs.cpsr & 0xf];
+	return modes_table[cpsr & 0x1f];
+}
+
+static inline enum vcpu_mode vcpu_mode(struct kvm_vcpu *vcpu)
+{
+	u8 mode = __vcpu_mode(vcpu->arch.regs.cpsr);
+	BUG_ON(mode == 0xf);
+	return mode;
 }
 
 int kvm_handle_cp10_id(struct kvm_vcpu *vcpu, struct kvm_run *run);
