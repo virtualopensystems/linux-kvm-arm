@@ -409,12 +409,20 @@ static int handle_smc(struct kvm_vcpu *vcpu, struct kvm_run *run)
 	return -EINVAL;
 }
 
-static int handle_dabt_hyp(struct kvm_vcpu *vcpu, struct kvm_run *run)
+static int handle_pabt_hyp(struct kvm_vcpu *vcpu, struct kvm_run *run)
 {
 	/* The hypervisor should never cause aborts */
-	kvm_debug("The hypervisor itself shouldn't cause aborts\n");
-	BUG();
-	return -EINVAL; /* Squash warning */
+	kvm_err("Prefetch Abort taken from Hyp mode at %#08x (HSR: %#08x)\n",
+		vcpu->arch.hifar, vcpu->arch.hsr);
+	return -EFAULT;
+}
+
+static int handle_dabt_hyp(struct kvm_vcpu *vcpu, struct kvm_run *run)
+{
+	/* This is either an error in the ws. code or an external abort */
+	kvm_err("Data Abort taken from Hyp mode at %#08x (HSR: %#08x)\n",
+		vcpu->arch.hdfar, vcpu->arch.hsr);
+	return -EFAULT;
 }
 
 typedef int (*exit_handle_fn)(struct kvm_vcpu *, struct kvm_run *);
@@ -431,6 +439,7 @@ static exit_handle_fn arm_exit_handlers[] = {
 	[HSR_EC_HVC]		= handle_hvc,
 	[HSR_EC_SMC]		= handle_smc,
 	[HSR_EC_IABT]		= kvm_handle_guest_abort,
+	[HSR_EC_IABT_HYP]	= handle_pabt_hyp,
 	[HSR_EC_DABT]		= kvm_handle_guest_abort,
 	[HSR_EC_DABT_HYP]	= handle_dabt_hyp,
 };
@@ -444,27 +453,34 @@ static int handle_exit(struct kvm_vcpu *vcpu, struct kvm_run *run,
 {
 	unsigned long hsr_ec;
 
-	if (exception_index == ARM_EXCEPTION_IRQ) {
+	switch (exception_index) {
+	case ARM_EXCEPTION_IRQ:
 		vcpu->stat.irq_exits++;
 		return 0;
-	}
+	case ARM_EXCEPTION_UNDEFINED:
+		kvm_err("Undefined exception in Hyp mode at: %#08x\n",
+			vcpu->arch.hyp_pc);
+		BUG();
+		panic("KVM: Hypervisor undefined exception!\n");
+	case ARM_EXCEPTION_DATA_ABORT:
+	case ARM_EXCEPTION_PREF_ABORT:
+	case ARM_EXCEPTION_HVC:
+		hsr_ec = (vcpu->arch.hsr & HSR_EC) >> HSR_EC_SHIFT;
 
-	if (exception_index != ARM_EXCEPTION_HVC) {
+		if (hsr_ec >= ARRAY_SIZE(arm_exit_handlers)
+		    || !arm_exit_handlers[hsr_ec]) {
+			kvm_err("Unkown exception class: %#08lx, "
+				"hsr: %#08x\n", hsr_ec,
+				(unsigned int)vcpu->arch.hsr);
+			BUG();
+		}
+
+		return arm_exit_handlers[hsr_ec](vcpu, run);
+	default:
 		kvm_pr_unimpl("Unsupported exception type: %d",
 			      exception_index);
 		return -EINVAL;
 	}
-
-	hsr_ec = (vcpu->arch.hsr & HSR_EC) >> HSR_EC_SHIFT;
-
-	if (hsr_ec >= ARRAY_SIZE(arm_exit_handlers)
-	    || !arm_exit_handlers[hsr_ec]) {
-		kvm_err("Unkown exception class: %08lx, hsr: %08x\n", hsr_ec,
-			(unsigned int)vcpu->arch.hsr);
-		BUG();
-	}
-
-	return arm_exit_handlers[hsr_ec](vcpu, run);
 }
 
 /*

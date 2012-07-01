@@ -119,6 +119,9 @@ struct kvm_vcpu_arch {
 	/* Interrupt related fields */
 	u32 irq_lines;		/* IRQ and FIQ levels */
 	u32 wait_for_interrupts;
+
+	/* Hyp exception information */
+	u32 hyp_pc;		/* PC when exception was taken from Hyp mode */
 };
 
 struct kvm_vm_stat {

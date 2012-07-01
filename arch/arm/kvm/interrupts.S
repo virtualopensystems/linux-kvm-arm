@@ -494,6 +494,42 @@ irq_kernel_resume:
  * point of view, and is a different concept from performing a world-switch and
  * executing guest code SVC mode (with a VMID != 0).
  */
+
+@ Handle undef, svc, pabt, or dabt by crashing with a user notice
+.macro bad_exception exception_code, panic_str
+	mrrc	p15, 6, r2, r3, c2	@ Read VTTBR
+	lsr	r3, r3, #16
+	ands	r3, r3, #0xff
+
+	@ COND:neq means we're probably in the guest and we can try fetching
+	@ the vcpu pointer and stuff off the stack and keep our fingers crossed
+	beq	99f
+	mov	r0, #\exception_code
+	pop	{r1}			@ Load VCPU pointer
+	.if \exception_code == ARM_EXCEPTION_DATA_ABORT
+	mrc	p15, 4, r2, c5, c2, 0	@ HSR
+	mrc	p15, 4, r3, c6, c0, 0	@ HDFAR
+	str	r2, [r1, #VCPU_HSR]
+	str	r3, [r1, #VCPU_HDFAR]
+	.endif
+	.if \exception_code == ARM_EXCEPTION_PREF_ABORT
+	mrc	p15, 4, r2, c5, c2, 0	@ HSR
+	mrc	p15, 4, r3, c6, c0, 2	@ HIFAR
+	str	r2, [r1, #VCPU_HSR]
+	str	r3, [r1, #VCPU_HIFAR]
+	.endif
+	mrs	r2, ELR_hyp
+	str	r2, [r1, #VCPU_HYP_PC]
+	b	__kvm_vcpu_return
+
+	@ We were in the host already
+99:	hvc	#0	@ switch to SVC mode
+	ldr	r0, \panic_str
+	mrs	r1, ELR_hyp
+	b	panic
+
+.endm
+
 	.text
 
 	.align 5
@@ -516,7 +552,7 @@ hyp_reset:
 
 	.align
 hyp_undef:
-	b	hyp_undef
+	bad_exception ARM_EXCEPTION_UNDEFINED, und_die_str
 
 	.align
 hyp_svc:
@@ -536,11 +572,11 @@ hyp_svc:
 
 	.align
 hyp_pabt:
-	b	hyp_pabt
+	bad_exception ARM_EXCEPTION_PREF_ABORT, pabt_die_str
 
 	.align
 hyp_dabt:
-	b	hyp_dabt
+	bad_exception ARM_EXCEPTION_DATA_ABORT, dabt_die_str
 
 	.align
 hyp_hvc:
@@ -641,6 +677,13 @@ hyp_fiq:
 	b	hyp_fiq
 
 	.ltorg
+
+und_die_str:
+	.ascii	"unexpected undefined exception in Hyp mode at: %#08x"
+pabt_die_str:
+	.ascii	"unexpected prefetch abort in Hyp mode at: %#08x"
+dabt_die_str:
+	.ascii	"unexpected data abort in Hyp mode at: %#08x"
 
 /*
  * The below lines makes sure the HYP mode code fits in a single page (the
