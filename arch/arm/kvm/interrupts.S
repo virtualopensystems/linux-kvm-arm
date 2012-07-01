@@ -420,8 +420,12 @@ __kvm_vcpu_return:
 	pop	{r4-r12}		@ Pop r4-r12
 	pop	{r2}			@ Pop r13_usr
 	msr	sp_usr, r2
-	ldr	r2, [sp, #4]		@ Get svc-cpsr in case we need if for
-					@ the __irq_svc call
+
+	ldr	r2, =(~PAGE_MASK)	@ Get svc-cpsr in case we need it for
+	tst	sp, r2			@ the __irq_svc call
+	subeq	r2, sp, #0x1000
+	bicne	r2, sp, r2
+	ldr	r2, [r2, #4]		@ r2 = svc_cpsr
 
 	hvc	#0			@ switch back to svc-mode, see hyp_svc
 
@@ -474,14 +478,16 @@ irq_kernel_resume:
  *    so will store the necessary state on the Hyp stack, which will look like
  *    this (growing downwards, see the hyp_hvc handler):
  *      ...
- *      Hyp_Sp + 4: spsr (Host-SVC cpsr)
- *      Hyp_Sp    : lr_usr
+ *      stack_page + 4: spsr (Host-SVC cpsr)
+ *      stack_page    : lr_usr
+ *      --------------: stack bottom
  *
  * Hyp-ABI: Switching from Hyp-mode to host kernel SVC mode:
  *    When returning from Hyp mode to SVC mode, another HVC instruction is
- *    executed from Hyp mode, which is taken in the hyp_svc handler. The Hyp
- *    stack pointer should be where it was left from the above initial call,
- *    since the values on the stack will be used to restore state.
+ *    executed from Hyp mode, which is taken in the hyp_svc handler. The
+ *    bottom of the Hyp is derived from the Hyp stack pointer (only a single
+ *    page aligned stack is used per CPU) and the initial SVC registers are
+ *    used to restore the host state.
  *
  *
  * Note that the above is used to execute code in Hyp-mode from a host-kernel
@@ -516,11 +522,16 @@ hyp_undef:
 hyp_svc:
 	@ Can only get here if HVC or SVC is called from Hyp, mode which means
 	@ we want to change mode back to SVC mode.
-	@ NB: Stack pointer should be where hyp_hvc handler left it!
-	ldr	lr, [sp, #4]
-	msr	spsr, lr
-	ldr	lr, [sp]
-	add	sp, sp, #8
+	ldr	lr, =(~PAGE_MASK)
+	tst	sp, lr
+	subeq	lr, sp, #0x1000
+	bicne	lr, sp, lr
+	ldr	lr, [lr, #4]
+	msr	SPSR_csxf, lr
+	subeq	lr, sp, #0x1000
+	ldrne	lr, =(~PAGE_MASK)
+	bicne	lr, sp, lr
+	ldr	lr, [lr]
 	eret
 
 	.align
@@ -551,13 +562,14 @@ hyp_hvc:
 	cmp     r2, #0
 	bne	guest_trap		@ Guest called HVC
 
-	pop	{r0, r1, r2}
-
-	@ Store lr_usr,spsr (svc cpsr) on stack
-	sub	sp, sp, #8
-	str	lr, [sp]
+	@ Store lr_usr,spsr (svc cpsr) on bottom of stack
+	ldr	r1, =(~PAGE_MASK)
+	bic	r1, sp, r1	@ unconditional, we just pushed to stack above
+	str	lr, [r1]
 	mrs	lr, spsr
-	str	lr, [sp, #4]
+	str	lr, [r1, #4]
+
+	pop	{r0, r1, r2}
 
 	@ Return to caller in Hyp mode
 	mrs	lr, ELR_hyp
