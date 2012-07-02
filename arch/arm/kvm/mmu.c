@@ -69,6 +69,7 @@ void free_hyp_pmds(void)
 		pmd = pmd_offset(pud, addr);
 		free_ptes(pmd, addr);
 		pmd_free(NULL, pmd);
+		pud_clear(pud);
 	}
 	mutex_unlock(&kvm_hyp_pgd_mutex);
 }

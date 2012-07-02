@@ -15,6 +15,7 @@ void setup_mm_for_reboot(void);
 extern pgd_t *hyp_pgd;
 
 void hyp_idmap_teardown(void);
+void hyp_idmap_setup(void);
 #endif
 
 #endif	/* __ASM_IDMAP_H */

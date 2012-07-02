@@ -139,6 +139,7 @@ __do_hyp_exit:
 
 	isb
 	mcr	p15, 4, sp, c1, c0, 0	@ HSCR
+	mcr	p15, 4, r0, c8, c7, 0   @ Flush Hyp TLB, r0 ignored
 	isb
 	eret
 

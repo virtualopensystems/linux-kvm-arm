@@ -102,6 +102,7 @@ early_initcall(init_static_idmap);
 
 #ifdef CONFIG_ARM_VIRT_EXT
 pgd_t *hyp_pgd;
+EXPORT_SYMBOL_GPL(hyp_pgd);
 
 static void hyp_idmap_del_pmd(pgd_t *pgd, unsigned long addr)
 {
@@ -139,14 +140,20 @@ void hyp_idmap_teardown(void)
 }
 EXPORT_SYMBOL_GPL(hyp_idmap_teardown);
 
+void hyp_idmap_setup(void)
+{
+	identity_mapping_add(hyp_pgd, __hyp_idmap_text_start,
+			     __hyp_idmap_text_end, PMD_SECT_AP1);
+}
+EXPORT_SYMBOL_GPL(hyp_idmap_setup);
+
 static int __init hyp_init_static_idmap(void)
 {
 	hyp_pgd = kzalloc(PTRS_PER_PGD * sizeof(pgd_t), GFP_KERNEL);
 	if (!hyp_pgd)
 		return -ENOMEM;
 
-	identity_mapping_add(hyp_pgd, __hyp_idmap_text_start,
-			     __hyp_idmap_text_end, PMD_SECT_AP1);
+	hyp_idmap_setup();
 
 	return 0;
 }

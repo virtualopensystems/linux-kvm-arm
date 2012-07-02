@@ -821,6 +821,13 @@ static int exit_hyp_mode(void)
 	phys_addr_t exit_phys_addr;
 	int cpu;
 
+	/*
+	 * TODO: flush Hyp TLB in case idmap code overlaps.
+	 * Note that we should do this in the monitor code when switching the
+	 * HVBAR, but this is going  away and should be rather done in the Hyp
+	 * mode change of HVBAR.
+	 */
+	hyp_idmap_setup();
 	exit_phys_addr = virt_to_phys(__kvm_hyp_exit);
 	BUG_ON(exit_phys_addr & 0x1f);
 
