@@ -319,7 +319,8 @@ static int stage2_set_pte(struct kvm *kvm, phys_addr_t addr,
 }
 
 static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
-			  gfn_t gfn, struct kvm_memory_slot *memslot)
+			  gfn_t gfn, struct kvm_memory_slot *memslot,
+			  bool is_iabt)
 {
 	pte_t new_pte;
 	pfn_t pfn;
@@ -327,7 +328,9 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
 	bool write_fault, writable;
 
 	/* TODO: Use instr. decoding for non-ISV to determine r/w fault */
-	if ((vcpu->arch.hsr & HSR_ISV) && !(vcpu->arch.hsr & HSR_WNR))
+	if (is_iabt)
+		write_fault = false;
+	else if ((vcpu->arch.hsr & HSR_ISV) && !(vcpu->arch.hsr & HSR_WNR))
 		write_fault = false;
 	else
 		write_fault = true;
@@ -344,8 +347,7 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
 
 	if (is_error_pfn(pfn)) {
 		put_page(pfn_to_page(pfn));
-		kvm_err("Guest gfn %u (0x%08x) does not have\n"
-				"corresponding host mapping",
+		kvm_err("No host mapping: gfn %u (0x%08x)\n",
 				(unsigned int)gfn,
 				(unsigned int)gfn << PAGE_SHIFT);
 		return -EFAULT;
@@ -569,7 +571,7 @@ int kvm_handle_guest_abort(struct kvm_vcpu *vcpu, struct kvm_run *run)
 		return -EINVAL;
 	}
 
-	return user_mem_abort(vcpu, fault_ipa, gfn, memslot);
+	return user_mem_abort(vcpu, fault_ipa, gfn, memslot, is_iabt);
 }
 
 static bool hva_to_gpa(struct kvm *kvm, unsigned long hva, gpa_t *gpa)
