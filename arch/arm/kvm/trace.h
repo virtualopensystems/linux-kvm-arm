@@ -52,7 +52,7 @@ TRACE_EVENT(kvm_mmio_emulate,
 
 	TP_fast_assign(
 		__entry->vcpu_pc		= vcpu_pc;
-		__entry->intr			= instr;
+		__entry->instr			= instr;
 		__entry->cpsr			= cpsr;
 	),
 
