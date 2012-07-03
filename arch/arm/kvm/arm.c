@@ -37,6 +37,7 @@
 #include <asm/mman.h>
 #include <asm/idmap.h>
 #include <asm/tlbflush.h>
+#include <asm/cacheflush.h>
 #include <asm/cputype.h>
 #include <asm/kvm_arm.h>
 #include <asm/kvm_asm.h>
@@ -271,6 +272,15 @@ void kvm_arch_vcpu_uninit(struct kvm_vcpu *vcpu)
 void kvm_arch_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
 {
 	vcpu->cpu = cpu;
+
+	/*
+	 * Check whether this vcpu requires the cache to be flushed on
+	 * this physical CPU. This is a consequence of doing dcache
+	 * operations by set/way on this vcpu. We do it here in order
+	 * to be in a non-preemptible section.
+	 */
+	if (cpumask_test_and_clear_cpu(cpu, &vcpu->arch.require_dcache_flush))
+		flush_cache_all(); /* We'd really want v7_flush_dcache_all() */
 }
 
 void kvm_arch_vcpu_put(struct kvm_vcpu *vcpu)
@@ -375,6 +385,69 @@ static void update_vttbr(struct kvm *kvm)
 	spin_unlock(&kvm_vmid_lock);
 }
 
+static int handle_svc_hyp(struct kvm_vcpu *vcpu, struct kvm_run *run)
+{
+	/* SVC called from Hyp mode should never get here */
+	kvm_debug("SVC called from Hyp mode shouldn't go here\n");
+	BUG();
+	return -EINVAL; /* Squash warning */
+}
+
+static int handle_hvc(struct kvm_vcpu *vcpu, struct kvm_run *run)
+{
+	/*
+	 * Guest called HVC instruction:
+	 * Let it know we don't want that by injecting an undefined exception.
+	 */
+	kvm_debug("hvc: %x (at %08x)", vcpu->arch.hsr & ((1 << 16) - 1),
+				     vcpu->arch.regs.pc);
+	kvm_debug("         HSR: %8x", vcpu->arch.hsr);
+	kvm_inject_undefined(vcpu);
+	return 0;
+}
+
+static int handle_smc(struct kvm_vcpu *vcpu, struct kvm_run *run)
+{
+	/* We don't support SMC; don't do that. */
+	kvm_debug("smc: at %08x", vcpu->arch.regs.pc);
+	return -EINVAL;
+}
+
+static int handle_pabt_hyp(struct kvm_vcpu *vcpu, struct kvm_run *run)
+{
+	/* The hypervisor should never cause aborts */
+	kvm_err("Prefetch Abort taken from Hyp mode at %#08x (HSR: %#08x)\n",
+		vcpu->arch.hifar, vcpu->arch.hsr);
+	return -EFAULT;
+}
+
+static int handle_dabt_hyp(struct kvm_vcpu *vcpu, struct kvm_run *run)
+{
+	/* This is either an error in the ws. code or an external abort */
+	kvm_err("Data Abort taken from Hyp mode at %#08x (HSR: %#08x)\n",
+		vcpu->arch.hdfar, vcpu->arch.hsr);
+	return -EFAULT;
+}
+
+typedef int (*exit_handle_fn)(struct kvm_vcpu *, struct kvm_run *);
+static exit_handle_fn arm_exit_handlers[] = {
+	[HSR_EC_WFI]		= kvm_handle_wfi,
+	[HSR_EC_CP15_32]	= kvm_handle_cp15_32,
+	[HSR_EC_CP15_64]	= kvm_handle_cp15_64,
+	[HSR_EC_CP14_MR]	= kvm_handle_cp14_access,
+	[HSR_EC_CP14_LS]	= kvm_handle_cp14_load_store,
+	[HSR_EC_CP14_64]	= kvm_handle_cp14_access,
+	[HSR_EC_CP_0_13]	= kvm_handle_cp_0_13_access,
+	[HSR_EC_CP10_ID]	= kvm_handle_cp10_id,
+	[HSR_EC_SVC_HYP]	= handle_svc_hyp,
+	[HSR_EC_HVC]		= handle_hvc,
+	[HSR_EC_SMC]		= handle_smc,
+	[HSR_EC_IABT]		= kvm_handle_guest_abort,
+	[HSR_EC_IABT_HYP]	= handle_pabt_hyp,
+	[HSR_EC_DABT]		= kvm_handle_guest_abort,
+	[HSR_EC_DABT_HYP]	= handle_dabt_hyp,
+};
+
 /*
  * Return 0 to return to guest, < 0 on error, exit_reason ( > 0) on proper
  * exit to QEMU.
@@ -382,7 +455,36 @@ static void update_vttbr(struct kvm *kvm)
 static int handle_exit(struct kvm_vcpu *vcpu, struct kvm_run *run,
 		       int exception_index)
 {
-	return -EINVAL;
+	unsigned long hsr_ec;
+
+	switch (exception_index) {
+	case ARM_EXCEPTION_IRQ:
+		vcpu->stat.irq_exits++;
+		return 0;
+	case ARM_EXCEPTION_UNDEFINED:
+		kvm_err("Undefined exception in Hyp mode at: %#08x\n",
+			vcpu->arch.hyp_pc);
+		BUG();
+		panic("KVM: Hypervisor undefined exception!\n");
+	case ARM_EXCEPTION_DATA_ABORT:
+	case ARM_EXCEPTION_PREF_ABORT:
+	case ARM_EXCEPTION_HVC:
+		hsr_ec = (vcpu->arch.hsr & HSR_EC) >> HSR_EC_SHIFT;
+
+		if (hsr_ec >= ARRAY_SIZE(arm_exit_handlers)
+		    || !arm_exit_handlers[hsr_ec]) {
+			kvm_err("Unkown exception class: %#08lx, "
+				"hsr: %#08x\n", hsr_ec,
+				(unsigned int)vcpu->arch.hsr);
+			BUG();
+		}
+
+		return arm_exit_handlers[hsr_ec](vcpu, run);
+	default:
+		kvm_pr_unimpl("Unsupported exception type: %d",
+			      exception_index);
+		return -EINVAL;
+	}
 }
 
 /*
@@ -432,6 +534,15 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 
 		update_vttbr(vcpu->kvm);
 
+		/*
+		 * Make sure preemption is disabled while calling handle_exit
+		 * as exit handling touches CPU-specific resources, such as
+		 * caches, and we must stay on the same CPU.
+		 *
+		 * Code that might sleep must disable preemption and access
+		 * CPU-specific resources first.
+		 */
+		preempt_disable();
 		local_irq_disable();
 
 		/* Re-check atomic conditions */
@@ -462,6 +573,7 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 		 *************************************************************/
 
 		ret = handle_exit(vcpu, run, ret);
+		preempt_enable();
 		if (ret < 0) {
 			kvm_err("Error in handle_exit\n");
 			break;

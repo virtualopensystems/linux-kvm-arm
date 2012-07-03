@@ -51,6 +51,16 @@ static inline enum vcpu_mode vcpu_mode(struct kvm_vcpu *vcpu)
 	return mode;
 }
 
+int kvm_handle_cp10_id(struct kvm_vcpu *vcpu, struct kvm_run *run);
+int kvm_handle_cp_0_13_access(struct kvm_vcpu *vcpu, struct kvm_run *run);
+int kvm_handle_cp14_load_store(struct kvm_vcpu *vcpu, struct kvm_run *run);
+int kvm_handle_cp14_access(struct kvm_vcpu *vcpu, struct kvm_run *run);
+int kvm_handle_cp15_32(struct kvm_vcpu *vcpu, struct kvm_run *run);
+int kvm_handle_cp15_64(struct kvm_vcpu *vcpu, struct kvm_run *run);
+int kvm_handle_wfi(struct kvm_vcpu *vcpu, struct kvm_run *run);
+void kvm_adjust_itstate(struct kvm_vcpu *vcpu);
+void kvm_inject_undefined(struct kvm_vcpu *vcpu);
+
 /*
  * Return the SPSR for the specified mode of the virtual CPU.
  */
