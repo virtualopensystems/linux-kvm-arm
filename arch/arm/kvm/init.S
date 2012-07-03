@@ -118,4 +118,32 @@ __do_hyp_init:
 	.globl __kvm_hyp_init_end
 __kvm_hyp_init_end:
 
+	.align 12
+__kvm_hyp_exit:
+	.globl __kvm_hyp_exit
+
+	@ Hyp-mode exception vector
+	nop
+	nop
+	nop
+	nop
+	nop
+	b	__do_hyp_exit
+	nop
+	nop
+
+__do_hyp_exit:
+	@ Clear the MMU and TE bits in the HSCR
+	mrc	p15, 4, sp, c1, c0, 0	@ HSCR
+	bic	sp, sp, #((1 << 30) | (1 << 0))
+
+	isb
+	mcr	p15, 4, sp, c1, c0, 0	@ HSCR
+	mcr	p15, 4, r0, c8, c7, 0   @ Flush Hyp TLB, r0 ignored
+	isb
+	eret
+
+	.globl __kvm_hyp_exit_end
+__kvm_hyp_exit_end:
+
 	.popsection

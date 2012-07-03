@@ -423,9 +423,51 @@ out_err:
 	return err;
 }
 
+static void cpu_exit_hyp_mode(void *vector)
+{
+	cpu_set_vector(vector);
+
+	/*
+	 * Disable Hyp-MMU for each cpu
+	 */
+	asm volatile ("hvc	#0");
+}
+
+static int exit_hyp_mode(void)
+{
+	phys_addr_t exit_phys_addr;
+	int cpu;
+
+	/*
+	 * TODO: flush Hyp TLB in case idmap code overlaps.
+	 * Note that we should do this in the monitor code when switching the
+	 * HVBAR, but this is going  away and should be rather done in the Hyp
+	 * mode change of HVBAR.
+	 */
+	hyp_idmap_setup();
+	exit_phys_addr = virt_to_phys(__kvm_hyp_exit);
+	BUG_ON(exit_phys_addr & 0x1f);
+
+	/*
+	 * Execute the exit code on each CPU.
+	 *
+	 * Note: The stack is not mapped yet, so don't do anything else than
+	 * initializing the hypervisor mode on each CPU using a local stack
+	 * space for temporary storage.
+	 */
+	for_each_online_cpu(cpu) {
+		smp_call_function_single(cpu, cpu_exit_hyp_mode,
+					 (void *)(long)exit_phys_addr, 1);
+	}
+
+	return 0;
+}
+
 void kvm_arch_exit(void)
 {
 	int cpu;
+
+	exit_hyp_mode();
 
 	free_hyp_pmds();
 	for_each_possible_cpu(cpu)
