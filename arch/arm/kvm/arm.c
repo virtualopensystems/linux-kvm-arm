@@ -37,11 +37,18 @@
 #include <asm/mman.h>
 #include <asm/idmap.h>
 #include <asm/tlbflush.h>
+#include <asm/cputype.h>
 #include <asm/kvm_arm.h>
 #include <asm/kvm_asm.h>
 #include <asm/kvm_mmu.h>
+#include <asm/kvm_emulate.h>
 
 static DEFINE_PER_CPU(unsigned long, kvm_arm_hyp_stack_page);
+
+/* The VMID used in the VTTBR */
+static atomic64_t kvm_vmid_gen = ATOMIC64_INIT(1);
+static u8 kvm_next_vmid;
+DEFINE_SPINLOCK(kvm_vmid_lock);
 
 int kvm_arch_hardware_enable(void *garbage)
 {
@@ -248,6 +255,12 @@ int __attribute_const__ kvm_target_cpu(void)
 
 int kvm_arch_vcpu_init(struct kvm_vcpu *vcpu)
 {
+	int ret;
+
+	ret = kvm_reset_vcpu(vcpu);
+	if (ret < 0)
+		return ret;
+
 	return 0;
 }
 
@@ -290,12 +303,178 @@ int kvm_arch_vcpu_runnable(struct kvm_vcpu *v)
 
 int kvm_arch_vcpu_in_guest_mode(struct kvm_vcpu *v)
 {
+	return v->mode == IN_GUEST_MODE;
+}
+
+static void reset_vm_context(void *info)
+{
+	__kvm_flush_vm_context();
+}
+
+/**
+ * check_new_vmid_gen - check that the VMID is still valid
+ * @kvm: The VM's VMID to checkt
+ *
+ * return true if there is a new generation of VMIDs being used
+ *
+ * The hardware supports only 256 values with the value zero reserved for the
+ * host, so we check if an assigned value belongs to a previous generation,
+ * which which requires us to assign a new value. If we're the first to use a
+ * VMID for the new generation, we must flush necessary caches and TLBs on all
+ * CPUs.
+ */
+static bool check_new_vmid_gen(struct kvm *kvm)
+{
+	return unlikely(kvm->arch.vmid_gen != atomic64_read(&kvm_vmid_gen));
+}
+
+/**
+ * update_vttbr - Update the VTTBR with a valid VMID before the guest runs
+ * @kvm	The guest that we are about to run
+ *
+ * Called from kvm_arch_vcpu_ioctl_run before entering the guest to ensure the
+ * VM has a valid VMID, otherwise assigns a new one and flushes corresponding
+ * caches and TLBs.
+ */
+static void update_vttbr(struct kvm *kvm)
+{
+	phys_addr_t pgd_phys;
+
+	if (!check_new_vmid_gen(kvm))
+		return;
+
+	spin_lock(&kvm_vmid_lock);
+
+	/* First user of a new VMID generation? */
+	if (unlikely(kvm_next_vmid == 0)) {
+		atomic64_inc(&kvm_vmid_gen);
+		kvm_next_vmid = 1;
+
+		/* This does nothing on UP */
+		smp_call_function(reset_vm_context, NULL, 1);
+
+		/*
+		 * On SMP we know no other CPUs can use this CPU's or
+		 * each other's VMID since the kvm_vmid_lock blocks
+		 * them from reentry to the guest.
+		 */
+
+		reset_vm_context(NULL);
+	}
+
+	kvm->arch.vmid_gen = atomic64_read(&kvm_vmid_gen);
+	kvm->arch.vmid = kvm_next_vmid;
+	kvm_next_vmid++;
+
+	/* update vttbr to be used with the new vmid */
+	pgd_phys = virt_to_phys(kvm->arch.pgd);
+	kvm->arch.vttbr = pgd_phys & ((1LLU << 40) - 1)
+			  & ~((2 << VTTBR_X) - 1);
+	kvm->arch.vttbr |= (u64)(kvm->arch.vmid) << 48;
+
+	spin_unlock(&kvm_vmid_lock);
+}
+
+/*
+ * Return 0 to return to guest, < 0 on error, exit_reason ( > 0) on proper
+ * exit to QEMU.
+ */
+static int handle_exit(struct kvm_vcpu *vcpu, struct kvm_run *run,
+		       int exception_index)
+{
+	return -EINVAL;
+}
+
+/*
+ * Return 0 to proceed with guest entry
+ */
+static int vcpu_pre_guest_enter(struct kvm_vcpu *vcpu, int *exit_reason)
+{
+	if (signal_pending(current)) {
+		*exit_reason = KVM_EXIT_INTR;
+		return -EINTR;
+	}
+
+	if (check_new_vmid_gen(vcpu->kvm))
+		return 1;
+
+	BUG_ON(__vcpu_mode(*vcpu_cpsr(vcpu)) == 0xf);
+
 	return 0;
 }
 
+/**
+ * kvm_arch_vcpu_ioctl_run - the main VCPU run function to execute guest code
+ * @vcpu:	The VCPU pointer
+ * @run:	The kvm_run structure pointer used for userspace state exchange
+ *
+ * This function is called through the VCPU_RUN ioctl called from user space. It
+ * will execute VM code in a loop until the time slice for the process is used
+ * or some emulation is needed from user space in which case the function will
+ * return with return value 0 and with the kvm_run structure filled in with the
+ * required data for the requested emulation.
+ */
 int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 {
-	return -EINVAL;
+	int ret = 0;
+	int exit_reason;
+	sigset_t sigsaved;
+
+	if (vcpu->sigset_active)
+		sigprocmask(SIG_SETMASK, &vcpu->sigset, &sigsaved);
+
+	exit_reason = KVM_EXIT_UNKNOWN;
+	while (exit_reason == KVM_EXIT_UNKNOWN) {
+		/*
+		 * Check conditions before entering the guest
+		 */
+		cond_resched();
+
+		update_vttbr(vcpu->kvm);
+
+		local_irq_disable();
+
+		/* Re-check atomic conditions */
+		ret = vcpu_pre_guest_enter(vcpu, &exit_reason);
+		if (ret != 0) {
+			local_irq_enable();
+			preempt_enable();
+			continue;
+		}
+
+		/**************************************************************
+		 * Enter the guest
+		 */
+		trace_kvm_entry(vcpu->arch.regs.pc);
+		kvm_guest_enter();
+		vcpu->mode = IN_GUEST_MODE;
+
+		ret = __kvm_vcpu_run(vcpu);
+
+		vcpu->mode = OUTSIDE_GUEST_MODE;
+		vcpu->stat.exits++;
+		kvm_guest_exit();
+		trace_kvm_exit(vcpu->arch.regs.pc);
+		local_irq_enable();
+
+		/*
+		 * Back from guest
+		 *************************************************************/
+
+		ret = handle_exit(vcpu, run, ret);
+		if (ret < 0) {
+			kvm_err("Error in handle_exit\n");
+			break;
+		} else {
+			exit_reason = ret; /* 0 == KVM_EXIT_UNKNOWN */
+		}
+	}
+
+	if (vcpu->sigset_active)
+		sigprocmask(SIG_SETMASK, &sigsaved, NULL);
+
+	run->exit_reason = exit_reason;
+	return ret;
 }
 
 int kvm_vm_ioctl_irq_line(struct kvm *kvm, struct kvm_irq_level *irq_level)
