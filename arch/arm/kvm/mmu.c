@@ -18,11 +18,15 @@
 
 #include <linux/mman.h>
 #include <linux/kvm_host.h>
+#include <trace/events/kvm.h>
 #include <asm/idmap.h>
 #include <asm/pgalloc.h>
 #include <asm/kvm_arm.h>
 #include <asm/kvm_mmu.h>
 #include <asm/kvm_asm.h>
+#include <asm/kvm_emulate.h>
+
+#include "trace.h"
 
 static DEFINE_MUTEX(kvm_hyp_pgd_mutex);
 
@@ -363,6 +367,159 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
 }
 
 /**
+ * kvm_handle_mmio_return -- Handle MMIO loads after user space emulation
+ * @vcpu: The VCPU pointer
+ * @run:  The VCPU run struct containing the mmio data
+ *
+ * This should only be called after returning from userspace for MMIO load
+ * emulation.
+ */
+int kvm_handle_mmio_return(struct kvm_vcpu *vcpu, struct kvm_run *run)
+{
+	int *dest;
+	unsigned int len;
+	int mask;
+
+	if (!run->mmio.is_write) {
+		dest = vcpu_reg(vcpu, vcpu->arch.mmio_rd);
+		memset(dest, 0, sizeof(int));
+
+		len = run->mmio.len;
+		if (len > 4)
+			return -EINVAL;
+
+		memcpy(dest, run->mmio.data, len);
+
+		trace_kvm_mmio(KVM_TRACE_MMIO_READ, len, run->mmio.phys_addr,
+				*((u64 *)run->mmio.data));
+
+		if (vcpu->arch.mmio_sign_extend && len < 4) {
+			mask = 1U << ((len * 8) - 1);
+			*dest = (*dest ^ mask) - mask;
+		}
+	}
+
+	return 0;
+}
+
+/**
+ * invalid_io_mem_abort -- Handle I/O aborts ISV bit is clear
+ *
+ * @vcpu:      The vcpu pointer
+ * @fault_ipa: The IPA that caused the 2nd stage fault
+ *
+ * Some load/store instructions cannot be emulated using the information
+ * presented in the HSR, for instance, register write-back instructions are not
+ * supported. We therefore need to fetch the instruction, decode it, and then
+ * emulate its behavior.
+ */
+static int invalid_io_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa)
+{
+	unsigned long instr;
+	phys_addr_t pc_ipa;
+
+	if (vcpu->arch.pc_ipa & 1) {
+		kvm_err("I/O Abort from invalid instruction address? Wrong!\n");
+		return -EINVAL;
+	}
+
+	if (vcpu->arch.pc_ipa & (1U << 11)) {
+		/* LPAE PAR format */
+		/* TODO: Check if this ever happens - called from Hyp mode */
+		pc_ipa = vcpu->arch.pc_ipa & PAGE_MASK & ((1ULL << 32) - 1);
+	} else {
+		/* VMSAv7 PAR format */
+		pc_ipa = vcpu->arch.pc_ipa & PAGE_MASK & ((1ULL << 40) - 1);
+	}
+	pc_ipa += vcpu->arch.regs.pc & ~PAGE_MASK;
+
+	if (vcpu->arch.regs.cpsr & PSR_T_BIT) {
+		/* TODO: Check validity of PC IPA and IPA2!!! */
+		/* Need to decode thumb instructions as well */
+		kvm_err("Thumb guest support not there yet :(\n");
+		return -EINVAL;
+	}
+
+	if (kvm_read_guest(vcpu->kvm, pc_ipa, &instr, sizeof(instr))) {
+		kvm_err("Could not copy guest instruction\n");
+		return -EFAULT;
+	}
+
+	return kvm_emulate_mmio_ls(vcpu, fault_ipa, instr);
+}
+
+static int io_mem_abort(struct kvm_vcpu *vcpu, struct kvm_run *run,
+			phys_addr_t fault_ipa, struct kvm_memory_slot *memslot)
+{
+	unsigned long rd, len, instr_len;
+	bool is_write, sign_extend;
+
+	if (!(vcpu->arch.hsr & HSR_ISV))
+		return invalid_io_mem_abort(vcpu, fault_ipa);
+
+	if (((vcpu->arch.hsr >> 8) & 1)) {
+		kvm_err("Not supported, Cache operation on I/O addr.\n");
+		return -EFAULT;
+	}
+
+	if ((vcpu->arch.hsr >> 7) & 1) {
+		kvm_err("Translation table accesses I/O memory\n");
+		return -EFAULT;
+	}
+
+	switch ((vcpu->arch.hsr >> 22) & 0x3) {
+	case 0:
+		len = 1;
+		break;
+	case 1:
+		len = 2;
+		break;
+	case 2:
+		len = 4;
+		break;
+	default:
+		kvm_err("Invalid I/O abort\n");
+		return -EFAULT;
+	}
+
+	is_write = vcpu->arch.hsr & HSR_WNR;
+	sign_extend = vcpu->arch.hsr & HSR_SSE;
+	rd = (vcpu->arch.hsr & HSR_SRT_MASK) >> HSR_SRT_SHIFT;
+	BUG_ON(rd > 15);
+
+	if (rd == 15) {
+		kvm_err("I/O memory trying to read/write pc\n");
+		return -EFAULT;
+	}
+
+	/* Get instruction length in bytes */
+	instr_len = (vcpu->arch.hsr & HSR_IL) ? 4 : 2;
+
+	/* Export MMIO operations to user space */
+	run->mmio.is_write = is_write;
+	run->mmio.phys_addr = fault_ipa;
+	run->mmio.len = len;
+	vcpu->arch.mmio_sign_extend = sign_extend;
+	vcpu->arch.mmio_rd = rd;
+
+	trace_kvm_mmio((is_write) ? KVM_TRACE_MMIO_WRITE :
+				    KVM_TRACE_MMIO_READ_UNSATISFIED,
+			len, fault_ipa, (is_write) ? *vcpu_reg(vcpu, rd) : 0);
+
+	if (is_write)
+		memcpy(run->mmio.data, vcpu_reg(vcpu, rd), len);
+
+	/*
+	 * The MMIO instruction is emulated and should not be re-executed
+	 * in the guest.
+	 */
+	*vcpu_pc(vcpu) += instr_len;
+	kvm_adjust_itstate(vcpu);
+	vcpu->stat.mmio_exits++;
+	return KVM_EXIT_MMIO;
+}
+
+/**
  * kvm_handle_guest_abort - handles all 2nd stage aborts
  * @vcpu:	the VCPU pointer
  * @run:	the kvm_run structure
@@ -404,8 +561,9 @@ int kvm_handle_guest_abort(struct kvm_vcpu *vcpu, struct kvm_run *run)
 			return -EFAULT;
 		}
 
-		kvm_pr_unimpl("I/O address abort...");
-		return 0;
+		/* Adjust page offset */
+		fault_ipa |= vcpu->arch.hdfar & ~PAGE_MASK;
+		return io_mem_abort(vcpu, run, fault_ipa, memslot);
 	}
 
 	memslot = gfn_to_memslot(vcpu->kvm, gfn);
