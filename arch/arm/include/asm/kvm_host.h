@@ -140,4 +140,20 @@ struct kvm_vcpu_stat {
 	u32 halt_wakeup;
 };
 
+#define KVM_ARCH_WANT_MMU_NOTIFIER
+struct kvm;
+int kvm_unmap_hva(struct kvm *kvm, unsigned long hva);
+void kvm_set_spte_hva(struct kvm *kvm, unsigned long hva, pte_t pte);
+
+/* We do not have shadow page tables, hence the empty hooks */
+static inline int kvm_age_hva(struct kvm *kvm, unsigned long hva)
+{
+	return 0;
+}
+
+static inline int kvm_test_age_hva(struct kvm *kvm, unsigned long hva)
+{
+	return 0;
+}
+
 #endif /* __ARM_KVM_HOST_H__ */
