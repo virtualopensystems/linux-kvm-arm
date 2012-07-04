@@ -354,14 +354,14 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
 		return -EFAULT;
 	}
 
-	mutex_lock(&vcpu->kvm->arch.pgd_mutex);
+	spin_lock(&vcpu->kvm->arch.pgd_lock);
 	new_pte = pfn_pte(pfn, PAGE_KVM_GUEST);
 	if (writable)
 		new_pte |= L_PTE2_WRITE;
 	ret = stage2_set_pte(vcpu->kvm, fault_ipa, &new_pte);
 	if (ret)
 		put_page(pfn_to_page(pfn));
-	mutex_unlock(&vcpu->kvm->arch.pgd_mutex);
+	spin_unlock(&vcpu->kvm->arch.pgd_lock);
 
 	return ret;
 }
@@ -611,13 +611,13 @@ int kvm_unmap_hva(struct kvm *kvm, unsigned long hva)
 	if (!kvm->arch.pgd)
 		return 0;
 
-	mutex_lock(&kvm->arch.pgd_mutex);
+	spin_lock(&kvm->arch.pgd_lock);
 	found = hva_to_gpa(kvm, hva, &gpa);
 	if (found) {
 		stage2_set_pte(kvm, gpa, &null_pte);
 		__kvm_tlb_flush_vmid(kvm);
 	}
-	mutex_unlock(&kvm->arch.pgd_mutex);
+	spin_unlock(&kvm->arch.pgd_lock);
 	return 0;
 }
 
@@ -629,7 +629,7 @@ void kvm_set_spte_hva(struct kvm *kvm, unsigned long hva, pte_t pte)
 	if (!kvm->arch.pgd)
 		return;
 
-	mutex_lock(&kvm->arch.pgd_mutex);
+	spin_lock(&kvm->arch.pgd_lock);
 	found = hva_to_gpa(kvm, hva, &gpa);
 	if (found) {
 		stage2_set_pte(kvm, gpa, &pte);
@@ -640,5 +640,5 @@ void kvm_set_spte_hva(struct kvm *kvm, unsigned long hva, pte_t pte)
 		 */
 		__kvm_tlb_flush_vmid(kvm);
 	}
-	mutex_unlock(&kvm->arch.pgd_mutex);
+	spin_unlock(&kvm->arch.pgd_lock);
 }

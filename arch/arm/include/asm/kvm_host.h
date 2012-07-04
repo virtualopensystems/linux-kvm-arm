@@ -40,7 +40,7 @@ struct kvm_arch {
 	u32    vmid;
 
 	/* 1-level 2nd stage table and lock */
-	struct mutex pgd_mutex;
+	spinlock_t pgd_lock;
 	pgd_t *pgd;
 
 	/* VTTBR value associated with above pgd and vmid */
