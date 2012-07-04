@@ -111,6 +111,7 @@ struct kvm_irq_level {
 	 * ACPI gsi notion of irq.
 	 * For IA-64 (APIC model) IOAPIC0: irq 0-23; IOAPIC1: irq 24-47..
 	 * For X86 (standard AT mode) PIC0/1: irq 0-15. IOAPIC0: 0-23..
+	 * For ARM: IRQ: irq = (2*vcpu_index). FIQ: irq = (2*vcpu_indx + 1).
 	 */
 	union {
 		__u32 irq;
@@ -617,6 +618,7 @@ struct kvm_ppc_smmu_info {
 #define KVM_CAP_SIGNAL_MSI 77
 #define KVM_CAP_PPC_GET_SMMU_INFO 78
 #define KVM_CAP_S390_COW 79
+#define KVM_CAP_PPC_ALLOC_HTAB 80
 
 #ifdef KVM_CAP_IRQ_ROUTING
 
@@ -828,6 +830,8 @@ struct kvm_s390_ucas_mapping {
 #define KVM_SIGNAL_MSI            _IOW(KVMIO,  0xa5, struct kvm_msi)
 /* Available with KVM_CAP_PPC_GET_SMMU_INFO */
 #define KVM_PPC_GET_SMMU_INFO	  _IOR(KVMIO,  0xa6, struct kvm_ppc_smmu_info)
+/* Available with KVM_CAP_PPC_ALLOC_HTAB */
+#define KVM_PPC_ALLOCATE_HTAB	  _IOWR(KVMIO, 0xa7, __u32)
 
 /*
  * ioctls for vcpu fds

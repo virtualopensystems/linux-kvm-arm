@@ -90,7 +90,7 @@ module_param(dbg, bool, 0644);
 
 #define PTE_PREFETCH_NUM		8
 
-#define PT_FIRST_AVAIL_BITS_SHIFT 9
+#define PT_FIRST_AVAIL_BITS_SHIFT 10
 #define PT64_SECOND_AVAIL_BITS_SHIFT 52
 
 #define PT64_LEVEL_BITS 9
@@ -652,8 +652,7 @@ static void mmu_free_memory_caches(struct kvm_vcpu *vcpu)
 				mmu_page_header_cache);
 }
 
-static void *mmu_memory_cache_alloc(struct kvm_mmu_memory_cache *mc,
-				    size_t size)
+static void *mmu_memory_cache_alloc(struct kvm_mmu_memory_cache *mc)
 {
 	void *p;
 
@@ -664,8 +663,7 @@ static void *mmu_memory_cache_alloc(struct kvm_mmu_memory_cache *mc,
 
 static struct pte_list_desc *mmu_alloc_pte_list_desc(struct kvm_vcpu *vcpu)
 {
-	return mmu_memory_cache_alloc(&vcpu->arch.mmu_pte_list_desc_cache,
-				      sizeof(struct pte_list_desc));
+	return mmu_memory_cache_alloc(&vcpu->arch.mmu_pte_list_desc_cache);
 }
 
 static void mmu_free_pte_list_desc(struct pte_list_desc *pte_list_desc)
@@ -1238,11 +1236,12 @@ static int kvm_age_rmapp(struct kvm *kvm, unsigned long *rmapp,
 			 unsigned long data)
 {
 	u64 *sptep;
-	struct rmap_iterator iter;
+	struct rmap_iterator uninitialized_var(iter);
 	int young = 0;
 
 	/*
-	 * Emulate the accessed bit for EPT, by checking if this page has
+	 * In case of absence of EPT Access and Dirty Bits supports,
+	 * emulate the accessed bit for EPT, by checking if this page has
 	 * an EPT mapping, and clearing it if it does. On the next access,
 	 * a new EPT mapping will be established.
 	 * This has some overhead, but not as much as the cost of swapping
@@ -1253,11 +1252,12 @@ static int kvm_age_rmapp(struct kvm *kvm, unsigned long *rmapp,
 
 	for (sptep = rmap_get_first(*rmapp, &iter); sptep;
 	     sptep = rmap_get_next(&iter)) {
-		BUG_ON(!(*sptep & PT_PRESENT_MASK));
+		BUG_ON(!is_shadow_present_pte(*sptep));
 
-		if (*sptep & PT_ACCESSED_MASK) {
+		if (*sptep & shadow_accessed_mask) {
 			young = 1;
-			clear_bit(PT_ACCESSED_SHIFT, (unsigned long *)sptep);
+			clear_bit((ffs(shadow_accessed_mask) - 1),
+				 (unsigned long *)sptep);
 		}
 	}
 
@@ -1281,9 +1281,9 @@ static int kvm_test_age_rmapp(struct kvm *kvm, unsigned long *rmapp,
 
 	for (sptep = rmap_get_first(*rmapp, &iter); sptep;
 	     sptep = rmap_get_next(&iter)) {
-		BUG_ON(!(*sptep & PT_PRESENT_MASK));
+		BUG_ON(!is_shadow_present_pte(*sptep));
 
-		if (*sptep & PT_ACCESSED_MASK) {
+		if (*sptep & shadow_accessed_mask) {
 			young = 1;
 			break;
 		}
@@ -1401,12 +1401,10 @@ static struct kvm_mmu_page *kvm_mmu_alloc_page(struct kvm_vcpu *vcpu,
 					       u64 *parent_pte, int direct)
 {
 	struct kvm_mmu_page *sp;
-	sp = mmu_memory_cache_alloc(&vcpu->arch.mmu_page_header_cache,
-					sizeof *sp);
-	sp->spt = mmu_memory_cache_alloc(&vcpu->arch.mmu_page_cache, PAGE_SIZE);
+	sp = mmu_memory_cache_alloc(&vcpu->arch.mmu_page_header_cache);
+	sp->spt = mmu_memory_cache_alloc(&vcpu->arch.mmu_page_cache);
 	if (!direct)
-		sp->gfns = mmu_memory_cache_alloc(&vcpu->arch.mmu_page_cache,
-						  PAGE_SIZE);
+		sp->gfns = mmu_memory_cache_alloc(&vcpu->arch.mmu_page_cache);
 	set_page_private(virt_to_page(sp->spt), (unsigned long)sp);
 	list_add(&sp->link, &vcpu->kvm->arch.active_mmu_pages);
 	bitmap_zero(sp->slot_bitmap, KVM_MEM_SLOTS_NUM);
@@ -3942,7 +3940,6 @@ static void kvm_mmu_remove_some_alloc_mmu_pages(struct kvm *kvm,
 static int mmu_shrink(struct shrinker *shrink, struct shrink_control *sc)
 {
 	struct kvm *kvm;
-	struct kvm *kvm_freed = NULL;
 	int nr_to_scan = sc->nr_to_scan;
 
 	if (nr_to_scan == 0)
@@ -3954,22 +3951,30 @@ static int mmu_shrink(struct shrinker *shrink, struct shrink_control *sc)
 		int idx;
 		LIST_HEAD(invalid_list);
 
+		/*
+		 * n_used_mmu_pages is accessed without holding kvm->mmu_lock
+		 * here. We may skip a VM instance errorneosly, but we do not
+		 * want to shrink a VM that only started to populate its MMU
+		 * anyway.
+		 */
+		if (kvm->arch.n_used_mmu_pages > 0) {
+			if (!nr_to_scan--)
+				break;
+			continue;
+		}
+
 		idx = srcu_read_lock(&kvm->srcu);
 		spin_lock(&kvm->mmu_lock);
-		if (!kvm_freed && nr_to_scan > 0 &&
-		    kvm->arch.n_used_mmu_pages > 0) {
-			kvm_mmu_remove_some_alloc_mmu_pages(kvm,
-							    &invalid_list);
-			kvm_freed = kvm;
-		}
-		nr_to_scan--;
 
+		kvm_mmu_remove_some_alloc_mmu_pages(kvm, &invalid_list);
 		kvm_mmu_commit_zap_page(kvm, &invalid_list);
+
 		spin_unlock(&kvm->mmu_lock);
 		srcu_read_unlock(&kvm->srcu, idx);
+
+		list_move_tail(&kvm->vm_list, &vm_list);
+		break;
 	}
-	if (kvm_freed)
-		list_move_tail(&kvm_freed->vm_list, &vm_list);
 
 	raw_spin_unlock(&kvm_lock);
 

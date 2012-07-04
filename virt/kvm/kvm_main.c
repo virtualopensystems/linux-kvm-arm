@@ -516,16 +516,32 @@ out_err_nodisable:
 	return ERR_PTR(r);
 }
 
+/*
+ * Avoid using vmalloc for a small buffer.
+ * Should not be used when the size is statically known.
+ */
+void *kvm_kvzalloc(unsigned long size)
+{
+	if (size > PAGE_SIZE)
+		return vzalloc(size);
+	else
+		return kzalloc(size, GFP_KERNEL);
+}
+
+void kvm_kvfree(const void *addr)
+{
+	if (is_vmalloc_addr(addr))
+		vfree(addr);
+	else
+		kfree(addr);
+}
+
 static void kvm_destroy_dirty_bitmap(struct kvm_memory_slot *memslot)
 {
 	if (!memslot->dirty_bitmap)
 		return;
 
-	if (2 * kvm_dirty_bitmap_bytes(memslot) > PAGE_SIZE)
-		vfree(memslot->dirty_bitmap);
-	else
-		kfree(memslot->dirty_bitmap);
-
+	kvm_kvfree(memslot->dirty_bitmap);
 	memslot->dirty_bitmap = NULL;
 }
 
@@ -617,11 +633,7 @@ static int kvm_create_dirty_bitmap(struct kvm_memory_slot *memslot)
 #ifndef CONFIG_S390
 	unsigned long dirty_bytes = 2 * kvm_dirty_bitmap_bytes(memslot);
 
-	if (dirty_bytes > PAGE_SIZE)
-		memslot->dirty_bitmap = vzalloc(dirty_bytes);
-	else
-		memslot->dirty_bitmap = kzalloc(dirty_bytes, GFP_KERNEL);
-
+	memslot->dirty_bitmap = kvm_kvzalloc(dirty_bytes);
 	if (!memslot->dirty_bitmap)
 		return -ENOMEM;
 
@@ -2081,6 +2093,25 @@ static long kvm_vm_ioctl(struct file *filp,
 		break;
 	}
 #endif
+#ifdef __KVM_HAVE_IRQ_LINE
+	case KVM_IRQ_LINE_STATUS:
+	case KVM_IRQ_LINE: {
+		struct kvm_irq_level irq_event;
+
+		r = -EFAULT;
+		if (copy_from_user(&irq_event, argp, sizeof irq_event))
+			goto out;
+
+		r = kvm_vm_ioctl_irq_line(kvm, &irq_event);
+
+		if (ioctl == KVM_IRQ_LINE_STATUS) {
+			if (copy_to_user(argp, &irq_event, sizeof irq_event))
+				r = -EFAULT;
+		}
+
+		break;
+	}
+#endif
 	default:
 		r = kvm_arch_vm_ioctl(filp, ioctl, arg);
 		if (r == -ENOTTY)
@@ -2213,7 +2244,7 @@ static long kvm_dev_ioctl_check_extension_generic(long arg)
 	case KVM_CAP_SIGNAL_MSI:
 #endif
 		return 1;
-#ifdef CONFIG_HAVE_KVM_IRQCHIP
+#ifdef KVM_CAP_IRQ_ROUTING
 	case KVM_CAP_IRQ_ROUTING:
 		return KVM_MAX_IRQ_ROUTES;
 #endif
