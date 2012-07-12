@@ -85,12 +85,6 @@ static inline int desc_empty(const void *ptr)
 	return !(desc[0] | desc[1]);
 }
 
-static inline bool desc_equal(const struct desc_struct *d1,
-			      const struct desc_struct *d2)
-{
-	return d1->a == d2->a && d1->b == d2->b;
-}
-
 #ifdef CONFIG_PARAVIRT
 #include <asm/paravirt.h>
 #else
