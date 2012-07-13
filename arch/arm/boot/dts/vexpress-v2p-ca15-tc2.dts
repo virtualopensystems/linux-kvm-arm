@@ -146,6 +146,16 @@
 		clock-names = "pxlclk";
 	};
 
+	spc@7fff0000 {
+		compatible = "arm,spc";
+		reg = <0 0x7FFF0000 0 0x1000>;
+	};
+
+	cci@2c090000 {
+		compatible = "arm,cci";
+		reg = <0 0x2c090000 0 0x8000>;
+	};
+
 	memory-controller@2b0a0000 {
 		compatible = "arm,pl341", "arm,primecell";
 		reg = <0 0x2b0a0000 0 0x1000>;
