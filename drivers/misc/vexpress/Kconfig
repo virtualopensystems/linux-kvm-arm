@@ -1,0 +1,2 @@
+config ARM_SPC
+       bool "ARM SPC driver support"
