@@ -553,6 +553,14 @@ static void gic_cpu_save(unsigned int gic_nr)
 	for (i = 0; i < DIV_ROUND_UP(32, 16); i++)
 		ptr[i] = readl_relaxed(dist_base + GIC_DIST_CONFIG + i * 4);
 
+	/*
+	 * Disable GIC CPU IF and IRQ bybass. When a CPU is shutdown we must
+	 * insure that it does not exit wfi if an IRQ is pending on the IF.
+	 * The GIC allows this operation by disabling the GIC CPU IF and the
+	 * IRQ bypass mode. The raw IRQ line is still delivered to the power
+	 * controller that use the IRQ to wake up the respective core.
+	 */
+	writel_relaxed(0x1e0, cpu_base + GIC_CPU_CTRL);
 }
 
 static void gic_cpu_restore(unsigned int gic_nr)
