@@ -474,21 +474,6 @@ static void __put_css_set(struct css_set *cg, int taskexit)
 	hlist_del(&cg->hlist);
 	css_set_count--;
 
-	list_for_each_entry_safe(link, saved_link, &cg->cg_links,
-				 cg_link_list) {
-		struct cgroup *cgrp = link->cgrp;
-		list_del(&link->cg_link_list);
-		list_del(&link->cgrp_link_list);
-		if (atomic_dec_and_test(&cgrp->count) &&
-		    notify_on_release(cgrp)) {
-			if (taskexit)
-				set_bit(CGRP_RELEASABLE, &cgrp->flags);
-			check_for_release(cgrp);
-		}
-
-		kfree(link);
-	}
-
 	write_unlock(&css_set_lock);
 	call_rcu(&cg->rcu_head, free_css_set_rcu);
 }
