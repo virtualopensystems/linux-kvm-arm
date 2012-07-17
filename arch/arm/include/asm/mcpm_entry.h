@@ -15,7 +15,36 @@
 #define MAX_CPUS_PER_CLUSTER	4
 #define MAX_NR_CLUSTERS		2
 
+/* Definitions for mcpm_sync_struct */
+#define CPU_DOWN		0x11
+#define CPU_COMING_UP		0x12
+#define CPU_UP			0x13
+#define CPU_GOING_DOWN		0x14
+
+#define CLUSTER_DOWN		0x21
+#define CLUSTER_UP		0x22
+#define CLUSTER_GOING_DOWN	0x23
+
+#define INBOUND_NOT_COMING_UP	0x31
+#define INBOUND_COMING_UP	0x32
+
+/* This is a complete guess. */
+#define __CACHE_WRITEBACK_ORDER	6
+#define __CACHE_WRITEBACK_GRANULE (1 << __CACHE_WRITEBACK_ORDER)
+
+/* Offsets for the mcpm_sync_struct members, for use in asm: */
+#define MCPM_SYNC_CLUSTER_CPUS	0
+#define MCPM_SYNC_CPU_SIZE	__CACHE_WRITEBACK_GRANULE
+#define MCPM_SYNC_CLUSTER_CLUSTER \
+	(MCPM_SYNC_CLUSTER_CPUS + MCPM_SYNC_CPU_SIZE * MAX_CPUS_PER_CLUSTER)
+#define MCPM_SYNC_CLUSTER_INBOUND \
+	(MCPM_SYNC_CLUSTER_CLUSTER + __CACHE_WRITEBACK_GRANULE)
+#define MCPM_SYNC_CLUSTER_SIZE \
+	(MCPM_SYNC_CLUSTER_INBOUND + __CACHE_WRITEBACK_GRANULE)
+
 #ifndef __ASSEMBLY__
+
+#include <linux/types.h>
 
 /*
  * Platform specific code should use this symbol to set up secondary
@@ -122,6 +151,40 @@ struct mcpm_platform_ops {
  * An error is returned if the registration has been done previously.
  */
 int __init mcpm_platform_register(const struct mcpm_platform_ops *ops);
+
+/* Synchronisation structures for coordinating safe cluster setup/teardown: */
+
+/*
+ * When modifying this structure, make sure you update the MCPM_SYNC_ defines
+ * to match.
+ */
+struct mcpm_sync_struct {
+	/* individual CPU states */
+	struct {
+		volatile s8 cpu __aligned(__CACHE_WRITEBACK_GRANULE);
+	} cpus[MAX_CPUS_PER_CLUSTER];
+
+	/* cluster state */
+	volatile s8 cluster __aligned(__CACHE_WRITEBACK_GRANULE);
+
+	/* inbound-side state */
+	volatile s8 inbound __aligned(__CACHE_WRITEBACK_GRANULE);
+};
+
+struct sync_struct {
+	struct mcpm_sync_struct clusters[MAX_NR_CLUSTERS];
+};
+
+extern unsigned long sync_phys;	/* physical address of *mcpm_sync */
+
+void __mcpm_cpu_going_down(unsigned int cpu, unsigned int cluster);
+void __mcpm_cpu_down(unsigned int cpu, unsigned int cluster);
+void __mcpm_outbound_leave_critical(unsigned int cluster, int state);
+bool __mcpm_outbound_enter_critical(unsigned int this_cpu, unsigned int cluster);
+int __mcpm_cluster_state(unsigned int cluster);
+
+int __init mcpm_sync_init(
+	void (*power_up_setup)(unsigned int affinity_level));
 
 #endif /* ! __ASSEMBLY__ */
 #endif
