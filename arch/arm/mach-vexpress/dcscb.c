@@ -15,6 +15,7 @@
 #include <linux/spinlock.h>
 #include <linux/errno.h>
 #include <linux/vexpress.h>
+#include <linux/arm-cci.h>
 
 #include <asm/bL_entry.h>
 #include <asm/proc-fns.h>
@@ -104,6 +105,8 @@ static void dcscb_power_down(void)
 	pr_debug("%s: cpu %u cluster %u\n", __func__, cpu, cluster);
 	BUG_ON(cpu >= 4 || cluster >= 2);
 
+	__bL_cpu_going_down(cpu, cluster);
+
 	arch_spin_lock(&dcscb_lock);
 	dcscb_use_count[cpu][cluster]--;
 	if (dcscb_use_count[cpu][cluster] == 0) {
@@ -111,6 +114,7 @@ static void dcscb_power_down(void)
 		rst_hold |= cpumask;
 		if (((rst_hold | (rst_hold >> 4)) & cluster_mask) == cluster_mask) {
 			rst_hold |= (1 << 8);
+			BUG_ON(__bL_cluster_state(cluster) != CLUSTER_UP);
 			last_man = true;
 		}
 		writel(rst_hold, dcscb_base + RST_HOLD0 + cluster * 4);
@@ -124,35 +128,71 @@ static void dcscb_power_down(void)
 		skip_wfi = true;
 	} else
 		BUG();
-	arch_spin_unlock(&dcscb_lock);
 
-	/*
-	 * Now let's clean our L1 cache and shut ourself down.
-	 * If we're the last CPU in this cluster then clean L2 too.
-	 */
+	if (last_man && __bL_outbound_enter_critical(cpu, cluster)) {
+		arch_spin_unlock(&dcscb_lock);
 
-	/*
-	 * A15/A7 can hit in the cache with SCTLR.C=0, so we don't need
-	 * a preliminary flush here for those CPUs.  At least, that's
-	 * the theory -- without the extra flush, Linux explodes on
-	 * RTSM (maybe not needed anymore, to be investigated)..
-	 */
-	flush_cache_louis();
-	cpu_proc_fin();
-
-	if (!last_man) {
-		flush_cache_louis();
-	} else {
+		/*
+		 * Flush all cache levels for this cluster.
+		 *
+		 * A15/A7 can hit in the cache with SCTLR.C=0, so we don't need
+		 * a preliminary flush here for those CPUs.  At least, that's
+		 * the theory -- without the extra flush, Linux explodes on
+		 * RTSM (maybe not needed anymore, to be investigated).
+		 */
 		flush_cache_all();
+		cpu_proc_fin(); /* disable allocation into internal caches*/
+		flush_cache_all();
+
+		/*
+		 * This is a harmless no-op.  On platforms with a real
+		 * outer cache this might either be needed or not,
+		 * depending on where the outer cache sits.
+		 */
 		outer_flush_all();
+
+		/* Disable local coherency by clearing the ACTLR "SMP" bit: */
+		asm volatile (
+			"mrc	p15, 0, ip, c1, c0, 1 \n\t"
+			"bic	ip, ip, #(1 << 6) @ clear SMP bit \n\t"
+			"mcr	p15, 0, ip, c1, c0, 1 \n\t"
+			"isb \n\t"
+			"dsb"
+			: : : "ip" );
+
+		/*
+		 * Disable cluster-level coherency by masking
+		 * incoming snoops and DVM messages:
+		 */
+		disable_cci(cluster);
+
+		__bL_outbound_leave_critical(cluster, CLUSTER_DOWN);
+	} else {
+		arch_spin_unlock(&dcscb_lock);
+
+		/*
+		 * Flush the local CPU cache.
+		 *
+		 * A15/A7 can hit in the cache with SCTLR.C=0, so we don't need
+		 * a preliminary flush here for those CPUs.  At least, that's
+		 * the theory -- without the extra flush, Linux explodes on
+		 * RTSM (maybe not needed anymore, to be investigated).
+		 */
+		flush_cache_louis();
+		cpu_proc_fin(); /* disable allocation into internal caches*/
+		flush_cache_louis();
+
+		/* Disable local coherency by clearing the ACTLR "SMP" bit: */
+		asm volatile (
+			"mrc	p15, 0, ip, c1, c0, 1 \n\t"
+			"bic	ip, ip, #(1 << 6) @ clear SMP bit \n\t"
+			"mcr	p15, 0, ip, c1, c0, 1 \n\t"
+			"isb \n\t"
+			"dsb"
+			: : : "ip" );
 	}
 
-	/* Disable local coherency by clearing the ACTLR "SMP" bit: */
-	asm volatile (
-		"mrc	p15, 0, ip, c1, c0, 1 \n\t"
-		"bic	ip, ip, #(1 << 6) @ clear SMP bit \n\t"
-		"mcr	p15, 0, ip, c1, c0, 1"
-		: : : "ip" );
+	__bL_cpu_down(cpu, cluster);
 
 	/* Now we are prepared for power-down, do it: */
 	if (!skip_wfi)
@@ -179,6 +219,8 @@ static void __init dcscb_usage_count_init(void)
 	dcscb_use_count[cpu][cluster] = 1;
 }
 
+extern void dcscb_power_up_setup(void);
+
 static int __init dcscb_init(void)
 {
 	unsigned int cfg;
@@ -193,6 +235,8 @@ static int __init dcscb_init(void)
 	dcscb_usage_count_init();
 
 	ret = bL_platform_power_register(&dcscb_power_ops);
+	if (!ret)
+		ret = bL_cluster_sync_init(dcscb_power_up_setup);
 	if (ret) {
 		iounmap(dcscb_base);
 		return ret;
