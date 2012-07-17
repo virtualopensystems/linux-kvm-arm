@@ -7,10 +7,18 @@
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
+ *
+ *
+ * Refer to Documentation/arm/big.LITTLE/cluster-pm-race-avoidance.txt
+ * for details of the synchronisation algorithms used here.
  */
 
 #include <linux/linkage.h>
 #include <asm/bL_entry.h>
+
+.if BL_SYNC_CLUSTER_CPUS
+.error "cpus must be the first member of struct bL_cluster_sync_struct"
+.endif
 
 	.macro	pr_dbg	cpu, string
 #if defined(CONFIG_DEBUG_LL) && defined(DEBUG)
@@ -52,12 +60,82 @@ ENTRY(bL_entry_point)
 2:	pr_dbg	r4, "kernel bL_entry_point\n"
 
 	/*
-	 * MMU is off so we need to get to bL_entry_vectors in a
+	 * MMU is off so we need to get to various variables in a
 	 * position independent way.
 	 */
 	adr	r5, 3f
-	ldr	r6, [r5]
+	ldmia	r5, {r6, r7, r8}
 	add	r6, r5, r6			@ r6 = bL_entry_vectors
+	ldr	r7, [r5, r7]			@ r7 = bL_power_up_setup_phys
+	ldr	r8, [r5, r8]			@ r8 = bL_sync_phys
+
+	mov	r0, #BL_SYNC_CLUSTER_SIZE
+	mla	r8, r0, r10, r8			@ r8 = bL_sync cluster base
+
+	@ Signal that this CPU is coming UP:
+	mov	r0, #CPU_COMING_UP
+	mov	r5, #BL_SYNC_CPU_SIZE
+	mla	r5, r9, r5, r8			@ r5 = bL_sync cpu address
+	strb	r0, [r5]
+
+	dsb
+
+	@ At this point, the cluster cannot unexpectedly enter the GOING_DOWN
+	@ state, because there is at least one active CPU (this CPU).
+
+	@ Check if the cluster has been set up yet:
+	ldrb	r0, [r8, #BL_SYNC_CLUSTER_CLUSTER]
+	cmp	r0, #CLUSTER_UP
+	beq	cluster_already_up
+
+	@ Signal that the cluster is being brought up:
+	mov	r0, #INBOUND_COMING_UP
+	strb	r0, [r8, #BL_SYNC_CLUSTER_INBOUND]
+
+	dsb
+
+	@ Any CPU trying to take the cluster into CLUSTER_GOING_DOWN from this
+	@ point onwards will observe INBOUND_COMING_UP and abort.
+
+	@ Wait for any previously-pending cluster teardown operations to abort
+	@ or complete:
+cluster_teardown_wait:
+	ldrb	r0, [r8, #BL_SYNC_CLUSTER_CLUSTER]
+	cmp	r0, #CLUSTER_GOING_DOWN
+	wfeeq
+	beq	cluster_teardown_wait
+
+	@ power_up_setup is responsible for setting up the cluster:
+
+	cmp	r7, #0
+	mov	r0, #1		@ second (cluster) affinity level
+	blxne	r7		@ Call power_up_setup if defined
+
+	@ Leave the cluster setup critical section:
+
+	dsb
+	mov	r0, #INBOUND_NOT_COMING_UP
+	strb	r0, [r8, #BL_SYNC_CLUSTER_INBOUND]
+	mov	r0, #CLUSTER_UP
+	strb	r0, [r8, #BL_SYNC_CLUSTER_CLUSTER]
+	dsb
+	sev
+
+cluster_already_up:
+	@ If a platform-specific CPU setup hook is needed, it is
+	@ called from here.
+
+	cmp	r7, #0
+	mov	r0, #0		@ first (CPU) affinity level
+	blxne	r7		@ Call power_up_setup if defined
+
+	@ Mark the CPU as up:
+
+	dsb
+	mov	r0, #CPU_UP
+	strb	r0, [r5]
+	dsb
+	sev
 
 bL_entry_gated:
 	ldr	r5, [r6, r4, lsl #2]		@ r5 = CPU entry vector
@@ -70,6 +148,8 @@ bL_entry_gated:
 	.align	2
 
 3:	.word	bL_entry_vectors - .
+	.word	bL_power_up_setup_phys - 3b
+	.word	bL_sync_phys - 3b
 
 ENDPROC(bL_entry_point)
 
@@ -79,3 +159,7 @@ ENDPROC(bL_entry_point)
 	.type	bL_entry_vectors, #object
 ENTRY(bL_entry_vectors)
 	.space	4 * BL_NR_CLUSTERS * BL_CPUS_PER_CLUSTER
+
+	.type	bL_power_up_setup_phys, #object
+ENTRY(bL_power_up_setup_phys)
+	.space  4		@ set by bL_cluster_sync_init()

@@ -15,7 +15,36 @@
 #define BL_CPUS_PER_CLUSTER	4
 #define BL_NR_CLUSTERS		2
 
+/* Definitions for bL_cluster_sync_struct */
+#define CPU_DOWN		0
+#define CPU_COMING_UP		1
+#define CPU_UP			2
+#define CPU_GOING_DOWN		3
+
+#define CLUSTER_DOWN		0
+#define CLUSTER_UP		1
+#define CLUSTER_GOING_DOWN	2
+
+#define INBOUND_NOT_COMING_UP	0
+#define INBOUND_COMING_UP	1
+
+/* This is a complete guess. */
+#define __CACHE_WRITEBACK_ORDER	6
+#define __CACHE_WRITEBACK_GRANULE (1 << __CACHE_WRITEBACK_ORDER)
+
+/* Offsets for the bL_cluster_sync_struct members, for use in asm: */
+#define BL_SYNC_CLUSTER_CPUS	0
+#define BL_SYNC_CPU_SIZE	__CACHE_WRITEBACK_GRANULE
+#define BL_SYNC_CLUSTER_CLUSTER \
+	(BL_SYNC_CLUSTER_CPUS + BL_SYNC_CPU_SIZE * BL_CPUS_PER_CLUSTER)
+#define BL_SYNC_CLUSTER_INBOUND \
+	(BL_SYNC_CLUSTER_CLUSTER + __CACHE_WRITEBACK_GRANULE)
+#define BL_SYNC_CLUSTER_SIZE \
+	(BL_SYNC_CLUSTER_INBOUND + __CACHE_WRITEBACK_GRANULE)
+
 #ifndef __ASSEMBLY__
+
+#include <linux/types.h>
 
 /*
  * Platform specific code should use this symbol to set up secondary
@@ -99,6 +128,39 @@ struct bL_platform_power_ops {
  * An error is returned if the registration has been done previously.
  */
 int __init bL_platform_power_register(const struct bL_platform_power_ops *ops);
+
+/* Synchronisation structures for coordinating safe cluster setup/teardown: */
+
+/*
+ * When modifying this structure, make sure you update the BL_SYNC_ defines
+ * to match.
+ */
+struct bL_cluster_sync_struct {
+	/* individual CPU states */
+	struct {
+		volatile s8 cpu __aligned(__CACHE_WRITEBACK_GRANULE);
+	} cpus[BL_CPUS_PER_CLUSTER];
+
+	/* cluster state */
+	volatile s8 cluster __aligned(__CACHE_WRITEBACK_GRANULE);
+
+	/* inbound-side state */
+	volatile s8 inbound __aligned(__CACHE_WRITEBACK_GRANULE);
+};
+
+struct bL_sync_struct {
+	struct bL_cluster_sync_struct clusters[BL_NR_CLUSTERS];
+};
+
+extern unsigned long bL_sync_phys;	/* physical address of *bL_sync */
+
+void __bL_cpu_going_down(unsigned int cpu, unsigned int cluster);
+void __bL_cpu_down(unsigned int cpu, unsigned int cluster);
+void __bL_outbound_leave_critical(unsigned int cluster, int state);
+bool __bL_outbound_enter_critical(unsigned int this_cpu, unsigned int cluster);
+int __bL_cluster_state(unsigned int cluster);
+
+int __init bL_cluster_sync_init(void (*power_up_setup)(void));
 
 #endif /* ! __ASSEMBLY__ */
 #endif
