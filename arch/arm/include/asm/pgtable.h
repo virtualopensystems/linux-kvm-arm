@@ -176,10 +176,13 @@ extern pgd_t swapper_pg_dir[PTRS_PER_PGD];
 
 static inline pte_t *pmd_page_vaddr(pmd_t pmd)
 {
+#ifdef SYS_SUPPORTS_HUGETLBFS
+	if ((pmd_val(pmd) & PMD_TYPE_MASK) == PMD_TYPE_SECT)
+		return __va(pmd_val(pmd) & HPAGE_MASK);
+#endif
+
 	return __va(pmd_val(pmd) & PHYS_MASK & (s32)PAGE_MASK);
 }
-
-#define pmd_page(pmd)		pfn_to_page(__phys_to_pfn(pmd_val(pmd) & PHYS_MASK))
 
 #ifndef CONFIG_HIGHPTE
 #define __pte_map(pmd)		pmd_page_vaddr(*(pmd))
