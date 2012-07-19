@@ -408,13 +408,21 @@ __enable_mmu:
 	bic	r0, r0, #CR_I
 #endif
 #ifndef CONFIG_ARM_LPAE
+#ifndef	CONFIG_SYS_SUPPORTS_HUGETLBFS
 	mov	r5, #(domain_val(DOMAIN_USER, DOMAIN_MANAGER) | \
 		      domain_val(DOMAIN_KERNEL, DOMAIN_MANAGER) | \
 		      domain_val(DOMAIN_TABLE, DOMAIN_MANAGER) | \
 		      domain_val(DOMAIN_IO, DOMAIN_CLIENT))
+#else
+	@ set ourselves as the client in all domains
+	@ this allows us to then use the 4 domain bits in the
+	@ section descriptors in our transparent huge pages
+	ldr	r5, =0x55555555
+#endif /* CONFIG_SYS_SUPPORTS_HUGETLBFS */
+
 	mcr	p15, 0, r5, c3, c0, 0		@ load domain access register
 	mcr	p15, 0, r4, c2, c0, 0		@ load page table pointer
-#endif
+#endif /* CONFIG_ARM_LPAE */
 	b	__turn_mmu_on
 ENDPROC(__enable_mmu)
 
