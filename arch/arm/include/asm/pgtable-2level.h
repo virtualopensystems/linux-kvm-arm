@@ -165,7 +165,7 @@ static inline pmd_t *pmd_offset(pud_t *pud, unsigned long addr)
 	return (pmd_t *)pud;
 }
 
-#define pmd_bad(pmd)		(pmd_val(pmd) & 2)
+#define pmd_bad(pmd)		((pmd_val(pmd) & PMD_TYPE_MASK) == PMD_TYPE_FAULT)
 
 #define copy_pmd(pmdpd,pmdps)		\
 	do {				\
@@ -185,6 +185,83 @@ static inline pmd_t *pmd_offset(pud_t *pud, unsigned long addr)
 #define pmd_addr_end(addr,end) (end)
 
 #define set_pte_ext(ptep,pte,ext) cpu_set_pte_ext(ptep,pte,ext)
+
+
+#ifdef CONFIG_SYS_SUPPORTS_HUGETLBFS
+
+/*
+ * now follows some of the definitions to allow huge page support, we can't put
+ * these in the hugetlb source files as they are also required for transparent
+ * hugepage support.
+ */
+
+#define HPAGE_SHIFT             PMD_SHIFT
+#define HPAGE_SIZE              (_AC(1, UL) << HPAGE_SHIFT)
+#define HPAGE_MASK              (~(HPAGE_SIZE - 1))
+#define HUGETLB_PAGE_ORDER      (HPAGE_SHIFT - PAGE_SHIFT)
+
+#define HUGE_LINUX_PTE_COUNT       (PAGE_OFFSET >> HPAGE_SHIFT)
+#define HUGE_LINUX_PTE_SIZE        (HUGE_LINUX_PTE_COUNT * sizeof(pte_t *))
+#define HUGE_LINUX_PTE_INDEX(addr) (addr >> HPAGE_SHIFT)
+
+/*
+ *  We re-purpose the following domain bits in the section descriptor
+ */
+#define PMD_DSECT_DIRTY		(_AT(pmdval_t, 1) << 5)
+#define PMD_DSECT_AF		(_AT(pmdval_t, 1) << 6)
+
+#define PMD_BIT_FUNC(fn,op) \
+static inline pmd_t pmd_##fn(pmd_t pmd) { pmd_val(pmd) op; return pmd; }
+
+PMD_BIT_FUNC(wrprotect,	&= ~PMD_SECT_AP_WRITE);
+
+static inline void set_pmd_at(struct mm_struct *mm, unsigned long addr,
+				pmd_t *pmdp, pmd_t pmd)
+{
+	/*
+	 * we can sometimes be passed a pmd pointing to a level 2 descriptor
+	 * from collapse_huge_page.
+	 */
+	if ((pmd_val(pmd) & PMD_TYPE_MASK) == PMD_TYPE_TABLE) {
+		pmdp[0] = __pmd(pmd_val(pmd));
+		pmdp[1] = __pmd(pmd_val(pmd) + 256 * sizeof(pte_t));
+	} else {
+		pmdp[0] = __pmd(pmd_val(pmd));			/* first 1M section  */
+		pmdp[1] = __pmd(pmd_val(pmd) + SECTION_SIZE);	/* second 1M section */
+	}
+
+	flush_pmd_entry(pmdp);
+}
+
+#define HPMD_XLATE(res, cmp, from, to) do { if (cmp & from) res |= to;	\
+					    else res &= ~to;		\
+					  } while (0)
+
+static inline pmd_t pmd_modify(pmd_t pmd, pgprot_t newprot)
+{
+	pmdval_t pmdval = pmd_val(pmd);
+	pteval_t newprotval = pgprot_val(newprot);
+
+	HPMD_XLATE(pmdval, newprotval, L_PTE_XN, PMD_SECT_XN);
+	HPMD_XLATE(pmdval, newprotval, L_PTE_SHARED, PMD_SECT_S);
+	HPMD_XLATE(pmdval, newprotval, L_PTE_YOUNG, PMD_DSECT_AF);
+	HPMD_XLATE(pmdval, newprotval, L_PTE_DIRTY, PMD_DSECT_DIRTY);
+
+	/* preserve bits C & B */
+	pmdval |= (newprotval & (3 << 2));
+
+	/* Linux PTE bit 4 corresponds to PMD TEX bit 0 */
+	HPMD_XLATE(pmdval, newprotval, 1 << 4, PMD_SECT_TEX(1));
+
+	if (newprotval & L_PTE_RDONLY)
+		pmdval &= ~PMD_SECT_AP_WRITE;
+	else
+		pmdval |= PMD_SECT_AP_WRITE;
+
+	return __pmd(pmdval);
+}
+
+#endif /* CONFIG_SYS_SUPPORTS_HUGETLBFS */
 
 #endif /* __ASSEMBLY__ */
 
