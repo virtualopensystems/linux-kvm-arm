@@ -17,6 +17,7 @@
 #include <asm/highmem.h>
 #include <asm/smp_plat.h>
 #include <asm/tlbflush.h>
+#include <linux/hugetlb.h>
 
 #include "mm.h"
 
@@ -168,17 +169,21 @@ void __flush_dcache_page(struct address_space *mapping, struct page *page)
 	 * coherent with the kernels mapping.
 	 */
 	if (!PageHighMem(page)) {
-		__cpuc_flush_dcache_area(page_address(page), PAGE_SIZE);
+		__cpuc_flush_dcache_area(page_address(page), (PAGE_SIZE << compound_order(page)));
 	} else {
-		void *addr = kmap_high_get(page);
-		if (addr) {
-			__cpuc_flush_dcache_area(addr, PAGE_SIZE);
-			kunmap_high(page);
-		} else if (cache_is_vipt()) {
-			/* unmapped pages might still be cached */
-			addr = kmap_atomic(page);
-			__cpuc_flush_dcache_area(addr, PAGE_SIZE);
-			kunmap_atomic(addr);
+		unsigned long i;
+		for(i = 0; i < (1 << compound_order(page)); i++) {
+			struct page *cpage = page + i;
+			void *addr = kmap_high_get(cpage);
+			if (addr) {
+				__cpuc_flush_dcache_area(addr, PAGE_SIZE);
+				kunmap_high(cpage);
+			} else if (cache_is_vipt()) {
+				/* unmapped pages might still be cached */
+				addr = kmap_atomic(cpage);
+				__cpuc_flush_dcache_area(addr, PAGE_SIZE);
+				kunmap_atomic(addr);
+			}
 		}
 	}
 
