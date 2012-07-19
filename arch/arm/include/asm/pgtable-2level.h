@@ -180,6 +180,13 @@ static inline pmd_t *pmd_offset(pud_t *pud, unsigned long addr)
 		clean_pmd_entry(pmdp);	\
 	} while (0)
 
+
+#ifdef CONFIG_TRANSPARENT_HUGEPAGE
+#define _PMD_HUGE(pmd) ((pmd_val(pmd) & PMD_TYPE_MASK) == PMD_TYPE_SECT)
+#else
+#define _PMD_HUGE(pmd) (0)
+#endif /* CONFIG_TRANSPARENT_HUGEPAGE */
+
 /* we don't need complex calculations here as the pmd is folded into the pgd */
 #define pmd_addr_end(addr,end) (end)
 
@@ -198,7 +205,6 @@ static inline pmd_t *pmd_offset(pud_t *pud, unsigned long addr)
 
 #define HPAGE_SHIFT             PMD_SHIFT
 #define HPAGE_SIZE              (_AC(1, UL) << HPAGE_SHIFT)
-#define HPAGE_MASK              (~(HPAGE_SIZE - 1))
 #define HUGETLB_PAGE_ORDER      (HPAGE_SHIFT - PAGE_SHIFT)
 
 #define HUGE_LINUX_PTE_COUNT       (PAGE_OFFSET >> HPAGE_SHIFT)
@@ -210,6 +216,7 @@ static inline pmd_t *pmd_offset(pud_t *pud, unsigned long addr)
  */
 #define PMD_DSECT_DIRTY		(_AT(pmdval_t, 1) << 5)
 #define PMD_DSECT_AF		(_AT(pmdval_t, 1) << 6)
+#define PMD_DSECT_SPLITTING	(_AT(pmdval_t, 1) << 7)
 
 #define PMD_BIT_FUNC(fn,op) \
 static inline pmd_t pmd_##fn(pmd_t pmd) { pmd_val(pmd) op; return pmd; }
@@ -262,7 +269,66 @@ static inline pmd_t pmd_modify(pmd_t pmd, pgprot_t newprot)
 	return __pmd(pmdval);
 }
 
+#else
+#define	HPAGE_SIZE	0
 #endif /* CONFIG_SYS_SUPPORTS_HUGETLBFS */
+
+#define HPAGE_MASK              (~(HPAGE_SIZE - 1))
+
+#ifdef CONFIG_TRANSPARENT_HUGEPAGE
+#define pmd_mkhuge(pmd)		(__pmd((pmd_val(pmd) & ~PMD_TYPE_MASK) | PMD_TYPE_SECT))
+
+PMD_BIT_FUNC(mkold, &= ~PMD_DSECT_AF);
+PMD_BIT_FUNC(mksplitting, |= PMD_DSECT_SPLITTING);
+PMD_BIT_FUNC(mkdirty, |= PMD_DSECT_DIRTY);
+PMD_BIT_FUNC(mkyoung, |= PMD_DSECT_AF);
+PMD_BIT_FUNC(mkwrite, |= PMD_SECT_AP_WRITE);
+PMD_BIT_FUNC(mknotpresent, &= ~PMD_TYPE_MASK);
+
+#define pmd_trans_splitting(pmd)	(pmd_val(pmd) & PMD_DSECT_SPLITTING)
+#define pmd_young(pmd)			(pmd_val(pmd) & PMD_DSECT_AF)
+#define pmd_write(pmd)			(pmd_val(pmd) & PMD_SECT_AP_WRITE)
+#define pmd_trans_huge(pmd)		((pmd_val(pmd) & PMD_TYPE_MASK) == PMD_TYPE_SECT)
+
+static inline unsigned long pmd_pfn(pmd_t pmd)
+{
+	/*
+	 * for a section, we need to mask off more of the pmd
+	 * before looking up the pfn
+	 */
+	if ((pmd_val(pmd) & PMD_TYPE_MASK) == PMD_TYPE_SECT)
+		return __phys_to_pfn(pmd_val(pmd) & HPAGE_MASK);
+	else
+		return __phys_to_pfn(pmd_val(pmd) & PHYS_MASK);
+}
+
+static inline pmd_t pfn_pmd(unsigned long pfn, pgprot_t prot)
+{
+	pmd_t pmd = __pmd(__pfn_to_phys(pfn) | PMD_SECT_AP_READ | PMD_SECT_nG);
+
+	return pmd_modify(pmd, prot);
+}
+
+#define mk_pmd(page,prot) pfn_pmd(page_to_pfn(page),prot);
+
+static inline int has_transparent_hugepage(void)
+{
+	return 1;
+}
+
+#endif /* CONFIG_TRANSPARENT_HUGEPAGE */
+
+static inline struct page *pmd_page(pmd_t pmd)
+{
+	/*
+	 * for a section, we need to mask off more of the pmd
+	 * before looking up the page as it is a section descriptor.
+	 */
+	if (_PMD_HUGE(pmd))
+		return phys_to_page(pmd_val(pmd) & HPAGE_MASK);
+
+	return phys_to_page(pmd_val(pmd) & PHYS_MASK);
+}
 
 #endif /* __ASSEMBLY__ */
 
