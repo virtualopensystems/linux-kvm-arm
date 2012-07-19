@@ -179,7 +179,6 @@ static unsigned long __init xen_populate_chunk(
 		 * at the nr_pages PFN.
 		 * If that would mean going past the E820 entry, skip it
 		 */
-again:
 		if (s_pfn <= max_pfn) {
 			capacity = e_pfn - max_pfn;
 			dest_pfn = max_pfn;
@@ -193,12 +192,10 @@ again:
 
 		pfns = xen_do_chunk(dest_pfn, dest_pfn + capacity, false);
 		done += pfns;
-		credits_left -= pfns;
 		*last_pfn = (dest_pfn + pfns);
-		if (credits_left > 0 && *last_pfn < e_pfn) {
-			s_pfn = *last_pfn;
-			goto again;
-		}
+		if (pfns < capacity)
+			break;
+		credits_left -= pfns;
 	}
 	return done;
 }
