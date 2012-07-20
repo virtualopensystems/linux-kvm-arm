@@ -214,6 +214,9 @@ static int vexpress_cpufreq_init(struct cpufreq_policy *policy)
 	if (atomic_inc_return(&freq_table_users) == 1)
 		result = vexpress_cpufreq_of_init();
 
+	if (freq_table[cur_cluster] == NULL)
+		result = -ENODATA;
+
 	if (result) {
 		atomic_dec_return(&freq_table_users);
 		pr_err("CPUFreq - CPU %d failed to initialize\n", policy->cpu);
