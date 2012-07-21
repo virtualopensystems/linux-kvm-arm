@@ -15,11 +15,43 @@
 #include <asm/mach/arch.h>
 #include <asm/hardware/gic.h>
 #include <mach/map.h>
+#include <linux/platform_data/usb-exynos.h>
 
 #include <plat/cpu.h>
 #include <plat/regs-serial.h>
+#include <plat/regs-srom.h>
+#include <plat/devs.h>
+#include <plat/usb-phy.h>
 
 #include "common.h"
+
+static struct exynos4_ohci_platdata smdk5250_ohci_pdata = {
+	.phy_init = s5p_usb_phy_init,
+	.phy_exit = s5p_usb_phy_exit,
+};
+
+static void __init smsc911x_init(int ncs)
+{
+	u32 data;
+
+	/* configure nCS1 width to 16 bits */
+	data = __raw_readl(S5P_SROM_BW) &
+		~(S5P_SROM_BW__CS_MASK << (ncs * 4));
+	data |= ((1 << S5P_SROM_BW__DATAWIDTH__SHIFT) |
+		(1 << S5P_SROM_BW__WAITENABLE__SHIFT) |
+		(1 << S5P_SROM_BW__BYTEENABLE__SHIFT)) << (ncs * 4);
+	__raw_writel(data, S5P_SROM_BW);
+
+	/* set timing for nCS1 suitable for ethernet chip */
+	__raw_writel((0x1 << S5P_SROM_BCX__PMC__SHIFT) |
+		(0x9 << S5P_SROM_BCX__TACP__SHIFT) |
+		(0xc << S5P_SROM_BCX__TCAH__SHIFT) |
+		(0x1 << S5P_SROM_BCX__TCOH__SHIFT) |
+		(0x6 << S5P_SROM_BCX__TACC__SHIFT) |
+		(0x1 << S5P_SROM_BCX__TCOS__SHIFT) |
+		(0x1 << S5P_SROM_BCX__TACS__SHIFT),
+		S5P_SROM_BC0 + (ncs * 4));
+}
 
 /*
  * The following lookup table is used to override device names when devices
@@ -72,6 +104,8 @@ static const struct of_dev_auxdata exynos5250_auxdata_lookup[] __initconst = {
 				"exynos-gsc.2", NULL),
 	OF_DEV_AUXDATA("samsung,exynos5-gsc", EXYNOS5_PA_GSC3,
 				"exynos-gsc.3", NULL),
+	OF_DEV_AUXDATA("samsung,exynos-ohci", 0x12120000,
+				"exynos-ohci", &smdk5250_ohci_pdata),
 	{},
 };
 
