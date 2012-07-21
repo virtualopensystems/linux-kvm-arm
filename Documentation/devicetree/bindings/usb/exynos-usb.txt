@@ -17,3 +17,25 @@ ohci {
 	interrupts = <0 71 0>;
 };
 
+EHCI
+Required properties:
+ - compatible:	should be "samsung,exynos-ehci" for USB 2.0
+   EHCI controller in host mode.
+ - reg: physical base address of the controller and length
+   of memory mapped.
+ - interrupts: interrupt number to the cpu.
+
+Optional properties:
+ - samsung,vbus-gpio:  if present, specifies the GPIO
+   that needs to be pulled up for the bus to be powered.
+
+ehci {
+	compatible = "samsung,exynos-ehci";
+	reg = <0x12110000 0x100>;
+	interrupts = <0 71 0>;
+};
+
+ehci {
+	samsung,vbus-gpio = <&gpx2 6 1 3 3>;
+};
+

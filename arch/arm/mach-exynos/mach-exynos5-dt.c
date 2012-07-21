@@ -30,6 +30,7 @@
 #include <plat/regs-srom.h>
 #include <plat/devs.h>
 #include <plat/usb-phy.h>
+#include <linux/platform_data/usb-ehci-s5p.h>
 
 #include "common.h"
 
@@ -41,6 +42,11 @@ static struct samsung_usbphy_data exynos5_usbphy_pdata = {
 };
 
 static struct exynos4_ohci_platdata smdk5250_ohci_pdata = {
+	.phy_init = s5p_usb_phy_init,
+	.phy_exit = s5p_usb_phy_exit,
+};
+
+static struct s5p_ehci_platdata smdk5250_ehci_pdata = {
 	.phy_init = s5p_usb_phy_init,
 	.phy_exit = s5p_usb_phy_exit,
 };
@@ -129,6 +135,8 @@ static const struct of_dev_auxdata exynos5250_auxdata_lookup[] __initconst = {
 				"exynos-dwc3", NULL),
 	OF_DEV_AUXDATA("samsung,exynos-ohci", 0x12120000,
 				"exynos-ohci", &smdk5250_ohci_pdata),
+	OF_DEV_AUXDATA("samsung,exynos-ehci", 0x12110000,
+				"s5p-ehci", &smdk5250_ehci_pdata),
 	{},
 };
 
