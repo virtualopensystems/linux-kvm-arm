@@ -166,4 +166,8 @@
 	spi_2: spi@12d40000 {
 		status = "disabled";
 	};
+	
+	ehci {
+		samsung,vbus-gpio = <&gpx2 6 1 3 3>;
+	};
 };
