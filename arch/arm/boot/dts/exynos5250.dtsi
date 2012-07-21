@@ -97,7 +97,13 @@
 		reg = <0x12000000 0x10000>;
 		interrupts = <0 72 0>;
 	};
-	
+
+	ohci {
+		compatible = "samsung,exynos-ohci";
+		reg = <0x12120000 0x100>;
+		interrupts = <0 71 0>;
+	};
+
 	rtc {
 		compatible = "samsung,s3c6410-rtc";
 		reg = <0x101E0000 0x100>;

@@ -24,18 +24,25 @@
 #include <plat/cpu.h>
 #include <plat/regs-serial.h>
 #include <plat/mfc.h>
-
-#include "common.h"
+#include <linux/platform_data/samsung-usbphy.h>
+#include <linux/platform_data/usb-exynos.h>
 
 #include <plat/regs-srom.h>
 #include <plat/devs.h>
 #include <plat/usb-phy.h>
 
-#include <linux/platform_data/samsung-usbphy.h>
+#include "common.h"
+
+
 
 static struct samsung_usbphy_data exynos5_usbphy_pdata = {
 	.pmu_isolation = s5p_usb_phy_pmu_isolation,
 	.phy_cfg_sel = s5p_usb_phy_cfg_sel,
+};
+
+static struct exynos4_ohci_platdata smdk5250_ohci_pdata = {
+	.phy_init = s5p_usb_phy_init,
+	.phy_exit = s5p_usb_phy_exit,
 };
 
 /*
@@ -120,6 +127,8 @@ static const struct of_dev_auxdata exynos5250_auxdata_lookup[] __initconst = {
 				"s3c-usbphy", &exynos5_usbphy_pdata),
 	OF_DEV_AUXDATA("samsung,exynos-dwc3", EXYNOS5_PA_DRD,
 				"exynos-dwc3", NULL),
+	OF_DEV_AUXDATA("samsung,exynos-ohci", 0x12120000,
+				"exynos-ohci", &smdk5250_ohci_pdata),
 	{},
 };
 

@@ -1,0 +1,19 @@
+Samsung Exynos SoC USB controller
+
+The device node for USB controller for Samsung SOC have
+following properties
+
+OHCI
+Required properties:
+ - compatible: should be "samsung,exynos-ohci" for USB 2.0
+   OHCI companion controller in host mode.
+ - reg: physical base address of the controller and length
+   of memory mapped.
+ - interrupts: interrupt number to the cpu.
+
+ohci {
+	compatible = "samsung,exynos-ohci";
+	reg = <0x12120000 0x100>;
+	interrupts = <0 71 0>;
+};
+
