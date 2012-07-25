@@ -281,6 +281,13 @@ int vexpress_spc_wfi_cpustat(int cluster)
 }
 EXPORT_SYMBOL_GPL(vexpress_spc_wfi_cpustat);
 
+static bool vexpress_spc_loaded;
+
+bool vexpress_spc_check_loaded(void)
+{
+	return vexpress_spc_loaded;
+}
+EXPORT_SYMBOL_GPL(vexpress_spc_check_loaded);
 
 static int __devinit vexpress_spc_driver_probe(struct platform_device *pdev)
 {
@@ -317,6 +324,7 @@ static int __devinit vexpress_spc_driver_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, info);
 
 	pr_info("vexpress_spc loaded at %p\n", info->baseaddr);
+	vexpress_spc_loaded = true;
 	return ret;
 
 ioremap_err:

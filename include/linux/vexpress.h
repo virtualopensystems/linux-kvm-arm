@@ -138,6 +138,7 @@ extern void vexpress_spc_adb400_pd_enable(int cluster, int enable);
 extern void vexpress_spc_wfi_cpureset(int cluster, int cpu, int enable);
 extern int vexpress_spc_wfi_cpustat(int cluster);
 extern void vexpress_spc_wfi_cluster_reset(int cluster, int enable);
+extern bool vexpress_spc_check_loaded(void);
 extern void vexpress_scc_ctl_snoops(int cluster, int enable);
 #else
 static inline int vexpress_spc_get_performance(int cluster, int *perf)
@@ -156,6 +157,10 @@ static inline void vexpress_spc_wfi_cpureset(int cluster, int cpu, int enable)
 { }
 static inline int vexpress_spc_wfi_cpustat(int cluster) { return 0; }
 static inline void vexpress_spc_wfi_cluster_reset(int cluster, int enable) { }
+static inline bool vexpress_spc_check_loaded(void)
+{
+	return false;
+}
 static inline void vexpress_scc_ctl_snoops(int cluster, int enable) { }
 #endif
 
