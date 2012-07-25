@@ -264,6 +264,11 @@ static struct cpufreq_driver vexpress_cpufreq_driver = {
 
 static int __init vexpress_cpufreq_modinit(void)
 {
+	if (!vexpress_spc_check_loaded()) {
+		pr_info("vexpress cpufreq not initialised because no SPC found\n");
+		return -ENODEV;
+	}
+
 	return cpufreq_register_driver(&vexpress_cpufreq_driver);
 }
 
