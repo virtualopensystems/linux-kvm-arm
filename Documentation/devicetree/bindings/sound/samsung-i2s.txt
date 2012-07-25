@@ -1,0 +1,62 @@
+* Samsung I2S controller
+
+Required SoC Specific properties:
+
+- compatible : "samsung,samsung-i2s"
+- reg: physical base address of the controller and length of memory mapped
+  region.
+- tx-dma-channel-secondary: The dma channel specifier for secondary tx
+  operations. The format of the dma specifier depends on the dma
+  controller.
+- tx-dma-channel: The dma channel specifier for tx operations. The format of
+  the dma specifier depends on the dma controller.
+- rx-dma-channel: The dma channel specifier for rx operations. The format of
+  the dma specifier depends on the dma controller.
+- supports-6ch: If the Primary DAI has 5.1 Channel support, this flag is
+  enabled.
+- supports-rstclr: This flag should be set if I2S software reset bit control is
+  required. When this flag is set I2S software reset bit will be enabled or
+  disabled based on need.
+- supports-secdai: If the I2S block has a secondary sound source support, then
+  this flag is enabled.
+
+Required Board Specific Properties:
+
+- gpios: The gpio specifier for data out,data in, LRCLK, CDCLK and SCLK
+  interface lines. The format of the gpio specifier depends on the gpio
+  controller.
+- idma-addr: Internal DMA register base address of the audio sub system(used in
+  secondary sound source).
+
+Aliases:
+
+- All the I2S controller nodes should be represented in the aliases node using
+  the following format 'i2s{n}' where n is a unique number for the alias.
+
+Example:
+
+- SoC Specific Portion:
+
+i2s@03830000 {
+	compatible = "samsung,samsung-i2s";
+	reg = <0x03830000 0x100>;
+	tx-dma-channel-secondary = <&pdma0 8>;
+	tx-dma-channel = <&pdma0 10>;
+	rx-dma-channel = <&pdma0 9>;
+	supports-6ch;
+	supports-rstclr;
+	supports-secdai;
+};
+
+- Board Specific Portion:
+
+i2s_0: i2s@03830000 {
+	gpios = <&gpz 0 2 0 0>,
+		<&gpz 1 2 0 0>,
+		<&gpz 2 2 0 0>,
+		<&gpz 3 2 0 0>,
+		<&gpz 4 2 0 0>,
+		<&gpz 5 2 0 0>,
+		<&gpz 6 2 0 0>;
+	idma-addr = <0x03000000>;
+};
