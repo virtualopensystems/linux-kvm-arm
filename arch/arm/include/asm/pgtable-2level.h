@@ -184,6 +184,8 @@ static inline pmd_t *pmd_offset(pud_t *pud, unsigned long addr)
 /* we don't need complex calculations here as the pmd is folded into the pgd */
 #define pmd_addr_end(addr,end) (end)
 
+#define pmd_present(pmd)        ((pmd_val(pmd) & PMD_TYPE_MASK) != PMD_TYPE_FAULT)
+
 #define set_pte_ext(ptep,pte,ext) cpu_set_pte_ext(ptep,pte,ext)
 
 
