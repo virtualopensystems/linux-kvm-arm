@@ -28,11 +28,6 @@
 #define ARM_EXCEPTION_FIQ	  6
 #define ARM_EXCEPTION_HVC	  7
 
-/*
- * SMC Hypervisor API call number
- */
-#define SMCHYP_HVBAR_W 0xfffffff0
-
 #ifndef __ASSEMBLY__
 struct kvm;
 struct kvm_vcpu;

@@ -27,6 +27,7 @@
 @    - should be called with:
 @        r0 = Hypervisor pgd pointer
 @        r1 = top of Hyp stack (kernel VA)
+@        r2 = pointer to hyp vectors 
 @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 	.text
 	.arm
@@ -106,8 +107,12 @@ __do_hyp_init:
 	isb
 
 	@ Set stack pointer and return to the kernel
-	pop	{r0, r1, r2, r12}
+	pop	{r0, r1, r2}
 	mov	sp, r1
+
+	@ Set HVBAR to point to the HYP vectors
+	mcr	p15, 4, r2, c12, c0, 0	@ HVBAR
+
 	eret
 
 	.ltorg
@@ -123,22 +128,25 @@ __kvm_hyp_exit:
 	.globl __kvm_hyp_exit
 
 	@ Hyp-mode exception vector
-	nop
-	nop
-	nop
-	nop
-	nop
-	b	__do_hyp_exit
-	nop
-	nop
+	W(b)	.
+	W(b)	.
+	W(b)	.
+	W(b)	.
+	W(b)	.
+	W(b)	__do_hyp_exit
+	W(b)	.
+	W(b)	.
 
 __do_hyp_exit:
-	@ Clear the MMU and TE bits in the HSCR
-	mrc	p15, 4, sp, c1, c0, 0	@ HSCR
-	bic	sp, sp, #((1 << 30) | (1 << 0))
+	@ Set the next HVBAR (normally the default vectors)
+	mcr	p15, 4, r0, c12, c0, 0	@ HVBAR
+
+	@ Clear the MMU bit in the HSCR
+	mrc	p15, 4, r0, c1, c0, 0	@ HSCR
+	bic	r0, r0, #HSCTLR_M
 
 	isb
-	mcr	p15, 4, sp, c1, c0, 0	@ HSCR
+	mcr	p15, 4, r0, c1, c0, 0	@ HSCR
 	mcr	p15, 4, r0, c8, c7, 0   @ Flush Hyp TLB, r0 ignored
 	isb
 	eret

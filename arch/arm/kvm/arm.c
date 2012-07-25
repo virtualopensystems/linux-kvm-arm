@@ -38,6 +38,7 @@
 #include <asm/idmap.h>
 #include <asm/tlbflush.h>
 #include <asm/cacheflush.h>
+#include <asm/virt.h>
 #include <asm/kvm_arm.h>
 #include <asm/kvm_asm.h>
 #include <asm/kvm_mmu.h>
@@ -45,9 +46,6 @@
 #include <asm/kvm_coproc.h>
 #include <asm/opcodes.h>
 
-#ifdef REQUIRES_SEC
-__asm__(".arch_extension	sec");
-#endif
 #ifdef REQUIRES_VIRT
 __asm__(".arch_extension	virt");
 #endif
@@ -753,21 +751,17 @@ long kvm_arch_vm_ioctl(struct file *filp,
 static void cpu_set_vector(void *vector)
 {
 	unsigned long vector_ptr;
-	unsigned long smc_hyp_nr;
 
 	vector_ptr = (unsigned long)vector;
-	smc_hyp_nr = SMCHYP_HVBAR_W;
 
 	/*
 	 * Set the HVBAR
 	 */
 	asm volatile (
 		"mov	r0, %[vector_ptr]\n\t"
-		"mov	r7, %[smc_hyp_nr]\n\t"
-		"smc	#0\n\t" : :
-		[vector_ptr] "r" (vector_ptr),
-		[smc_hyp_nr] "r" (smc_hyp_nr) :
-		"r0", "r7");
+		"hvc	#0xff\n\t" : :
+		[vector_ptr] "r" (vector_ptr) :
+		"r0");
 }
 
 static void cpu_init_hyp_mode(void *vector)
@@ -775,24 +769,33 @@ static void cpu_init_hyp_mode(void *vector)
 	unsigned long pgd_ptr;
 	unsigned long hyp_stack_ptr;
 	unsigned long stack_page;
+	unsigned long vector_ptr;
 
-	cpu_set_vector(vector);
+	/* Switch from the HYP stub to our own HYP init vector */
+	__hyp_set_vectors((unsigned long)vector);
 
 	pgd_ptr = virt_to_phys(hyp_pgd);
 	stack_page = __get_cpu_var(kvm_arm_hyp_stack_page);
 	hyp_stack_ptr = stack_page + PAGE_SIZE;
+	vector_ptr = (unsigned long)__kvm_hyp_vector;
 
 	/*
-	 * Call initialization code
+	 * Call initialization code, and switch to the full blown
+	 * HYP code. The init code corrupts r12, so set the clobber
+	 * list accordingly.
 	 */
 	asm volatile (
 		"mov	r0, %[pgd_ptr]\n\t"
 		"mov	r1, %[hyp_stack_ptr]\n\t"
+		"mov	r2, %[vector_ptr]\n\t"
 		"hvc	#0\n\t" : :
 		[pgd_ptr] "r" (pgd_ptr),
-		[hyp_stack_ptr] "r" (hyp_stack_ptr) :
-		"r0", "r1");
+		[hyp_stack_ptr] "r" (hyp_stack_ptr),
+		[vector_ptr] "r" (vector_ptr) :
+		"r0", "r1", "r2", "r12");
 }
+
+static unsigned long hyp_default_vectors;
 
 /**
  * Inits Hyp-mode on all online CPUs
@@ -802,6 +805,12 @@ static int init_hyp_mode(void)
 	phys_addr_t init_phys_addr;
 	int cpu;
 	int err = 0;
+
+	/*
+	 * It is probably enough to obtain the default on one
+	 * CPU. It's unlikely to be different on the others.
+	 */
+	hyp_default_vectors = __hyp_get_vectors();
 
 	/*
 	 * Allocate stack pages for Hypervisor-mode
@@ -859,13 +868,6 @@ static int init_hyp_mode(void)
 	}
 
 	/*
-	 * Set the HVBAR to the virtual kernel address
-	 */
-	for_each_online_cpu(cpu)
-		smp_call_function_single(cpu, cpu_set_vector,
-					 __kvm_hyp_vector, 1);
-
-	/*
 	 * Map the host VFP structures
 	 */
 	for_each_possible_cpu(cpu) {
@@ -906,6 +908,11 @@ int kvm_arch_init(void *opaque)
 {
 	int err;
 
+	if (!is_hyp_mode_available()) {
+		kvm_err("HYP mode not available\n");
+		return -ENODEV;
+	}
+
 	if (kvm_target_cpu() < 0) {
 		kvm_err("Target CPU not supported!\n");
 		return -ENODEV;
@@ -926,9 +933,13 @@ static void cpu_exit_hyp_mode(void *vector)
 	cpu_set_vector(vector);
 
 	/*
-	 * Disable Hyp-MMU for each cpu
+	 * Disable Hyp-MMU for each cpu, and switch back to the
+	 * default vectors.
 	 */
-	asm volatile ("hvc	#0");
+	asm volatile ("mov	r0, %[vector_ptr]\n\t"
+		      "hvc	#0\n\t" : :
+		      [vector_ptr] "r" (hyp_default_vectors) :
+		      "r0");
 }
 
 static int exit_hyp_mode(void)
