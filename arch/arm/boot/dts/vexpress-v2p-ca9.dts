@@ -9,6 +9,10 @@
 
 /dts-v1/;
 
+/memreserve/ 0x9f000000 0x01000000;
+
+/include/ "clcd-panels.dtsi"
+
 / {
 	model = "V2P-CA9";
 	arm,hbi = <0x191>;
@@ -73,6 +77,9 @@
 		interrupts = <0 44 4>;
 		clocks = <&oscclk1>, <&oscclk2>;
 		clock-names = "clcdclk", "apb_pclk";
+		mode = "XVGA";
+		use_dma = <1>;
+		framebuffer = <0x9f000000 0x01000000>;
 	};
 
 	memory-controller@100e0000 {
