@@ -72,6 +72,7 @@ static struct cpuidle_state tc2_cpuidle_set[] __initdata = {
 							CPUIDLE_FLAG_COUPLED,
 		.name			= "C1",
 		.desc			= "ARM power down",
+		.disabled		= 1,
 	},
 };
 
@@ -138,8 +139,11 @@ static int tc2_enter_coupled(struct cpuidle_device *dev,
 	/* Used to keep track of the total time in idle */
 	getnstimeofday(&ts_preidle);
 
-	if (!cpu_isset(cluster, cluster_mask))
+	if (!cpu_isset(cluster, cluster_mask)) {
+			cpuidle_coupled_parallel_barrier(dev,
+					&abort_barrier[cluster]);
 			goto shallow_out;
+	}
 
 	BUG_ON(!irqs_disabled());
 
