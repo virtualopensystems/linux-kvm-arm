@@ -76,4 +76,16 @@
 		reg = <0x100C0000 0x100>;
 		interrupts = <2 4>;
 	};
+
+	usb@12580000 {
+		compatible = "samsung,exynos-ehci", "usb-ehci";
+		reg = <0x12580000 0x100>;
+		interrupts = <0 70 0>;
+	};
+
+	usb@12590000 {
+		compatible = "samsung,exynos-ohci", "usb-ohci";
+		reg = <0x12590000 0x100>;
+		interrupts = <0 70 0>;
+	};
 };
