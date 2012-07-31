@@ -26,6 +26,7 @@
 #include <linux/dma-mapping.h>
 #include <linux/spinlock.h>
 #include <linux/gpio.h>
+#include <plat/cpu.h>
 #include <plat/usb.h>
 #include <linux/pm_runtime.h>
 
@@ -500,7 +501,6 @@ static void omap_usbhs_init(struct device *dev)
 	dev_dbg(dev, "starting TI HSUSB Controller\n");
 
 	pm_runtime_get_sync(dev);
-	spin_lock_irqsave(&omap->lock, flags);
 
 	if (pdata->ehci_data->phy_reset) {
 		if (gpio_is_valid(pdata->ehci_data->reset_gpio_port[0]))
@@ -515,6 +515,7 @@ static void omap_usbhs_init(struct device *dev)
 		udelay(10);
 	}
 
+	spin_lock_irqsave(&omap->lock, flags);
 	omap->usbhs_rev = usbhs_read(omap->uhh_base, OMAP_UHH_REVISION);
 	dev_dbg(dev, "OMAP UHH_REVISION 0x%x\n", omap->usbhs_rev);
 
@@ -593,6 +594,8 @@ static void omap_usbhs_init(struct device *dev)
 			usbhs_omap_tll_init(dev, OMAP_TLL_CHANNEL_COUNT);
 	}
 
+	spin_unlock_irqrestore(&omap->lock, flags);
+
 	if (pdata->ehci_data->phy_reset) {
 		/* Hold the PHY in RESET for enough time till
 		 * PHY is settled and ready
@@ -600,15 +603,14 @@ static void omap_usbhs_init(struct device *dev)
 		udelay(10);
 
 		if (gpio_is_valid(pdata->ehci_data->reset_gpio_port[0]))
-			gpio_set_value
+			gpio_set_value_cansleep
 				(pdata->ehci_data->reset_gpio_port[0], 1);
 
 		if (gpio_is_valid(pdata->ehci_data->reset_gpio_port[1]))
-			gpio_set_value
+			gpio_set_value_cansleep
 				(pdata->ehci_data->reset_gpio_port[1], 1);
 	}
 
-	spin_unlock_irqrestore(&omap->lock, flags);
 	pm_runtime_put_sync(dev);
 }
 
@@ -809,6 +811,7 @@ static int __devinit usbhs_omap_probe(struct platform_device *pdev)
 	goto end_probe;
 
 err_alloc:
+	omap_usbhs_deinit(&pdev->dev);
 	iounmap(omap->tll_base);
 
 err_tll:
