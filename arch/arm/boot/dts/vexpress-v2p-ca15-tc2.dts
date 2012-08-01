@@ -200,7 +200,7 @@
 			     <0 87 4>;
 	};
 
-	dma@7ffb0000 {
+	dma@7ff00000 {
 		compatible = "arm,pl330", "arm,primecell";
 		reg = <0x7ff00000 0x1000>;
 		interrupts = <0 92 4>,
