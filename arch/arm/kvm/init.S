@@ -30,29 +30,28 @@
 @        r2 = pointer to hyp vectors 
 @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 	.text
-	.arm
         .pushsection    .hyp.idmap.text,"ax"
 	.align 12
 __kvm_hyp_init:
 	.globl __kvm_hyp_init
 
 	@ Hyp-mode exception vector
-	nop
-	nop
-	nop
-	nop
-	nop
-	b	__do_hyp_init
-	nop
-	nop
+	W(b)	.
+	W(b)	.
+	W(b)	.
+	W(b)	.
+	W(b)	.
+	W(b)	__do_hyp_init
+	W(b)	.
+	W(b)	.
 
 __do_hyp_init:
 	@ Set the sp to end of this page and push data for later use
-	mov	sp, pc
-	bic	sp, sp, #0x0ff
-	bic	sp, sp, #0xf00
-	add	sp, sp, #0x1000
-	push	{r0, r1, r2, r12}
+ARM(	add	r12, pc, #(__kvm_init_sp - .)	)
+ARM(	sub	r12, r12, #8			)
+THUMB(	adr	r12, __kvm_init_sp		)
+	mov	sp, r12
+	push	{r0, r1, r2}
 
 	@ Set the HTTBR to point to the hypervisor PGD pointer passed to
 	@ function and set the upper bits equal to the kernel PGD.
