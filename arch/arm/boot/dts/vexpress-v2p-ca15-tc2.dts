@@ -22,8 +22,8 @@
 	arm,hbi = <0x249>;
 	compatible = "arm,vexpress,v2p-ca15,tc2", "arm,vexpress,v2p-ca15", "arm,vexpress";
 	interrupt-parent = <&gic>;
-	#address-cells = <1>;
-	#size-cells = <1>;
+	#address-cells = <2>;
+	#size-cells = <2>;
 
 	chosen { };
 
@@ -130,27 +130,27 @@
 
 	memory@80000000 {
 		device_type = "memory";
-		reg = <0x80000000 0x80000000>;
+		reg = <0 0x80000000 0 0x80000000>;
 	};
 
 	wdt@2a490000 {
 		compatible = "arm,sp805", "arm,primecell";
-		reg = <0x2a490000 0x1000>;
+		reg = <0 0x2a490000 0 0x1000>;
 		interrupts = <98>;
 	};
 
 	hdlcd@2b000000 {
 		compatible = "arm,hdlcd";
-		reg = <0x2b000000 0x1000>;
+		reg = <0 0x2b000000 0 0x1000>;
 		interrupts = <0 85 4>;
 		mode = "1024x768-16@60";
 		arm,vexpress-osc = <5>;
-		framebuffer = <0xff000000 0x01000000>;
+		framebuffer = <0 0xff000000 0 0x01000000>;
 	};
 
 	memory-controller@2b0a0000 {
 		compatible = "arm,pl341", "arm,primecell";
-		reg = <0x2b0a0000 0x1000>;
+		reg = <0 0x2b0a0000 0 0x1000>;
 	};
 
 	gic: interrupt-controller@2c001000 {
@@ -158,10 +158,10 @@
 		#interrupt-cells = <3>;
 		#address-cells = <0>;
 		interrupt-controller;
-		reg = <0x2c001000 0x1000>,
-		      <0x2c002000 0x1000>,
-		      <0x2c004000 0x2000>,
-		      <0x2c006000 0x2000>;
+		reg = <0 0x2c001000 0 0x1000>,
+		      <0 0x2c002000 0 0x1000>,
+		      <0 0x2c004000 0 0x2000>,
+		      <0 0x2c006000 0 0x2000>;
 		interrupts = <1 9 0xf04>;
 
 		gic-cpuif@0 {
@@ -195,14 +195,14 @@
 
 	memory-controller@7ffd0000 {
 		compatible = "arm,pl354", "arm,primecell";
-		reg = <0x7ffd0000 0x1000>;
+		reg = <0 0x7ffd0000 0 0x1000>;
 		interrupts = <0 86 4>,
 			     <0 87 4>;
 	};
 
 	dma@7ff00000 {
 		compatible = "arm,pl330", "arm,primecell";
-		reg = <0x7ff00000 0x1000>;
+		reg = <0 0x7ff00000 0 0x1000>;
 		interrupts = <0 92 4>,
 			     <0 88 4>,
 			     <0 89 4>,
@@ -225,12 +225,12 @@
 	};
 
 	motherboard {
-		ranges = <0 0 0x08000000 0x04000000>,
-			 <1 0 0x14000000 0x04000000>,
-			 <2 0 0x18000000 0x04000000>,
-			 <3 0 0x1c000000 0x04000000>,
-			 <4 0 0x0c000000 0x04000000>,
-			 <5 0 0x10000000 0x04000000>;
+		ranges = <0 0 0 0x08000000 0x04000000>,
+			 <1 0 0 0x14000000 0x04000000>,
+			 <2 0 0 0x18000000 0x04000000>,
+			 <3 0 0 0x1c000000 0x04000000>,
+			 <4 0 0 0x0c000000 0x04000000>,
+			 <5 0 0 0x10000000 0x04000000>;
 
 		interrupt-map-mask = <0 0 63>;
 		interrupt-map = <0 0  0 &gic 0  0 4>,
