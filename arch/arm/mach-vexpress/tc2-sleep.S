@@ -1,8 +1,17 @@
 #include <linux/linkage.h>
 
+#define SPC_PHYS_BASE           0x7FFF0000
+#define A15_CONF          	0x400
+
 ENTRY(tc2_cpu_resume)
 	mrc	p15, 0, r0, c0, c0, 5
 	ands	r0, r0, #0xff00
+	ldr	r1, =SPC_PHYS_BASE
+	mov	r2, #A15_CONF
+	add	r1, r1, r2
+	ldr	r1, [r1]
+	and	r1, r1, #0x7
+	cmp	r1, r0, lsr #8
 	adr	r0, value
 	addne	r0, r0, #16
 	ldmia	r0, {r1, r2, r3, r4}	@ CCI address, SCC snoop control & val
@@ -26,6 +35,13 @@ ENDPROC(tc2_cpu_resume)
 ENTRY(disable_snoops)
 	mrc	p15, 0, r0, c0, c0, 5
 	ands	r0, r0, #0xff00
+	ldr	r1, scc_ptr
+	ldr	r1, [r1]
+	mov	r2, #A15_CONF
+	add	r1, r1, r2
+	ldr	r1, [r1]
+	and	r1, r1, #0x7
+	cmp	r1, r0, lsr #8
 	adr	r0, vvalue
 	addne	r0, r0, #8
 	ldmia	r0, {r2, r3}	@ CCI address, SCC snoop control & val
