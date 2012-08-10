@@ -1,3 +1,9 @@
+gator (5.11.0) precise; urgency=low
+
+  * New release from ARM.
+
+ -- Jon Medhurst (Tixy) <jon.medhurst@linaro.org>  Fri, 10 Aug 2012 14:34:23 +0000
+
 gator (5.10.1) precise; urgency=low
 
   * Add gator-module-dkms package.
