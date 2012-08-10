@@ -86,6 +86,11 @@
 #define L_PTE_DIRTY_HIGH	(1 << (55 - 32))
 
 /*
+ * we need to mask off PTE_EXT_NG when comparing present ptes.
+ */
+#define L_PTE_CMP_MASKOFF      PTE_EXT_NG
+
+/*
  * AttrIndx[2:0] encoding (mapping attributes defined in the MAIR* registers).
  */
 #define L_PTE_MT_UNCACHED	(_AT(pteval_t, 0) << 2)	/* strongly ordered */
