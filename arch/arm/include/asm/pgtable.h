@@ -253,6 +253,29 @@ static inline pte_t pte_modify(pte_t pte, pgprot_t newprot)
 }
 
 /*
+ * For 3 levels of paging the PTE_EXT_NG bit will be set for user address ptes
+ * that are written to a page table but not for ptes created with mk_pte.
+ *
+ * This can cause some comparison tests made by pte_same to fail spuriously and
+ * lead to other problems.
+ *
+ * To correct this behaviour, we mask off PTE_EXT_NG for any pte that is
+ * present before running the comparison.
+ */
+#define __HAVE_ARCH_PTE_SAME
+static inline int pte_same(pte_t pte_a, pte_t pte_b)
+{
+       pteval_t vala = pte_val(pte_a), valb = pte_val(pte_b);
+       if (pte_present(pte_a))
+               vala &= ~L_PTE_CMP_MASKOFF;
+
+       if (pte_present(pte_b))
+               valb &= ~L_PTE_CMP_MASKOFF;
+
+       return vala == valb;
+}
+
+/*
  * Encode and decode a swap entry.  Swap entries are stored in the Linux
  * page tables as follows:
  *
