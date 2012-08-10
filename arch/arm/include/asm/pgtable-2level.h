@@ -125,6 +125,11 @@
 #define L_PTE_SHARED		(_AT(pteval_t, 1) << 10)	/* shared(v6), coherent(xsc3) */
 
 /*
+ * for 2 levels of paging we don't mask off any bits when comparing present ptes
+ */
+#define L_PTE_CMP_MASKOFF	0
+
+/*
  * These are the memory types, defined to be compatible with
  * pre-ARMv6 CPUs cacheable and bufferable bits:   XXCB
  */
