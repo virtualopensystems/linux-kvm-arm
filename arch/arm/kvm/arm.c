@@ -273,7 +273,7 @@ void kvm_arch_vcpu_uninit(struct kvm_vcpu *vcpu)
 void kvm_arch_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
 {
 	vcpu->cpu = cpu;
-	vcpu->arch.vfp_host = this_cpu_ptr(kvm_host_vfp_state);
+	vcpu->arch.vfp_host = __get_cpu_var(kvm_host_vfp_state);
 }
 
 void kvm_arch_vcpu_put(struct kvm_vcpu *vcpu)
