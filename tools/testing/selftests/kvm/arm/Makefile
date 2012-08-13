@@ -1,5 +1,6 @@
-#    Makefile - build a test suite form ARM/Thumb-2 MMIO emulation
+#    Makefile - build a test suite for KVM/ARM
 #    Copyright (C) 2012 Christoffer Dall <cdall@cs.columbia.edu>
+#                  2012 Rusty Russell <rusty.russell@linaro.org>
 #
 #    This program is free software: you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
