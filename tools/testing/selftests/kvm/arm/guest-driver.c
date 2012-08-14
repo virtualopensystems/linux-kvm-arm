@@ -37,8 +37,6 @@ static struct kvm_run *kvm_run;
 static void *code_base;
 static struct kvm_userspace_memory_region code_mem;
 
-
-
 static int create_vm(void)
 {
 	vm_fd = ioctl(sys_fd, KVM_CREATE_VM, 0);
@@ -177,8 +175,53 @@ static int init_vcpu(void)
 	return 0;
 }
 
+static int handle_mmio(struct kvm_run *kvm_run,
+		       bool (*test)(struct kvm_run *kvm_run))
+{
+	unsigned long phys_addr;
+	unsigned char *data;
+	unsigned long len;
+	bool is_write;
 
-static int kvm_cpu_exec(void)
+	phys_addr = (unsigned long)kvm_run->mmio.phys_addr;
+	data = kvm_run->mmio.data;
+	len = kvm_run->mmio.len;
+	is_write = kvm_run->mmio.is_write;
+
+	/* Test if it's a control operation */
+	if (phys_addr == IO_CTL_BASE && len == IO_DATA_SIZE) {
+		if (!is_write)
+			return -1; /* only writes allowed */
+		switch (data[0]) {
+		case CTL_OK:
+			printf(".");
+			return 0;
+		case CTL_FAIL:
+			printf("TEST FAIL\n");
+			return -1;
+		case CTL_ERR:
+			printf("ERROR: Guest had error\n");
+			return -1;
+		case CTL_DONE:
+			printf("VM shutting down\n");
+			return 1;
+		default:
+			printf("INFO: Guest wrote %d\n", data[0]);
+		}
+	} else if (phys_addr == IO_CTL_BASE + IO_DATA_SIZE) {
+		/* This lets test print output. */
+		printf("%c", data[0]);
+		return 0;
+	} else {
+		return test(kvm_run) ? 0 : -1;
+	}
+
+	pr_err("Guest accessed unexisting mem area: %#08lx + %#08lx\n",
+	       phys_addr, len);
+	return -1;
+}
+
+static int kvm_cpu_exec(bool (*test)(struct kvm_run *kvm_run))
 {
 	int ret;
 
@@ -193,7 +236,7 @@ static int kvm_cpu_exec(void)
 		}
 
 		if (kvm_run->exit_reason == KVM_EXIT_MMIO) {
-			ret = handle_mmio(kvm_run);
+			ret = handle_mmio(kvm_run, test);
 			if (ret < 0)
 				return -1;
 			else if (ret > 0)
@@ -206,19 +249,35 @@ static int kvm_cpu_exec(void)
 
 static void usage(int argc, const char *argv[])
 {
-	printf("Usage: %s <binary>\n", argv[0]);
+	printf("Usage: %s <testname>\n", argv[0]);
 }
+
+/* Linker-generated symbols for GUEST_TEST() macros */
+extern struct test __start_tests[], __stop_tests[];
 
 int main(int argc, const char *argv[])
 {
 	int ret;
-	const char *file;
+	struct test *i;
+	const char *file = NULL;
+	bool (*test)(struct kvm_run *kvm_run);
 
 	if (argc != 2) {
 		usage(argc, argv);
 		return EXIT_FAILURE;
 	}
-	file = argv[1];
+
+	for (i = __start_tests; i < __stop_tests; i++) {
+		if (strcmp(i->name, argv[1]) == 0) {
+			test = i->mmiofn;
+			file = i->binname;
+			break;
+		}
+	}
+	if (!file) {
+		fprintf(stderr, "Unknown test '%s'\n", argv[1]);
+		return EXIT_FAILURE;
+	}
 	printf("Starting VM with code from: %s\n", file);
 
 	sys_fd = open("/dev/kvm", O_RDWR);
@@ -247,7 +306,7 @@ int main(int argc, const char *argv[])
 	if (ret)
 		return EXIT_FAILURE;
 	
-	ret = kvm_cpu_exec();
+	ret = kvm_cpu_exec(test);
 	if (ret)
 		return EXIT_FAILURE;
 
