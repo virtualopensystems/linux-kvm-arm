@@ -24,7 +24,7 @@ LDFLAGS = -static
 
 CFLAGS = -Wall -I../../../../../include -I../../../../../arch/arm/include -D__EXPORTED_HEADERS__ -marm
 
-TESTS=mmio vfp cond
+TESTS=mmio vfp cond cp15
 
 GUESTS=$(TESTS:%=%-guest)
 HOST_DRIVERS=$(TESTS:%=%-host.o)
