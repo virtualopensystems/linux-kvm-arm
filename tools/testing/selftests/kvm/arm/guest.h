@@ -1,5 +1,7 @@
 #ifndef GUEST_H
 #define GUEST_H
+#include <stdint.h>
+#include <stdbool.h>
 
 void ok(void);
 void fail(void);
@@ -25,6 +27,8 @@ static inline void print(const char *p)
 		} else							\
 			ok();						\
 	} while(0)
+
+typedef uint32_t u32;
 
 /* Each guest needs to write this. */
 int test(void);
