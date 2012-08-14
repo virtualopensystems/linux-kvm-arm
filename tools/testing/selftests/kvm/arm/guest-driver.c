@@ -53,10 +53,16 @@ static int create_vm(void)
 static int create_vcpu(void)
 {
 	int mmap_size;
+	struct kvm_vcpu_init init = { KVM_ARM_TARGET_CORTEX_A15, { 0 } };
 
 	vcpu_fd = ioctl(vm_fd, KVM_CREATE_VCPU, 0);
 	if (vcpu_fd < 0) {
 		perror("kvm_create_vcpu failed");
+		return -1;
+	}
+
+	if (ioctl(vcpu_fd, KVM_ARM_VCPU_INIT, &init) != 0) {
+		perror("KVM_ARM_VCPU_INIT failed");
 		return -1;
 	}
 
