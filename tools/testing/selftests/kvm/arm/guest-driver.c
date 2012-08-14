@@ -141,7 +141,6 @@ static bool handle_mmio(struct kvm_run *kvm_run,
 {
 	unsigned long phys_addr;
 	unsigned char *data;
-	unsigned long len;
 	bool is_write;
 
 	if (kvm_run->exit_reason != KVM_EXIT_MMIO)
@@ -149,39 +148,40 @@ static bool handle_mmio(struct kvm_run *kvm_run,
 
 	phys_addr = (unsigned long)kvm_run->mmio.phys_addr;
 	data = kvm_run->mmio.data;
-	len = kvm_run->mmio.len;
 	is_write = kvm_run->mmio.is_write;
 
 	/* Test if it's a control operation */
-	if (phys_addr == IO_CTL_BASE && len == IO_DATA_SIZE) {
+	switch (phys_addr) {
+	case IO_CTL_STATUS:
 		if (!is_write)
-			return -1; /* only writes allowed */
-		switch (data[0]) {
-		case CTL_OK:
+			errx(EXIT_SETUPFAIL, "Guest read from IO_CTL_STATUS");
+		if (data[0] == 0) {
 			printf(".");
 			return false;
-		case CTL_FAIL:
+		} else {
 			errx(EXIT_FAILURE, "TEST FAIL");
-		case CTL_ERR:
-			errx(EXIT_FAILURE, "ERROR: Guest had error");
-		case CTL_DONE:
-			printf("VM shutting down\n");
-			return true;
-		default:
-			printf("INFO: Guest wrote %d\n", data[0]);
 		}
-	} else if (phys_addr == IO_CTL_BASE + IO_DATA_SIZE) {
-		/* This lets test print output. */
+
+	case IO_CTL_PRINT:
+		if (!is_write)
+			errx(EXIT_SETUPFAIL, "Guest read from IO_CTL_PRINT");
 		printf("%c", data[0]);
 		return false;
-	} else {
-		if (test(kvm_run))
-			return false;
-	}
 
-	errx(EXIT_FAILURE,
-	     "Guest accessed unexisting mem area: %#08lx + %#08lx",
-	     phys_addr, len);
+	case IO_CTL_EXIT:
+		printf("VM shutting down status %i\n", data[0]);
+		if (data[0] != 0)
+			exit(data[0]);
+		return true;
+
+	default:
+		/* Let this test handle it. */
+		if (test && test(kvm_run))
+			return false;
+		errx(EXIT_FAILURE,
+		     "Guest accessed unexisting mem area: %#08lx + %#08x",
+		     phys_addr, kvm_run->mmio.len);
+	}
 }
 
 static void kvm_cpu_exec(bool (*test)(struct kvm_run *kvm_run))

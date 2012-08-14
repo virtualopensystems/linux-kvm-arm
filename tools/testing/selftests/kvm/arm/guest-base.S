@@ -1,5 +1,5 @@
 /*
- * mmio-guest.lds.S - linker script for MMIO guest
+ * guest-base.S - world's simplest VM os
  * Copyright (C) 2012 Christoffer Dall <cdall@cs.columbia.edu>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -15,19 +15,37 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.# 
  */
+#include "io_common.h"
 
-OUTPUT_ARCH(arm)
+	.arm
+	.section .start, "x"
 
-PHYS_OFFSET = 0x80000000;
+start:
+	@ Set up stack
+	ldr	sp, =stacktop
+	bl	test
+	ldr	r1, =IO_CTL_EXIT
+	strb	r0, [r1]
 
-SECTIONS
-{
- . = PHYS_OFFSET;
- .text : { *(.start) *(.text) }
- .data : { *(.data) }
- .bss : { *(.bss) }
+	.text
 
- /* 4k of stack should be enough */
- . += 0x1000;
- stacktop = .;
-}
+/* helpers */
+.globl ok
+ok:
+	ldr	r1, =IO_CTL_STATUS
+	ldr	r0, =0
+	strb	r0, [r1]
+	mov	pc, lr
+
+.globl fail
+fail:
+	ldr	r1, =IO_CTL_STATUS
+	ldr	r0, =1
+	strb	r0, [r1]
+	mov	pc, lr
+
+.globl putc
+putc:
+	ldr	r1, =IO_CTL_PRINT
+	strb	r0, [r1]
+	mov	pc, lr

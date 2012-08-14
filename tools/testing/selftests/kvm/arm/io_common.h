@@ -1,13 +1,11 @@
 #ifndef __IO_DATA_H
 #define __IO_DATA_H
 
-#define IO_CTL_BASE (0xf0000000)
-#define IO_DATA_SIZE (1)
-
-#define CTL_OK		0
-#define CTL_FAIL	1
-#define CTL_ERR		2
-#define CTL_DONE	3
-#define CTL_PRINT	4
+/* Report status of a test (0 == OK, other == fail) */
+#define IO_CTL_STATUS	(0xf0000000)
+/* exit with given error code (0 == OK, other == fail) */
+#define IO_CTL_EXIT	(0xf0000001)
+/* print a character */
+#define IO_CTL_PRINT	(0xf0000002)
 
 #endif /* __IO_DATA_H */
