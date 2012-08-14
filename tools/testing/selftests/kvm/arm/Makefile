@@ -22,7 +22,7 @@ OBJCOPY=$(CROSS_COMPILE)objcopy
 
 LDFLAGS = -static
 
-CFLAGS = -Wall -I../../../../../include -I../../../../../arch/arm/include -D__EXPORTED_HEADERS__
+CFLAGS = -Wall -I../../../../../include -I../../../../../arch/arm/include -D__EXPORTED_HEADERS__ -marm
 
 TESTS=mmio
 
@@ -35,20 +35,23 @@ DRIVER_OBJS = guest-driver.o $(HOST_DRIVERS)
 guest-driver: $(DRIVER_OBJS)
 	$(GCC) $(LDFLAGS) -o $@ $(DRIVER_OBJS)
 
-%-guest.o: %-guest.S
+guest-base.o: guest-base.S
 	$(GCC) $(CFLAGS) -fno-builtin -ffreestanding -c -o $@ $<
 
-%-guest: %-guest.o guest.lds
-	$(LD) -o $@ --script=guest.lds $< 
+%-guest.o: %-guest.c
+	$(GCC) $(CFLAGS) $(CFLAGS_$@) -fno-builtin -ffreestanding -c -o $@ $<
+
+%-guest: %-guest.o guest.lds guest-base.o
+	$(LD) -o $@ --script=guest.lds $< guest-base.o
 
 %-guest.bin: %-guest
 	$(OBJCOPY) -O binary $< $@
 
-%.o: %.c
-	$(CC) $(CFLAGS) -g -c -o $@ $<
+%-host.o: %-host.c
+	$(GCC) $(CFLAGS) $(CFLAGS_$@) -c -o $@ $<
 
 clean distclean:
-	rm -f $(GUESTS) $(HOST_DRIVERS) guest-driver $(OBJS)
+	rm -f $(GUESTS) $(HOST_DRIVERS) guest-driver guest-base.o $(OBJS)
 
 # This assumes we're not cross-compiling!
 run_tests: all
