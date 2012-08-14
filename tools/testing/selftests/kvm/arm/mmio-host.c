@@ -21,6 +21,7 @@
 #include <stdbool.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <err.h>
 #include <sys/types.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
@@ -41,7 +42,7 @@ static int check_write(unsigned long offset, void *_data, unsigned long len)
 	host_data = io_data + offset;
 
 	if (memcmp(data, host_data, len)) {
-		printf("ERROR: VM write mismatch:\n"
+		errx(EXIT_FAILURE, "ERROR: VM write mismatch:\n"
 		       "VM data: %c%c%c%c%c%c%c%c\n"
 		       "IO data: %c%c%c%c%c%c%c%c\n"
 		       "    len: %lu\n"
@@ -51,7 +52,6 @@ static int check_write(unsigned long offset, void *_data, unsigned long len)
 		       host_data[0], host_data[1], host_data[2], host_data[3],
 		       host_data[4], host_data[5], host_data[6], host_data[7],
 		       len, offset);
-		return false;
 	}
 
 	return true;
