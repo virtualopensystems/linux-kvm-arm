@@ -24,10 +24,14 @@ LDFLAGS = -static
 
 CFLAGS = -Wall -I../../../../../include -I../../../../../arch/arm/include -D__EXPORTED_HEADERS__ -marm
 
-TESTS=mmio
+TESTS=mmio vfp
 
 GUESTS=$(TESTS:%=%-guest)
 HOST_DRIVERS=$(TESTS:%=%-host.o)
+
+# We assume 32 fp regs here.
+CFLAGS_vfp-host.o := -mfpu=vfpv3
+CFLAGS_vfp-guest.o := -mfpu=vfpv3
 
 all: guest-driver $(GUESTS)
 
