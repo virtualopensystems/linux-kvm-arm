@@ -16,6 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.# 
  */
 #include "io_common.h"
+#include "mmio_test.h"
 
 /******************************************************************************
  * Test code
