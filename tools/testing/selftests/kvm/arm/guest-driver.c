@@ -21,6 +21,7 @@
 #include <stdbool.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <err.h>
 #include <sys/types.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
@@ -37,50 +38,36 @@ static struct kvm_run *kvm_run;
 static void *code_base;
 static struct kvm_userspace_memory_region code_mem;
 
-static int create_vm(void)
+static void create_vm(void)
 {
 	vm_fd = ioctl(sys_fd, KVM_CREATE_VM, 0);
-	if (vm_fd < 0) {
-		perror("kvm_create_vm failed");
-		return -1;
-	}
-
-	return 0;
+	if (vm_fd < 0)
+		err(EXIT_SETUPFAIL, "kvm_create_vm failed");
 }
 
-static int create_vcpu(void)
+static void create_vcpu(void)
 {
 	int mmap_size;
 	struct kvm_vcpu_init init = { KVM_ARM_TARGET_CORTEX_A15, { 0 } };
 
 	vcpu_fd = ioctl(vm_fd, KVM_CREATE_VCPU, 0);
-	if (vcpu_fd < 0) {
-		perror("kvm_create_vcpu failed");
-		return -1;
-	}
+	if (vcpu_fd < 0)
+		err(EXIT_SETUPFAIL, "kvm_create_vcpu failed");
 
-	if (ioctl(vcpu_fd, KVM_ARM_VCPU_INIT, &init) != 0) {
-		perror("KVM_ARM_VCPU_INIT failed");
-		return -1;
-	}
+	if (ioctl(vcpu_fd, KVM_ARM_VCPU_INIT, &init) != 0)
+		err(EXIT_SETUPFAIL, "KVM_ARM_VCPU_INIT failed");
 
 	mmap_size = ioctl(sys_fd, KVM_GET_VCPU_MMAP_SIZE, 0);
-	if (mmap_size < 0) {
-		perror("KVM_GET_VCPU_MMAP_SIZE failed");
-		return -1;
-	}
+	if (mmap_size < 0)
+		err(EXIT_SETUPFAIL, "KVM_GET_VCPU_MMAP_SIZE failed");
 
 	kvm_run = mmap(NULL, mmap_size, PROT_READ | PROT_WRITE, MAP_SHARED,
 		       vcpu_fd, 0);
-	if (kvm_run == MAP_FAILED) {
-		perror("mmap VCPU run failed!");
-		return -1;
-	}
-
-	return 0;
+	if (kvm_run == MAP_FAILED)
+		err(EXIT_SETUPFAIL, "mmap VCPU run failed!");
 }
 
-static int kvm_register_mem(int id, void *addr, unsigned long base,
+static void kvm_register_mem(int id, void *addr, unsigned long base,
 			    struct kvm_userspace_memory_region *mem)
 {
 	int ret;
@@ -92,96 +79,73 @@ static int kvm_register_mem(int id, void *addr, unsigned long base,
 	mem->flags = 0;
 
 	ret = ioctl(vm_fd, KVM_SET_USER_MEMORY_REGION, mem);
-	if (ret < 0) {
-		pr_errno("error registering region: %d", id);
-		return -1;
-	}
-	return 0;
+	if (ret < 0)
+		err(EXIT_SETUPFAIL, "error registering region: %d", id);
 }
 
-static int register_memregions(void)
+static void register_memregions(void)
 {
-	int ret;
-
 	code_base = mmap(NULL, RAM_SIZE, PROT_READ | PROT_WRITE,
 			 MAP_SHARED | MAP_ANONYMOUS, 0, CODE_PHYS_BASE);
 	if (code_base == MAP_FAILED) {
-		perror("mmap RAM region failed");
-		return -1;
+		err(EXIT_SETUPFAIL, "mmap RAM region failed");
 	} else if ((unsigned long)code_base & ~PAGE_MASK) {
-		pr_err("mmap RAM on non-page boundary: %p", code_base);
-		return -1;
+		errx(EXIT_SETUPFAIL, "mmap RAM on non-page boundary: %p",
+		     code_base);
 	}
-	ret = kvm_register_mem(CODE_SLOT, code_base, CODE_PHYS_BASE, &code_mem);
-	if (ret)
-		return -1;
-
-	return 0;
+	kvm_register_mem(CODE_SLOT, code_base, CODE_PHYS_BASE, &code_mem);
 }
 
-static int load_code(const char *code_file)
+static void load_code(const char *code_file)
 {
 	int fd = open(code_file, O_RDONLY);
 	struct stat stat;
 	char *data;
 
-	if (fd < 0) {
-		perror("cannot open code file\n");
-		return -1;
-	}
+	if (fd < 0)
+		err(EXIT_SETUPFAIL, "cannot open code file %s", code_file);
 
-	if (fstat(fd, &stat) < 0) {
-		perror("cannot stat code file\n");
-		close(fd);
-		return -1;
-	}
+	if (fstat(fd, &stat) < 0)
+		err(EXIT_SETUPFAIL, "cannot stat code file %s", code_file);
 
-	if (stat.st_size > RAM_SIZE) {
-		pr_err("code file way too large for this tiny VM\n");
-		close(fd);
-		return -1;
-	}
+	if (stat.st_size > RAM_SIZE)
+		errx(EXIT_SETUPFAIL, "code file way too large for this tiny VM");
 
 	data = mmap(NULL, stat.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
-	if (data == MAP_FAILED) {
-		perror("cannot stat code file\n");
-		close(fd);
-		return -1;
-	}
+	if (data == MAP_FAILED)
+		err(EXIT_SETUPFAIL, "cannot map code file %s", code_file);
 
 	memcpy(code_base, data, stat.st_size);
 
 	munmap(data, stat.st_size);
 	close(fd);
-	return 0;
 }
 
-static int init_vcpu(void)
+static void init_vcpu(void)
 {
 	struct kvm_regs regs;
 
-	if (ioctl(vcpu_fd, KVM_GET_REGS, &regs) < 0) {
-		perror("error getting VCPU registers");
-		return -1;
-	}
+	if (ioctl(vcpu_fd, KVM_GET_REGS, &regs) < 0)
+		err(EXIT_SETUPFAIL, "error getting VCPU registers");
 
 	regs.reg15 = CODE_PHYS_BASE;
 	regs.reg13[MODE_SVC] = CODE_PHYS_BASE + RAM_SIZE;
 
-	if (ioctl(vcpu_fd, KVM_SET_REGS, &regs) < 0) {
-		perror("error setting VCPU registers");
-		return -1;
-	}
-	return 0;
+	if (ioctl(vcpu_fd, KVM_SET_REGS, &regs) < 0)
+		err(EXIT_SETUPFAIL, "error setting VCPU registers");
 }
 
-static int handle_mmio(struct kvm_run *kvm_run,
-		       bool (*test)(struct kvm_run *kvm_run))
+/* Returns true to shut down. */
+static bool handle_mmio(struct kvm_run *kvm_run,
+			bool (*test)(struct kvm_run *kvm_run))
 {
 	unsigned long phys_addr;
 	unsigned char *data;
 	unsigned long len;
 	bool is_write;
+
+	if (kvm_run->exit_reason != KVM_EXIT_MMIO)
+		return false;
 
 	phys_addr = (unsigned long)kvm_run->mmio.phys_addr;
 	data = kvm_run->mmio.data;
@@ -195,61 +159,46 @@ static int handle_mmio(struct kvm_run *kvm_run,
 		switch (data[0]) {
 		case CTL_OK:
 			printf(".");
-			return 0;
+			return false;
 		case CTL_FAIL:
-			printf("TEST FAIL\n");
-			return -1;
+			errx(EXIT_FAILURE, "TEST FAIL");
 		case CTL_ERR:
-			printf("ERROR: Guest had error\n");
-			return -1;
+			errx(EXIT_FAILURE, "ERROR: Guest had error");
 		case CTL_DONE:
 			printf("VM shutting down\n");
-			return 1;
+			return true;
 		default:
 			printf("INFO: Guest wrote %d\n", data[0]);
 		}
 	} else if (phys_addr == IO_CTL_BASE + IO_DATA_SIZE) {
 		/* This lets test print output. */
 		printf("%c", data[0]);
-		return 0;
+		return false;
 	} else {
-		return test(kvm_run) ? 0 : -1;
+		if (test(kvm_run))
+			return false;
 	}
 
-	pr_err("Guest accessed unexisting mem area: %#08lx + %#08lx\n",
-	       phys_addr, len);
-	return -1;
+	errx(EXIT_FAILURE,
+	     "Guest accessed unexisting mem area: %#08lx + %#08lx",
+	     phys_addr, len);
 }
 
-static int kvm_cpu_exec(bool (*test)(struct kvm_run *kvm_run))
+static void kvm_cpu_exec(bool (*test)(struct kvm_run *kvm_run))
 {
-	int ret;
-
-	while (1) {
-		ret = ioctl(vcpu_fd, KVM_RUN, 0);
+	do {
+		int ret = ioctl(vcpu_fd, KVM_RUN, 0);
 
 		if (ret == -EINTR || ret == -EAGAIN) {
 			continue;
-		} else if (ret < 0) {
-			perror("Error running vcpu");
-			return -1;
-		}
-
-		if (kvm_run->exit_reason == KVM_EXIT_MMIO) {
-			ret = handle_mmio(kvm_run, test);
-			if (ret < 0)
-				return -1;
-			else if (ret > 0)
-				break;
-		}
-	}
-
-	return 0;
+		} else if (ret < 0)
+			err(EXIT_SETUPFAIL, "Error running vcpu");
+	} while (!handle_mmio(kvm_run, test));
 }
 
 static void usage(int argc, const char *argv[])
 {
-	printf("Usage: %s <testname>\n", argv[0]);
+	errx(EXIT_SETUPFAIL, "Usage: %s <testname>", argv[0]);
 }
 
 /* Linker-generated symbols for GUEST_TEST() macros */
@@ -257,15 +206,12 @@ extern struct test __start_tests[], __stop_tests[];
 
 int main(int argc, const char *argv[])
 {
-	int ret;
 	struct test *i;
 	const char *file = NULL;
 	bool (*test)(struct kvm_run *kvm_run);
 
-	if (argc != 2) {
+	if (argc != 2)
 		usage(argc, argv);
-		return EXIT_FAILURE;
-	}
 
 	for (i = __start_tests; i < __stop_tests; i++) {
 		if (strcmp(i->name, argv[1]) == 0) {
@@ -274,41 +220,20 @@ int main(int argc, const char *argv[])
 			break;
 		}
 	}
-	if (!file) {
-		fprintf(stderr, "Unknown test '%s'\n", argv[1]);
-		return EXIT_FAILURE;
-	}
+	if (!file)
+		errx(EXIT_SETUPFAIL, "Unknown test '%s'", argv[1]);
+
 	printf("Starting VM with code from: %s\n", file);
 
 	sys_fd = open("/dev/kvm", O_RDWR);
-	if (sys_fd < 0) {
-		perror("cannot open /dev/kvm - module loaded?");
-		return EXIT_FAILURE;
-	}
+	if (sys_fd < 0)
+		err(EXIT_SETUPFAIL, "cannot open /dev/kvm - module loaded?");
 
-	ret = create_vm();
-	if (ret)
-		return EXIT_FAILURE;
-
-	ret = register_memregions();
-	if (ret)
-		return EXIT_FAILURE;
-
-	ret = load_code(file);
-	if (ret)
-		return EXIT_FAILURE;
-
-	ret = create_vcpu();
-	if (ret)
-		return EXIT_FAILURE;
-
-	ret = init_vcpu();
-	if (ret)
-		return EXIT_FAILURE;
-	
-	ret = kvm_cpu_exec(test);
-	if (ret)
-		return EXIT_FAILURE;
-
+	create_vm();
+	register_memregions();
+	load_code(file);
+	create_vcpu();
+	init_vcpu();
+	kvm_cpu_exec(test);
 	return EXIT_SUCCESS;
 }
