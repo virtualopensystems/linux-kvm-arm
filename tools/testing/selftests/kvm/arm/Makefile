@@ -24,28 +24,31 @@ LDFLAGS = -static
 
 CFLAGS = -Wall -I../../../../../include -I../../../../../arch/arm/include -D__EXPORTED_HEADERS__
 
-all: guest-driver mmio-guest.bin
+TESTS=mmio
 
-DRIVER_OBJS = guest-driver.o mmio-host.o
+GUESTS=$(TESTS:%=%-guest.bin)
+HOST_DRIVERS=$(TESTS:%=%-host.o)
+
+all: guest-driver $(GUESTS)
+
+DRIVER_OBJS = guest-driver.o $(HOST_DRIVERS)
 guest-driver: $(DRIVER_OBJS)
 	$(GCC) $(LDFLAGS) -o $@ $(DRIVER_OBJS)
 
-mmio-guest.o: mmio-guest.S
+%-guest.o: %-guest.S
 	$(GCC) $(CFLAGS) -fno-builtin -ffreestanding -c -o $@ $<
 
-mmio-guest: mmio-guest.o mmio-guest.lds
-	$(LD) -o $@ --script=mmio-guest.lds $< 
+%-guest: %-guest.o guest.lds
+	$(LD) -o $@ --script=guest.lds $< 
 
-mmio-guest.bin: mmio-guest
+%-guest.bin: %-guest
 	$(OBJCOPY) -O binary $< $@
-
-OBJS	= mmio-guest.o $(DRIVER_OBJS)
 
 %.o: %.c
 	$(CC) $(CFLAGS) -g -c -o $@ $<
 
 clean distclean:
-	rm -f mmio-guest mmio-guest.bin guest-driver $(OBJS)
+	rm -f $(GUESTS) $(HOST_DRIVERS) guest-driver $(OBJS)
 
 # This assumes we're not cross-compiling!
 run_tests: all

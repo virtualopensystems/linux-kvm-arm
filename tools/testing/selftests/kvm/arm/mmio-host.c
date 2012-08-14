@@ -29,6 +29,7 @@
 
 #include "io_common.h"
 #include "guest-driver.h"
+#include "mmio_test.h"
 
 static char *io_data = IO_DATA;
 
@@ -50,10 +51,10 @@ static int check_write(unsigned long offset, void *_data, unsigned long len)
 		       host_data[0], host_data[1], host_data[2], host_data[3],
 		       host_data[4], host_data[5], host_data[6], host_data[7],
 		       len, offset);
-		return -1;
+		return false;
 	}
 
-	return 0;
+	return true;
 }
 
 static int do_read(unsigned long offset, void *data, unsigned long len)
@@ -62,11 +63,11 @@ static int do_read(unsigned long offset, void *data, unsigned long len)
 
 	host_data = io_data + offset;
 	memcpy(data, host_data, len);
-	return 0;
+	return true;
 }
 
-/* Return anything else than 0 to stop the VM */
-int handle_mmio(struct kvm_run *kvm_run)
+/* Return false to stop the VM */
+static bool mmio_test(struct kvm_run *kvm_run)
 {
 	unsigned long phys_addr;
 	unsigned char *data;
@@ -89,29 +90,7 @@ int handle_mmio(struct kvm_run *kvm_run)
 		return ret;
 	}
 
-	/* Test if it's a control operation */
-	if (phys_addr >= IO_CTL_BASE && len == IO_DATA_SIZE) {
-		if (!is_write)
-			return -1; /* only writes allowed */
-		switch (data[0]) {
-		case CTL_OK:
-			printf("PASS: Guest reads what it expects\n");
-			return 0;
-		case CTL_FAIL:
-			printf("FAIL: Guest read fail\n");
-			return 0;
-		case CTL_ERR:
-			printf("ERROR: Guest had error\n");
-			return 1;
-		case CTL_DONE:
-			printf("VM shutting down\n");
-			return 1;
-		default:
-			printf("INFO: Guest wrote %d\n", data[0]);
-		}
-	}
-
-	pr_err("Guest accessed unexisting mem area: %#08lx + %#08lx\n",
-	       phys_addr, len);
-	return -1;
+	return false;
 }
+
+GUEST_TEST(mmio, mmio_test);
