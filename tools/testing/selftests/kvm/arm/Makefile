@@ -47,4 +47,8 @@ OBJS	= mmio-guest.o $(DRIVER_OBJS)
 clean distclean:
 	rm -f mmio-guest mmio-guest.bin guest-driver $(OBJS)
 
+# This assumes we're not cross-compiling!
+run_tests: all
+	./guest-driver mmio-guest.bin
+
 .PHONY: clean distclean headers
