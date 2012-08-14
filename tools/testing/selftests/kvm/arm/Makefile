@@ -26,7 +26,7 @@ CFLAGS = -Wall -I../../../../../include -I../../../../../arch/arm/include -D__EX
 
 TESTS=mmio
 
-GUESTS=$(TESTS:%=%-guest.bin)
+GUESTS=$(TESTS:%=%-guest)
 HOST_DRIVERS=$(TESTS:%=%-host.o)
 
 all: guest-driver $(GUESTS)
@@ -43,9 +43,6 @@ guest-base.o: guest-base.S
 
 %-guest: %-guest.o guest.lds guest-base.o
 	$(LD) -o $@ --script=guest.lds $< guest-base.o
-
-%-guest.bin: %-guest
-	$(OBJCOPY) -O binary $< $@
 
 %-host.o: %-host.c
 	$(GCC) $(CFLAGS) $(CFLAGS_$@) -c -o $@ $<
