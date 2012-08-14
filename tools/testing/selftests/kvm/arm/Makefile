@@ -54,4 +54,7 @@ clean distclean:
 run_tests: all
 	./guest-driver mmio-guest.bin
 
+install: all
+	cp guest-driver $(GUESTS) $(DESTDIR)
+
 .PHONY: clean distclean headers
