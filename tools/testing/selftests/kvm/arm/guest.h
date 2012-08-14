@@ -4,6 +4,7 @@
 void ok(void);
 void fail(void);
 void putc(char c);
+extern int skip_undef, undef_count;
 
 static inline void print(const char *p)
 {
