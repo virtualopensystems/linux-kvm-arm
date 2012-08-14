@@ -6,8 +6,8 @@
 #define EXIT_SETUPFAIL 2
 
 #define CODE_SLOT 0
-#define CODE_PHYS_BASE (0x80000000)
-#define RAM_SIZE (1024 * PAGE_SIZE) /* 1 MB of physical RAM , yeah! */
+#define CODE_PHYS_BASE (0xFFFE0000)
+#define RAM_SIZE 0x20000 /* 128k of physical RAM , yeah! */
 
 struct kvm_run;
 struct test {

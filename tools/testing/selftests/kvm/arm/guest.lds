@@ -18,7 +18,8 @@
 
 OUTPUT_ARCH(arm)
 
-PHYS_OFFSET = 0x80000000;
+PHYS_OFFSET     = 0xFFFE0000;
+EXCEPTION_TABLE = 0xFFFF0000;
 
 SECTIONS
 {
@@ -27,7 +28,8 @@ SECTIONS
  .data : { *(.data) }
  .bss : { *(.bss) }
 
- /* 4k of stack should be enough */
- . += 0x1000;
+ . = EXCEPTION_TABLE;
  stacktop = .;
+
+ .extable : { *(.text.extable) }
 }
