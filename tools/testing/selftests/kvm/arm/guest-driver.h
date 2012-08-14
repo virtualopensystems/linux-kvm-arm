@@ -22,6 +22,6 @@ struct test {
 
 #define GUEST_TEST(name, testfn)					\
 	struct test test_##name __attribute__((section("tests"))) = {	\
-		stringify(name), stringify(name) "-guest.bin", testfn }
+		stringify(name), stringify(name) "-guest", testfn }
 
 #endif /* __GUEST_DRIVER_H_ */

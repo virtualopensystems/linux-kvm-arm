@@ -26,8 +26,12 @@
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
 #include <linux/kvm.h>
-
+#include <elf.h>
+#include <err.h>
+ 
 #include "io_common.h"
 #include "guest-driver.h"
 
@@ -96,39 +100,73 @@ static void register_memregions(void)
 	kvm_register_mem(CODE_SLOT, code_base, CODE_PHYS_BASE, &code_mem);
 }
 
-static void load_code(const char *code_file)
+static void read_elf(int elf_fd, const Elf32_Ehdr *ehdr)
+{
+	Elf32_Phdr phdr[ehdr->e_phnum];
+	unsigned int i;
+
+	/* We read in all the program headers at once: */
+	if (pread(elf_fd, phdr, sizeof(phdr), ehdr->e_phoff) != sizeof(phdr))
+		err(EXIT_SETUPFAIL, "Reading program headers");
+
+	/*
+	 * Try all the headers: there are usually only three.  A read-only one,
+	 * a read-write one, and a "note" section which we don't load.
+	 */
+	for (i = 0; i < ehdr->e_phnum; i++) {
+		void *dest;
+
+		/* If this isn't a loadable segment, we ignore it */
+		if (phdr[i].p_type != PT_LOAD)
+			continue;
+
+		dest = code_base + phdr[i].p_paddr - CODE_PHYS_BASE;
+		if (dest < code_base
+		    || dest + phdr[i].p_memsz > code_base + RAM_SIZE) {
+			errx(EXIT_SETUPFAIL, "Section %u@%p out of bounds",
+			     phdr[i].p_memsz, (void *)phdr[i].p_paddr);
+		}
+
+		if (pread(elf_fd, dest, phdr[i].p_memsz, phdr[i].p_offset)
+		    != phdr[i].p_memsz) {
+			err(EXIT_SETUPFAIL, "Reading in elf section");
+		}
+	}
+}
+
+static unsigned long load_code(const char *code_file)
 {
 	int fd = open(code_file, O_RDONLY);
-	struct stat stat;
-	char *data;
+	Elf32_Ehdr ehdr;
 
 	if (fd < 0)
 		err(EXIT_SETUPFAIL, "cannot open code file %s", code_file);
 
-	if (fstat(fd, &stat) < 0)
-		err(EXIT_SETUPFAIL, "cannot stat code file %s", code_file);
+	/* Read in the first few bytes. */
+	if (read(fd, &ehdr, sizeof(ehdr)) != sizeof(ehdr))
+		err(EXIT_SETUPFAIL, "Reading code file %s", code_file);
 
-	if (stat.st_size > RAM_SIZE)
-		errx(EXIT_SETUPFAIL, "code file way too large for this tiny VM");
+	/* If it's an ELF file, it starts with "\177ELF" */
+	if (memcmp(ehdr.e_ident, ELFMAG, SELFMAG) != 0
+	    || ehdr.e_type != ET_EXEC
+	    || ehdr.e_machine != EM_ARM
+	    || ehdr.e_phentsize != sizeof(Elf32_Phdr)
+	    || ehdr.e_phnum < 1 || ehdr.e_phnum > 65536U/sizeof(Elf32_Phdr))
+		errx(EXIT_SETUPFAIL, "Malformed elf file %s", code_file);
 
-	data = mmap(NULL, stat.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
-	if (data == MAP_FAILED)
-		err(EXIT_SETUPFAIL, "cannot map code file %s", code_file);
-
-	memcpy(code_base, data, stat.st_size);
-
-	munmap(data, stat.st_size);
+	read_elf(fd, &ehdr);
 	close(fd);
+	return ehdr.e_entry;
 }
 
-static void init_vcpu(void)
+static void init_vcpu(unsigned long start)
 {
 	struct kvm_regs regs;
 
 	if (ioctl(vcpu_fd, KVM_GET_REGS, &regs) < 0)
 		err(EXIT_SETUPFAIL, "error getting VCPU registers");
 
-	regs.reg15 = CODE_PHYS_BASE;
+	regs.reg15 = start;
 	regs.reg13[MODE_SVC] = CODE_PHYS_BASE + RAM_SIZE;
 
 	if (ioctl(vcpu_fd, KVM_SET_REGS, &regs) < 0)
@@ -209,6 +247,7 @@ int main(int argc, const char *argv[])
 	struct test *i;
 	const char *file = NULL;
 	bool (*test)(struct kvm_run *kvm_run);
+	unsigned long start;
 
 	if (argc != 2)
 		usage(argc, argv);
@@ -231,9 +270,9 @@ int main(int argc, const char *argv[])
 
 	create_vm();
 	register_memregions();
-	load_code(file);
+	start = load_code(file);
 	create_vcpu();
-	init_vcpu();
+	init_vcpu(start);
 	kvm_cpu_exec(test);
 	return EXIT_SUCCESS;
 }
