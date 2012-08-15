@@ -432,6 +432,7 @@ ENTRY(__kvm_vcpu_run)
 	@ Load remaining registers and do the switch
 	sub	r0, r0, #(VCPU_PC - VCPU_USR_REGS)
 	ldmia	r0, {r0-r12}
+	clrex				@ Clear exclusive monitor
 	eret
 
 __kvm_vcpu_return:
@@ -506,6 +507,7 @@ after_vfp_restore:
 
 	hvc	#0			@ switch back to svc-mode, see hyp_svc
 
+	clrex				@ Clear exclusive monitor
 	bx	lr			@ return to IOCTL
 
 @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
