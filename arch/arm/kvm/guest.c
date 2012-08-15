@@ -58,8 +58,8 @@ int kvm_arch_vcpu_ioctl_get_regs(struct kvm_vcpu *vcpu, struct kvm_regs *regs)
 	regs->reg14[MODE_ABT] = vcpu_regs->abt_regs[1];
 	regs->reg13[MODE_UND] = vcpu_regs->und_regs[0];
 	regs->reg14[MODE_UND] = vcpu_regs->und_regs[1];
-	regs->reg13[MODE_USR] = vcpu_regs->usr_regs[0];
-	regs->reg14[MODE_USR] = vcpu_regs->usr_regs[1];
+	regs->reg13[MODE_USR] = vcpu_regs->usr_regs[13];
+	regs->reg14[MODE_USR] = vcpu_regs->usr_regs[14];
 
 	regs->spsr[MODE_FIQ]  = vcpu_regs->fiq_regs[7];
 	regs->spsr[MODE_IRQ]  = vcpu_regs->irq_regs[2];
@@ -94,8 +94,8 @@ int kvm_arch_vcpu_ioctl_set_regs(struct kvm_vcpu *vcpu, struct kvm_regs *regs)
 	vcpu_regs->abt_regs[1] = regs->reg14[MODE_ABT];
 	vcpu_regs->und_regs[0] = regs->reg13[MODE_UND];
 	vcpu_regs->und_regs[1] = regs->reg14[MODE_UND];
-	vcpu_regs->usr_regs[0] = regs->reg13[MODE_USR];
-	vcpu_regs->usr_regs[1] = regs->reg14[MODE_USR];
+	vcpu_regs->usr_regs[13] = regs->reg13[MODE_USR];
+	vcpu_regs->usr_regs[14] = regs->reg14[MODE_USR];
 
 	vcpu_regs->fiq_regs[7] = regs->spsr[MODE_FIQ];
 	vcpu_regs->irq_regs[2] = regs->spsr[MODE_IRQ];
