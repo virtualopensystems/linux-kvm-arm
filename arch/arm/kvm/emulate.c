@@ -154,9 +154,20 @@ static int kvm_instr_index(u32 instr, u32 table[][2], int table_entries)
 	return INSTR_NONE;
 }
 
+/**
+ * kvm_handle_wfi - handle a wait-for-interrupts instruction executed by a guest
+ * @vcpu:	the vcpu pointer
+ * @run:	the kvm_run structure pointer
+ *
+ * Simply sets the wait_for_interrupts flag on the vcpu structure, which will
+ * halt execution of world-switches and schedule other host processes until
+ * there is an incoming IRQ or FIQ to the VM.
+ */
 int kvm_handle_wfi(struct kvm_vcpu *vcpu, struct kvm_run *run)
 {
-	return 0;
+	trace_kvm_wfi(vcpu->arch.regs.pc);
+	kvm_vcpu_block(vcpu);
+	return 1;
 }
 
 
