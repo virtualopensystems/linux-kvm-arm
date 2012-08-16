@@ -301,6 +301,12 @@ const struct mem_type *get_mem_type(unsigned int type)
 }
 EXPORT_SYMBOL(get_mem_type);
 
+pteval_t get_mem_type_prot_pte(unsigned int type)
+{
+	return get_mem_type(type)->prot_pte;
+}
+EXPORT_SYMBOL(get_mem_type_prot_pte);
+
 /*
  * Adjust the PMD section entries according to the CPU in use.
  */
