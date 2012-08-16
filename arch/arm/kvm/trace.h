@@ -90,6 +90,22 @@ TRACE_EVENT(kvm_emulate_cp15_imp,
 			__entry->CRm, __entry->Op2)
 );
 
+TRACE_EVENT(kvm_wfi,
+	TP_PROTO(unsigned long vcpu_pc),
+	TP_ARGS(vcpu_pc),
+
+	TP_STRUCT__entry(
+		__field(	unsigned long,	vcpu_pc		)
+	),
+
+	TP_fast_assign(
+		__entry->vcpu_pc		= vcpu_pc;
+	),
+
+	TP_printk("guest executed wfi at: 0x%08lx", __entry->vcpu_pc)
+);
+
+
 #endif /* _TRACE_KVM_H */
 
 #undef TRACE_INCLUDE_PATH
