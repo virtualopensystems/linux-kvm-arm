@@ -17,6 +17,7 @@
  */
 #include <linux/mm.h>
 #include <linux/kvm_host.h>
+#include <linux/uaccess.h>
 #include <asm/kvm_arm.h>
 #include <asm/kvm_host.h>
 #include <asm/kvm_emulate.h>
@@ -544,8 +545,261 @@ int kvm_handle_cp15_32(struct kvm_vcpu *vcpu, struct kvm_run *run)
 	return emulate_cp15(vcpu, &params);
 }
 
+/******************************************************************************
+ * Userspace API
+ *****************************************************************************/
+
+/* Given a simple mask, get those bits. */
+static inline u32 get_bits(u32 index, u32 mask)
+{
+	return (index & mask) >> (ffs(mask) - 1);
+}
+
+static void index_to_params(u32 index, struct coproc_params *params)
+{
+	if (get_bits(index, KVM_ARM_MSR_64_BIT_MASK)) {
+		params->is_64bit = true;
+		params->CRm = get_bits(index, KVM_ARM_MSR_64_CRM_MASK);
+		params->Op1 = get_bits(index, KVM_ARM_MSR_64_OPC1_MASK);
+		params->Op2 = 0;
+		params->CRn = 0;
+	} else {
+		params->is_64bit = false;
+		params->CRn = get_bits(index, KVM_ARM_MSR_32_CRN_MASK);
+		params->CRm = get_bits(index, KVM_ARM_MSR_32_CRM_MASK);
+		params->Op1 = get_bits(index, KVM_ARM_MSR_32_OPC1_MASK);
+		params->Op2 = get_bits(index, KVM_ARM_MSR_32_OPC2_MASK);
+	}
+}
+
+/* Decode an index value, and find the cp15 coproc_reg entry. */
+static const struct coproc_reg *index_to_coproc_reg(struct kvm_vcpu *vcpu,
+						    u32 index)
+{
+	size_t num;
+	const struct coproc_reg *table, *r;
+	struct coproc_params params;
+
+	/* We only do cp15 for now. */
+	if (get_bits(index, KVM_ARM_MSR_COPROC_MASK != 15))
+		return NULL;
+
+	index_to_params(index, &params);
+
+	table = get_target_table(vcpu->arch.target, &num);
+	r = find_reg(&params, table, num);
+	if (!r)
+		r = find_reg(&params, cp15_regs, ARRAY_SIZE(cp15_regs));
+
+	/* Not saved in the cp15 array? */
+	if (r && !r->reg)
+		r = NULL;
+
+	return r;
+}
+
+/*
+ * These are the invariant cp15 registers: we let the guest see the host
+ * versions of these, so they're part of the guest state.
+ *
+ * A future CPU may provide a mechanism to present different values to
+ * the guest, or a future kvm may trap them.
+ */
+/* Unfortunately, there's no register-argument for mrc, so generate. */
+#define FUNCTION_FOR32(crn, crm, op1, op2, name)			\
+	static void get_##name(struct kvm_vcpu *v,			\
+			       const struct coproc_reg *r)		\
+	{								\
+		u32 val;						\
+									\
+		asm volatile("mrc p15, " __stringify(op1)		\
+			     ", %0, c" __stringify(crn)			\
+			     ", c" __stringify(crm)			\
+			     ", " __stringify(op2) "\n" : "=r" (val));	\
+		((struct coproc_reg *)r)->val = val;			\
+	}
+
+FUNCTION_FOR32(0, 0, 0, 0, MIDR)
+FUNCTION_FOR32(0, 0, 0, 1, CTR)
+FUNCTION_FOR32(0, 0, 0, 2, TCMTR)
+FUNCTION_FOR32(0, 0, 0, 3, TLBTR)
+FUNCTION_FOR32(0, 0, 0, 6, REVIDR)
+FUNCTION_FOR32(0, 1, 0, 0, ID_PFR0)
+FUNCTION_FOR32(0, 1, 0, 1, ID_PFR1)
+FUNCTION_FOR32(0, 1, 0, 2, ID_DFR0)
+FUNCTION_FOR32(0, 1, 0, 3, ID_AFR0)
+FUNCTION_FOR32(0, 1, 0, 4, ID_MMFR0)
+FUNCTION_FOR32(0, 1, 0, 5, ID_MMFR1)
+FUNCTION_FOR32(0, 1, 0, 6, ID_MMFR2)
+FUNCTION_FOR32(0, 1, 0, 7, ID_MMFR3)
+FUNCTION_FOR32(0, 2, 0, 0, ID_ISAR0)
+FUNCTION_FOR32(0, 2, 0, 1, ID_ISAR1)
+FUNCTION_FOR32(0, 2, 0, 2, ID_ISAR2)
+FUNCTION_FOR32(0, 2, 0, 3, ID_ISAR3)
+FUNCTION_FOR32(0, 2, 0, 4, ID_ISAR4)
+FUNCTION_FOR32(0, 2, 0, 5, ID_ISAR5)
+FUNCTION_FOR32(0, 0, 1, 0, CSSIDR)
+FUNCTION_FOR32(0, 0, 1, 1, CLIDR)
+FUNCTION_FOR32(0, 0, 1, 7, AIDR)
+
+/* ->val is filled in by kvm_invariant_coproc_table_init() */
+static struct coproc_reg invariant_cp15[] = {
+	{ CRn( 0), CRm( 0), Op1( 0), Op2( 0), is32, NULL, get_MIDR },
+	{ CRn( 0), CRm( 0), Op1( 0), Op2( 1), is32, NULL, get_CTR },
+	{ CRn( 0), CRm( 0), Op1( 0), Op2( 2), is32, NULL, get_TCMTR },
+	{ CRn( 0), CRm( 0), Op1( 0), Op2( 3), is32, NULL, get_TLBTR },
+	{ CRn( 0), CRm( 0), Op1( 0), Op2( 6), is32, NULL, get_REVIDR },
+
+	{ CRn( 0), CRm( 1), Op1( 0), Op2( 0), is32, NULL, get_ID_PFR0 },
+	{ CRn( 0), CRm( 1), Op1( 0), Op2( 1), is32, NULL, get_ID_PFR1 },
+	{ CRn( 0), CRm( 1), Op1( 0), Op2( 2), is32, NULL, get_ID_DFR0 },
+	{ CRn( 0), CRm( 1), Op1( 0), Op2( 3), is32, NULL, get_ID_AFR0 },
+	{ CRn( 0), CRm( 1), Op1( 0), Op2( 4), is32, NULL, get_ID_MMFR0 },
+	{ CRn( 0), CRm( 1), Op1( 0), Op2( 5), is32, NULL, get_ID_MMFR1 },
+	{ CRn( 0), CRm( 1), Op1( 0), Op2( 6), is32, NULL, get_ID_MMFR2 },
+	{ CRn( 0), CRm( 1), Op1( 0), Op2( 7), is32, NULL, get_ID_MMFR3 },
+
+	{ CRn( 0), CRm( 2), Op1( 0), Op2( 0), is32, NULL, get_ID_ISAR0 },
+	{ CRn( 0), CRm( 2), Op1( 0), Op2( 1), is32, NULL, get_ID_ISAR1 },
+	{ CRn( 0), CRm( 2), Op1( 0), Op2( 2), is32, NULL, get_ID_ISAR2 },
+	{ CRn( 0), CRm( 2), Op1( 0), Op2( 3), is32, NULL, get_ID_ISAR3 },
+	{ CRn( 0), CRm( 2), Op1( 0), Op2( 4), is32, NULL, get_ID_ISAR4 },
+	{ CRn( 0), CRm( 2), Op1( 0), Op2( 5), is32, NULL, get_ID_ISAR5 },
+
+	{ CRn( 0), CRm( 0), Op1( 1), Op2( 0), is32, NULL, get_CSSIDR },
+	{ CRn( 0), CRm( 0), Op1( 1), Op2( 1), is32, NULL, get_CLIDR },
+	{ CRn( 0), CRm( 0), Op1( 1), Op2( 7), is32, NULL, get_AIDR },
+};
+
+static int get_invariant_cp15(u32 index, u64 *val)
+{
+	struct coproc_params params;
+	const struct coproc_reg *r;
+
+	index_to_params(index, &params);
+	r = find_reg(&params, invariant_cp15, ARRAY_SIZE(invariant_cp15));
+	if (!r)
+		return -ENOENT;
+
+	*val = r->val;
+	return 0;
+}
+
+static int set_invariant_cp15(u32 index, u64 val)
+{
+	struct coproc_params params;
+	const struct coproc_reg *r;
+
+	index_to_params(index, &params);
+	r = find_reg(&params, invariant_cp15, ARRAY_SIZE(invariant_cp15));
+	if (!r)
+		return -ENOENT;
+
+	/* This is what we mean by invariant: you can't change it. */
+	if (r->val != val)
+		return -EINVAL;
+
+	return 0;
+}
+
+static int get_msr(struct kvm_vcpu *vcpu, u32 index, u64 *val)
+{
+	const struct coproc_reg *r;
+
+	r = index_to_coproc_reg(vcpu, index);
+	if (!r)
+		return get_invariant_cp15(index, val);
+
+	*val = vcpu->arch.cp15[r->reg];
+	if (r->is_64)
+		*val |= ((u64)vcpu->arch.cp15[r->reg+1]) << 32;
+	return 0;
+}
+
+static int set_msr(struct kvm_vcpu *vcpu, u32 index, u64 val)
+{
+	const struct coproc_reg *r;
+
+	r = index_to_coproc_reg(vcpu, index);
+	if (!r)
+		return set_invariant_cp15(index, val);
+
+	vcpu->arch.cp15[r->reg] = val;
+	if (r->is_64)
+		vcpu->arch.cp15[r->reg+1] = (val >> 32);
+	return 0;
+}
+
+/* Return user adddress to get/set value from. */
+static u64 __user *get_umsr(struct kvm_msr_entry __user *uentry, u32 *idx)
+{
+	struct kvm_msr_entry entry;
+
+	if (copy_from_user(&entry, uentry, sizeof(entry)))
+		return NULL;
+	*idx = entry.index;
+	return &uentry->data;
+}
+
+/**
+ * kvm_arm_get_msrs - copy one or more special registers to userspace.
+ * @vcpu: the vcpu
+ * @entries: the array of entries
+ * @num: the number of entries
+ */
+int kvm_arm_get_msrs(struct kvm_vcpu *vcpu,
+		     struct kvm_msr_entry __user *entries, u32 num)
+{
+	u32 i, index;
+	u64 val;
+	u64 __user *uval;
+	int ret;
+
+	for (i = 0; i < num; i++) {
+		uval = get_umsr(&entries[i], &index);
+		if (!uval)
+			return -EFAULT;
+		if ((ret = get_msr(vcpu, index, &val)) != 0)
+			return ret;
+		if (put_user(val, uval))
+			return -EFAULT;
+	}
+	return 0;
+}
+
+/**
+ * kvm_arm_set_msrs - copy one or more special registers from userspace.
+ * @vcpu: the vcpu
+ * @entries: the array of entries
+ * @num: the number of entries
+ */
+int kvm_arm_set_msrs(struct kvm_vcpu *vcpu,
+		     struct kvm_msr_entry __user *entries, u32 num)
+{
+	u32 i, index;
+	u64 val;
+	u64 __user *uval;
+	int ret;
+
+	for (i = 0; i < num; i++) {
+		uval = get_umsr(&entries[i], &index);
+		if (!uval)
+			return -EFAULT;
+		if (copy_from_user(&val, uval, sizeof(val)) != 0)
+			return -EFAULT;
+		if ((ret = set_msr(vcpu, index, val)) != 0)
+			return ret;
+	}
+	return 0;
+}
+
 static int cmp_reg(const struct coproc_reg *i1, const struct coproc_reg *i2)
 {
+	BUG_ON(i1 == i2);
+	if (!i1)
+		return 1;
+	else if (!i2)
+		return -1;
 	if (i1->CRn != i2->CRn)
 		return i1->CRn - i2->CRn;
 	if (i1->CRm != i2->CRm)
@@ -553,6 +807,116 @@ static int cmp_reg(const struct coproc_reg *i1, const struct coproc_reg *i2)
 	if (i1->Op1 != i2->Op1)
 		return i1->Op1 - i2->Op1;
 	return i1->Op2 - i2->Op2;
+}
+
+/* Puts in the position indicated by mask (assumes val fits in mask) */
+static inline u32 set_bits(u32 val, u32 mask)
+{
+	return val << (ffs(mask)-1);
+}
+
+static u32 cp15_to_index(const struct coproc_reg *reg)
+{
+	u32 val = set_bits(15, KVM_ARM_MSR_COPROC_MASK);
+	if (reg->is_64) {
+		val |= set_bits(1, KVM_ARM_MSR_64_BIT_MASK);
+		val |= set_bits(reg->Op1, KVM_ARM_MSR_64_OPC1_MASK);
+		val |= set_bits(reg->CRm, KVM_ARM_MSR_64_CRM_MASK);
+	} else {
+		val |= set_bits(reg->Op1, KVM_ARM_MSR_32_OPC1_MASK);
+		val |= set_bits(reg->Op2, KVM_ARM_MSR_32_OPC2_MASK);
+		val |= set_bits(reg->CRm, KVM_ARM_MSR_32_CRM_MASK);
+		val |= set_bits(reg->CRn, KVM_ARM_MSR_32_CRN_MASK);
+	}
+	return val;
+}
+
+static bool copy_reg_to_user(const struct coproc_reg *reg, u32 __user **uind)
+{
+	if (!*uind)
+		return true;
+
+	if (put_user(cp15_to_index(reg), *uind))
+		return false;
+
+	(*uind)++;
+	return true;
+}
+
+/* Assumed ordered tables, see kvm_coproc_table_init. */
+static int walk_msrs(struct kvm_vcpu *vcpu, u32 __user *uind)
+{
+	const struct coproc_reg *i1, *i2, *end1, *end2;
+	unsigned int total = 0;
+	size_t num;
+
+	/* We check for duplicates here, to allow arch-specific overrides. */
+	i1 = get_target_table(vcpu->arch.target, &num);
+	end1 = i1 + num;
+	i2 = cp15_regs;
+	end2 = cp15_regs + ARRAY_SIZE(cp15_regs);
+
+	BUG_ON(i1 == end1 || i2 == end2);
+
+	/* Walk carefully, as both tables may refer to the same register. */
+	while (i1 && i2) {
+		int cmp = cmp_reg(i1, i2);
+		/* target-specific overrides generic entry. */
+		if (cmp <= 0) {
+			/* Ignore registers we trap but don't save. */
+			if (i1->reg) {
+				if (!copy_reg_to_user(i1, &uind))
+					return -EFAULT;
+				total++;
+			}
+		} else {
+			/* Ignore registers we trap but don't save. */
+			if (i2->reg) {
+				if (!copy_reg_to_user(i2, &uind))
+					return -EFAULT;
+				total++;
+			}
+		}
+
+		if (cmp <= 0 && ++i1 == end1)
+			i1 = NULL;
+		if (cmp >= 0 && ++i2 == end2)
+			i2 = NULL;
+	}
+	return total;
+}
+
+/**
+ * kvm_arm_num_guest_msrs - how many registers do we present via KVM_GET_MSR
+ *
+ * This is for special registers, particularly cp15.
+ */
+unsigned long kvm_arm_num_guest_msrs(struct kvm_vcpu *vcpu)
+{
+	return ARRAY_SIZE(invariant_cp15) + walk_msrs(vcpu, (u32 __user *)NULL);
+}
+
+/**
+ * kvm_arm_copy_msrindices - copy a series of coprocessor registers.
+ *
+ * This is for special registers, particularly cp15.
+ */
+int kvm_arm_copy_msrindices(struct kvm_vcpu *vcpu, u32 __user *uindices)
+{
+	unsigned int i;
+	int err;
+
+	/* First give them all the invariant registers' indices. */
+	for (i = 0; i < ARRAY_SIZE(invariant_cp15); i++) {
+		if (put_user(cp15_to_index(&invariant_cp15[i]), uindices))
+			return -EFAULT;
+		uindices++;
+	}
+
+	err = walk_msrs(vcpu, uindices);
+	if (err > 0)
+		err = 0;
+	return err;
 }
 
 void kvm_coproc_table_init(void)
@@ -565,6 +929,10 @@ void kvm_coproc_table_init(void)
 	for (i = 1; i < ARRAY_SIZE(cp15_cortex_a15_regs); i++)
 		BUG_ON(cmp_reg(&cp15_cortex_a15_regs[i-1],
 			       &cp15_cortex_a15_regs[i]) >= 0);
+
+	/* We abuse the reset function to overwrite the table itself. */
+	for (i = 0; i < ARRAY_SIZE(invariant_cp15); i++)
+		invariant_cp15[i].reset(NULL, &invariant_cp15[i]);
 }
 
 /**
