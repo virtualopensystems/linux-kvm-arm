@@ -1,0 +1,44 @@
+#
+# KVM configuration
+#
+
+source "virt/kvm/Kconfig"
+
+menuconfig VIRTUALIZATION
+	bool "Virtualization"
+	---help---
+	  Say Y here to get to see options for using your Linux host to run
+	  other operating systems inside virtual machines (guests).
+	  This option alone does not add any kernel code.
+
+	  If you say N, all options in this submenu will be skipped and
+	  disabled.
+
+if VIRTUALIZATION
+
+config KVM
+	tristate "Kernel-based Virtual Machine (KVM) support"
+	select PREEMPT_NOTIFIERS
+	select ANON_INODES
+	select KVM_MMIO
+	depends on CPU_V7 && ARM_VIRT_EXT
+	---help---
+	  Support hosting virtualized guest machines. You will also
+	  need to select one or more of the processor modules below.
+
+	  This module provides access to the hardware capabilities through
+	  a character device node named /dev/kvm.
+
+	  If unsure, say N.
+
+config KVM_ARM_HOST
+	bool "KVM host support for ARM cpus."
+	depends on KVM
+	depends on MMU
+	depends on CPU_V7 && ARM_VIRT_EXT
+	---help---
+	  Provides host support for ARM processors.
+
+source drivers/virtio/Kconfig
+
+endif # VIRTUALIZATION
