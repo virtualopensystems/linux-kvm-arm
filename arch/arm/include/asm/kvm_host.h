@@ -19,6 +19,8 @@
 #ifndef __ARM_KVM_HOST_H__
 #define __ARM_KVM_HOST_H__
 
+#include <asm/fpstate.h>
+
 #define KVM_MAX_VCPUS 4
 #define KVM_MEMORY_SLOTS 32
 #define KVM_PRIVATE_MEM_SLOTS 4
@@ -132,6 +134,14 @@ struct kvm_vcpu_arch {
 	u64 pc_ipa2;		/* same as above, but for non-aligned wide thumb
 				   instructions */
 
+	/* Floating point registers (VFP and Advanced SIMD/NEON) */
+	struct vfp_hard_struct vfp_guest;
+	struct vfp_hard_struct *vfp_host;
+
+	/*
+	 * Anything that is not used directly from assembly code goes
+	 * here.
+	 */
 	/* IO related fields */
 	bool mmio_sign_extend;	/* for byte/halfword loads */
 	u32 mmio_rd;
