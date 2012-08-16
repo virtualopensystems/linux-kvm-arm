@@ -102,6 +102,7 @@ enum cp15_regs {
 	c5_AIFSR,		/* Auxilary Instruction Fault Status Register */
 	c6_DFAR,		/* Data Fault Address Register */
 	c6_IFAR,		/* Instruction Fault Address Register */
+	c9_L2CTLR,		/* Cortex A15 L2 Control Register */
 	c10_PRRR,		/* Primary Region Remap Register */
 	c10_NMRR,		/* Normal Memory Remap Register */
 	c12_VBAR,		/* Vector Base Address Register */
@@ -142,6 +143,10 @@ struct kvm_vcpu_arch {
 	 * Anything that is not used directly from assembly code goes
 	 * here.
 	 */
+	/* dcache set/way operation pending */
+	int last_pcpu;
+	cpumask_t require_dcache_flush;
+
 	/* IO related fields */
 	bool mmio_sign_extend;	/* for byte/halfword loads */
 	u32 mmio_rd;
