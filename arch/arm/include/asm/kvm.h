@@ -85,4 +85,35 @@ struct kvm_sync_regs {
 struct kvm_arch_memory_slot {
 };
 
+/* Based on x86, but we use KVM_GET_VCPU_MSR_INDEX_LIST. */
+struct kvm_msr_entry {
+	__u32 index;
+	__u32 reserved;
+	__u64 data;
+};
+
+/* for KVM_GET_MSRS and KVM_SET_MSRS */
+struct kvm_msrs {
+	__u32 nmsrs; /* number of msrs in entries */
+	__u32 pad;
+
+	struct kvm_msr_entry entries[0];
+};
+
+/* for KVM_VCPU_GET_MSR_INDEX_LIST */
+struct kvm_msr_list {
+	__u32 nmsrs; /* number of msrs in entries */
+	__u32 indices[0];
+};
+
+/* If you need to interpret the index values, here's the key. */
+#define KVM_ARM_MSR_COPROC_MASK		0xFFFF0000
+#define KVM_ARM_MSR_64_BIT_MASK		0x00008000
+#define KVM_ARM_MSR_64_OPC1_MASK	0x000000F0
+#define KVM_ARM_MSR_64_CRM_MASK		0x0000000F
+#define KVM_ARM_MSR_32_CRM_MASK		0x0000000F
+#define KVM_ARM_MSR_32_OPC2_MASK	0x00000070
+#define KVM_ARM_MSR_32_CRN_MASK		0x00000780
+#define KVM_ARM_MSR_32_OPC1_MASK	0x00003800
+
 #endif /* __ARM_KVM_H__ */
