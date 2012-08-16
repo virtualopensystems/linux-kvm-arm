@@ -17,5 +17,21 @@
  */
 
 #include <linux/module.h>
+#include <asm/kvm_asm.h>
+
+EXPORT_SYMBOL_GPL(__kvm_hyp_init);
+EXPORT_SYMBOL_GPL(__kvm_hyp_init_end);
+
+EXPORT_SYMBOL_GPL(__kvm_hyp_exit);
+EXPORT_SYMBOL_GPL(__kvm_hyp_exit_end);
+
+EXPORT_SYMBOL_GPL(__kvm_hyp_vector);
+
+EXPORT_SYMBOL_GPL(__kvm_hyp_code_start);
+EXPORT_SYMBOL_GPL(__kvm_hyp_code_end);
+
+EXPORT_SYMBOL_GPL(__kvm_vcpu_run);
+
+EXPORT_SYMBOL_GPL(__kvm_flush_vm_context);
 
 EXPORT_SYMBOL_GPL(smp_send_reschedule);
