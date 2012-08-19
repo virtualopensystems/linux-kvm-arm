@@ -760,11 +760,14 @@ int kvm_handle_guest_abort(struct kvm_vcpu *vcpu, struct kvm_run *run)
 	return ret ? ret : 1;
 }
 
-static bool hva_to_gpa(struct kvm *kvm, unsigned long hva, gpa_t *gpa)
+static int handle_hva_to_gpa(struct kvm *kvm, unsigned long hva,
+			     void (*handler)(struct kvm *kvm, unsigned long hva,
+					     gpa_t gpa, void *data),
+			     void *data)
 {
 	struct kvm_memslots *slots;
 	struct kvm_memory_slot *memslot;
-	bool found = false;
+	int cnt = 0;
 
 	slots = kvm_memslots(kvm);
 
@@ -775,31 +778,36 @@ static bool hva_to_gpa(struct kvm *kvm, unsigned long hva, gpa_t *gpa)
 
 		end = start + (memslot->npages << PAGE_SHIFT);
 		if (hva >= start && hva < end) {
+			gpa_t gpa;
 			gpa_t gpa_offset = hva - start;
-			*gpa = (memslot->base_gfn << PAGE_SHIFT) + gpa_offset;
-			found = true;
-			/* no overlapping memslots allowed: break */
-			break;
+			gpa = (memslot->base_gfn << PAGE_SHIFT) + gpa_offset;
+			handler(kvm, hva, gpa, data);
+			cnt++;
 		}
 	}
 
-	return found;
+	return cnt;
+}
+
+static void kvm_unmap_hva_handler(struct kvm *kvm, unsigned long hva,
+				  gpa_t gpa, void *data)
+{
+	spin_lock(&kvm->arch.pgd_lock);
+	stage2_clear_pte(kvm, gpa);
+	spin_unlock(&kvm->arch.pgd_lock);
 }
 
 int kvm_unmap_hva(struct kvm *kvm, unsigned long hva)
 {
-	bool found;
-	gpa_t gpa;
+	int found;
 
 	if (!kvm->arch.pgd)
 		return 0;
 
-	found = hva_to_gpa(kvm, hva, &gpa);
-	if (found) {
-		spin_lock(&kvm->arch.pgd_lock);
-		stage2_clear_pte(kvm, gpa);
-		spin_unlock(&kvm->arch.pgd_lock);
-	}
+	found = handle_hva_to_gpa(kvm, hva, &kvm_unmap_hva_handler, NULL);
+	if (found > 0)
+		__kvm_tlb_flush_vmid(kvm);
+
 	return 0;
 }
 
@@ -820,21 +828,27 @@ int kvm_unmap_hva_range(struct kvm *kvm,
 	return 0;
 }
 
+static void kvm_set_spte_handler(struct kvm *kvm, unsigned long hva,
+				 gpa_t gpa, void *data)
+{
+	pte_t *pte = (pte_t *)data;
+
+	spin_lock(&kvm->arch.pgd_lock);
+	stage2_set_pte(kvm, NULL, gpa, pte);
+	spin_unlock(&kvm->arch.pgd_lock);
+}
+
+
 void kvm_set_spte_hva(struct kvm *kvm, unsigned long hva, pte_t pte)
 {
-	gpa_t gpa;
-	bool found;
+	int found;
 
 	if (!kvm->arch.pgd)
 		return;
 
-	found = hva_to_gpa(kvm, hva, &gpa);
-	if (found) {
-		spin_lock(&kvm->arch.pgd_lock);
-		stage2_set_pte(kvm, NULL, gpa, &pte);
-		spin_unlock(&kvm->arch.pgd_lock);
+	found = handle_hva_to_gpa(kvm, hva, &kvm_set_spte_handler, &pte);
+	if (found > 0)
 		__kvm_tlb_flush_vmid(kvm);
-	}
 }
 
 void kvm_mmu_free_memory_caches(struct kvm_vcpu *vcpu)
