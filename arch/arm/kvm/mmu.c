@@ -628,7 +628,7 @@ static int invalid_io_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa)
 static int io_mem_abort(struct kvm_vcpu *vcpu, struct kvm_run *run,
 			phys_addr_t fault_ipa, struct kvm_memory_slot *memslot)
 {
-	unsigned long rd, len, instr_len;
+	unsigned long rd, len;
 	bool is_write, sign_extend;
 
 	if (!(vcpu->arch.hsr & HSR_ISV))
@@ -669,9 +669,6 @@ static int io_mem_abort(struct kvm_vcpu *vcpu, struct kvm_run *run,
 		return -EFAULT;
 	}
 
-	/* Get instruction length in bytes */
-	instr_len = (vcpu->arch.hsr & HSR_IL) ? 4 : 2;
-
 	/* Export MMIO operations to user space */
 	run->mmio.is_write = is_write;
 	run->mmio.phys_addr = fault_ipa;
@@ -690,8 +687,7 @@ static int io_mem_abort(struct kvm_vcpu *vcpu, struct kvm_run *run,
 	 * The MMIO instruction is emulated and should not be re-executed
 	 * in the guest.
 	 */
-	*vcpu_pc(vcpu) += instr_len;
-	kvm_adjust_itstate(vcpu);
+	kvm_skip_instr(vcpu, (vcpu->arch.hsr >> 25) & 1);
 	run->exit_reason = KVM_EXIT_MMIO;
 	return 0;
 }

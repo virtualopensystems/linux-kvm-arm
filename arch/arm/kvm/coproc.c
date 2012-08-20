@@ -476,9 +476,7 @@ static int emulate_cp15(struct kvm_vcpu *vcpu,
 
 		if (likely(r->access(vcpu, params, r))) {
 			/* Skip instruction, since it was emulated */
-			int instr_len = ((vcpu->arch.hsr >> 25) & 1) ? 4 : 2;
-			*vcpu_pc(vcpu) += instr_len;
-			kvm_adjust_itstate(vcpu);
+			kvm_skip_instr(vcpu, (vcpu->arch.hsr >> 25) & 1);
 			return 1;
 		}
 		/* If access function fails, it should complain. */
