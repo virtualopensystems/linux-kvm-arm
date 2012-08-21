@@ -12,6 +12,7 @@
 #include <linux/platform_device.h>
 #include <linux/clk.h>
 #include <linux/module.h>
+#include <linux/of.h>
 
 #include <sound/soc.h>
 #include <sound/soc-dapm.h>
@@ -202,10 +203,19 @@ static int __devexit origen_audio_remove(struct platform_device *pdev)
 	return 0;
 }
 
+#if defined(CONFIG_OF)
+static const struct of_device_id origen_audio_of_match[] = {
+	{ .compatible = "samsung,origen_audio", },
+	{ }
+};
+MODULE_DEVICE_TABLE(of, origen_audio_of_match);
+#endif
+
 static struct platform_driver origen_audio_driver = {
 	.driver		= {
 		.name	= "origen-audio",
 		.owner	= THIS_MODULE,
+		.of_match_table = of_match_ptr(origen_audio_of_match),
 	},
 	.probe		= origen_audio_probe,
 	.remove		= __devexit_p(origen_audio_remove),
