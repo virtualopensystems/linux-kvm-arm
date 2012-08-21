@@ -131,6 +131,8 @@ static const struct of_dev_auxdata exynos4_auxdata_lookup[] __initconst = {
 			&origen_hsotg_pdata),
 	OF_DEV_AUXDATA("samsung,exynos4210-fimd", EXYNOS4_PA_FIMD0,
 			"exynos4-fb.0", NULL),
+	OF_DEV_AUXDATA("samsung,samsung-i2s", EXYNOS4_PA_I2S0,
+						"samsung-i2s.0", NULL),
 	{},
 };
 
