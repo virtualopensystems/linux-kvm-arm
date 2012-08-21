@@ -72,7 +72,6 @@ static struct cpuidle_state tc2_cpuidle_set[] __initdata = {
 							CPUIDLE_FLAG_COUPLED,
 		.name			= "C1",
 		.desc			= "ARM power down",
-		.disabled		= 1,
 	},
 };
 
@@ -278,6 +277,15 @@ int __init tc2_idle_init(void)
 	/* enable all wake-up IRQs by default */
 	vexpress_spc_set_wake_intr(0x7ff);
 	vexpress_flags_set(virt_to_phys(tc2_cpu_resume));
+
+	/*
+	 * Enable idle by default for all possible clusters.
+	 * This must be done after all other setup to prevent the 
+	 * possibility of clusters being powered down before they
+	 * are fully configured.
+	 */
+	for (i = 0; i < NR_CLUSTERS; i++)
+		cpumask_set_cpu(i, &cluster_mask);
 
 	return 0;
 }
