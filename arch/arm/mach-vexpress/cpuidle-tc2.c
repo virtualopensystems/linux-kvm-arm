@@ -194,21 +194,16 @@ static const struct file_operations cpuidle_fops = {
 
 static int idle_debug_set(void *data, u64 val)
 {
-	int i;
-
 	if ((val > NR_CLUSTERS || val < 0) && val != 0xff) {
 		pr_warning("Wrong parameter passed\n");
 		return -EINVAL;
 	}
 	cpuidle_pause_and_lock();
-	if (val == 0xff) {
+	if (val == 0xff)
 		cpumask_clear(&cluster_mask);
-		return 0;
-	}
+	else
+		cpumask_set_cpu(val, &cluster_mask);
 
-	for (i = 0; i < NR_CLUSTERS; i++)
-		if (val == i)
-			cpumask_set_cpu(i, &cluster_mask);
 	cpuidle_resume_and_unlock();
 	return 0;
 }
