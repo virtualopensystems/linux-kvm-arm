@@ -254,6 +254,13 @@
 				};
 			};
 		};
+
+		unidisplay_ts@41 {
+			compatible = "pixcir,unidisplay-ts";
+			reg = <0x41>;
+			interrupt-parent = <&gpx3>;
+			interrupts = <1 0>;
+		};
 	};
 
 	gpio_keys {
