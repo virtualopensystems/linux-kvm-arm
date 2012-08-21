@@ -387,17 +387,7 @@ static struct i2c_driver unidisplay_ts_i2c_driver = {
 	.id_table	=	unidisplay_ts_i2c_id,
 };
 
-static int __init unidisplay_ts_init(void)
-{
-	return i2c_add_driver(&unidisplay_ts_i2c_driver);
-}
-module_init(unidisplay_ts_init);
-
-static void __exit unidisplay_ts_exit(void)
-{
-	i2c_del_driver(&unidisplay_ts_i2c_driver);
-}
-module_exit(unidisplay_ts_exit);
+module_i2c_driver(unidisplay_ts_i2c_driver);
 
 MODULE_AUTHOR("JHKIM");
 MODULE_LICENSE("GPL");
