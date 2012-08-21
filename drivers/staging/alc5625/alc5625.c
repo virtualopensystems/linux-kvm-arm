@@ -2263,27 +2263,7 @@ static struct i2c_driver alc5625_i2c_driver = {
 };
 #endif
 
-static int __init alc5625_modinit(void)
-{
-	int ret = 0;
-#if defined(CONFIG_I2C) || defined(CONFIG_I2C_MODULE)
-	ret = i2c_add_driver(&alc5625_i2c_driver);
-	if (ret != 0) {
-		printk(KERN_ERR "Failed to register ALC5625 I2C driver: %d\n",
-				ret);
-	}
-#endif
-	return ret;
-}
-module_init(alc5625_modinit);
-
-static void __exit alc5625_exit(void)
-{
-#if defined(CONFIG_I2C) || defined(CONFIG_I2C_MODULE)
-	i2c_del_driver(&alc5625_i2c_driver);
-#endif
-}
-module_exit(alc5625_exit);
+module_i2c_driver(alc5625_i2c_driver);
 
 MODULE_DESCRIPTION("ASoC ALC5625 driver");
 MODULE_LICENSE("GPL");
