@@ -29,7 +29,7 @@
 #define LZO_USE_CTZ32	1
 #elif defined(__i386__) || defined(__powerpc__)
 #define LZO_USE_CTZ32	1
-#else
+#elif defined(__arm__) && (__LINUX_ARM_ARCH__ >= 5)
 #define LZO_USE_CTZ32	1
 #endif
 
