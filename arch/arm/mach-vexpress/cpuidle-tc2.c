@@ -194,7 +194,7 @@ static const struct file_operations cpuidle_fops = {
 
 static int idle_debug_set(void *data, u64 val)
 {
-	if ((val > NR_CLUSTERS || val < 0) && val != 0xff) {
+	if (val >= (unsigned)NR_CLUSTERS && val != 0xff) {
 		pr_warning("Wrong parameter passed\n");
 		return -EINVAL;
 	}
