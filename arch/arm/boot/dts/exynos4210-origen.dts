@@ -269,6 +269,11 @@
 		samsung,i2c-max-bus-freq = <20000>;
 		pinctrl-0 = <&i2c1_bus>;
 		pinctrl-names = "default";
+
+		codec: alc5625@1e {
+			compatible = "realtek,alc5625";
+			reg = <0x1e>;
+		};
 	};
 
 	gpio_keys {
