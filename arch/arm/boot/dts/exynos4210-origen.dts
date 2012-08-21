@@ -358,4 +358,18 @@
 		compatible = "regulator-fixed";
 		regulator-name = "hdmi-en";
 	};
+
+	i2s_0: i2s@03830000 {
+		pinctrl-0 = <&i2s0_bus>;
+		pinctrl-names = "default";
+		idma-addr = <0x03000000>;
+	};
+
+	asoc_dma {
+		compatible = "samsung,audio-dma";
+	};
+
+	origen_audio {
+		compatible = "samsung,origen_audio";
+	};
 };

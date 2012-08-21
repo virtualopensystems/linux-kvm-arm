@@ -29,6 +29,7 @@
 		pinctrl0 = &pinctrl_0;
 		pinctrl1 = &pinctrl_1;
 		pinctrl2 = &pinctrl_2;
+		i2s0 = &i2s_0;
 	};
 
 	pd_lcd1: lcd1-power-domain@10023CA0 {
@@ -100,5 +101,16 @@
 		compatible = "samsung,exynos-hsotg";
 		reg = <0x12480000 0x20000>;
 		interrupts = <0 71 0>;
+	};
+
+	i2s_0: i2s@03830000 {
+		compatible = "samsung,samsung-i2s";
+		reg = <0x03830000 0x100>;
+		tx-dma-channel-secondary = <&pdma0 10>;
+		tx-dma-channel = <&pdma0 12>;
+		rx-dma-channel = <&pdma0 11>;
+		supports-6ch;
+		supports-rstclr;
+		supports-secdai;
 	};
 };
