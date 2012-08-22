@@ -51,7 +51,7 @@ __asm__(".arch_extension	virt");
 #endif
 
 static DEFINE_PER_CPU(unsigned long, kvm_arm_hyp_stack_page);
-static DEFINE_PER_CPU(struct vfp_hard_struct *, kvm_host_vfp_state);
+static struct vfp_hard_struct __percpu *kvm_host_vfp_state;
 
 /* The VMID used in the VTTBR */
 static atomic64_t kvm_vmid_gen = ATOMIC64_INIT(1);
@@ -274,7 +274,7 @@ void kvm_arch_vcpu_uninit(struct kvm_vcpu *vcpu)
 void kvm_arch_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
 {
 	vcpu->cpu = cpu;
-	vcpu->arch.vfp_host = __get_cpu_var(kvm_host_vfp_state);
+	vcpu->arch.vfp_host = this_cpu_ptr(kvm_host_vfp_state);
 
 	/*
 	 * Check whether this vcpu requires the cache to be flushed on
@@ -870,17 +870,17 @@ static int init_hyp_mode(void)
 	/*
 	 * Map the host VFP structures
 	 */
+	kvm_host_vfp_state = alloc_percpu(struct vfp_hard_struct);
+	if (!kvm_host_vfp_state) {
+		err = -ENOMEM;
+		kvm_err("Cannot allocate host VFP state\n");
+		goto out_free_mappings;
+	}
+
 	for_each_possible_cpu(cpu) {
 		struct vfp_hard_struct *vfp;
 
-		vfp = kmalloc(sizeof(*vfp), GFP_KERNEL);
-		if (!vfp) {
-			kvm_err("Not enough memory for vfp struct\n");
-			goto out_free_vfp;
-		}
-
-		memset(vfp, 0, sizeof(*vfp));
-		per_cpu(kvm_host_vfp_state, cpu) = vfp;
+		vfp = per_cpu_ptr(kvm_host_vfp_state, cpu);
 		err = create_hyp_mappings(vfp, vfp + 1);
 
 		if (err) {
@@ -891,8 +891,7 @@ static int init_hyp_mode(void)
 
 	return 0;
 out_free_vfp:
-	for_each_possible_cpu(cpu)
-		kfree(per_cpu(kvm_host_vfp_state, cpu));
+	free_percpu(kvm_host_vfp_state);
 out_free_mappings:
 	free_hyp_pmds();
 out_free_stack_pages:
@@ -979,9 +978,8 @@ void kvm_arch_exit(void)
 	exit_hyp_mode();
 
 	free_hyp_pmds();
+	free_percpu(kvm_host_vfp_state);
 	for_each_possible_cpu(cpu) {
-		kfree(per_cpu(kvm_host_vfp_state, cpu));
-		per_cpu(kvm_host_vfp_state, cpu) = NULL;
 		free_page(per_cpu(kvm_arm_hyp_stack_page, cpu));
 		per_cpu(kvm_arm_hyp_stack_page, cpu) = 0;
 	}
