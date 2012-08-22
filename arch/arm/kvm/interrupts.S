@@ -459,8 +459,8 @@ __kvm_vcpu_return:
 
 	@ Don't trap coprocessor accesses for host kernel
 	set_hstr 0
-	set_hcptr 0, (HCPTR_TTA | HCPTR_TCP(10) | HCPTR_TCP(11))
 	set_hdcr 0
+	set_hcptr 0, (HCPTR_TTA | HCPTR_TCP(10) | HCPTR_TCP(11))
 
 #ifdef CONFIG_VFPv3
 	@ Save floating point registers we if let guest use them.
