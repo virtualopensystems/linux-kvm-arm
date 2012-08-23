@@ -550,8 +550,8 @@ static bool kvm_condition_valid(struct kvm_vcpu *vcpu)
 }
 
 /*
- * Return 0 to return to guest, < 0 on error, exit_reason ( > 0) on proper
- * exit to QEMU.
+ * Return > 0 to return to guest, < 0 on error, 0 (and set exit_reason) on
+ * proper exit to QEMU.
  */
 static int handle_exit(struct kvm_vcpu *vcpu, struct kvm_run *run,
 		       int exception_index)
