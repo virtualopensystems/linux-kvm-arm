@@ -588,11 +588,11 @@ int kvm_handle_mmio_return(struct kvm_vcpu *vcpu, struct kvm_run *run)
  * @len:	length to copy
  * @priv:	use guest PL1 (ie. kernel) mappings, otherwise use guest PL0 mappings.
  *
- * Returns 0 on success, or errno.
+ * Returns true on success, false on failure (unlikely, but retry).
  */
-static int copy_from_guest_va(struct kvm_vcpu *vcpu,
-			      void *dest, unsigned long va, size_t len,
-			      bool priv)
+static bool copy_from_guest_va(struct kvm_vcpu *vcpu,
+			       void *dest, unsigned long va, size_t len,
+			       bool priv)
 {
 	u64 par;
 	phys_addr_t pc_ipa;
@@ -603,8 +603,9 @@ static int copy_from_guest_va(struct kvm_vcpu *vcpu,
 	do {
 		par = __kvm_va_to_pa(vcpu, va & PAGE_MASK, priv);
 		if (par & 1) {
-			kvm_err("I/O Abort from invalid instruction address? Wrong!\n");
-			return -EINVAL;
+			kvm_err("I/O Abort from invalid instruction address"
+				" %#lx!\n", va);
+			return false;
 		}
 
 		if (par & (1U << 11)) {
@@ -627,13 +628,13 @@ static int copy_from_guest_va(struct kvm_vcpu *vcpu,
 
 		err = kvm_read_guest(vcpu->kvm, pc_ipa, dest, cur_len);
 		if (unlikely(err))
-			return err;
+			return false;
 
 		len -= cur_len;
 		va += cur_len;
 	} while (unlikely(len != 0));
 
-	return 0;
+	return true;
 }
 
 /**
@@ -650,7 +651,6 @@ static int copy_from_guest_va(struct kvm_vcpu *vcpu,
 static int invalid_io_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa)
 {
 	unsigned long instr;
-	int err;
 
 	if (vcpu->arch.regs.cpsr & PSR_T_BIT) {
 		/* TODO: Check validity of PC IPA and IPA2!!! */
@@ -659,12 +659,10 @@ static int invalid_io_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa)
 		return -EINVAL;
 	}
 
-	err = copy_from_guest_va(vcpu, &instr, vcpu->arch.regs.pc, sizeof(instr),
-				 vcpu_mode_priv(vcpu));
-	if (err) {
-		kvm_err("Could not copy guest instruction\n");
-		return err;
-	}
+	/* If it fails (SMP race?), we reenter guest for it to retry. */
+	if (!copy_from_guest_va(vcpu, &instr, vcpu->arch.regs.pc, sizeof(instr),
+				vcpu_mode_priv(vcpu)))
+		return 1;
 
 	return kvm_emulate_mmio_ls(vcpu, fault_ipa, instr);
 }
