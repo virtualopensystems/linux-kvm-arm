@@ -581,6 +581,62 @@ int kvm_handle_mmio_return(struct kvm_vcpu *vcpu, struct kvm_run *run)
 }
 
 /**
+ * copy_from_guest_va - copy memory from guest (very slow!)
+ * @vcpu:	vcpu pointer
+ * @dest:	memory to copy into
+ * @va:		virtual address in guest to copy from
+ * @len:	length to copy
+ * @priv:	use guest PL1 (ie. kernel) mappings, otherwise use guest PL0 mappings.
+ *
+ * Returns 0 on success, or errno.
+ */
+static int copy_from_guest_va(struct kvm_vcpu *vcpu,
+			      void *dest, unsigned long va, size_t len,
+			      bool priv)
+{
+	u64 par;
+	phys_addr_t pc_ipa;
+	size_t cur_len;
+	int err;
+
+	/* A 32-bit thumb2 instruction can actually go over a page boundary! */
+	do {
+		par = __kvm_va_to_pa(vcpu, va & PAGE_MASK, priv);
+		if (par & 1) {
+			kvm_err("I/O Abort from invalid instruction address? Wrong!\n");
+			return -EINVAL;
+		}
+
+		if (par & (1U << 11)) {
+			/* LPAE PAR format */
+			/*
+			 * TODO: Check if this ever happens
+			 * - called from Hyp mode
+			 */
+			pc_ipa = par & PAGE_MASK & ((1ULL << 32) - 1);
+		} else {
+			/* VMSAv7 PAR format */
+			pc_ipa = par & PAGE_MASK & ((1ULL << 40) - 1);
+		}
+		pc_ipa += va & ~PAGE_MASK;
+
+		/* Only copy up to end of page. */
+		cur_len = (pc_ipa & PAGE_MASK) + PAGE_SIZE - pc_ipa;
+		if (likely(cur_len > len))
+			cur_len = len;
+
+		err = kvm_read_guest(vcpu->kvm, pc_ipa, dest, cur_len);
+		if (unlikely(err))
+			return err;
+
+		len -= cur_len;
+		va += cur_len;
+	} while (unlikely(len != 0));
+
+	return 0;
+}
+
+/**
  * invalid_io_mem_abort -- Handle I/O aborts ISV bit is clear
  *
  * @vcpu:      The vcpu pointer
@@ -594,22 +650,7 @@ int kvm_handle_mmio_return(struct kvm_vcpu *vcpu, struct kvm_run *run)
 static int invalid_io_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa)
 {
 	unsigned long instr;
-	phys_addr_t pc_ipa;
-
-	if (vcpu->arch.pc_ipa & 1) {
-		kvm_err("I/O Abort from invalid instruction address? Wrong!\n");
-		return -EINVAL;
-	}
-
-	if (vcpu->arch.pc_ipa & (1U << 11)) {
-		/* LPAE PAR format */
-		/* TODO: Check if this ever happens - called from Hyp mode */
-		pc_ipa = vcpu->arch.pc_ipa & PAGE_MASK & ((1ULL << 32) - 1);
-	} else {
-		/* VMSAv7 PAR format */
-		pc_ipa = vcpu->arch.pc_ipa & PAGE_MASK & ((1ULL << 40) - 1);
-	}
-	pc_ipa += vcpu->arch.regs.pc & ~PAGE_MASK;
+	int err;
 
 	if (vcpu->arch.regs.cpsr & PSR_T_BIT) {
 		/* TODO: Check validity of PC IPA and IPA2!!! */
@@ -618,9 +659,11 @@ static int invalid_io_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa)
 		return -EINVAL;
 	}
 
-	if (kvm_read_guest(vcpu->kvm, pc_ipa, &instr, sizeof(instr))) {
+	err = copy_from_guest_va(vcpu, &instr, vcpu->arch.regs.pc, sizeof(instr),
+				 vcpu_mode_priv(vcpu));
+	if (err) {
 		kvm_err("Could not copy guest instruction\n");
-		return -EFAULT;
+		return err;
 	}
 
 	return kvm_emulate_mmio_ls(vcpu, fault_ipa, instr);

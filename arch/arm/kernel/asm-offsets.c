@@ -184,8 +184,6 @@ int main(void)
   DEFINE(VCPU_HDFAR,		offsetof(struct kvm_vcpu, arch.hdfar));
   DEFINE(VCPU_HIFAR,		offsetof(struct kvm_vcpu, arch.hifar));
   DEFINE(VCPU_HPFAR,		offsetof(struct kvm_vcpu, arch.hpfar));
-  DEFINE(VCPU_PC_IPA,		offsetof(struct kvm_vcpu, arch.pc_ipa));
-  DEFINE(VCPU_PC_IPA2,		offsetof(struct kvm_vcpu, arch.pc_ipa2));
   DEFINE(VCPU_HYP_PC,		offsetof(struct kvm_vcpu, arch.hyp_pc));
 #ifdef CONFIG_KVM_ARM_VGIC
   DEFINE(VCPU_VGIC_CPU,		offsetof(struct kvm_vcpu, arch.vgic_cpu));

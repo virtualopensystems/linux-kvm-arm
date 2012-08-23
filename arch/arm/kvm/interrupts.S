@@ -596,6 +596,37 @@ after_vfp_restore:
 	clrex				@ Clear exclusive monitor
 	bx	lr			@ return to IOCTL
 
+@ Arguments:
+@  r0: pointer to vcpu struct
+@  r1: virtual address to map (rounded to page)
+@  r2: 1 = P1 (read) mapping, 0 = P0 (read) mapping.
+@ Returns 64 bit PAR value.
+ENTRY(__kvm_va_to_pa)
+	hvc	#0			@ switch to hyp-mode
+
+	push	{r4-r12}
+
+	@ Fold flag into r1, easier than using stack.
+	orr	r1, r1, r2
+
+	@ This swaps too many registers, but we're in the slow path anyway.
+	read_cp15_state
+	write_cp15_state 1, r0
+
+	ands	r2, r1, #1
+	sub	r1, r1, r2
+	mcrne	p15, 0, r1, c7, c8, 0	@ VA to PA, ATS1CPR
+	mcreq	p15, 0, r1, c7, c8, 2	@ VA to PA, ATS1CUR
+
+	@ Restore host state.
+	read_cp15_state 1, r0
+	write_cp15_state
+
+	mrrc	p15, 0, r0, r1, c7	@ PAR
+	pop	{r4-r12}
+	hvc	#0			@ Back to SVC
+	bx	lr
+
 @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 @  Hypervisor exception vector and handlers
 @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
@@ -785,34 +816,6 @@ guest_trap:
 	beq	2f
 	cmpne	r2, #HSR_EC_DABT
 	bne	1f
-
-	@ For non-valid data aborts, get the offending instr. PA
-	lsr	r2, r0, #HSR_ISV_SHIFT
-	ands	r2, r2, #1
-	bne	2f
-	mrs	r3, ELR_hyp
-	mrs	r7, spsr
-	and	r7, r7, #0xf
-	cmp	r7, #0			@ fault happened in user mode?
-	mcreq	p15, 0, r3, c7, c8, 2	@ VA to PA, ATS1CUR
-	mcrne	p15, 0, r3, c7, c8, 0	@ VA to PA, ATS1CPR
-	mrrc	p15, 0, r4, r5, c7	@ PAR
-	add	r6, r1, #VCPU_PC_IPA
-	strd	r4, r5, [r6]
-
-	@ Check if we might have a wide thumb instruction spill-over
-	ldr	r5, =0xfff
-	bic	r4, r3, r5		@ clear page mask
-	sub	r5, r5, #1		@ last 2-byte page bounday, 0xffe
-	cmp	r4, r5
-	bne	2f
-	add	r4, r3, #2		@ _really_ unlikely!
-	cmp	r7, #0			@ fault happened in user mode?
-	mcreq	p15, 0, r4, c7, c8, 2	@ VA to PA, ATS1CUR
-	mcrne	p15, 0, r4, c7, c8, 0	@ VA to PA, ATS1CPR
-	mrrc	p15, 0, r4, r5, c7	@ PAR
-	add	r6, r1, #VCPU_PC_IPA2
-	strd	r4, r5, [r6]
 
 2:	mrc	p15, 4, r2, c6, c0, 0	@ HDFAR
 	mrc	p15, 4, r3, c6, c0, 2	@ HIFAR

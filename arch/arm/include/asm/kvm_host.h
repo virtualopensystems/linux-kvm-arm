@@ -136,9 +136,6 @@ struct kvm_vcpu_arch {
 	u32 hdfar;		/* Hyp Data Fault Address Register */
 	u32 hifar;		/* Hyp Inst. Fault Address Register */
 	u32 hpfar;		/* Hyp IPA Fault Address Register */
-	u64 pc_ipa;		/* IPA for the current PC (VA to PA result) */
-	u64 pc_ipa2;		/* same as above, but for non-aligned wide thumb
-				   instructions */
 
 	/* Floating point registers (VFP and Advanced SIMD/NEON) */
 	struct vfp_hard_struct vfp_guest;
