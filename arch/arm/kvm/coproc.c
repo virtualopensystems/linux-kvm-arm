@@ -120,6 +120,24 @@ static bool read_zero(struct kvm_vcpu *vcpu, const struct coproc_params *p)
 	return true;
 }
 
+static bool write_to_read_only(struct kvm_vcpu *vcpu,
+			       const struct coproc_params *params)
+{
+	kvm_err("CP15 write to read-only register at: %08x\n",
+		vcpu->arch.regs.pc);
+	print_cp_instr(params);
+	return false;
+}
+
+static bool read_from_write_only(struct kvm_vcpu *vcpu,
+				 const struct coproc_params *params)
+{
+	kvm_err("CP15 read to write-only register at: %08x\n",
+		vcpu->arch.regs.pc);
+	print_cp_instr(params);
+	return false;
+}
+
 /* A15 TRM 4.3.48: R/O WI. */
 static bool access_l2ctlr(struct kvm_vcpu *vcpu,
 			  const struct coproc_params *p,
@@ -162,7 +180,7 @@ static bool access_cbar(struct kvm_vcpu *vcpu,
 			const struct coproc_reg *r)
 {
 	if (p->is_write)
-		return false;
+		return write_to_read_only(vcpu, p);
 	return read_zero(vcpu, p);
 }
 
@@ -204,7 +222,7 @@ static bool access_dcsw(struct kvm_vcpu *vcpu,
 	cpu = get_cpu();
 
 	if (!p->is_write)
-		return false;
+		return read_from_write_only(vcpu, p);
 
 	cpumask_setall(&vcpu->arch.require_dcache_flush);
 	cpumask_clear_cpu(cpu, &vcpu->arch.require_dcache_flush);
