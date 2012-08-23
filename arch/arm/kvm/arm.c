@@ -663,7 +663,13 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 		kvm_guest_enter();
 		vcpu->mode = IN_GUEST_MODE;
 
-		ret = __kvm_vcpu_run(vcpu);
+		smp_mb(); /* set mode before reading vcpu->arch.pause */
+		if (unlikely(vcpu->arch.pause)) {
+			/* This means ignore, try again. */
+			ret = ARM_EXCEPTION_IRQ;
+		} else {
+			ret = __kvm_vcpu_run(vcpu);
+		}
 
 		vcpu->mode = OUTSIDE_GUEST_MODE;
 		vcpu->arch.last_pcpu = smp_processor_id();

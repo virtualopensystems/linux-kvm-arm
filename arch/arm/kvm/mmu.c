@@ -637,6 +637,58 @@ static bool copy_from_guest_va(struct kvm_vcpu *vcpu,
 	return true;
 }
 
+/* Just ensure we're not running the guest. */
+static void do_nothing(void *info)
+{
+}
+
+/*
+ * We have to be very careful copying memory from a running (ie. SMP) guest.
+ * Another CPU may remap the page (eg. swap out a userspace text page) as we
+ * read the instruction.  Unlike normal hardware operation, to emulate an
+ * instruction we map the virtual to physical address then read that memory
+ * as separate steps, thus not atomic.
+ *
+ * Fortunately this is so rare (we don't usually need the instruction), we
+ * can go very slowly and noone will mind.
+ */
+static bool copy_current_insn(struct kvm_vcpu *vcpu,
+			     unsigned long *instr, size_t instr_len)
+{
+	int i;
+	bool ret;
+	struct kvm_vcpu *v;
+
+	/* Don't cross with IPIs in kvm_main.c */
+	spin_lock(&vcpu->kvm->mmu_lock);
+
+	/* Tell them all to pause, so no more will enter guest. */
+	kvm_for_each_vcpu(i, v, vcpu->kvm)
+		v->arch.pause = true;
+
+	/* Set ->pause before we read ->mode */
+	smp_mb();
+
+	/* Kick out any which are still running. */
+	kvm_for_each_vcpu(i, v, vcpu->kvm) {
+		/* Guest could exit now, making cpu wrong. That's OK. */
+		if (kvm_vcpu_exiting_guest_mode(v) == IN_GUEST_MODE)
+			smp_call_function_single(v->cpu, do_nothing, NULL, 1);
+	}
+
+	/* Now guest isn't running, we can va->pa map and copy atomically. */
+	ret = copy_from_guest_va(vcpu, instr, vcpu->arch.regs.pc, instr_len,
+				 vcpu_mode_priv(vcpu));
+
+	/* Release them all. */
+	kvm_for_each_vcpu(i, v, vcpu->kvm)
+		v->arch.pause = false;
+
+	spin_unlock(&vcpu->kvm->mmu_lock);
+
+	return ret;
+}
+
 /**
  * invalid_io_mem_abort -- Handle I/O aborts ISV bit is clear
  *
@@ -660,8 +712,7 @@ static int invalid_io_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa)
 	}
 
 	/* If it fails (SMP race?), we reenter guest for it to retry. */
-	if (!copy_from_guest_va(vcpu, &instr, vcpu->arch.regs.pc, sizeof(instr),
-				vcpu_mode_priv(vcpu)))
+	if (!copy_current_insn(vcpu, &instr, sizeof(instr)))
 		return 1;
 
 	return kvm_emulate_mmio_ls(vcpu, fault_ipa, instr);

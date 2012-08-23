@@ -152,6 +152,9 @@ struct kvm_vcpu_arch {
 	int last_pcpu;
 	cpumask_t require_dcache_flush;
 
+	/* Don't run the guest: see copy_current_insn() */
+	bool pause;
+
 	/* IO related fields */
 	bool mmio_sign_extend;	/* for byte/halfword loads */
 	u32 mmio_rd;
