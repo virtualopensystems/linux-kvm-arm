@@ -263,6 +263,7 @@ int kvm_alloc_stage2_pgd(struct kvm *kvm)
 		return -ENOMEM;
 
 	memset(pgd, 0, PTRS_PER_PGD2 * sizeof(pgd_t));
+	clean_dcache_area(pgd, PTRS_PER_PGD2 * sizeof(pgd_t));
 	kvm->arch.pgd = pgd;
 
 	return 0;
