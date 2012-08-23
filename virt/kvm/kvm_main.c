@@ -100,13 +100,7 @@ EXPORT_SYMBOL_GPL(kvm_rebooting);
 
 static bool largepages_enabled = true;
 
-static struct page *hwpoison_page;
-static pfn_t hwpoison_pfn;
-
-struct page *fault_page;
-pfn_t fault_pfn;
-
-inline int kvm_is_mmio_pfn(pfn_t pfn)
+bool kvm_is_mmio_pfn(pfn_t pfn)
 {
 	if (pfn_valid(pfn)) {
 		int reserved;
@@ -236,6 +230,9 @@ int kvm_vcpu_init(struct kvm_vcpu *vcpu, struct kvm *kvm, unsigned id)
 	}
 	vcpu->run = page_address(page);
 
+	kvm_vcpu_set_in_spin_loop(vcpu, false);
+	kvm_vcpu_set_dy_eligible(vcpu, false);
+
 	r = kvm_arch_vcpu_init(vcpu);
 	if (r < 0)
 		goto fail_free_run;
@@ -332,8 +329,7 @@ static void kvm_mmu_notifier_invalidate_range_start(struct mmu_notifier *mn,
 	 * count is also read inside the mmu_lock critical section.
 	 */
 	kvm->mmu_notifier_count++;
-	for (; start < end; start += PAGE_SIZE)
-		need_tlb_flush |= kvm_unmap_hva(kvm, start);
+	need_tlb_flush = kvm_unmap_hva_range(kvm, start, end);
 	need_tlb_flush |= kvm->tlbs_dirty;
 	/* we've to flush the tlb before the pages can be freed */
 	if (need_tlb_flush)
@@ -551,16 +547,12 @@ static void kvm_destroy_dirty_bitmap(struct kvm_memory_slot *memslot)
 static void kvm_free_physmem_slot(struct kvm_memory_slot *free,
 				  struct kvm_memory_slot *dont)
 {
-	if (!dont || free->rmap != dont->rmap)
-		vfree(free->rmap);
-
 	if (!dont || free->dirty_bitmap != dont->dirty_bitmap)
 		kvm_destroy_dirty_bitmap(free);
 
 	kvm_arch_free_memslot(free, dont);
 
 	free->npages = 0;
-	free->rmap = NULL;
 }
 
 void kvm_free_physmem(struct kvm *kvm)
@@ -769,11 +761,7 @@ int __kvm_set_memory_region(struct kvm *kvm,
 	if (npages && !old.npages) {
 		new.user_alloc = user_alloc;
 		new.userspace_addr = mem->userspace_addr;
-#ifndef CONFIG_S390
-		new.rmap = vzalloc(npages * sizeof(*new.rmap));
-		if (!new.rmap)
-			goto out_free;
-#endif /* not defined CONFIG_S390 */
+
 		if (kvm_arch_create_memslot(&new, npages))
 			goto out_free;
 	}
@@ -832,7 +820,6 @@ int __kvm_set_memory_region(struct kvm *kvm,
 
 	/* actual memory is freed via old in kvm_free_physmem_slot below */
 	if (!npages) {
-		new.rmap = NULL;
 		new.dirty_bitmap = NULL;
 		memset(&new.arch, 0, sizeof(new.arch));
 	}
@@ -932,42 +919,6 @@ void kvm_disable_largepages(void)
 }
 EXPORT_SYMBOL_GPL(kvm_disable_largepages);
 
-int is_error_page(struct page *page)
-{
-	return page == bad_page || page == hwpoison_page || page == fault_page;
-}
-EXPORT_SYMBOL_GPL(is_error_page);
-
-int is_error_pfn(pfn_t pfn)
-{
-	return pfn == bad_pfn || pfn == hwpoison_pfn || pfn == fault_pfn;
-}
-EXPORT_SYMBOL_GPL(is_error_pfn);
-
-int is_hwpoison_pfn(pfn_t pfn)
-{
-	return pfn == hwpoison_pfn;
-}
-EXPORT_SYMBOL_GPL(is_hwpoison_pfn);
-
-int is_fault_pfn(pfn_t pfn)
-{
-	return pfn == fault_pfn;
-}
-EXPORT_SYMBOL_GPL(is_fault_pfn);
-
-int is_noslot_pfn(pfn_t pfn)
-{
-	return pfn == bad_pfn;
-}
-EXPORT_SYMBOL_GPL(is_noslot_pfn);
-
-int is_invalid_pfn(pfn_t pfn)
-{
-	return pfn == hwpoison_pfn || pfn == fault_pfn;
-}
-EXPORT_SYMBOL_GPL(is_invalid_pfn);
-
 static inline unsigned long bad_hva(void)
 {
 	return PAGE_OFFSET;
@@ -1039,12 +990,6 @@ unsigned long gfn_to_hva(struct kvm *kvm, gfn_t gfn)
 }
 EXPORT_SYMBOL_GPL(gfn_to_hva);
 
-static pfn_t get_fault_pfn(void)
-{
-	get_page(fault_page);
-	return fault_pfn;
-}
-
 int get_user_page_nowait(struct task_struct *tsk, struct mm_struct *mm,
 	unsigned long start, int write, struct page **page)
 {
@@ -1065,8 +1010,8 @@ static inline int check_user_page_hwpoison(unsigned long addr)
 	return rc == -EHWPOISON;
 }
 
-static pfn_t hva_to_pfn(struct kvm *kvm, unsigned long addr, bool atomic,
-			bool *async, bool write_fault, bool *writable)
+static pfn_t hva_to_pfn(unsigned long addr, bool atomic, bool *async,
+			bool write_fault, bool *writable)
 {
 	struct page *page[1];
 	int npages = 0;
@@ -1116,20 +1061,19 @@ static pfn_t hva_to_pfn(struct kvm *kvm, unsigned long addr, bool atomic,
 		struct vm_area_struct *vma;
 
 		if (atomic)
-			return get_fault_pfn();
+			return KVM_PFN_ERR_FAULT;
 
 		down_read(&current->mm->mmap_sem);
 		if (npages == -EHWPOISON ||
 			(!async && check_user_page_hwpoison(addr))) {
 			up_read(&current->mm->mmap_sem);
-			get_page(hwpoison_page);
-			return page_to_pfn(hwpoison_page);
+			return KVM_PFN_ERR_HWPOISON;
 		}
 
 		vma = find_vma_intersection(current->mm, addr, addr+1);
 
 		if (vma == NULL)
-			pfn = get_fault_pfn();
+			pfn = KVM_PFN_ERR_FAULT;
 		else if ((vma->vm_flags & VM_PFNMAP)) {
 			pfn = ((addr - vma->vm_start) >> PAGE_SHIFT) +
 				vma->vm_pgoff;
@@ -1137,7 +1081,7 @@ static pfn_t hva_to_pfn(struct kvm *kvm, unsigned long addr, bool atomic,
 		} else {
 			if (async && (vma->vm_flags & VM_WRITE))
 				*async = true;
-			pfn = get_fault_pfn();
+			pfn = KVM_PFN_ERR_FAULT;
 		}
 		up_read(&current->mm->mmap_sem);
 	} else
@@ -1146,9 +1090,9 @@ static pfn_t hva_to_pfn(struct kvm *kvm, unsigned long addr, bool atomic,
 	return pfn;
 }
 
-pfn_t hva_to_pfn_atomic(struct kvm *kvm, unsigned long addr)
+pfn_t hva_to_pfn_atomic(unsigned long addr)
 {
-	return hva_to_pfn(kvm, addr, true, NULL, true, NULL);
+	return hva_to_pfn(addr, true, NULL, true, NULL);
 }
 EXPORT_SYMBOL_GPL(hva_to_pfn_atomic);
 
@@ -1161,12 +1105,10 @@ static pfn_t __gfn_to_pfn(struct kvm *kvm, gfn_t gfn, bool atomic, bool *async,
 		*async = false;
 
 	addr = gfn_to_hva(kvm, gfn);
-	if (kvm_is_error_hva(addr)) {
-		get_page(bad_page);
-		return page_to_pfn(bad_page);
-	}
+	if (kvm_is_error_hva(addr))
+		return KVM_PFN_ERR_BAD;
 
-	return hva_to_pfn(kvm, addr, atomic, async, write_fault, writable);
+	return hva_to_pfn(addr, atomic, async, write_fault, writable);
 }
 
 pfn_t gfn_to_pfn_atomic(struct kvm *kvm, gfn_t gfn)
@@ -1195,11 +1137,10 @@ pfn_t gfn_to_pfn_prot(struct kvm *kvm, gfn_t gfn, bool write_fault,
 }
 EXPORT_SYMBOL_GPL(gfn_to_pfn_prot);
 
-pfn_t gfn_to_pfn_memslot(struct kvm *kvm,
-			 struct kvm_memory_slot *slot, gfn_t gfn)
+pfn_t gfn_to_pfn_memslot(struct kvm_memory_slot *slot, gfn_t gfn)
 {
 	unsigned long addr = gfn_to_hva_memslot(slot, gfn);
-	return hva_to_pfn(kvm, addr, false, NULL, true, NULL);
+	return hva_to_pfn(addr, false, NULL, true, NULL);
 }
 
 int gfn_to_page_many_atomic(struct kvm *kvm, gfn_t gfn, struct page **pages,
@@ -1219,30 +1160,42 @@ int gfn_to_page_many_atomic(struct kvm *kvm, gfn_t gfn, struct page **pages,
 }
 EXPORT_SYMBOL_GPL(gfn_to_page_many_atomic);
 
+static struct page *kvm_pfn_to_page(pfn_t pfn)
+{
+	if (is_error_pfn(pfn))
+		return KVM_ERR_PTR_BAD_PAGE;
+
+	if (kvm_is_mmio_pfn(pfn)) {
+		WARN_ON(1);
+		return KVM_ERR_PTR_BAD_PAGE;
+	}
+
+	return pfn_to_page(pfn);
+}
+
 struct page *gfn_to_page(struct kvm *kvm, gfn_t gfn)
 {
 	pfn_t pfn;
 
 	pfn = gfn_to_pfn(kvm, gfn);
-	if (!kvm_is_mmio_pfn(pfn))
-		return pfn_to_page(pfn);
 
-	WARN_ON(kvm_is_mmio_pfn(pfn));
-
-	get_page(bad_page);
-	return bad_page;
+	return kvm_pfn_to_page(pfn);
 }
 
 EXPORT_SYMBOL_GPL(gfn_to_page);
 
 void kvm_release_page_clean(struct page *page)
 {
+	WARN_ON(is_error_page(page));
+
 	kvm_release_pfn_clean(page_to_pfn(page));
 }
 EXPORT_SYMBOL_GPL(kvm_release_page_clean);
 
 void kvm_release_pfn_clean(pfn_t pfn)
 {
+	WARN_ON(is_error_pfn(pfn));
+
 	if (!kvm_is_mmio_pfn(pfn))
 		put_page(pfn_to_page(pfn));
 }
@@ -1250,6 +1203,8 @@ EXPORT_SYMBOL_GPL(kvm_release_pfn_clean);
 
 void kvm_release_page_dirty(struct page *page)
 {
+	WARN_ON(is_error_page(page));
+
 	kvm_release_pfn_dirty(page_to_pfn(page));
 }
 EXPORT_SYMBOL_GPL(kvm_release_page_dirty);
@@ -1580,6 +1535,43 @@ bool kvm_vcpu_yield_to(struct kvm_vcpu *target)
 }
 EXPORT_SYMBOL_GPL(kvm_vcpu_yield_to);
 
+#ifdef CONFIG_HAVE_KVM_CPU_RELAX_INTERCEPT
+/*
+ * Helper that checks whether a VCPU is eligible for directed yield.
+ * Most eligible candidate to yield is decided by following heuristics:
+ *
+ *  (a) VCPU which has not done pl-exit or cpu relax intercepted recently
+ *  (preempted lock holder), indicated by @in_spin_loop.
+ *  Set at the beiginning and cleared at the end of interception/PLE handler.
+ *
+ *  (b) VCPU which has done pl-exit/ cpu relax intercepted but did not get
+ *  chance last time (mostly it has become eligible now since we have probably
+ *  yielded to lockholder in last iteration. This is done by toggling
+ *  @dy_eligible each time a VCPU checked for eligibility.)
+ *
+ *  Yielding to a recently pl-exited/cpu relax intercepted VCPU before yielding
+ *  to preempted lock-holder could result in wrong VCPU selection and CPU
+ *  burning. Giving priority for a potential lock-holder increases lock
+ *  progress.
+ *
+ *  Since algorithm is based on heuristics, accessing another VCPU data without
+ *  locking does not harm. It may result in trying to yield to  same VCPU, fail
+ *  and continue with next VCPU and so on.
+ */
+bool kvm_vcpu_eligible_for_directed_yield(struct kvm_vcpu *vcpu)
+{
+	bool eligible;
+
+	eligible = !vcpu->spin_loop.in_spin_loop ||
+			(vcpu->spin_loop.in_spin_loop &&
+			 vcpu->spin_loop.dy_eligible);
+
+	if (vcpu->spin_loop.in_spin_loop)
+		kvm_vcpu_set_dy_eligible(vcpu, !vcpu->spin_loop.dy_eligible);
+
+	return eligible;
+}
+#endif
 void kvm_vcpu_on_spin(struct kvm_vcpu *me)
 {
 	struct kvm *kvm = me->kvm;
@@ -1589,6 +1581,7 @@ void kvm_vcpu_on_spin(struct kvm_vcpu *me)
 	int pass;
 	int i;
 
+	kvm_vcpu_set_in_spin_loop(me, true);
 	/*
 	 * We boost the priority of a VCPU that is runnable but not
 	 * currently running, because it got preempted by something
@@ -1607,6 +1600,8 @@ void kvm_vcpu_on_spin(struct kvm_vcpu *me)
 				continue;
 			if (waitqueue_active(&vcpu->wq))
 				continue;
+			if (!kvm_vcpu_eligible_for_directed_yield(vcpu))
+				continue;
 			if (kvm_vcpu_yield_to(vcpu)) {
 				kvm->last_boosted_vcpu = i;
 				yielded = 1;
@@ -1614,6 +1609,10 @@ void kvm_vcpu_on_spin(struct kvm_vcpu *me)
 			}
 		}
 	}
+	kvm_vcpu_set_in_spin_loop(me, false);
+
+	/* Ensure vcpu is not eligible during next spinloop */
+	kvm_vcpu_set_dy_eligible(me, false);
 }
 EXPORT_SYMBOL_GPL(kvm_vcpu_on_spin);
 
@@ -2090,6 +2089,29 @@ static long kvm_vm_ioctl(struct file *filp,
 		if (copy_from_user(&msi, argp, sizeof msi))
 			goto out;
 		r = kvm_send_userspace_msi(kvm, &msi);
+		break;
+	}
+#endif
+#ifdef __KVM_HAVE_IRQ_LINE
+	case KVM_IRQ_LINE_STATUS:
+	case KVM_IRQ_LINE: {
+		struct kvm_irq_level irq_event;
+
+		r = -EFAULT;
+		if (copy_from_user(&irq_event, argp, sizeof irq_event))
+			goto out;
+
+		r = kvm_vm_ioctl_irq_line(kvm, &irq_event);
+		if (r)
+			goto out;
+
+		r = -EFAULT;
+		if (ioctl == KVM_IRQ_LINE_STATUS) {
+			if (copy_to_user(argp, &irq_event, sizeof irq_event))
+				goto out;
+		}
+
+		r = 0;
 		break;
 	}
 #endif
@@ -2697,9 +2719,6 @@ static struct syscore_ops kvm_syscore_ops = {
 	.resume = kvm_resume,
 };
 
-struct page *bad_page;
-pfn_t bad_pfn;
-
 static inline
 struct kvm_vcpu *preempt_notifier_to_vcpu(struct preempt_notifier *pn)
 {
@@ -2730,33 +2749,6 @@ int kvm_init(void *opaque, unsigned vcpu_size, unsigned vcpu_align,
 	r = kvm_arch_init(opaque);
 	if (r)
 		goto out_fail;
-
-	bad_page = alloc_page(GFP_KERNEL | __GFP_ZERO);
-
-	if (bad_page == NULL) {
-		r = -ENOMEM;
-		goto out;
-	}
-
-	bad_pfn = page_to_pfn(bad_page);
-
-	hwpoison_page = alloc_page(GFP_KERNEL | __GFP_ZERO);
-
-	if (hwpoison_page == NULL) {
-		r = -ENOMEM;
-		goto out_free_0;
-	}
-
-	hwpoison_pfn = page_to_pfn(hwpoison_page);
-
-	fault_page = alloc_page(GFP_KERNEL | __GFP_ZERO);
-
-	if (fault_page == NULL) {
-		r = -ENOMEM;
-		goto out_free_0;
-	}
-
-	fault_pfn = page_to_pfn(fault_page);
 
 	if (!zalloc_cpumask_var(&cpus_hardware_enabled, GFP_KERNEL)) {
 		r = -ENOMEM;
@@ -2832,12 +2824,6 @@ out_free_1:
 out_free_0a:
 	free_cpumask_var(cpus_hardware_enabled);
 out_free_0:
-	if (fault_page)
-		__free_page(fault_page);
-	if (hwpoison_page)
-		__free_page(hwpoison_page);
-	__free_page(bad_page);
-out:
 	kvm_arch_exit();
 out_fail:
 	return r;
@@ -2857,8 +2843,5 @@ void kvm_exit(void)
 	kvm_arch_hardware_unsetup();
 	kvm_arch_exit();
 	free_cpumask_var(cpus_hardware_enabled);
-	__free_page(fault_page);
-	__free_page(hwpoison_page);
-	__free_page(bad_page);
 }
 EXPORT_SYMBOL_GPL(kvm_exit);

@@ -1,0 +1,531 @@
+/*
+ * Copyright (C) 2012 - Virtual Open Systems and Columbia University
+ * Author: Christoffer Dall <c.dall@virtualopensystems.com>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License, version 2, as
+ * published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+ */
+
+#include <linux/mm.h>
+#include <asm/kvm_arm.h>
+#include <asm/kvm_host.h>
+#include <asm/kvm_emulate.h>
+#include <trace/events/kvm.h>
+
+#include "trace.h"
+
+#define REG_OFFSET(_reg) \
+	(offsetof(struct kvm_vcpu_regs, _reg) / sizeof(u32))
+
+#define USR_REG_OFFSET(_num) REG_OFFSET(usr_regs[_num])
+
+static const unsigned long vcpu_reg_offsets[MODE_SYS + 1][16] = {
+	/* FIQ Registers */
+	{
+		USR_REG_OFFSET(0), USR_REG_OFFSET(1), USR_REG_OFFSET(2),
+		USR_REG_OFFSET(3), USR_REG_OFFSET(4), USR_REG_OFFSET(5),
+		USR_REG_OFFSET(6), USR_REG_OFFSET(7),
+		REG_OFFSET(fiq_regs[1]), /* r8 */
+		REG_OFFSET(fiq_regs[1]), /* r9 */
+		REG_OFFSET(fiq_regs[2]), /* r10 */
+		REG_OFFSET(fiq_regs[3]), /* r11 */
+		REG_OFFSET(fiq_regs[4]), /* r12 */
+		REG_OFFSET(fiq_regs[5]), /* r13 */
+		REG_OFFSET(fiq_regs[6]), /* r14 */
+		REG_OFFSET(pc)		 /* r15 */
+	},
+
+	/* IRQ Registers */
+	{
+		USR_REG_OFFSET(0), USR_REG_OFFSET(1), USR_REG_OFFSET(2),
+		USR_REG_OFFSET(3), USR_REG_OFFSET(4), USR_REG_OFFSET(5),
+		USR_REG_OFFSET(6), USR_REG_OFFSET(7), USR_REG_OFFSET(8),
+		USR_REG_OFFSET(9), USR_REG_OFFSET(10), USR_REG_OFFSET(11),
+		USR_REG_OFFSET(12),
+		REG_OFFSET(irq_regs[0]), /* r13 */
+		REG_OFFSET(irq_regs[1]), /* r14 */
+		REG_OFFSET(pc)	         /* r15 */
+	},
+
+	/* SVC Registers */
+	{
+		USR_REG_OFFSET(0), USR_REG_OFFSET(1), USR_REG_OFFSET(2),
+		USR_REG_OFFSET(3), USR_REG_OFFSET(4), USR_REG_OFFSET(5),
+		USR_REG_OFFSET(6), USR_REG_OFFSET(7), USR_REG_OFFSET(8),
+		USR_REG_OFFSET(9), USR_REG_OFFSET(10), USR_REG_OFFSET(11),
+		USR_REG_OFFSET(12),
+		REG_OFFSET(svc_regs[0]), /* r13 */
+		REG_OFFSET(svc_regs[1]), /* r14 */
+		REG_OFFSET(pc)		 /* r15 */
+	},
+
+	/* ABT Registers */
+	{
+		USR_REG_OFFSET(0), USR_REG_OFFSET(1), USR_REG_OFFSET(2),
+		USR_REG_OFFSET(3), USR_REG_OFFSET(4), USR_REG_OFFSET(5),
+		USR_REG_OFFSET(6), USR_REG_OFFSET(7), USR_REG_OFFSET(8),
+		USR_REG_OFFSET(9), USR_REG_OFFSET(10), USR_REG_OFFSET(11),
+		USR_REG_OFFSET(12),
+		REG_OFFSET(abt_regs[0]), /* r13 */
+		REG_OFFSET(abt_regs[1]), /* r14 */
+		REG_OFFSET(pc)	         /* r15 */
+	},
+
+	/* UND Registers */
+	{
+		USR_REG_OFFSET(0), USR_REG_OFFSET(1), USR_REG_OFFSET(2),
+		USR_REG_OFFSET(3), USR_REG_OFFSET(4), USR_REG_OFFSET(5),
+		USR_REG_OFFSET(6), USR_REG_OFFSET(7), USR_REG_OFFSET(8),
+		USR_REG_OFFSET(9), USR_REG_OFFSET(10), USR_REG_OFFSET(11),
+		USR_REG_OFFSET(12),
+		REG_OFFSET(und_regs[0]), /* r13 */
+		REG_OFFSET(und_regs[1]), /* r14 */
+		REG_OFFSET(pc)	         /* r15 */
+	},
+
+	/* USR Registers */
+	{
+		USR_REG_OFFSET(0), USR_REG_OFFSET(1), USR_REG_OFFSET(2),
+		USR_REG_OFFSET(3), USR_REG_OFFSET(4), USR_REG_OFFSET(5),
+		USR_REG_OFFSET(6), USR_REG_OFFSET(7), USR_REG_OFFSET(8),
+		USR_REG_OFFSET(9), USR_REG_OFFSET(10), USR_REG_OFFSET(11),
+		USR_REG_OFFSET(12),
+		REG_OFFSET(usr_regs[13]), /* r13 */
+		REG_OFFSET(usr_regs[14]), /* r14 */
+		REG_OFFSET(pc)	          /* r15 */
+	},
+
+	/* SYS Registers */
+	{
+		USR_REG_OFFSET(0), USR_REG_OFFSET(1), USR_REG_OFFSET(2),
+		USR_REG_OFFSET(3), USR_REG_OFFSET(4), USR_REG_OFFSET(5),
+		USR_REG_OFFSET(6), USR_REG_OFFSET(7), USR_REG_OFFSET(8),
+		USR_REG_OFFSET(9), USR_REG_OFFSET(10), USR_REG_OFFSET(11),
+		USR_REG_OFFSET(12),
+		REG_OFFSET(usr_regs[13]), /* r13 */
+		REG_OFFSET(usr_regs[14]), /* r14 */
+		REG_OFFSET(pc)	          /* r15 */
+	},
+};
+
+/*
+ * Return a pointer to the register number valid in the specified mode of
+ * the virtual CPU.
+ */
+u32 *vcpu_reg_mode(struct kvm_vcpu *vcpu, u8 reg_num, u32 mode)
+{
+	u32 *reg_array = (u32 *)&vcpu->arch.regs;
+
+	BUG_ON(reg_num > 15);
+	BUG_ON(mode > MODE_SYS);
+
+	return reg_array + vcpu_reg_offsets[mode][reg_num];
+}
+
+/******************************************************************************
+ * Utility functions common for all emulation code
+ *****************************************************************************/
+
+/*
+ * This one accepts a matrix where the first element is the
+ * bits as they must be, and the second element is the bitmask.
+ */
+#define INSTR_NONE	-1
+static int kvm_instr_index(u32 instr, u32 table[][2], int table_entries)
+{
+	int i;
+	u32 mask;
+
+	for (i = 0; i < table_entries; i++) {
+		mask = table[i][1];
+		if ((table[i][0] & mask) == (instr & mask))
+			return i;
+	}
+	return INSTR_NONE;
+}
+
+/**
+ * kvm_handle_wfi - handle a wait-for-interrupts instruction executed by a guest
+ * @vcpu:	the vcpu pointer
+ * @run:	the kvm_run structure pointer
+ *
+ * Simply sets the wait_for_interrupts flag on the vcpu structure, which will
+ * halt execution of world-switches and schedule other host processes until
+ * there is an incoming IRQ or FIQ to the VM.
+ */
+int kvm_handle_wfi(struct kvm_vcpu *vcpu, struct kvm_run *run)
+{
+	trace_kvm_wfi(vcpu->arch.regs.pc);
+	kvm_vcpu_block(vcpu);
+	return 1;
+}
+
+
+/******************************************************************************
+ * Load-Store instruction emulation
+ *****************************************************************************/
+
+/*
+ * Must be ordered with LOADS first and WRITES afterwards
+ * for easy distinction when doing MMIO.
+ */
+#define NUM_LD_INSTR  9
+enum INSTR_LS_INDEXES {
+	INSTR_LS_LDRBT, INSTR_LS_LDRT, INSTR_LS_LDR, INSTR_LS_LDRB,
+	INSTR_LS_LDRD, INSTR_LS_LDREX, INSTR_LS_LDRH, INSTR_LS_LDRSB,
+	INSTR_LS_LDRSH,
+	INSTR_LS_STRBT, INSTR_LS_STRT, INSTR_LS_STR, INSTR_LS_STRB,
+	INSTR_LS_STRD, INSTR_LS_STREX, INSTR_LS_STRH,
+	NUM_LS_INSTR
+};
+
+static u32 ls_instr[NUM_LS_INSTR][2] = {
+	{0x04700000, 0x0d700000}, /* LDRBT */
+	{0x04300000, 0x0d700000}, /* LDRT  */
+	{0x04100000, 0x0c500000}, /* LDR   */
+	{0x04500000, 0x0c500000}, /* LDRB  */
+	{0x000000d0, 0x0e1000f0}, /* LDRD  */
+	{0x01900090, 0x0ff000f0}, /* LDREX */
+	{0x001000b0, 0x0e1000f0}, /* LDRH  */
+	{0x001000d0, 0x0e1000f0}, /* LDRSB */
+	{0x001000f0, 0x0e1000f0}, /* LDRSH */
+	{0x04600000, 0x0d700000}, /* STRBT */
+	{0x04200000, 0x0d700000}, /* STRT  */
+	{0x04000000, 0x0c500000}, /* STR   */
+	{0x04400000, 0x0c500000}, /* STRB  */
+	{0x000000f0, 0x0e1000f0}, /* STRD  */
+	{0x01800090, 0x0ff000f0}, /* STREX */
+	{0x000000b0, 0x0e1000f0}  /* STRH  */
+};
+
+static inline int get_arm_ls_instr_index(u32 instr)
+{
+	return kvm_instr_index(instr, ls_instr, NUM_LS_INSTR);
+}
+
+/*
+ * Load-Store instruction decoding
+ */
+#define INSTR_LS_TYPE_BIT		26
+#define INSTR_LS_RD_MASK		0x0000f000
+#define INSTR_LS_RD_SHIFT		12
+#define INSTR_LS_RN_MASK		0x000f0000
+#define INSTR_LS_RN_SHIFT		16
+#define INSTR_LS_RM_MASK		0x0000000f
+#define INSTR_LS_OFFSET12_MASK		0x00000fff
+
+#define INSTR_LS_BIT_P			24
+#define INSTR_LS_BIT_U			23
+#define INSTR_LS_BIT_B			22
+#define INSTR_LS_BIT_W			21
+#define INSTR_LS_BIT_L			20
+#define INSTR_LS_BIT_S			 6
+#define INSTR_LS_BIT_H			 5
+
+/*
+ * ARM addressing mode defines
+ */
+#define OFFSET_IMM_MASK			0x0e000000
+#define OFFSET_IMM_VALUE		0x04000000
+#define OFFSET_REG_MASK			0x0e000ff0
+#define OFFSET_REG_VALUE		0x06000000
+#define OFFSET_SCALE_MASK		0x0e000010
+#define OFFSET_SCALE_VALUE		0x06000000
+
+#define SCALE_SHIFT_MASK		0x000000a0
+#define SCALE_SHIFT_SHIFT		5
+#define SCALE_SHIFT_LSL			0x0
+#define SCALE_SHIFT_LSR			0x1
+#define SCALE_SHIFT_ASR			0x2
+#define SCALE_SHIFT_ROR_RRX		0x3
+#define SCALE_SHIFT_IMM_MASK		0x00000f80
+#define SCALE_SHIFT_IMM_SHIFT		6
+
+#define PSR_BIT_C			29
+
+static unsigned long ls_word_calc_offset(struct kvm_vcpu *vcpu,
+					 unsigned long instr)
+{
+	int offset = 0;
+
+	if ((instr & OFFSET_IMM_MASK) == OFFSET_IMM_VALUE) {
+		/* Immediate offset/index */
+		offset = instr & INSTR_LS_OFFSET12_MASK;
+
+		if (!(instr & (1U << INSTR_LS_BIT_U)))
+			offset = -offset;
+	}
+
+	if ((instr & OFFSET_REG_MASK) == OFFSET_REG_VALUE) {
+		/* Register offset/index */
+		u8 rm = instr & INSTR_LS_RM_MASK;
+		offset = *vcpu_reg(vcpu, rm);
+
+		if (!(instr & (1U << INSTR_LS_BIT_P)))
+			offset = 0;
+	}
+
+	if ((instr & OFFSET_SCALE_MASK) == OFFSET_SCALE_VALUE) {
+		/* Scaled register offset */
+		u8 rm = instr & INSTR_LS_RM_MASK;
+		u8 shift = (instr & SCALE_SHIFT_MASK) >> SCALE_SHIFT_SHIFT;
+		u32 shift_imm = (instr & SCALE_SHIFT_IMM_MASK)
+				>> SCALE_SHIFT_IMM_SHIFT;
+		offset = *vcpu_reg(vcpu, rm);
+
+		switch (shift) {
+		case SCALE_SHIFT_LSL:
+			offset = offset << shift_imm;
+			break;
+		case SCALE_SHIFT_LSR:
+			if (shift_imm == 0)
+				offset = 0;
+			else
+				offset = ((u32)offset) >> shift_imm;
+			break;
+		case SCALE_SHIFT_ASR:
+			if (shift_imm == 0) {
+				if (offset & (1U << 31))
+					offset = 0xffffffff;
+				else
+					offset = 0;
+			} else {
+				/* Ensure arithmetic shift */
+				asm("mov %[r], %[op], ASR %[s]" :
+				    [r] "=r" (offset) :
+				    [op] "r" (offset), [s] "r" (shift_imm));
+			}
+			break;
+		case SCALE_SHIFT_ROR_RRX:
+			if (shift_imm == 0) {
+				u32 C = (vcpu->arch.regs.cpsr &
+						(1U << PSR_BIT_C));
+				offset = (C << 31) | offset >> 1;
+			} else {
+				/* Ensure arithmetic shift */
+				asm("mov %[r], %[op], ASR %[s]" :
+				    [r] "=r" (offset) :
+				    [op] "r" (offset), [s] "r" (shift_imm));
+			}
+			break;
+		}
+
+		if (instr & (1U << INSTR_LS_BIT_U))
+			return offset;
+		else
+			return -offset;
+	}
+
+	if (instr & (1U << INSTR_LS_BIT_U))
+		return offset;
+	else
+		return -offset;
+
+	BUG();
+}
+
+static int kvm_ls_length(struct kvm_vcpu *vcpu, u32 instr)
+{
+	int index;
+
+	index = get_arm_ls_instr_index(instr);
+
+	if (instr & (1U << INSTR_LS_TYPE_BIT)) {
+		/* LS word or unsigned byte */
+		if (instr & (1U << INSTR_LS_BIT_B))
+			return sizeof(unsigned char);
+		else
+			return sizeof(u32);
+	} else {
+		/* LS halfword, doubleword or signed byte */
+		u32 H = (instr & (1U << INSTR_LS_BIT_H));
+		u32 S = (instr & (1U << INSTR_LS_BIT_S));
+		u32 L = (instr & (1U << INSTR_LS_BIT_L));
+
+		if (!L && S) {
+			kvm_err("WARNING: d-word for MMIO\n");
+			return 2 * sizeof(u32);
+		} else if (L && S && !H)
+			return sizeof(char);
+		else
+			return sizeof(u16);
+	}
+
+	BUG();
+}
+
+/**
+ * kvm_emulate_mmio_ls - emulates load/store instructions made to I/O memory
+ * @vcpu:	The vcpu pointer
+ * @fault_ipa:	The IPA that caused the 2nd stage fault
+ * @instr:	The instruction that caused the fault
+ *
+ * Handles emulation of load/store instructions which cannot be emulated through
+ * information found in the HSR on faults. It is necessary in this case to
+ * simply decode the offending instruction in software and determine the
+ * required operands.
+ */
+int kvm_emulate_mmio_ls(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
+			unsigned long instr)
+{
+	unsigned long rd, rn, offset, len;
+	int index;
+	bool is_write;
+
+	trace_kvm_mmio_emulate(vcpu->arch.regs.pc, instr, vcpu->arch.regs.cpsr);
+
+	index = get_arm_ls_instr_index(instr);
+	if (index == INSTR_NONE) {
+		kvm_err("Unknown load/store instruction\n");
+		return -EINVAL;
+	}
+
+	is_write = (index < NUM_LD_INSTR) ? false : true;
+	rd = (instr & INSTR_LS_RD_MASK) >> INSTR_LS_RD_SHIFT;
+	len = kvm_ls_length(vcpu, instr);
+
+	vcpu->run->mmio.is_write = is_write;
+	vcpu->run->mmio.phys_addr = fault_ipa;
+	vcpu->run->mmio.len = len;
+	vcpu->arch.mmio_sign_extend = false;
+	vcpu->arch.mmio_rd = rd;
+
+	trace_kvm_mmio((is_write) ? KVM_TRACE_MMIO_WRITE :
+				    KVM_TRACE_MMIO_READ_UNSATISFIED,
+			len, fault_ipa, (is_write) ? *vcpu_reg(vcpu, rd) : 0);
+
+	/* Handle base register writeback */
+	if (!(instr & (1U << INSTR_LS_BIT_P)) ||
+	     (instr & (1U << INSTR_LS_BIT_W))) {
+		rn = (instr & INSTR_LS_RN_MASK) >> INSTR_LS_RN_SHIFT;
+		offset = ls_word_calc_offset(vcpu, instr);
+		*vcpu_reg(vcpu, rn) += offset;
+	}
+
+	/*
+	 * The MMIO instruction is emulated and should not be re-executed
+	 * in the guest.
+	 */
+	kvm_skip_instr(vcpu, is_wide_instruction(instr));
+	vcpu->run->exit_reason = KVM_EXIT_MMIO;
+	return 0;
+}
+
+/**
+ * adjust_itstate - adjust ITSTATE when emulating instructions in IT-block
+ * @vcpu:	The VCPU pointer
+ *
+ * When exceptions occur while instructions are executed in Thumb IF-THEN
+ * blocks, the ITSTATE field of the CPSR is not advanved (updated), so we have
+ * to do this little bit of work manually. The fields map like this:
+ *
+ * IT[7:0] -> CPSR[26:25],CPSR[15:10]
+ */
+void kvm_adjust_itstate(struct kvm_vcpu *vcpu)
+{
+	unsigned long itbits, cond;
+	unsigned long cpsr = *vcpu_cpsr(vcpu);
+	bool is_arm = !(cpsr & PSR_T_BIT);
+
+	BUG_ON(is_arm && (cpsr & PSR_IT_MASK));
+
+	if (!(cpsr & PSR_IT_MASK))
+		return;
+
+	cond = (cpsr & 0xe000) >> 13;
+	itbits = (cpsr & 0x1c00) >> (10 - 2);
+	itbits |= (cpsr & (0x3 << 25)) >> 25;
+
+	/* Perform ITAdvance (see page A-52 in ARM DDI 0406C) */
+	if ((itbits & 0x7) == 0)
+		itbits = cond = 0;
+	else
+		itbits = (itbits << 1) & 0x1f;
+
+	cpsr &= ~PSR_IT_MASK;
+	cpsr |= cond << 13;
+	cpsr |= (itbits & 0x1c) << (10 - 2);
+	cpsr |= (itbits & 0x3) << 25;
+	*vcpu_cpsr(vcpu) = cpsr;
+}
+
+/**
+ * kvm_skip_instr - skip a trapped instruction and proceed to the next
+ * @vcpu: The vcpu pointer
+ */
+void kvm_skip_instr(struct kvm_vcpu *vcpu, bool is_wide_instr)
+{
+	bool is_thumb;
+
+	is_thumb = !!(*vcpu_cpsr(vcpu) & PSR_T_BIT);
+	if (is_thumb && !is_wide_instr)
+		*vcpu_pc(vcpu) += 2;
+	else
+		*vcpu_pc(vcpu) += 4;
+	kvm_adjust_itstate(vcpu);
+}
+
+
+/******************************************************************************
+ * Inject exceptions into the guest
+ */
+
+static u32 exc_vector_base(struct kvm_vcpu *vcpu)
+{
+	u32 sctlr = vcpu->arch.cp15[c1_SCTLR];
+	u32 vbar = vcpu->arch.cp15[c12_VBAR];
+
+	if (sctlr & SCTLR_V)
+		return 0xffff0000;
+	else /* always have security exceptions */
+		return vbar;
+}
+
+/**
+ * kvm_inject_undefined - inject an undefined exception into the guest
+ * @vcpu: The VCPU to receive the undefined exception
+ *
+ * It is assumed that this code is called from the VCPU thread and that the
+ * VCPU therefore is not currently executing guest code.
+ *
+ * Modelled after TakeUndefInstrException() pseudocode.
+ */
+void kvm_inject_undefined(struct kvm_vcpu *vcpu)
+{
+	u32 new_lr_value;
+	u32 new_spsr_value;
+	u32 cpsr = *vcpu_cpsr(vcpu);
+	u32 sctlr = vcpu->arch.cp15[c1_SCTLR];
+	bool is_thumb = (cpsr & PSR_T_BIT);
+	u32 vect_offset = 4;
+	u32 return_offset = (is_thumb) ? 2 : 4;
+
+	new_spsr_value = cpsr;
+	new_lr_value = *vcpu_pc(vcpu) - return_offset;
+
+	*vcpu_cpsr(vcpu) = (cpsr & ~MODE_MASK) | UND_MODE;
+	*vcpu_cpsr(vcpu) |= PSR_I_BIT;
+	*vcpu_cpsr(vcpu) &= ~(PSR_IT_MASK | PSR_J_BIT | PSR_E_BIT | PSR_T_BIT);
+
+	if (sctlr & SCTLR_TE)
+		*vcpu_cpsr(vcpu) |= PSR_T_BIT;
+	if (sctlr & SCTLR_EE)
+		*vcpu_cpsr(vcpu) |= PSR_E_BIT;
+
+	/* Note: These now point to UND banked copies */
+	*vcpu_spsr(vcpu) = cpsr;
+	*vcpu_reg(vcpu, 14) = new_lr_value;
+
+	/* Branch to exception vector */
+	*vcpu_pc(vcpu) = exc_vector_base(vcpu) + vect_offset;
+}

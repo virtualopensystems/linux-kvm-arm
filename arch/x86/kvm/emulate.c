@@ -642,7 +642,7 @@ static int __linearize(struct x86_emulate_ctxt *ctxt,
 			if (addr.ea > lim || (u32)(addr.ea + size - 1) > lim)
 				goto bad;
 		} else {
-			/* exapand-down segment */
+			/* expand-down segment */
 			if (addr.ea <= lim || (u32)(addr.ea + size - 1) <= lim)
 				goto bad;
 			lim = desc.d ? 0xffffffff : 0xffff;
@@ -1166,24 +1166,21 @@ static int read_emulated(struct x86_emulate_ctxt *ctxt,
 	int rc;
 	struct read_cache *mc = &ctxt->mem_read;
 
-	while (size) {
-		int n = min(size, 8u);
-		size -= n;
-		if (mc->pos < mc->end)
-			goto read_cached;
+	if (mc->pos < mc->end)
+		goto read_cached;
 
-		rc = ctxt->ops->read_emulated(ctxt, addr, mc->data + mc->end, n,
-					      &ctxt->exception);
-		if (rc != X86EMUL_CONTINUE)
-			return rc;
-		mc->end += n;
+	WARN_ON((mc->end + size) >= sizeof(mc->data));
 
-	read_cached:
-		memcpy(dest, mc->data + mc->pos, n);
-		mc->pos += n;
-		dest += n;
-		addr += n;
-	}
+	rc = ctxt->ops->read_emulated(ctxt, addr, mc->data + mc->end, size,
+				      &ctxt->exception);
+	if (rc != X86EMUL_CONTINUE)
+		return rc;
+
+	mc->end += size;
+
+read_cached:
+	memcpy(dest, mc->data + mc->pos, size);
+	mc->pos += size;
 	return X86EMUL_CONTINUE;
 }
 
@@ -1383,7 +1380,7 @@ static int load_segment_descriptor(struct x86_emulate_ctxt *ctxt,
 	err_code = selector & 0xfffc;
 	err_vec = GP_VECTOR;
 
-	/* can't load system descriptor into segment selecor */
+	/* can't load system descriptor into segment selector */
 	if (seg <= VCPU_SREG_GS && !seg_desc.s)
 		goto exception;
 
@@ -2038,12 +2035,6 @@ static void
 setup_syscalls_segments(struct x86_emulate_ctxt *ctxt,
 			struct desc_struct *cs, struct desc_struct *ss)
 {
-	u16 selector;
-
-	memset(cs, 0, sizeof(struct desc_struct));
-	ctxt->ops->get_segment(ctxt, &selector, cs, NULL, VCPU_SREG_CS);
-	memset(ss, 0, sizeof(struct desc_struct));
-
 	cs->l = 0;		/* will be adjusted later */
 	set_desc_base(cs, 0);	/* flat segment */
 	cs->g = 1;		/* 4kb granularity */
@@ -2053,6 +2044,7 @@ setup_syscalls_segments(struct x86_emulate_ctxt *ctxt,
 	cs->dpl = 0;		/* will be adjusted later */
 	cs->p = 1;
 	cs->d = 1;
+	cs->avl = 0;
 
 	set_desc_base(ss, 0);	/* flat segment */
 	set_desc_limit(ss, 0xfffff);	/* 4GB limit */
@@ -2062,6 +2054,8 @@ setup_syscalls_segments(struct x86_emulate_ctxt *ctxt,
 	ss->d = 1;		/* 32bit stack segment */
 	ss->dpl = 0;
 	ss->p = 1;
+	ss->l = 0;
+	ss->avl = 0;
 }
 
 static bool vendor_intel(struct x86_emulate_ctxt *ctxt)
@@ -2398,7 +2392,7 @@ static int load_state_from_tss16(struct x86_emulate_ctxt *ctxt,
 	set_segment_selector(ctxt, tss->ds, VCPU_SREG_DS);
 
 	/*
-	 * Now load segment descriptors. If fault happenes at this stage
+	 * Now load segment descriptors. If fault happens at this stage
 	 * it is handled in a context of new task
 	 */
 	ret = load_segment_descriptor(ctxt, tss->ldt, VCPU_SREG_LDTR);
@@ -2640,7 +2634,7 @@ static int emulator_do_task_switch(struct x86_emulate_ctxt *ctxt,
 	 *
 	 * 1. jmp/call/int to task gate: Check against DPL of the task gate
 	 * 2. Exception/IRQ/iret: No check is performed
-	 * 3. jmp/call to TSS: Check agains DPL of the TSS
+	 * 3. jmp/call to TSS: Check against DPL of the TSS
 	 */
 	if (reason == TASK_SWITCH_GATE) {
 		if (idt_index != -1) {
@@ -2681,7 +2675,7 @@ static int emulator_do_task_switch(struct x86_emulate_ctxt *ctxt,
 		ctxt->eflags = ctxt->eflags & ~X86_EFLAGS_NT;
 
 	/* set back link to prev task only if NT bit is set in eflags
-	   note that old_tss_sel is not used afetr this point */
+	   note that old_tss_sel is not used after this point */
 	if (reason != TASK_SWITCH_CALL && reason != TASK_SWITCH_GATE)
 		old_tss_sel = 0xffff;
 
