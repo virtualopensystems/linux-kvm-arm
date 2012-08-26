@@ -442,10 +442,17 @@ ENDPROC(__kvm_flush_vm_context)
 	mcr	p15, 4, r2, c1, c1, 0
 .endm
 
+.macro load_vcpu reg
+	mrc	p15, 4, \reg, c13, c0, 2	@ HTPIDR
+.endm
+
 @ Arguments:
 @  r0: pointer to vcpu struct
 ENTRY(__kvm_vcpu_run)
 	hvc	#0			@ switch to hyp-mode
+
+	@ Save the vcpu pointer
+	mcr	p15, 4, r0, c13, c0, 2	@ HTPIDR
 
 	@ Now we're in Hyp-mode and lr_usr, spsr_hyp are on the stack
 	mrs	r2, sp_usr
@@ -473,8 +480,6 @@ ENTRY(__kvm_vcpu_run)
 	orr	r2, r2, #FPEXC_EN
 	VFPFMXR FPEXC, r2		@ VMSR
 #endif
-
-	push	{r0}			@ Push the VCPU pointer
 
 	@ Configure Hyp-role
 	configure_hyp_role 1, r0
@@ -676,7 +681,7 @@ ENTRY(__kvm_va_to_pa)
 	@ the vcpu pointer and stuff off the stack and keep our fingers crossed
 	beq	99f
 	mov	r0, #\exception_code
-	pop	{r1}			@ Load VCPU pointer
+	load_vcpu	r1		@ Load VCPU pointer
 	.if \exception_code == ARM_EXCEPTION_DATA_ABORT
 	mrc	p15, 4, r2, c5, c2, 0	@ HSR
 	mrc	p15, 4, r3, c6, c0, 0	@ HDFAR
@@ -800,13 +805,12 @@ host_switch_to_hyp:
 	mov	pc, lr
 
 guest_trap:
-	ldr	r1, [sp, #12]		@ Load VCPU pointer
+	load_vcpu	r1		@ Load VCPU pointer
 	str	r0, [r1, #VCPU_HSR]
 	add	r1, r1, #VCPU_USR_REG(3)
 	stmia	r1, {r3-r12}
 	sub	r1, r1, #(VCPU_USR_REG(3) - VCPU_USR_REG(0))
 	pop	{r3, r4, r5}
-	add	sp, sp, #4		@ We loaded the VCPU pointer above
 	stmia	r1, {r3, r4, r5}
 	sub	r1, r1, #VCPU_USR_REG(0)
 
@@ -832,7 +836,7 @@ guest_trap:
 @ inject an undefined exception to the guest.
 #ifdef CONFIG_VFPv3
 switch_to_guest_vfp:
-	ldr	r0, [sp, #12]		@ Load VCPU pointer
+	load_vcpu	r0		@ Load VCPU pointer
 	push	{r3-r7}
 
 	@ NEON/VFP used.  Turn on VFP access.
@@ -853,10 +857,11 @@ switch_to_guest_vfp:
 	.align
 hyp_irq:
 	push	{r0}
-	ldr	r0, [sp, #4]		@ Load VCPU pointer
+	load_vcpu	r0		@ Load VCPU pointer
 	add	r0, r0, #(VCPU_USR_REG(1))
 	stmia	r0, {r1-r12}
-	pop	{r0, r1}		@ r1 == vcpu pointer
+	pop	{r0}
+	load_vcpu	r1		@ Load VCPU pointer again
 	str	r0, [r1, #VCPU_USR_REG(0)]
 
 	mov	r0, #ARM_EXCEPTION_IRQ
