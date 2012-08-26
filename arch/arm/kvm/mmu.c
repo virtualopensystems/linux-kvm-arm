@@ -736,13 +736,15 @@ static int io_mem_abort(struct kvm_vcpu *vcpu, struct kvm_run *run,
 		return invalid_io_mem_abort(vcpu, fault_ipa);
 
 	if (((vcpu->arch.hsr >> 8) & 1)) {
-		kvm_err("Not supported, Cache operation on I/O addr.\n");
-		return -EFAULT;
+		/* cache operation on I/O addr, tell guest unsupported */
+		kvm_inject_dabt(vcpu, vcpu->arch.hdfar);
+		return 1;
 	}
 
 	if ((vcpu->arch.hsr >> 7) & 1) {
-		kvm_err("Translation table accesses I/O memory\n");
-		return -EFAULT;
+		/* page table accesses IO mem: tell guest to fix its TTBR */
+		kvm_inject_dabt(vcpu, vcpu->arch.hdfar);
+		return 1;
 	}
 
 	switch ((vcpu->arch.hsr >> 22) & 0x3) {
@@ -756,18 +758,18 @@ static int io_mem_abort(struct kvm_vcpu *vcpu, struct kvm_run *run,
 		len = 4;
 		break;
 	default:
-		kvm_err("Invalid I/O abort\n");
+		kvm_err("Hardware is weird: SAS 0b11 is reserved\n");
 		return -EFAULT;
 	}
 
 	is_write = vcpu->arch.hsr & HSR_WNR;
 	sign_extend = vcpu->arch.hsr & HSR_SSE;
 	rd = (vcpu->arch.hsr & HSR_SRT_MASK) >> HSR_SRT_SHIFT;
-	BUG_ON(rd > 15);
 
 	if (rd == 15) {
-		kvm_err("I/O memory trying to read/write pc\n");
-		return -EFAULT;
+		/* IO memory trying to read/write pc */
+		kvm_inject_pabt(vcpu, vcpu->arch.hdfar);
+		return 1;
 	}
 
 	/*
@@ -840,9 +842,9 @@ int kvm_handle_guest_abort(struct kvm_vcpu *vcpu, struct kvm_run *run)
 	gfn = fault_ipa >> PAGE_SHIFT;
 	if (!kvm_is_visible_gfn(vcpu->kvm, gfn)) {
 		if (is_iabt) {
-			kvm_err("Inst. abort on I/O address %08lx\n",
-				(unsigned long)fault_ipa);
-			return -EFAULT;
+			/* Prefetch Abort on I/O address */
+			kvm_inject_pabt(vcpu, vcpu->arch.hifar);
+			return 1;
 		}
 
 		/* Adjust page offset */

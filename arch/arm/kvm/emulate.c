@@ -529,3 +529,90 @@ void kvm_inject_undefined(struct kvm_vcpu *vcpu)
 	/* Branch to exception vector */
 	*vcpu_pc(vcpu) = exc_vector_base(vcpu) + vect_offset;
 }
+
+/*
+ * Modelled after TakeDataAbortException() and TakePrefetchAbortException
+ * pseudocode.
+ */
+static void inject_abt(struct kvm_vcpu *vcpu, bool is_pabt, unsigned long addr)
+{
+	u32 new_lr_value;
+	u32 new_spsr_value;
+	u32 cpsr = *vcpu_cpsr(vcpu);
+	u32 sctlr = vcpu->arch.cp15[c1_SCTLR];
+	bool is_thumb = (cpsr & PSR_T_BIT);
+	u32 vect_offset;
+	u32 return_offset = (is_thumb) ? 4 : 0;
+	bool is_lpae;
+
+	new_spsr_value = cpsr;
+	new_lr_value = *vcpu_pc(vcpu) + return_offset;
+
+	*vcpu_cpsr(vcpu) = (cpsr & ~MODE_MASK) | ABT_MODE;
+	*vcpu_cpsr(vcpu) |= PSR_I_BIT | PSR_A_BIT;
+	*vcpu_cpsr(vcpu) &= ~(PSR_IT_MASK | PSR_J_BIT | PSR_E_BIT | PSR_T_BIT);
+
+	if (sctlr & SCTLR_TE)
+		*vcpu_cpsr(vcpu) |= PSR_T_BIT;
+	if (sctlr & SCTLR_EE)
+		*vcpu_cpsr(vcpu) |= PSR_E_BIT;
+
+	/* Note: These now point to ABT banked copies */
+	*vcpu_spsr(vcpu) = cpsr;
+	*vcpu_reg(vcpu, 14) = new_lr_value;
+
+	if (is_pabt)
+		vect_offset = 12;
+	else
+		vect_offset = 16;
+
+	/* Branch to exception vector */
+	*vcpu_pc(vcpu) = exc_vector_base(vcpu) + vect_offset;
+
+	if (is_pabt) {
+		/* Set DFAR and DFSR */
+		vcpu->arch.cp15[c6_IFAR] = addr;
+		is_lpae = (vcpu->arch.cp15[c2_TTBCR] >> 31);
+		/* Always give debug fault for now - should give guest a clue */
+		if (is_lpae)
+			vcpu->arch.cp15[c5_IFSR] = 1 << 9 | 0x22;
+		else
+			vcpu->arch.cp15[c5_IFSR] = 2;
+	} else { /* !iabt */
+		/* Set DFAR and DFSR */
+		vcpu->arch.cp15[c6_DFAR] = addr;
+		is_lpae = (vcpu->arch.cp15[c2_TTBCR] >> 31);
+		/* Always give debug fault for now - should give guest a clue */
+		if (is_lpae)
+			vcpu->arch.cp15[c5_DFSR] = 1 << 9 | 0x22;
+		else
+			vcpu->arch.cp15[c5_DFSR] = 2;
+	}
+
+}
+
+/**
+ * kvm_inject_dabt - inject a data abort into the guest
+ * @vcpu: The VCPU to receive the undefined exception
+ * @addr: The address to report in the DFAR
+ *
+ * It is assumed that this code is called from the VCPU thread and that the
+ * VCPU therefore is not currently executing guest code.
+ */
+void kvm_inject_dabt(struct kvm_vcpu *vcpu, unsigned long addr)
+{
+	inject_abt(vcpu, false, addr);
+}
+
+/**
+ * kvm_inject_pabt - inject a prefetch abort into the guest
+ * @vcpu: The VCPU to receive the undefined exception
+ * @addr: The address to report in the DFAR
+ *
+ * It is assumed that this code is called from the VCPU thread and that the
+ * VCPU therefore is not currently executing guest code.
+ */
+void kvm_inject_pabt(struct kvm_vcpu *vcpu, unsigned long addr)
+{
+	inject_abt(vcpu, true, addr);
+}
