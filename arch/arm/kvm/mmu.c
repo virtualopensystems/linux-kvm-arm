@@ -586,7 +586,8 @@ int kvm_handle_mmio_return(struct kvm_vcpu *vcpu, struct kvm_run *run)
  * @dest:	memory to copy into
  * @va:		virtual address in guest to copy from
  * @len:	length to copy
- * @priv:	use guest PL1 (ie. kernel) mappings, otherwise use guest PL0 mappings.
+ * @priv:	use guest PL1 (ie. kernel) mappings
+ *              otherwise use guest PL0 mappings.
  *
  * Returns true on success, false on failure (unlikely, but retry).
  */
@@ -596,43 +597,32 @@ static bool copy_from_guest_va(struct kvm_vcpu *vcpu,
 {
 	u64 par;
 	phys_addr_t pc_ipa;
-	size_t cur_len;
 	int err;
 
-	/* A 32-bit thumb2 instruction can actually go over a page boundary! */
-	do {
-		par = __kvm_va_to_pa(vcpu, va & PAGE_MASK, priv);
-		if (par & 1) {
-			kvm_err("I/O Abort from invalid instruction address"
-				" %#lx!\n", va);
-			return false;
-		}
+	BUG_ON((va & PAGE_MASK) != ((va + len) & PAGE_MASK));
+	par = __kvm_va_to_pa(vcpu, va & PAGE_MASK, priv);
+	if (par & 1) {
+		kvm_err("I/O Abort from invalid instruction address"
+			" %#lx!\n", va);
+		return false;
+	}
 
-		if (par & (1U << 11)) {
-			/* LPAE PAR format */
-			/*
-			 * TODO: Check if this ever happens
-			 * - called from Hyp mode
-			 */
-			pc_ipa = par & PAGE_MASK & ((1ULL << 32) - 1);
-		} else {
-			/* VMSAv7 PAR format */
-			pc_ipa = par & PAGE_MASK & ((1ULL << 40) - 1);
-		}
-		pc_ipa += va & ~PAGE_MASK;
+	if (par & (1U << 11)) {
+		/* LPAE PAR format */
+		/*
+		 * TODO: Check if this ever happens
+		 * - called from Hyp mode
+		 */
+		pc_ipa = par & PAGE_MASK & ((1ULL << 32) - 1);
+	} else {
+		/* VMSAv7 PAR format */
+		pc_ipa = par & PAGE_MASK & ((1ULL << 40) - 1);
+	}
+	pc_ipa += va & ~PAGE_MASK;
 
-		/* Only copy up to end of page. */
-		cur_len = (pc_ipa & PAGE_MASK) + PAGE_SIZE - pc_ipa;
-		if (likely(cur_len > len))
-			cur_len = len;
-
-		err = kvm_read_guest(vcpu->kvm, pc_ipa, dest, cur_len);
-		if (unlikely(err))
-			return false;
-
-		len -= cur_len;
-		va += cur_len;
-	} while (unlikely(len != 0));
+	err = kvm_read_guest(vcpu->kvm, pc_ipa, dest, len);
+	if (unlikely(err))
+		return false;
 
 	return true;
 }
@@ -652,12 +642,13 @@ static void do_nothing(void *info)
  * Fortunately this is so rare (we don't usually need the instruction), we
  * can go very slowly and noone will mind.
  */
-static bool copy_current_insn(struct kvm_vcpu *vcpu,
-			     unsigned long *instr, size_t instr_len)
+static bool copy_current_insn(struct kvm_vcpu *vcpu, unsigned long *instr)
 {
 	int i;
 	bool ret;
 	struct kvm_vcpu *v;
+	bool is_thumb;
+	size_t instr_len;
 
 	/* Don't cross with IPIs in kvm_main.c */
 	spin_lock(&vcpu->kvm->mmu_lock);
@@ -676,10 +667,26 @@ static bool copy_current_insn(struct kvm_vcpu *vcpu,
 			smp_call_function_single(v->cpu, do_nothing, NULL, 1);
 	}
 
+
+	is_thumb = !!(*vcpu_cpsr(vcpu) & PSR_T_BIT);
+	instr_len = (is_thumb) ? 2 : 4;
+
+	BUG_ON(!is_thumb && vcpu->arch.regs.pc & 0x3);
+
 	/* Now guest isn't running, we can va->pa map and copy atomically. */
 	ret = copy_from_guest_va(vcpu, instr, vcpu->arch.regs.pc, instr_len,
 				 vcpu_mode_priv(vcpu));
+	if (!ret)
+		goto out;
 
+	/* A 32-bit thumb2 instruction can actually go over a page boundary! */
+	if (is_thumb && is_wide_instruction(*instr)) {
+		*instr = *instr << 16;
+		ret = copy_from_guest_va(vcpu, instr, vcpu->arch.regs.pc, 2,
+					 vcpu_mode_priv(vcpu));
+	}
+
+out:
 	/* Release them all. */
 	kvm_for_each_vcpu(i, v, vcpu->kvm)
 		v->arch.pause = false;
@@ -702,7 +709,7 @@ static bool copy_current_insn(struct kvm_vcpu *vcpu,
  */
 static int invalid_io_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa)
 {
-	unsigned long instr;
+	unsigned long instr = 0;
 
 	if (vcpu->arch.regs.cpsr & PSR_T_BIT) {
 		/* TODO: Check validity of PC IPA and IPA2!!! */
@@ -712,7 +719,7 @@ static int invalid_io_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa)
 	}
 
 	/* If it fails (SMP race?), we reenter guest for it to retry. */
-	if (!copy_current_insn(vcpu, &instr, sizeof(instr)))
+	if (!copy_current_insn(vcpu, &instr))
 		return 1;
 
 	return kvm_emulate_mmio_ls(vcpu, fault_ipa, instr);
