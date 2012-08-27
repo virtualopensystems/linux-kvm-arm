@@ -396,9 +396,161 @@ static bool kvm_decode_arm_ls(struct kvm_vcpu *vcpu, unsigned long instr,
 	return true;
 }
 
-static bool kvm_decode_thumb_ls(struct kvm_vcpu *vcpu, unsigned long instr,
-			      struct kvm_exit_mmio *mmio)
+struct thumb_instr {
+	bool is32;
+
+	union {
+		struct {
+			u8 opcode;
+			u8 mask;
+		} t16;
+
+		struct {
+			u8 op1;
+			u8 op2;
+			u8 op2_mask;
+		} t32;
+	};
+
+	bool (*decode)(struct kvm_vcpu *vcpu, struct kvm_exit_mmio *mmio,
+		       unsigned long instr, const struct thumb_instr *ti);
+};
+
+static bool decode_thumb_wb(struct kvm_vcpu *vcpu, struct kvm_exit_mmio *mmio,
+			    unsigned long instr)
 {
+	bool P = (instr >> 10) & 1;
+	bool U = (instr >> 9) & 1;
+	u8 imm8 = instr & 0xff;
+	u32 offset_addr = vcpu->arch.hdfar;
+	u8 Rn = (instr >> 16) & 0xf;
+
+	vcpu->arch.mmio.rd = (instr >> 12) & 0xf;
+
+	if (Rn == 15)
+		return false;
+
+	/* Handle Writeback */
+	if (!P && U)
+		*vcpu_reg(vcpu, Rn) = offset_addr + imm8;
+	else if (!P && U)
+		*vcpu_reg(vcpu, Rn) = offset_addr - imm8;
+	return true;
+}
+
+static bool decode_thumb_str(struct kvm_vcpu *vcpu, struct kvm_exit_mmio *mmio,
+			     unsigned long instr, const struct thumb_instr *ti)
+{
+	u8 op1 = (instr >> (16 + 5)) & 0x7;
+	u8 op2 = (instr >> 6) & 0x3f;
+
+	mmio->is_write = true;
+	vcpu->arch.mmio.sign_extend = false;
+
+	switch (op1) {
+	case 0x0: mmio->len = 1; break;
+	case 0x1: mmio->len = 2; break;
+	case 0x2: mmio->len = 4; break;
+	default:
+		  return false; /* Only register write-back versions! */
+	}
+
+	if ((op2 & 0x24) == 0x24) {
+		/* STRB (immediate, thumb, W=1) */
+		return decode_thumb_wb(vcpu, mmio, instr);
+	}
+
+	return false;
+}
+
+static bool decode_thumb_ldr(struct kvm_vcpu *vcpu, struct kvm_exit_mmio *mmio,
+			     unsigned long instr, const struct thumb_instr *ti)
+{
+	u8 op1 = (instr >> (16 + 7)) & 0x3;
+	u8 op2 = (instr >> 6) & 0x3f;
+
+	mmio->is_write = false;
+
+	switch (ti->t32.op2 & 0x7) {
+	case 0x1: mmio->len = 1; break;
+	case 0x3: mmio->len = 2; break;
+	case 0x5: mmio->len = 4; break;
+	}
+
+	if (op1 == 0x0)
+		vcpu->arch.mmio.sign_extend = false;
+	else if (op1 == 0x2 && (ti->t32.op2 & 0x7) != 0x5)
+		vcpu->arch.mmio.sign_extend = true;
+	else
+		return false; /* Only register write-back versions! */
+
+	if ((op2 & 0x24) == 0x24) {
+		/* LDR{S}X (immediate, thumb, W=1) */
+		return decode_thumb_wb(vcpu, mmio, instr);
+	}
+
+	return false;
+}
+
+/*
+ * We only support instruction decoding for valid reasonable MMIO operations
+ * where trapping them do not provide sufficient information in the HSR (no
+ * 16-bit Thumb instructions provide register writeback that we care about).
+ *
+ * The following instruciton types are NOT supported for MMIO operations
+ * despite the HSR not containing decode info:
+ *  - any Load/Store multiple
+ *  - any load/store exclusive
+ *  - any load/store dual
+ *  - anything with the PC as the dest register
+ */
+static const struct thumb_instr thumb_instr[] = {
+	/**************** 32-bit Thumb instructions **********************/
+	/* Store single data item:	Op1 == 11, Op2 == 000xxx0 */
+	{ .is32 = true,  .t32 = { 3, 0x00, 0x71}, decode_thumb_str	},
+	/* Load byte:			Op1 == 11, Op2 == 00xx001 */
+	{ .is32 = true,  .t32 = { 3, 0x67, 0x01}, decode_thumb_ldr	},
+	/* Load halfword:		Op1 == 11, Op2 == 00xx011 */
+	{ .is32 = true,  .t32 = { 3, 0x67, 0x03}, decode_thumb_ldr	},
+	/* Load word:			Op1 == 11, Op2 == 00xx101 */
+	{ .is32 = true,  .t32 = { 3, 0x67, 0x05}, decode_thumb_ldr	},
+};
+
+
+
+static bool kvm_decode_thumb_ls(struct kvm_vcpu *vcpu, unsigned long instr,
+				struct kvm_exit_mmio *mmio)
+{
+	bool is32 = is_wide_instruction(instr);
+	bool is16 = !is32;
+	struct thumb_instr tinstr; /* re-use to pass on already decoded info */
+	int i;
+
+	if (is16) {
+		tinstr.t16.opcode = (instr >> 10) & 0x3f;
+	} else {
+		tinstr.t32.op1 = (instr >> (16 + 11)) & 0x3;
+		tinstr.t32.op2 = (instr >> (16 + 4)) & 0x7f;
+	}
+
+	for (i = 0; i < ARRAY_SIZE(thumb_instr); i++) {
+		const struct thumb_instr *ti = &thumb_instr[i];
+		if (ti->is32 != is32)
+			continue;
+
+		if (is16) {
+			if ((tinstr.t16.opcode & ti->t16.mask) != ti->t16.opcode)
+				continue;
+		} else {
+			if (ti->t32.op1 != tinstr.t32.op1)
+				continue;
+			if ((ti->t32.op2_mask & tinstr.t32.op2) != ti->t32.op2)
+				continue;
+		}
+
+		return ti->decode(vcpu, mmio, instr, &tinstr);
+	}
+
 	return false;
 }
 
