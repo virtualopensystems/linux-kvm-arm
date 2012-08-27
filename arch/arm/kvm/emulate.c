@@ -364,6 +364,44 @@ static int kvm_ls_length(struct kvm_vcpu *vcpu, u32 instr)
 	BUG();
 }
 
+static bool kvm_decode_arm_ls(struct kvm_vcpu *vcpu, unsigned long instr,
+			      struct kvm_exit_mmio *mmio)
+{
+	int index;
+	bool is_write;
+	unsigned long rd, rn, offset, len;
+
+	index = get_arm_ls_instr_index(instr);
+	if (index == INSTR_NONE)
+		return false;
+
+	is_write = (index < NUM_LD_INSTR) ? false : true;
+	rd = (instr & INSTR_LS_RD_MASK) >> INSTR_LS_RD_SHIFT;
+	len = kvm_ls_length(vcpu, instr);
+
+	mmio->is_write = is_write;
+	mmio->len = len;
+
+	vcpu->arch.mmio.sign_extend = false;
+	vcpu->arch.mmio.rd = rd;
+
+	/* Handle base register writeback */
+	if (!(instr & (1U << INSTR_LS_BIT_P)) ||
+	     (instr & (1U << INSTR_LS_BIT_W))) {
+		rn = (instr & INSTR_LS_RN_MASK) >> INSTR_LS_RN_SHIFT;
+		offset = ls_word_calc_offset(vcpu, instr);
+		*vcpu_reg(vcpu, rn) += offset;
+	}
+
+	return true;
+}
+
+static bool kvm_decode_thumb_ls(struct kvm_vcpu *vcpu, unsigned long instr,
+			      struct kvm_exit_mmio *mmio)
+{
+	return false;
+}
+
 /**
  * kvm_emulate_mmio_ls - emulates load/store instructions made to I/O memory
  * @vcpu:	The vcpu pointer
@@ -378,39 +416,31 @@ static int kvm_ls_length(struct kvm_vcpu *vcpu, u32 instr)
 int kvm_emulate_mmio_ls(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
 			unsigned long instr)
 {
-	unsigned long rd, rn, offset, len;
-	int index;
-	bool is_write;
+	bool is_thumb;
+	struct kvm_exit_mmio mmio;
 
 	trace_kvm_mmio_emulate(vcpu->arch.regs.pc, instr, vcpu->arch.regs.cpsr);
 
-	index = get_arm_ls_instr_index(instr);
-	if (index == INSTR_NONE) {
-		kvm_err("Unknown load/store instruction\n");
-		return -EINVAL;
+	mmio.phys_addr = fault_ipa;
+	is_thumb = !!(*vcpu_cpsr(vcpu) & PSR_T_BIT);
+	if (!is_thumb && !kvm_decode_arm_ls(vcpu, instr, &mmio)) {
+		kvm_err("Unable to decode instr.: %#08lx (cpsr: %#08x (T=0))\n",
+			instr, *vcpu_cpsr(vcpu));
+		return -ENXIO;
+	} else if (is_thumb && !kvm_decode_thumb_ls(vcpu, instr, &mmio)) {
+		kvm_err("Unable to decode instr.: %#08lx (cpsr: %#08x (T=1))\n",
+			instr, *vcpu_cpsr(vcpu));
+		return -ENXIO;
 	}
 
-	is_write = (index < NUM_LD_INSTR) ? false : true;
-	rd = (instr & INSTR_LS_RD_MASK) >> INSTR_LS_RD_SHIFT;
-	len = kvm_ls_length(vcpu, instr);
+	if (mmio.is_write)
+		memcpy(mmio.data, vcpu_reg(vcpu, vcpu->arch.mmio.rd), mmio.len);
+	kvm_prepare_mmio(vcpu->run, &mmio);
 
-	vcpu->run->mmio.is_write = is_write;
-	vcpu->run->mmio.phys_addr = fault_ipa;
-	vcpu->run->mmio.len = len;
-	vcpu->arch.mmio_sign_extend = false;
-	vcpu->arch.mmio_rd = rd;
-
-	trace_kvm_mmio((is_write) ? KVM_TRACE_MMIO_WRITE :
-				    KVM_TRACE_MMIO_READ_UNSATISFIED,
-			len, fault_ipa, (is_write) ? *vcpu_reg(vcpu, rd) : 0);
-
-	/* Handle base register writeback */
-	if (!(instr & (1U << INSTR_LS_BIT_P)) ||
-	     (instr & (1U << INSTR_LS_BIT_W))) {
-		rn = (instr & INSTR_LS_RN_MASK) >> INSTR_LS_RN_SHIFT;
-		offset = ls_word_calc_offset(vcpu, instr);
-		*vcpu_reg(vcpu, rn) += offset;
-	}
+	trace_kvm_mmio((mmio.is_write) ? KVM_TRACE_MMIO_WRITE :
+					 KVM_TRACE_MMIO_READ_UNSATISFIED,
+		mmio.len, fault_ipa,
+		(mmio.is_write) ? *vcpu_reg(vcpu, vcpu->arch.mmio.rd) : 0);
 
 	/*
 	 * The MMIO instruction is emulated and should not be re-executed

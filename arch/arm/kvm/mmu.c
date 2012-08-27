@@ -559,7 +559,7 @@ int kvm_handle_mmio_return(struct kvm_vcpu *vcpu, struct kvm_run *run)
 	int mask;
 
 	if (!run->mmio.is_write) {
-		dest = vcpu_reg(vcpu, vcpu->arch.mmio_rd);
+		dest = vcpu_reg(vcpu, vcpu->arch.mmio.rd);
 		memset(dest, 0, sizeof(int));
 
 		len = run->mmio.len;
@@ -571,7 +571,7 @@ int kvm_handle_mmio_return(struct kvm_vcpu *vcpu, struct kvm_run *run)
 		trace_kvm_mmio(KVM_TRACE_MMIO_READ, len, run->mmio.phys_addr,
 				*((u64 *)run->mmio.data));
 
-		if (vcpu->arch.mmio_sign_extend && len < 4) {
+		if (vcpu->arch.mmio.sign_extend && len < 4) {
 			mask = 1U << ((len * 8) - 1);
 			*dest = (*dest ^ mask) - mask;
 		}
@@ -711,13 +711,6 @@ static int invalid_io_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa)
 {
 	unsigned long instr = 0;
 
-	if (vcpu->arch.regs.cpsr & PSR_T_BIT) {
-		/* TODO: Check validity of PC IPA and IPA2!!! */
-		/* Need to decode thumb instructions as well */
-		kvm_err("Thumb guest support not there yet :(\n");
-		return -EINVAL;
-	}
-
 	/* If it fails (SMP race?), we reenter guest for it to retry. */
 	if (!copy_current_insn(vcpu, &instr))
 		return 1;
@@ -781,8 +774,8 @@ static int io_mem_abort(struct kvm_vcpu *vcpu, struct kvm_run *run,
 	mmio.is_write = is_write;
 	mmio.phys_addr = fault_ipa;
 	mmio.len = len;
-	vcpu->arch.mmio_sign_extend = sign_extend;
-	vcpu->arch.mmio_rd = rd;
+	vcpu->arch.mmio.sign_extend = sign_extend;
+	vcpu->arch.mmio.rd = rd;
 
 	trace_kvm_mmio((is_write) ? KVM_TRACE_MMIO_WRITE :
 				    KVM_TRACE_MMIO_READ_UNSATISFIED,

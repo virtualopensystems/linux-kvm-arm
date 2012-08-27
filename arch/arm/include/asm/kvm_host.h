@@ -156,8 +156,10 @@ struct kvm_vcpu_arch {
 	bool pause;
 
 	/* IO related fields */
-	bool mmio_sign_extend;	/* for byte/halfword loads */
-	u32 mmio_rd;
+	struct {
+		bool sign_extend;	/* for byte/halfword loads */
+		u32  rd;
+	} mmio;
 
 	/* Interrupt related fields */
 	u32 irq_lines;		/* IRQ and FIQ levels */
