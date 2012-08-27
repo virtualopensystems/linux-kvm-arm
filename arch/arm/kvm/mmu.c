@@ -384,10 +384,12 @@ static void stage2_clear_pte(struct kvm *kvm, phys_addr_t addr)
 
 	pgd = kvm->arch.pgd + pgd_index(addr);
 	pud = pud_offset(pgd, addr);
-	BUG_ON(pud_none(*pud));
+	if (pud_none(*pud))
+		return;
 
 	pmd = pmd_offset(pud, addr);
-	BUG_ON(pmd_none(*pmd));
+	if (pmd_none(*pmd))
+		return;
 
 	pte = pte_offset_kernel(pmd, addr);
 	set_pte_ext(pte, __pte(0), 0);
