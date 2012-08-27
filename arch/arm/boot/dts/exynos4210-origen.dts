@@ -263,6 +263,14 @@
 		};
 	};
 
+	i2c@13870000 {
+		status = "okay";
+		samsung,i2c-sda-delay = <100>;
+		samsung,i2c-max-bus-freq = <20000>;
+		pinctrl-0 = <&i2c1_bus>;
+		pinctrl-names = "default";
+	};
+
 	gpio_keys {
 		compatible = "gpio-keys";
 		#address-cells = <1>;
