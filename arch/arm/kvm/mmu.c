@@ -586,7 +586,7 @@ int kvm_handle_mmio_return(struct kvm_vcpu *vcpu, struct kvm_run *run)
  * copy_from_guest_va - copy memory from guest (very slow!)
  * @vcpu:	vcpu pointer
  * @dest:	memory to copy into
- * @va:		virtual address in guest to copy from
+ * @gva:	virtual address in guest to copy from
  * @len:	length to copy
  * @priv:	use guest PL1 (ie. kernel) mappings
  *              otherwise use guest PL0 mappings.
@@ -594,18 +594,18 @@ int kvm_handle_mmio_return(struct kvm_vcpu *vcpu, struct kvm_run *run)
  * Returns true on success, false on failure (unlikely, but retry).
  */
 static bool copy_from_guest_va(struct kvm_vcpu *vcpu,
-			       void *dest, unsigned long va, size_t len,
+			       void *dest, unsigned long gva, size_t len,
 			       bool priv)
 {
 	u64 par;
 	phys_addr_t pc_ipa;
 	int err;
 
-	BUG_ON((va & PAGE_MASK) != ((va + len) & PAGE_MASK));
-	par = __kvm_va_to_pa(vcpu, va & PAGE_MASK, priv);
+	BUG_ON((gva & PAGE_MASK) != ((gva + len) & PAGE_MASK));
+	par = __kvm_va_to_pa(vcpu, gva & PAGE_MASK, priv);
 	if (par & 1) {
 		kvm_err("I/O Abort from invalid instruction address"
-			" %#lx!\n", va);
+			" %#lx!\n", gva);
 		return false;
 	}
 
@@ -620,7 +620,7 @@ static bool copy_from_guest_va(struct kvm_vcpu *vcpu,
 		/* VMSAv7 PAR format */
 		pc_ipa = par & PAGE_MASK & ((1ULL << 40) - 1);
 	}
-	pc_ipa += va & ~PAGE_MASK;
+	pc_ipa += gva & ~PAGE_MASK;
 
 	err = kvm_read_guest(vcpu->kvm, pc_ipa, dest, len);
 	if (unlikely(err))

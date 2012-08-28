@@ -612,6 +612,8 @@ ENTRY(__kvm_va_to_pa)
 	push	{r4-r12}
 
 	@ Fold flag into r1, easier than using stack.
+	cmp	r1, #0
+	movne	r1, #1
 	orr	r1, r1, r2
 
 	@ This swaps too many registers, but we're in the slow path anyway.
@@ -619,9 +621,10 @@ ENTRY(__kvm_va_to_pa)
 	write_cp15_state 1, r0
 
 	ands	r2, r1, #1
-	sub	r1, r1, r2
+	bic	r1, r1, r2
 	mcrne	p15, 0, r1, c7, c8, 0	@ VA to PA, ATS1CPR
 	mcreq	p15, 0, r1, c7, c8, 2	@ VA to PA, ATS1CUR
+	isb
 
 	@ Restore host state.
 	read_cp15_state 1, r0
