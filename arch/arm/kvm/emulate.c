@@ -576,13 +576,15 @@ int kvm_emulate_mmio_ls(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
 	mmio.phys_addr = fault_ipa;
 	is_thumb = !!(*vcpu_cpsr(vcpu) & PSR_T_BIT);
 	if (!is_thumb && !kvm_decode_arm_ls(vcpu, instr, &mmio)) {
-		kvm_err("Unable to decode instr.: %#08lx (cpsr: %#08x (T=0))\n",
-			instr, *vcpu_cpsr(vcpu));
-		return -ENXIO;
+		kvm_debug("Unable to decode instr.: %#08lx (cpsr: %#08x (T=0))\n",
+			  instr, *vcpu_cpsr(vcpu));
+		kvm_inject_dabt(vcpu, vcpu->arch.hdfar);
+		return 1;
 	} else if (is_thumb && !kvm_decode_thumb_ls(vcpu, instr, &mmio)) {
-		kvm_err("Unable to decode instr.: %#08lx (cpsr: %#08x (T=1))\n",
-			instr, *vcpu_cpsr(vcpu));
-		return -ENXIO;
+		kvm_debug("Unable to decode instr.: %#08lx (cpsr: %#08x (T=1))\n",
+			  instr, *vcpu_cpsr(vcpu));
+		kvm_inject_dabt(vcpu, vcpu->arch.hdfar);
+		return 1;
 	}
 
 	if (mmio.is_write)
