@@ -71,13 +71,13 @@ static void print_cp_instr(const struct coproc_params *p)
 {
 	/* Look, we even formatted it for you to paste into the table! */
 	if (p->is_64bit) {
-		kvm_err(" { CRm(%2lu), Op1(%2lu), is64, func_%s },\n",
-			p->CRm, p->Op1, p->is_write ? "write" : "read");
+		kvm_pr_unimpl(" { CRm(%2lu), Op1(%2lu), is64, func_%s },\n",
+			      p->CRm, p->Op1, p->is_write ? "write" : "read");
 	} else {
-		kvm_err(" { CRn(%2lu), CRm(%2lu), Op1(%2lu), Op2(%2lu), is32,"
-			" func_%s },\n",
-			p->CRn, p->CRm, p->Op1, p->Op2,
-			p->is_write ? "write" : "read");
+		kvm_pr_unimpl(" { CRn(%2lu), CRm(%2lu), Op1(%2lu), Op2(%2lu), is32,"
+			      " func_%s },\n",
+			      p->CRn, p->CRm, p->Op1, p->Op2,
+			      p->is_write ? "write" : "read");
 	}
 }
 
@@ -123,8 +123,8 @@ static bool read_zero(struct kvm_vcpu *vcpu, const struct coproc_params *p)
 static bool write_to_read_only(struct kvm_vcpu *vcpu,
 			       const struct coproc_params *params)
 {
-	kvm_err("CP15 write to read-only register at: %08x\n",
-		vcpu->arch.regs.pc);
+	kvm_debug("CP15 write to read-only register at: %08x\n",
+		  vcpu->arch.regs.pc);
 	print_cp_instr(params);
 	return false;
 }
@@ -132,8 +132,8 @@ static bool write_to_read_only(struct kvm_vcpu *vcpu,
 static bool read_from_write_only(struct kvm_vcpu *vcpu,
 				 const struct coproc_params *params)
 {
-	kvm_err("CP15 read to write-only register at: %08x\n",
-		vcpu->arch.regs.pc);
+	kvm_debug("CP15 read to write-only register at: %08x\n",
+		  vcpu->arch.regs.pc);
 	print_cp_instr(params);
 	return false;
 }
