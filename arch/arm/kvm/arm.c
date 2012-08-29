@@ -714,8 +714,6 @@ static int vcpu_interrupt_line(struct kvm_vcpu *vcpu, int number, bool level)
 	bool set;
 	unsigned long *ptr;
 
-	trace_kvm_set_irq(number, level, 0);
-
 	if (number == KVM_ARM_IRQ_CPU_IRQ)
 		bit_index = ffs(HCR_VI) - 1;
 	else /* KVM_ARM_IRQ_CPU_FIQ */
@@ -754,6 +752,8 @@ int kvm_vm_ioctl_irq_line(struct kvm *kvm, struct kvm_irq_level *irq_level)
 	irq_type = (irq >> KVM_ARM_IRQ_TYPE_SHIFT) & KVM_ARM_IRQ_TYPE_MASK;
 	vcpu_idx = (irq >> KVM_ARM_IRQ_VCPU_SHIFT) & KVM_ARM_IRQ_VCPU_MASK;
 	irq_num = (irq >> KVM_ARM_IRQ_NUM_SHIFT) & KVM_ARM_IRQ_NUM_MASK;
+
+	trace_kvm_irq_line(irq_type, vcpu_idx, irq_num, irq_level->level);
 
 	if (irq_type == KVM_ARM_IRQ_TYPE_CPU ||
 	    irq_type == KVM_ARM_IRQ_TYPE_PPI) {

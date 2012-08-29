@@ -874,7 +874,6 @@ int kvm_vgic_inject_irq(struct kvm *kvm, int cpuid, unsigned int irq_num,
 	unsigned long flags;
 	bool updated_state = false;
 
-	kvm_debug("Inject IRQ%d\n", irq_num);
 	spin_lock_irqsave(&dist->lock, flags);
 	is_edge = vgic_irq_is_edge(dist, irq_num);
 	state = vgic_bitmap_get_irq_val(&dist->irq_state, cpuid, irq_num);
