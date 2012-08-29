@@ -708,37 +708,21 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 	return ret;
 }
 
-int kvm_vm_ioctl_irq_line(struct kvm *kvm, struct kvm_irq_level *irq_level)
+static int vcpu_interrupt_line(struct kvm_vcpu *vcpu, int number, bool level)
 {
-	unsigned int vcpu_idx;
-	struct kvm_vcpu *vcpu;
-	unsigned long *ptr;
-	bool set;
 	int bit_index;
+	bool set;
+	unsigned long *ptr;
 
-	if (irqchip_in_kernel(kvm)) {
-		if (irq_level->irq < 32)
-			return -EINVAL;
-		return kvm_vgic_inject_irq(kvm, 0, irq_level);
-	}
+	trace_kvm_set_irq(number, level, 0);
 
-	vcpu_idx = irq_level->irq >> 1;
-	if (vcpu_idx >= KVM_MAX_VCPUS)
-		return -EINVAL;
-
-	vcpu = kvm_get_vcpu(kvm, vcpu_idx);
-	if (!vcpu)
-		return -EINVAL;
-
-	trace_kvm_set_irq(irq_level->irq, irq_level->level, 0);
-
-	if ((irq_level->irq & 1) == KVM_ARM_IRQ_LINE)
+	if (number == KVM_ARM_IRQ_CPU_IRQ)
 		bit_index = ffs(HCR_VI) - 1;
-	else /* KVM_ARM_FIQ_LINE */
+	else /* KVM_ARM_IRQ_CPU_FIQ */
 		bit_index = ffs(HCR_VF) - 1;
 
 	ptr = (unsigned long *)&vcpu->arch.irq_lines;
-	if (irq_level->level)
+	if (level)
 		set = test_and_set_bit(bit_index, ptr);
 	else
 		set = test_and_clear_bit(bit_index, ptr);
@@ -746,7 +730,7 @@ int kvm_vm_ioctl_irq_line(struct kvm *kvm, struct kvm_irq_level *irq_level)
 	/*
 	 * If we didn't change anything, no need to wake up or kick other CPUs
 	 */
-	if (!!set == !!irq_level->level)
+	if (set == level)
 		return 0;
 
 	/*
@@ -757,6 +741,60 @@ int kvm_vm_ioctl_irq_line(struct kvm *kvm, struct kvm_irq_level *irq_level)
 	kvm_vcpu_kick(vcpu);
 
 	return 0;
+}
+
+int kvm_vm_ioctl_irq_line(struct kvm *kvm, struct kvm_irq_level *irq_level)
+{
+	u32 irq = irq_level->irq;
+	unsigned int irq_type, vcpu_idx, irq_num;
+	int nrcpus = atomic_read(&kvm->online_vcpus);
+	struct kvm_vcpu *vcpu = NULL;
+	bool level = irq_level->level;
+
+	irq_type = (irq >> KVM_ARM_IRQ_TYPE_SHIFT) & KVM_ARM_IRQ_TYPE_MASK;
+	vcpu_idx = (irq >> KVM_ARM_IRQ_VCPU_SHIFT) & KVM_ARM_IRQ_VCPU_MASK;
+	irq_num = (irq >> KVM_ARM_IRQ_NUM_SHIFT) & KVM_ARM_IRQ_NUM_MASK;
+
+	if (irq_type == KVM_ARM_IRQ_TYPE_CPU ||
+	    irq_type == KVM_ARM_IRQ_TYPE_PPI) {
+		if (vcpu_idx >= nrcpus)
+			return -EINVAL;
+
+		vcpu = kvm_get_vcpu(kvm, vcpu_idx);
+		if (!vcpu)
+			return -EINVAL;
+	}
+
+	switch (irq_type) {
+	case KVM_ARM_IRQ_TYPE_CPU:
+		if (irqchip_in_kernel(kvm))
+			return -ENXIO;
+
+		if (irq_num > KVM_ARM_IRQ_CPU_FIQ)
+			return -EINVAL;
+
+		return vcpu_interrupt_line(vcpu, irq_num, level);
+#ifdef CONFIG_KVM_ARM_VGIC
+	case KVM_ARM_IRQ_TYPE_PPI:
+		if (!irqchip_in_kernel(kvm))
+			return -ENXIO;
+
+		if (irq_num < 16 || irq_num > 31)
+			return -EINVAL;
+
+		return kvm_vgic_inject_irq(kvm, vcpu->vcpu_id, irq_num, level);
+	case KVM_ARM_IRQ_TYPE_SPI:
+		if (!irqchip_in_kernel(kvm))
+			return -ENXIO;
+
+		if (irq_num < 32 || irq_num > KVM_ARM_IRQ_GIC_MAX)
+			return -EINVAL;
+
+		return kvm_vgic_inject_irq(kvm, 0, irq_num, level);
+#endif
+	}
+
+	return -EINVAL;
 }
 
 long kvm_arch_vcpu_ioctl(struct file *filp,
@@ -804,21 +842,6 @@ long kvm_arch_vcpu_ioctl(struct file *filp,
 			return -EFAULT;
 		return kvm_arm_set_msrs(vcpu, umsrs->entries, msrs.nmsrs);
 	}
-#ifdef CONFIG_KVM_ARM_VGIC
-	case KVM_IRQ_LINE: {
-		struct kvm_irq_level irq_event;
-
-		if (copy_from_user(&irq_event, argp, sizeof irq_event))
-			return -EFAULT;
-
-		if (!irqchip_in_kernel(vcpu->kvm))
-			return -EINVAL;
-
-		if (irq_event.irq < 16 || irq_event.irq >= 32)
-			return -EINVAL;
-		return kvm_vgic_inject_irq(vcpu->kvm, vcpu->vcpu_id, &irq_event);
-	}
-#endif
 	default:
 		return -EINVAL;
 	}
@@ -832,15 +855,16 @@ int kvm_vm_ioctl_get_dirty_log(struct kvm *kvm, struct kvm_dirty_log *log)
 long kvm_arch_vm_ioctl(struct file *filp,
 		       unsigned int ioctl, unsigned long arg)
 {
-	struct kvm *kvm = filp->private_data;
 
 	switch (ioctl) {
 #ifdef CONFIG_KVM_ARM_VGIC
-	case KVM_CREATE_IRQCHIP:
+	case KVM_CREATE_IRQCHIP: {
+		struct kvm *kvm = filp->private_data;
 		if (vgic_present)
 			return kvm_vgic_init(kvm);
 		else
 			return -EINVAL;
+	}
 #endif
 	default:
 		return -EINVAL;

@@ -39,7 +39,9 @@ static void kvm_timer_inject_irq(struct kvm_vcpu *vcpu)
 	struct arch_timer_cpu *timer = &vcpu->arch.timer_cpu;
 
 	timer->cntv_ctl |= 1 << 1; /* Mask the interrupt in the guest */
-	kvm_vgic_inject_irq(vcpu->kvm, vcpu->vcpu_id, vcpu->arch.timer_cpu.irq);
+	kvm_vgic_inject_irq(vcpu->kvm, vcpu->vcpu_id,
+			    vcpu->arch.timer_cpu.irq->irq,
+			    vcpu->arch.timer_cpu.irq->level);
 }
 
 static irqreturn_t kvm_arch_timer_handler(int irq, void *dev_id)

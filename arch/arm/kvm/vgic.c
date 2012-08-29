@@ -866,35 +866,28 @@ static void vgic_kick_vcpus(struct kvm *kvm)
 	}
 }
 
-int kvm_vgic_inject_irq(struct kvm *kvm, int cpuid, const struct kvm_irq_level *irq)
+int kvm_vgic_inject_irq(struct kvm *kvm, int cpuid, unsigned int irq_num,
+			bool level)
 {
 	struct vgic_dist *dist = &kvm->arch.vgic;
-	int nrcpus = atomic_read(&kvm->online_vcpus);
 	int is_edge, state;
 	unsigned long flags;
 	bool updated_state = false;
 
-	if (cpuid >= nrcpus)
-		return -EINVAL;
-
-	/* Only PPIs or SPIs */
-	if (irq->irq >= VGIC_NR_IRQS || irq->irq < 16)
-		return -EINVAL;
-
-	kvm_debug("Inject IRQ%d\n", irq->irq);
+	kvm_debug("Inject IRQ%d\n", irq_num);
 	spin_lock_irqsave(&dist->lock, flags);
-	is_edge = vgic_irq_is_edge(dist, irq->irq);
-	state = vgic_bitmap_get_irq_val(&dist->irq_state, cpuid, irq->irq);
+	is_edge = vgic_irq_is_edge(dist, irq_num);
+	state = vgic_bitmap_get_irq_val(&dist->irq_state, cpuid, irq_num);
 
 	/*
 	 * Inject an interrupt if:
 	 * - level triggered and we change level
 	 * - edge triggered and we have a rising edge
 	 */
-	if ((!is_edge && (state ^ !!irq->level)) ||
-	    (is_edge && !state && irq->level)) {
+	if ((!is_edge && (state ^ level)) ||
+	    (is_edge && !state && level)) {
 		vgic_bitmap_set_irq_val(&dist->irq_state, cpuid,
-					irq->irq, !!irq->level);
+					irq_num, level);
 		vgic_update_state(kvm);
 		updated_state = true;
 	}

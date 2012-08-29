@@ -616,7 +616,7 @@ created.
 
 Capability: KVM_CAP_IRQCHIP
 Architectures: x86, ia64, arm
-Type: vm ioctl (and vcpu_ioctl on ARM)
+Type: vm ioctl
 Parameters: struct kvm_irq_level
 Returns: 0 on success, -1 on error
 
@@ -625,19 +625,20 @@ On some architectures it is required that an interrupt controller model has
 been previously created with KVM_CREATE_IRQCHIP.  Note that edge-triggered
 interrupts require the level to be set to 1 and then back to 0.
 
-ARM can signal an interrupt either at the CPU level, or at the
-in-kernel irqchip (GIC), with the following convention:
+ARM can signal an interrupt either at the CPU level, or at the in-kernel irqchip
+(GIC), and for in-kernel irqchip can tell the GIC to use PPIs designated for
+specific cpus.  The irq field is interpreted like this:
 
-- CPU signaling: ARM uses two types of interrupt lines per CPU: IRQ
-  and FIQ.  The value of the irq field should be (vcpu_index << 1) for
-  IRQs and ((vcpu_index << 1) | 1) for FIQs. As there's a limit of 8
-  CPUs, irq is between 0 and 15. This is a vm_ioctl.
+  bits:  | 31 ... 24 | 23  ... 16 | 15    ...    0 |
+  field: | irq_type  | vcpu_index |     irq_id     |
 
-- GIC signaling: If signaling a PPI, this is a vcpu_ioctl, and irq is
-  between 16 and 31. If signaling a SPI, this is a vm_ioctl, and irq
-  is above 31. Values between 0 and 15 would designate a SGI, which
-  should never be injected from user-space, thus avoiding any conflict
-  with the CPU signaling method.
+The irq_type field has the following values:
+- irq_type[0]: out-of-kernel GIC: irq_id 0 is IRQ, irq_id 1 is FIQ
+- irq_type[1]: in-kernel GIC: SPI, irq_id between 32 and 1019 (incl.)
+               (the vcpu_index field is ignored)
+- irq_type[2]: in-kernel GIC: PPI, irq_id between 16 and 31 (incl.)
+
+(The irq_id field thus corresponds nicely to the IRQ ID in the ARM GIC specs)
 
 In both cases, level is used to raise/lower the line.
 
