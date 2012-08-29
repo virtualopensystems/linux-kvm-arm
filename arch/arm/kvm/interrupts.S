@@ -612,8 +612,8 @@ ENTRY(__kvm_va_to_pa)
 	push	{r4-r12}
 
 	@ Fold flag into r1, easier than using stack.
-	cmp	r1, #0
-	movne	r1, #1
+	cmp	r2, #0
+	movne	r2, #1
 	orr	r1, r1, r2
 
 	@ This swaps too many registers, but we're in the slow path anyway.

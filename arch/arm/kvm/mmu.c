@@ -604,22 +604,13 @@ static bool copy_from_guest_va(struct kvm_vcpu *vcpu,
 	BUG_ON((gva & PAGE_MASK) != ((gva + len) & PAGE_MASK));
 	par = __kvm_va_to_pa(vcpu, gva & PAGE_MASK, priv);
 	if (par & 1) {
-		kvm_err("I/O Abort from invalid instruction address"
+		kvm_err("IO abort from invalid instruction address"
 			" %#lx!\n", gva);
 		return false;
 	}
 
-	if (par & (1U << 11)) {
-		/* LPAE PAR format */
-		/*
-		 * TODO: Check if this ever happens
-		 * - called from Hyp mode
-		 */
-		pc_ipa = par & PAGE_MASK & ((1ULL << 32) - 1);
-	} else {
-		/* VMSAv7 PAR format */
-		pc_ipa = par & PAGE_MASK & ((1ULL << 40) - 1);
-	}
+	BUG_ON(!(par & (1U << 11)));
+	pc_ipa = par & PAGE_MASK & ((1ULL << 32) - 1);
 	pc_ipa += gva & ~PAGE_MASK;
 
 	err = kvm_read_guest(vcpu->kvm, pc_ipa, dest, len);
@@ -684,7 +675,7 @@ static bool copy_current_insn(struct kvm_vcpu *vcpu, unsigned long *instr)
 	/* A 32-bit thumb2 instruction can actually go over a page boundary! */
 	if (is_thumb && is_wide_instruction(*instr)) {
 		*instr = *instr << 16;
-		ret = copy_from_guest_va(vcpu, instr, vcpu->arch.regs.pc, 2,
+		ret = copy_from_guest_va(vcpu, instr, vcpu->arch.regs.pc + 2, 2,
 					 vcpu_mode_priv(vcpu));
 	}
 
