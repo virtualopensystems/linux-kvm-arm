@@ -509,11 +509,11 @@ static const struct thumb_instr thumb_instr[] = {
 	/* Store single data item:	Op1 == 11, Op2 == 000xxx0 */
 	{ .is32 = true,  .t32 = { 3, 0x00, 0x71}, decode_thumb_str	},
 	/* Load byte:			Op1 == 11, Op2 == 00xx001 */
-	{ .is32 = true,  .t32 = { 3, 0x67, 0x01}, decode_thumb_ldr	},
+	{ .is32 = true,  .t32 = { 3, 0x01, 0x67}, decode_thumb_ldr	},
 	/* Load halfword:		Op1 == 11, Op2 == 00xx011 */
-	{ .is32 = true,  .t32 = { 3, 0x67, 0x03}, decode_thumb_ldr	},
+	{ .is32 = true,  .t32 = { 3, 0x03, 0x67}, decode_thumb_ldr	},
 	/* Load word:			Op1 == 11, Op2 == 00xx101 */
-	{ .is32 = true,  .t32 = { 3, 0x67, 0x05}, decode_thumb_ldr	},
+	{ .is32 = true,  .t32 = { 3, 0x05, 0x67}, decode_thumb_ldr	},
 };
 
 
