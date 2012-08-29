@@ -26,6 +26,8 @@
 #define KVM_PRIVATE_MEM_SLOTS 4
 #define KVM_COALESCED_MMIO_PAGE_OFFSET 1
 
+#include <asm/kvm_vgic.h>
+
 #define NUM_FEATURES 0
 
 /* We don't currently support large pages. */
@@ -50,6 +52,9 @@ struct kvm_arch {
 
 	/* VTTBR value associated with above pgd and vmid */
 	u64    vttbr;
+
+	/* Interrupt controller */
+	struct vgic_dist	vgic;
 };
 
 #define EXCEPTION_NONE      0
@@ -139,6 +144,9 @@ struct kvm_vcpu_arch {
 	struct vfp_hard_struct vfp_guest;
 	struct vfp_hard_struct *vfp_host;
 
+	/* VGIC state */
+	struct vgic_cpu vgic_cpu;
+
 	/*
 	 * Anything that is not used directly from assembly code goes
 	 * here.
@@ -190,4 +198,8 @@ static inline int kvm_test_age_hva(struct kvm *kvm, unsigned long hva)
 {
 	return 0;
 }
+
+struct kvm_vcpu *kvm_arm_get_running_vcpu(void);
+struct kvm_vcpu __percpu **kvm_get_running_vcpus(void);
+
 #endif /* __ARM_KVM_HOST_H__ */

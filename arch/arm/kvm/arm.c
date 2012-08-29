@@ -53,10 +53,39 @@ __asm__(".arch_extension	virt");
 static DEFINE_PER_CPU(unsigned long, kvm_arm_hyp_stack_page);
 static struct vfp_hard_struct __percpu *kvm_host_vfp_state;
 
+/* Per-CPU variable containing the currently running vcpu. */
+static DEFINE_PER_CPU(struct kvm_vcpu *, kvm_arm_running_vcpu);
+
 /* The VMID used in the VTTBR */
 static atomic64_t kvm_vmid_gen = ATOMIC64_INIT(1);
 static u8 kvm_next_vmid;
 static DEFINE_SPINLOCK(kvm_vmid_lock);
+
+static bool vgic_present;
+
+static void kvm_arm_set_running_vcpu(struct kvm_vcpu *vcpu)
+{
+	BUG_ON(preemptible());
+	__get_cpu_var(kvm_arm_running_vcpu) = vcpu;
+}
+
+/**
+ * kvm_arm_get_running_vcpu - get the vcpu running on the current CPU.
+ * Must be called from non-preemptible context
+ */
+struct kvm_vcpu *kvm_arm_get_running_vcpu(void)
+{
+	BUG_ON(preemptible());
+	return __get_cpu_var(kvm_arm_running_vcpu);
+}
+
+/**
+ * kvm_arm_get_running_vcpus - get the per-CPU array on currently running vcpus.
+ */
+struct kvm_vcpu __percpu **kvm_get_running_vcpus(void)
+{
+	return &kvm_arm_running_vcpu;
+}
 
 int kvm_arch_hardware_enable(void *garbage)
 {
@@ -65,7 +94,15 @@ int kvm_arch_hardware_enable(void *garbage)
 
 int kvm_arch_vcpu_should_kick(struct kvm_vcpu *vcpu)
 {
-	return 1;
+	if (kvm_vcpu_exiting_guest_mode(vcpu) == IN_GUEST_MODE) {
+		if (vgic_active_irq(vcpu) &&
+		    cmpxchg(&vcpu->mode, EXITING_GUEST_MODE, IN_GUEST_MODE) == EXITING_GUEST_MODE)
+			return 0;
+		
+		return 1;
+	}
+
+	return 0;
 }
 
 void kvm_arch_hardware_disable(void *garbage)
@@ -157,6 +194,11 @@ int kvm_dev_ioctl_check_extension(long ext)
 {
 	int r;
 	switch (ext) {
+#ifdef CONFIG_KVM_ARM_VGIC
+	case KVM_CAP_IRQCHIP:
+		r = vgic_present;
+		break;
+#endif
 	case KVM_CAP_USER_MEMORY:
 	case KVM_CAP_DESTROY_MEMORY_REGION_WORKS:
 		r = 1;
@@ -264,6 +306,9 @@ int __attribute_const__ kvm_target_cpu(void)
 
 int kvm_arch_vcpu_init(struct kvm_vcpu *vcpu)
 {
+	/* Set up VGIC */
+	kvm_vgic_vcpu_init(vcpu);
+
 	return 0;
 }
 
@@ -286,10 +331,13 @@ void kvm_arch_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
 		cpumask_clear_cpu(cpu, &vcpu->arch.require_dcache_flush);
 		flush_cache_all(); /* We'd really want v7_flush_dcache_all() */
 	}
+
+	kvm_arm_set_running_vcpu(vcpu);
 }
 
 void kvm_arch_vcpu_put(struct kvm_vcpu *vcpu)
 {
+	kvm_arm_set_running_vcpu(NULL);
 }
 
 int kvm_arch_vcpu_ioctl_set_guest_debug(struct kvm_vcpu *vcpu,
@@ -320,7 +368,7 @@ int kvm_arch_vcpu_ioctl_set_mpstate(struct kvm_vcpu *vcpu,
  */
 int kvm_arch_vcpu_runnable(struct kvm_vcpu *v)
 {
-	return !!v->arch.irq_lines;
+	return !!v->arch.irq_lines || kvm_vgic_vcpu_pending_irq(v);
 }
 
 int kvm_arch_vcpu_in_guest_mode(struct kvm_vcpu *v)
@@ -588,6 +636,8 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 		cond_resched();
 		update_vttbr(vcpu->kvm);
 
+		kvm_vgic_sync_to_cpu(vcpu);
+
 		local_irq_disable();
 
 		/*
@@ -600,6 +650,7 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 
 		if (ret <= 0 || need_new_vmid_gen(vcpu->kvm)) {
 			local_irq_enable();
+			kvm_vgic_sync_from_cpu(vcpu);
 			continue;
 		}
 
@@ -634,6 +685,8 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 		 * Back from guest
 		 *************************************************************/
 
+		kvm_vgic_sync_from_cpu(vcpu);
+
 		ret = handle_exit(vcpu, run, ret);
 	}
 
@@ -649,6 +702,12 @@ int kvm_vm_ioctl_irq_line(struct kvm *kvm, struct kvm_irq_level *irq_level)
 	unsigned long *ptr;
 	bool set;
 	int bit_index;
+
+	if (irqchip_in_kernel(kvm)) {
+		if (irq_level->irq < 32)
+			return -EINVAL;
+		return kvm_vgic_inject_irq(kvm, 0, irq_level);
+	}
 
 	vcpu_idx = irq_level->irq >> 1;
 	if (vcpu_idx >= KVM_MAX_VCPUS)
@@ -732,6 +791,21 @@ long kvm_arch_vcpu_ioctl(struct file *filp,
 			return -EFAULT;
 		return kvm_arm_set_msrs(vcpu, umsrs->entries, msrs.nmsrs);
 	}
+#ifdef CONFIG_KVM_ARM_VGIC
+	case KVM_IRQ_LINE: {
+		struct kvm_irq_level irq_event;
+
+		if (copy_from_user(&irq_event, argp, sizeof irq_event))
+			return -EFAULT;
+
+		if (!irqchip_in_kernel(vcpu->kvm))
+			return -EINVAL;
+
+		if (irq_event.irq < 16 || irq_event.irq >= 32)
+			return -EINVAL;
+		return kvm_vgic_inject_irq(vcpu->kvm, vcpu->vcpu_id, &irq_event);
+	}
+#endif
 	default:
 		return -EINVAL;
 	}
@@ -745,7 +819,19 @@ int kvm_vm_ioctl_get_dirty_log(struct kvm *kvm, struct kvm_dirty_log *log)
 long kvm_arch_vm_ioctl(struct file *filp,
 		       unsigned int ioctl, unsigned long arg)
 {
-	return -EINVAL;
+	struct kvm *kvm = filp->private_data;
+
+	switch (ioctl) {
+#ifdef CONFIG_KVM_ARM_VGIC
+	case KVM_CREATE_IRQCHIP:
+		if (vgic_present)
+			return kvm_vgic_init(kvm);
+		else
+			return -EINVAL;
+#endif
+	default:
+		return -EINVAL;
+	}
 }
 
 static void cpu_set_vector(void *vector)
@@ -888,6 +974,13 @@ static int init_hyp_mode(void)
 			goto out_free_vfp;
 		}
 	}
+
+	/*
+	 * Init HYP view of VGIC
+	 */
+	err = kvm_vgic_hyp_init();
+	if (!err)
+		vgic_present = true;
 
 	return 0;
 out_free_vfp:
