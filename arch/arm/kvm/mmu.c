@@ -814,6 +814,10 @@ int kvm_handle_guest_abort(struct kvm_vcpu *vcpu, struct kvm_run *run)
 
 	hsr_ec = vcpu->arch.hsr >> HSR_EC_SHIFT;
 	is_iabt = (hsr_ec == HSR_EC_IABT);
+	fault_ipa = ((phys_addr_t)vcpu->arch.hpfar & HPFAR_MASK) << 8;
+
+	trace_kvm_guest_fault(*vcpu_pc(vcpu), vcpu->arch.hsr,
+			      vcpu->arch.hdfar, vcpu->arch.hifar, fault_ipa);
 
 	/* Check that the second stage fault is a translation fault */
 	fault_status = (vcpu->arch.hsr & HSR_FSC_TYPE);
@@ -823,7 +827,6 @@ int kvm_handle_guest_abort(struct kvm_vcpu *vcpu, struct kvm_run *run)
 		return -EFAULT;
 	}
 
-	fault_ipa = ((phys_addr_t)vcpu->arch.hpfar & HPFAR_MASK) << 8;
 
 	gfn = fault_ipa >> PAGE_SHIFT;
 	if (!kvm_is_visible_gfn(vcpu->kvm, gfn)) {
