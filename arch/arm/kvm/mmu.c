@@ -805,7 +805,6 @@ static int io_mem_abort(struct kvm_vcpu *vcpu, struct kvm_run *run,
 	if (vgic_handle_mmio(vcpu, run, &mmio))
 		return 1;
 
-	run->exit_reason = KVM_EXIT_MMIO;
 	kvm_prepare_mmio(run, &mmio);
 	return 0;
 }
