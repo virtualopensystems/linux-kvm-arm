@@ -338,7 +338,7 @@ static const struct coproc_reg cp15_regs[] = {
 	{ CRm( 2), Op1( 1), is64, NULL, reset_unknown64, c2_TTBR1 },
 
 	/* TTBCR: swapped by interrupt.S. */
-	{ CRn( 2), CRm( 0), Op1( 0), Op2( 0), is32,
+	{ CRn( 2), CRm( 0), Op1( 0), Op2( 2), is32,
 			NULL, reset_val, c2_TTBCR, 0x00000000 },
 
 	/* DACR: swapped by interrupt.S. */
