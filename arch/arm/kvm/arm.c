@@ -278,6 +278,7 @@ out:
 void kvm_arch_vcpu_free(struct kvm_vcpu *vcpu)
 {
 	kvm_mmu_free_memory_caches(vcpu);
+	kvm_timer_vcpu_terminate(vcpu);
 	kmem_cache_free(kvm_vcpu_cache, vcpu);
 }
 
@@ -308,6 +309,9 @@ int kvm_arch_vcpu_init(struct kvm_vcpu *vcpu)
 {
 	/* Set up VGIC */
 	kvm_vgic_vcpu_init(vcpu);
+
+	/* Set up the timer */
+	kvm_timer_vcpu_init(vcpu);
 
 	return 0;
 }
@@ -637,6 +641,7 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 		update_vttbr(vcpu->kvm);
 
 		kvm_vgic_sync_to_cpu(vcpu);
+		kvm_timer_sync_to_cpu(vcpu);
 
 		local_irq_disable();
 
@@ -650,6 +655,7 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 
 		if (ret <= 0 || need_new_vmid_gen(vcpu->kvm)) {
 			local_irq_enable();
+			kvm_timer_sync_from_cpu(vcpu);
 			kvm_vgic_sync_from_cpu(vcpu);
 			continue;
 		}
@@ -691,6 +697,7 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 		 * Back from guest
 		 *************************************************************/
 
+		kvm_timer_sync_from_cpu(vcpu);
 		kvm_vgic_sync_from_cpu(vcpu);
 
 		ret = handle_exit(vcpu, run, ret);
@@ -988,6 +995,13 @@ static int init_hyp_mode(void)
 	if (!err)
 		vgic_present = true;
 
+	/*
+	 * Init HYP architected timer support
+	 */
+	err = kvm_timer_hyp_init();
+	if (err)
+		goto out_free_mappings;
+	
 	return 0;
 out_free_vfp:
 	free_percpu(kvm_host_vfp_state);
