@@ -566,22 +566,21 @@ static bool kvm_decode_thumb_ls(struct kvm_vcpu *vcpu, unsigned long instr,
  * required operands.
  */
 int kvm_emulate_mmio_ls(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
-			unsigned long instr)
+			unsigned long instr, struct kvm_exit_mmio *mmio)
 {
 	bool is_thumb;
-	struct kvm_exit_mmio mmio;
 
 	trace_kvm_mmio_emulate(vcpu->arch.regs.pc, instr, vcpu->arch.regs.cpsr);
 
-	mmio.phys_addr = fault_ipa;
+	mmio->phys_addr = fault_ipa;
 	is_thumb = !!(*vcpu_cpsr(vcpu) & PSR_T_BIT);
-	if (!is_thumb && !kvm_decode_arm_ls(vcpu, instr, &mmio)) {
+	if (!is_thumb && !kvm_decode_arm_ls(vcpu, instr, mmio)) {
 		kvm_debug("Unable to decode inst: %#08lx (cpsr: %#08x (T=0)"
 			  "pc: %#08x)\n",
 			  instr, *vcpu_cpsr(vcpu), *vcpu_pc(vcpu));
 		kvm_inject_dabt(vcpu, vcpu->arch.hdfar);
 		return 1;
-	} else if (is_thumb && !kvm_decode_thumb_ls(vcpu, instr, &mmio)) {
+	} else if (is_thumb && !kvm_decode_thumb_ls(vcpu, instr, mmio)) {
 		kvm_debug("Unable to decode inst: %#08lx (cpsr: %#08x (T=1)"
 			  "pc: %#08x)\n",
 			  instr, *vcpu_cpsr(vcpu), *vcpu_pc(vcpu));
@@ -589,21 +588,11 @@ int kvm_emulate_mmio_ls(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
 		return 1;
 	}
 
-	if (mmio.is_write)
-		memcpy(mmio.data, vcpu_reg(vcpu, vcpu->arch.mmio.rd), mmio.len);
-	kvm_prepare_mmio(vcpu->run, &mmio);
-
-	trace_kvm_mmio((mmio.is_write) ? KVM_TRACE_MMIO_WRITE :
-					 KVM_TRACE_MMIO_READ_UNSATISFIED,
-		mmio.len, fault_ipa,
-		(mmio.is_write) ? *vcpu_reg(vcpu, vcpu->arch.mmio.rd) : 0);
-
 	/*
 	 * The MMIO instruction is emulated and should not be re-executed
 	 * in the guest.
 	 */
 	kvm_skip_instr(vcpu, is_wide_instruction(instr));
-	vcpu->run->exit_reason = KVM_EXIT_MMIO;
 	return 0;
 }
 

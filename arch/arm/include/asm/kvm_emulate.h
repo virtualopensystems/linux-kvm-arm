@@ -74,7 +74,7 @@ static inline enum vcpu_mode vcpu_mode(struct kvm_vcpu *vcpu)
 
 int kvm_handle_wfi(struct kvm_vcpu *vcpu, struct kvm_run *run);
 int kvm_emulate_mmio_ls(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
-			unsigned long instr);
+			unsigned long instr, struct kvm_exit_mmio *mmio);
 void kvm_skip_instr(struct kvm_vcpu *vcpu, bool is_wide_instr);
 void kvm_inject_undefined(struct kvm_vcpu *vcpu);
 void kvm_inject_dabt(struct kvm_vcpu *vcpu, unsigned long addr);

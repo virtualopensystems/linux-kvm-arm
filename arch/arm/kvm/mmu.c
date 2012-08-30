@@ -613,6 +613,7 @@ static bool copy_from_guest_va(struct kvm_vcpu *vcpu,
 	pc_ipa = par & PAGE_MASK & ((1ULL << 32) - 1);
 	pc_ipa += gva & ~PAGE_MASK;
 
+
 	err = kvm_read_guest(vcpu->kvm, pc_ipa, dest, len);
 	if (unlikely(err))
 		return false;
@@ -694,13 +695,15 @@ out:
  *
  * @vcpu:      The vcpu pointer
  * @fault_ipa: The IPA that caused the 2nd stage fault
+ * @mmio:      Pointer to struct to hold decode information
  *
  * Some load/store instructions cannot be emulated using the information
  * presented in the HSR, for instance, register write-back instructions are not
  * supported. We therefore need to fetch the instruction, decode it, and then
  * emulate its behavior.
  */
-static int invalid_io_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa)
+static int invalid_io_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
+				struct kvm_exit_mmio *mmio)
 {
 	unsigned long instr = 0;
 
@@ -708,20 +711,16 @@ static int invalid_io_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa)
 	if (!copy_current_insn(vcpu, &instr))
 		return 1;
 
-	return kvm_emulate_mmio_ls(vcpu, fault_ipa, instr);
+	return kvm_emulate_mmio_ls(vcpu, fault_ipa, instr, mmio);
 }
 
-static int io_mem_abort(struct kvm_vcpu *vcpu, struct kvm_run *run,
-			phys_addr_t fault_ipa, struct kvm_memory_slot *memslot)
+static int decode_hsr(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
+		      struct kvm_exit_mmio *mmio)
 {
 	unsigned long rd, len;
 	bool is_write, sign_extend;
-	struct kvm_exit_mmio mmio;
 
-	if (!(vcpu->arch.hsr & HSR_ISV))
-		return invalid_io_mem_abort(vcpu, fault_ipa);
-
-	if (((vcpu->arch.hsr >> 8) & 1)) {
+	if ((vcpu->arch.hsr >> 8) & 1) {
 		/* cache operation on I/O addr, tell guest unsupported */
 		kvm_inject_dabt(vcpu, vcpu->arch.hdfar);
 		return 1;
@@ -758,34 +757,55 @@ static int io_mem_abort(struct kvm_vcpu *vcpu, struct kvm_run *run,
 		return 1;
 	}
 
-	/*
-	 * Prepare MMIO operation. First stash it in a private
-	 * structure that we can use for in-kernel emulation. If the
-	 * kernel can't handle it, copy it into run->mmio and let user
-	 * space do its magic.
-	 */
-	mmio.is_write = is_write;
-	mmio.phys_addr = fault_ipa;
-	mmio.len = len;
+	mmio->is_write = is_write;
+	mmio->phys_addr = fault_ipa;
+	mmio->len = len;
 	vcpu->arch.mmio.sign_extend = sign_extend;
 	vcpu->arch.mmio.rd = rd;
-
-	trace_kvm_mmio((is_write) ? KVM_TRACE_MMIO_WRITE :
-				    KVM_TRACE_MMIO_READ_UNSATISFIED,
-			len, fault_ipa, (is_write) ? *vcpu_reg(vcpu, rd) : 0);
-
-	if (is_write)
-		memcpy(mmio.data, vcpu_reg(vcpu, rd), len);
 
 	/*
 	 * The MMIO instruction is emulated and should not be re-executed
 	 * in the guest.
 	 */
 	kvm_skip_instr(vcpu, (vcpu->arch.hsr >> 25) & 1);
+	return 0;
+}
+
+static int io_mem_abort(struct kvm_vcpu *vcpu, struct kvm_run *run,
+			phys_addr_t fault_ipa, struct kvm_memory_slot *memslot)
+{
+	struct kvm_exit_mmio mmio;
+	unsigned long rd;
+	int ret;
+
+	/*
+	 * Prepare MMIO operation. First stash it in a private
+	 * structure that we can use for in-kernel emulation. If the
+	 * kernel can't handle it, copy it into run->mmio and let user
+	 * space do its magic.
+	 */
+
+	if (vcpu->arch.hsr & HSR_ISV)
+		ret = decode_hsr(vcpu, fault_ipa, &mmio);
+	else
+		ret = invalid_io_mem_abort(vcpu, fault_ipa, &mmio);
+
+	if (ret != 0)
+		return ret;
+
+	rd = vcpu->arch.mmio.rd;
+	trace_kvm_mmio((mmio.is_write) ? KVM_TRACE_MMIO_WRITE :
+					 KVM_TRACE_MMIO_READ_UNSATISFIED,
+			mmio.len, fault_ipa,
+			(mmio.is_write) ? *vcpu_reg(vcpu, rd) : 0);
+
+	if (mmio.is_write)
+		memcpy(mmio.data, vcpu_reg(vcpu, rd), mmio.len);
 
 	if (vgic_handle_mmio(vcpu, run, &mmio))
 		return 1;
 
+	run->exit_reason = KVM_EXIT_MMIO;
 	kvm_prepare_mmio(run, &mmio);
 	return 0;
 }
