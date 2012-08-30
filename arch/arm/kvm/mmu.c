@@ -933,11 +933,13 @@ static void kvm_set_spte_handler(struct kvm *kvm, unsigned long hva,
 void kvm_set_spte_hva(struct kvm *kvm, unsigned long hva, pte_t pte)
 {
 	int found;
+	pte_t stage2_pte;
 
 	if (!kvm->arch.pgd)
 		return;
 
-	found = handle_hva_to_gpa(kvm, hva, &kvm_set_spte_handler, &pte);
+	stage2_pte = pfn_pte(pte_pfn(pte), PAGE_KVM_GUEST);
+	found = handle_hva_to_gpa(kvm, hva, &kvm_set_spte_handler, &stage2_pte);
 	if (found > 0)
 		__kvm_tlb_flush_vmid(kvm);
 }
