@@ -602,30 +602,36 @@ after_vfp_restore:
 	bx	lr			@ return to IOCTL
 
 @ Arguments:
-@  r0: pointer to kvm struct
+@  r0: pointer to vcpu struct
 @  r1: virtual address to map (rounded to page)
-@  r2: 1 = PL1 (read) mapping, 0 = PL0 (read) mapping.
+@  r2: 1 = P1 (read) mapping, 0 = P0 (read) mapping.
 @ Returns 64 bit PAR value.
 ENTRY(__kvm_va_to_pa)
-	hvc	#0			@ Switch to Hyp mode
-	push	{r4, r5}
+	hvc	#0			@ switch to hyp-mode
 
-	add	r0, r0, #KVM_VTTBR
-	ldrd	r4, r5, [r0]
-	mcrr	p15, 6, r4, r5, c2	@ Write VTTBR
+	push	{r4-r12}
 
+	@ Fold flag into r1, easier than using stack.
 	cmp	r2, #0
+	movne	r2, #1
+	orr	r1, r1, r2
+
+	@ This swaps too many registers, but we're in the slow path anyway.
+	read_cp15_state
+	write_cp15_state 1, r0
+
+	ands	r2, r1, #1
+	bic	r1, r1, r2
 	mcrne	p15, 0, r1, c7, c8, 0	@ VA to PA, ATS1CPR
 	mcreq	p15, 0, r1, c7, c8, 2	@ VA to PA, ATS1CUR
 	isb
+
+	@ Restore host state.
+	read_cp15_state 1, r0
+	write_cp15_state
+
 	mrrc	p15, 0, r0, r1, c7	@ PAR
-
-	mov	r4, #0
-	mov	r5, #0
-	mcrr	p15, 6, r4, r5, c2	@ Back to VMID #0
-	isb
-
-	pop	{r4, r5}
+	pop	{r4-r12}
 	hvc	#0			@ Back to SVC
 	bx	lr
 
