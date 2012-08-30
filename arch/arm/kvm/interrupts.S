@@ -602,17 +602,33 @@ after_vfp_restore:
 	bx	lr			@ return to IOCTL
 
 @ Arguments:
-@  r0: pointer to kvm struct
+@  r0: pointer to vcpu struct
 @  r1: virtual address to map (rounded to page)
 @  r2: 1 = PL1 (read) mapping, 0 = PL0 (read) mapping.
 @ Returns 64 bit PAR value.
 ENTRY(__kvm_va_to_pa)
 	hvc	#0			@ Switch to Hyp mode
-	push	{r4, r5}
+	push	{r4, r5, r6, r7}
 
-	add	r0, r0, #KVM_VTTBR
-	ldrd	r4, r5, [r0]
+	ldr	r3, [r0, #VCPU_KVM]
+	add	r3, r3, #KVM_VTTBR
+	ldrd	r4, r5, [r3]
 	mcrr	p15, 6, r4, r5, c2	@ Write VTTBR
+
+	mrc	p15, 0, r6, c2, c0, 2	@ TTBCR
+	push	{r6}
+	mrrc	p15, 0, r6, r7, c2	@ TTBR 0
+	push	{r6, r7}
+	mrrc	p15, 1, r6, r7, c2	@ TTBR 1
+	push	{r6, r7}
+
+	add	r0, r0, #VCPU_TTBR0
+	ldrd	r6, r7, [r0]
+	mcrr	p15, 0, r6, r7, c2	@ TTBR 0
+	add	r0, r0, #(VCPU_TTBR1 - VCPU_TTBR0)
+	ldrd	r6, r7, [r0]
+	mcrr	p15, 1, r6, r7, c2	@ TTBR 1
+	isb
 
 	cmp	r2, #0
 	mcrne	p15, 0, r1, c7, c8, 0	@ VA to PA, ATS1CPR
@@ -623,9 +639,16 @@ ENTRY(__kvm_va_to_pa)
 	mov	r4, #0
 	mov	r5, #0
 	mcrr	p15, 6, r4, r5, c2	@ Back to VMID #0
+
+	pop	{r6, r7}
+	mcrr	p15, 1, r6, r7, c2	@ TTBR 1
+	pop	{r6, r7}
+	mcrr	p15, 0, r6, r7, c2	@ TTBR 1
+	pop	{r6}
+	mcr	p15, 0, r6, c2, c0, 2	@ TTBCR
 	isb
 
-	pop	{r4, r5}
+	pop	{r4, r5, r6, r7}
 	hvc	#0			@ Back to SVC
 	bx	lr
 
