@@ -538,7 +538,7 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
 		return ret;
 	new_pte = pfn_pte(pfn, PAGE_KVM_GUEST);
 	if (writable)
-		new_pte |= L_PTE2_WRITE;
+		pte_val(new_pte) |= L_PTE2_WRITE;
 	spin_lock(&vcpu->kvm->arch.pgd_lock);
 	stage2_set_pte(vcpu->kvm, memcache, fault_ipa, &new_pte);
 	spin_unlock(&vcpu->kvm->arch.pgd_lock);
