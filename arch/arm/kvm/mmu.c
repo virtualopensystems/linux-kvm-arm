@@ -272,20 +272,13 @@ int kvm_alloc_stage2_pgd(struct kvm *kvm)
 static void free_guest_pages(pte_t *pte, unsigned long addr)
 {
 	unsigned int i;
-	struct page *page, *pte_page;
+	struct page *pte_page;
 
 	pte_page = virt_to_page(pte);
 
 	for (i = 0; i < PTRS_PER_PTE; i++) {
-		if (pte_present(*pte)) {
-			unsigned long pfn = pte_pfn(*pte);
-
-			if (pfn_valid(pfn)) { /* Skip over device memory */
-				page = pfn_to_page(pfn);
-				put_page(page);
-			}
+		if (pte_present(*pte))
 			put_page(pte_page);
-		}
 		pte++;
 	}
 
@@ -525,7 +518,6 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
 	pfn = gfn_to_pfn_prot(vcpu->kvm, gfn, write_fault, &writable);
 
 	if (is_error_pfn(pfn)) {
-		put_page(pfn_to_page(pfn));
 		kvm_err("No host mapping: gfn %u (0x%08x)\n",
 			(unsigned int)gfn,
 			(unsigned int)gfn << PAGE_SHIFT);
@@ -535,7 +527,7 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
 	/* We need minimum second+third level pages */
 	ret = mmu_topup_memory_cache(memcache, 2, KVM_NR_MEM_OBJS);
 	if (ret)
-		return ret;
+		goto out;
 	new_pte = pfn_pte(pfn, PAGE_KVM_GUEST);
 	if (writable)
 		pte_val(new_pte) |= L_PTE2_WRITE;
@@ -543,6 +535,8 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
 	stage2_set_pte(vcpu->kvm, memcache, fault_ipa, &new_pte);
 	spin_unlock(&vcpu->kvm->arch.pgd_lock);
 
+out:
+	put_page(pfn_to_page(pfn));
 	return ret;
 }
 
