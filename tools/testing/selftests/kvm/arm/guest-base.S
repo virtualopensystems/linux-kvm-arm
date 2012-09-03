@@ -38,7 +38,7 @@ start:
 .globl ok
 ok:
 	ldr	r1, =IO_CTL_STATUS
-	ldr	r0, =0
+	mov	r0, #0
 	strb	r0, [r1]
 	mov	pc, lr
 
