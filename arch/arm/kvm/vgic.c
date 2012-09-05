@@ -47,6 +47,9 @@
  *     registers, stored on each vcpu. We only keep one bit of
  *     information per interrupt, making sure that only one vcpu can
  *     accept the interrupt.
+ *   The same is true when injecting an interrupt, except that we only
+ *   consider a single interrupt at a time. The irq_spi_cpu array
+ *   contains the target CPU for each SPI.
  *
  * The handling of level interrupts adds some extra complexity. We
  * need to track when the interrupt has been EOIed, so we can sample
@@ -313,6 +316,7 @@ static void vgic_set_target_reg(struct kvm *kvm, u32 val, int irq)
 		int shift = i * 8;
 		target = ffs((val >> shift) & 0xffU);
 		target = target ? (target - 1) : 0;
+		dist->irq_spi_cpu[irq + i] = target;
 		kvm_for_each_vcpu(c, vcpu, kvm) {
 			bmap = vgic_bitmap_get_shared_map(&dist->irq_spi_target[c]);
 			if (c == target)
@@ -866,15 +870,17 @@ static void vgic_kick_vcpus(struct kvm *kvm)
 	}
 }
 
-int kvm_vgic_inject_irq(struct kvm *kvm, int cpuid, unsigned int irq_num,
-			bool level)
+static bool vgic_update_irq_state(struct kvm *kvm, int cpuid,
+				  unsigned int irq_num, bool level)
 {
 	struct vgic_dist *dist = &kvm->arch.vgic;
+	struct kvm_vcpu *vcpu;
 	int is_edge, state;
+	int pend, enabled;
 	unsigned long flags;
-	bool updated_state = false;
 
 	spin_lock_irqsave(&dist->lock, flags);
+
 	is_edge = vgic_irq_is_edge(dist, irq_num);
 	state = vgic_bitmap_get_irq_val(&dist->irq_state, cpuid, irq_num);
 
@@ -883,16 +889,41 @@ int kvm_vgic_inject_irq(struct kvm *kvm, int cpuid, unsigned int irq_num,
 	 * - level triggered and we change level
 	 * - edge triggered and we have a rising edge
 	 */
-	if ((!is_edge && (state ^ level)) ||
-	    (is_edge && !state && level)) {
-		vgic_bitmap_set_irq_val(&dist->irq_state, cpuid,
-					irq_num, level);
-		vgic_update_state(kvm);
-		updated_state = true;
+	if (!((!is_edge && (state ^ level)) ||
+	      (is_edge && !state && level))) {
+		spin_unlock_irqrestore(&dist->lock, flags);
+		return false;
 	}
+
+	vgic_bitmap_set_irq_val(&dist->irq_state, cpuid, irq_num, level);
+
+	enabled = vgic_bitmap_get_irq_val(&dist->irq_enabled, cpuid, irq_num);
+	pend = level && enabled;
+
+	if (irq_num >= 32) {
+		cpuid = dist->irq_spi_cpu[irq_num - 32];
+		pend &= vgic_bitmap_get_irq_val(&dist->irq_spi_target[cpuid],
+						0, irq_num);
+	}
+
+	kvm_debug("Inject IRQ%d level %d CPU%d\n", irq_num, level, cpuid);
+
+	vcpu = kvm_get_vcpu(kvm, cpuid);
+	if (pend) {
+		set_bit(irq_num, vcpu->arch.vgic_cpu.pending);
+		set_bit(cpuid, &dist->irq_pending_on_cpu);
+	} else
+		clear_bit(irq_num, vcpu->arch.vgic_cpu.pending);
+
 	spin_unlock_irqrestore(&dist->lock, flags);
 
-	if (updated_state)
+	return true;
+}
+
+int kvm_vgic_inject_irq(struct kvm *kvm, int cpuid, unsigned int irq_num,
+			bool level)
+{
+	if (vgic_update_irq_state(kvm, cpuid, irq_num, level))
 		vgic_kick_vcpus(kvm);
 
 	return 0;

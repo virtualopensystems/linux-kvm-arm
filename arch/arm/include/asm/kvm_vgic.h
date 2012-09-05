@@ -183,6 +183,7 @@ struct vgic_dist {
 	u8			irq_sgi_sources[VGIC_MAX_CPUS][16];
 
 	/* Target CPU for each IRQ */
+	u8			irq_spi_cpu[VGIC_NR_SHARED_IRQS];
 	struct vgic_bitmap	irq_spi_target[VGIC_MAX_CPUS];
 
 	/* Bitmap indicating which CPU has something pending */
