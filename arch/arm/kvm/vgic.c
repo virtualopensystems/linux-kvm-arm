@@ -549,9 +549,9 @@ bool vgic_handle_mmio(struct kvm_vcpu *vcpu, struct kvm_run *run, struct kvm_exi
 
 	spin_lock(&vcpu->kvm->arch.vgic.lock);
 	updated_state = range->handle_mmio(vcpu, mmio,mmio->phys_addr - range->base - base);
+	spin_unlock(&vcpu->kvm->arch.vgic.lock);
 	kvm_prepare_mmio(run, mmio);
 	kvm_handle_mmio_return(vcpu, run);
-	spin_unlock(&vcpu->kvm->arch.vgic.lock);
 
 	if (updated_state)
 		vgic_kick_vcpus(vcpu->kvm);
@@ -822,27 +822,25 @@ static void __kvm_vgic_sync_from_cpu(struct kvm_vcpu *vcpu)
 void kvm_vgic_sync_to_cpu(struct kvm_vcpu *vcpu)
 {
 	struct vgic_dist *dist = &vcpu->kvm->arch.vgic;
-	unsigned long flags;
 
 	if (!irqchip_in_kernel(vcpu->kvm))
 		return;
 
-	spin_lock_irqsave(&dist->lock, flags);
+	spin_lock(&dist->lock);
 	__kvm_vgic_sync_to_cpu(vcpu);
-	spin_unlock_irqrestore(&dist->lock, flags);
+	spin_unlock(&dist->lock);
 }	
 
 void kvm_vgic_sync_from_cpu(struct kvm_vcpu *vcpu)
 {
 	struct vgic_dist *dist = &vcpu->kvm->arch.vgic;
-	unsigned long flags;
 
 	if (!irqchip_in_kernel(vcpu->kvm))
 		return;
 
-	spin_lock_irqsave(&dist->lock, flags);
+	spin_lock(&dist->lock);
 	__kvm_vgic_sync_from_cpu(vcpu);
-	spin_unlock_irqrestore(&dist->lock, flags);
+	spin_unlock(&dist->lock);
 }
 
 int kvm_vgic_vcpu_pending_irq(struct kvm_vcpu *vcpu)
@@ -877,9 +875,8 @@ static bool vgic_update_irq_state(struct kvm *kvm, int cpuid,
 	struct kvm_vcpu *vcpu;
 	int is_edge, state;
 	int pend, enabled;
-	unsigned long flags;
 
-	spin_lock_irqsave(&dist->lock, flags);
+	spin_lock(&dist->lock);
 
 	is_edge = vgic_irq_is_edge(dist, irq_num);
 	state = vgic_bitmap_get_irq_val(&dist->irq_state, cpuid, irq_num);
@@ -889,9 +886,8 @@ static bool vgic_update_irq_state(struct kvm *kvm, int cpuid,
 	 * - level triggered and we change level
 	 * - edge triggered and we have a rising edge
 	 */
-	if (!((!is_edge && (state ^ level)) ||
-	      (is_edge && !state && level))) {
-		spin_unlock_irqrestore(&dist->lock, flags);
+	if (!((!is_edge && (state ^ level)) || (is_edge && !state && level))) {
+		spin_unlock(&dist->lock);
 		return false;
 	}
 
@@ -915,7 +911,7 @@ static bool vgic_update_irq_state(struct kvm *kvm, int cpuid,
 	} else
 		clear_bit(irq_num, vcpu->arch.vgic_cpu.pending);
 
-	spin_unlock_irqrestore(&dist->lock, flags);
+	spin_unlock(&dist->lock);
 
 	return true;
 }
@@ -950,7 +946,6 @@ static irqreturn_t vgic_maintainance_handler(int irq, void *data)
 		 */
 		int lr, irq;
 
-		spin_lock(&dist->lock);
 		for_each_set_bit(lr, (unsigned long *)vgic_cpu->vgic_eisr,
 				 vgic_cpu->nr_lr) {
 			irq = vgic_cpu->vgic_lr[lr] & VGIC_LR_VIRTUALID;
@@ -958,11 +953,11 @@ static irqreturn_t vgic_maintainance_handler(int irq, void *data)
 			vgic_bitmap_set_irq_val(&dist->irq_active,
 						vcpu->vcpu_id, irq, 0);
 			atomic_dec(&vgic_cpu->irq_active_count);
+			smp_mb();
 			vgic_cpu->vgic_lr[lr] &= ~VGIC_LR_EOI;
 			writel_relaxed(vgic_cpu->vgic_lr[lr],
 				       dist->vctrl_base + GICH_LR0 + (lr << 2));
 		}
-		spin_unlock(&dist->lock);
 	}
 
 	if (vgic_cpu->vgic_misr & VGIC_MISR_U) {
