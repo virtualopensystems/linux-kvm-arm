@@ -790,7 +790,9 @@ epilog:
 }
 
 /*
- * Sync back the VGIC state after a guest run.
+ * Sync back the VGIC state after a guest run. We do not really touch
+ * the distributor here (the irq_pending_on_cpu bit is safe to set),
+ * so there is no need for taking its lock.
  */
 static void __kvm_vgic_sync_from_cpu(struct kvm_vcpu *vcpu)
 {
@@ -815,8 +817,10 @@ static void __kvm_vgic_sync_from_cpu(struct kvm_vcpu *vcpu)
 	/* Check if we still have something up our sleeve... */
 	pending = find_first_zero_bit((unsigned long *)vgic_cpu->vgic_elrsr,
 				      vgic_cpu->nr_lr);
-	if (pending < vgic_cpu->nr_lr)
+	if (pending < vgic_cpu->nr_lr) {
 		set_bit(vcpu->vcpu_id, &dist->irq_pending_on_cpu);
+		smp_mb();
+	}
 }
 
 void kvm_vgic_sync_to_cpu(struct kvm_vcpu *vcpu)
@@ -833,14 +837,10 @@ void kvm_vgic_sync_to_cpu(struct kvm_vcpu *vcpu)
 
 void kvm_vgic_sync_from_cpu(struct kvm_vcpu *vcpu)
 {
-	struct vgic_dist *dist = &vcpu->kvm->arch.vgic;
-
 	if (!irqchip_in_kernel(vcpu->kvm))
 		return;
 
-	spin_lock(&dist->lock);
 	__kvm_vgic_sync_from_cpu(vcpu);
-	spin_unlock(&dist->lock);
 }
 
 int kvm_vgic_vcpu_pending_irq(struct kvm_vcpu *vcpu)
