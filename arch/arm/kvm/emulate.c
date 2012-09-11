@@ -25,7 +25,7 @@
 #include "trace.h"
 
 #define REG_OFFSET(_reg) \
-	(offsetof(struct kvm_vcpu_regs, _reg) / sizeof(u32))
+	(offsetof(struct kvm_regs, _reg) / sizeof(u32))
 
 #define USR_REG_OFFSET(_num) REG_OFFSET(usr_regs[_num])
 

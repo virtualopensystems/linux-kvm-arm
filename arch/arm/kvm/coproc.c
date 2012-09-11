@@ -763,7 +763,7 @@ static int set_invariant_cp15(u64 id, void __user *uaddr)
 	return 0;
 }
 
-int kvm_arm_get_reg(struct kvm_vcpu *vcpu, const struct kvm_one_reg *reg)
+int kvm_arm_coproc_get_reg(struct kvm_vcpu *vcpu, const struct kvm_one_reg *reg)
 {
 	const struct coproc_reg *r;
 	void __user *uaddr = (void __user *)(long)reg->addr;
@@ -776,7 +776,7 @@ int kvm_arm_get_reg(struct kvm_vcpu *vcpu, const struct kvm_one_reg *reg)
 	return reg_to_user(uaddr, &vcpu->arch.cp15[r->reg], reg->id);
 }
 
-int kvm_arm_set_reg(struct kvm_vcpu *vcpu, const struct kvm_one_reg *reg)
+int kvm_arm_coproc_set_reg(struct kvm_vcpu *vcpu, const struct kvm_one_reg *reg)
 {
 	const struct coproc_reg *r;
 	void __user *uaddr = (void __user *)(long)reg->addr;
@@ -877,27 +877,18 @@ static int walk_msrs(struct kvm_vcpu *vcpu, u64 __user *uind)
 	return total;
 }
 
-/**
- * kvm_arm_num_regs - how many registers do we present via KVM_GET_ONE_REG
- *
- * This is for special registers, particularly cp15.
- */
-unsigned long kvm_arm_num_regs(struct kvm_vcpu *vcpu)
+unsigned long kvm_arm_num_coproc_regs(struct kvm_vcpu *vcpu)
 {
-	return ARRAY_SIZE(invariant_cp15) + walk_msrs(vcpu, (u64 __user *)NULL);
+	return ARRAY_SIZE(invariant_cp15)
+		+ walk_msrs(vcpu, (u64 __user *)NULL);
 }
 
-/**
- * kvm_arm_copy_reg_indices - copy a series of coprocessor registers.
- *
- * This is for special registers, particularly cp15.
- */
-int kvm_arm_copy_reg_indices(struct kvm_vcpu *vcpu, u64 __user *uindices)
+int kvm_arm_copy_coproc_indices(struct kvm_vcpu *vcpu, u64 __user *uindices)
 {
 	unsigned int i;
 	int err;
 
-	/* First give them all the invariant registers' indices. */
+	/* Then give them all the invariant registers' indices. */
 	for (i = 0; i < ARRAY_SIZE(invariant_cp15); i++) {
 		if (put_user(cp15_to_index(&invariant_cp15[i]), uindices))
 			return -EFAULT;

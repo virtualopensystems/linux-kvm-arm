@@ -38,75 +38,117 @@ int kvm_arch_vcpu_setup(struct kvm_vcpu *vcpu)
 	return 0;
 }
 
+static int get_core_reg(struct kvm_vcpu *vcpu, const struct kvm_one_reg *reg)
+{
+	u32 __user *uaddr = (u32 __user *)(long)reg->addr;
+	struct kvm_regs *regs = &vcpu->arch.regs;
+	u64 off;
+
+	if (KVM_REG_SIZE(reg->id) != 4)
+		return -ENOENT;
+
+	/* Our ID is an index into the kvm_regs struct. */
+	off = reg->id & ~(KVM_REG_ARCH_MASK|KVM_REG_SIZE_MASK|KVM_REG_ARM_CORE);
+	if (off >= sizeof(*regs) / KVM_REG_SIZE(reg->id))
+		return -ENOENT;
+
+	return put_user(((u32 *)regs)[off], uaddr);
+}
+
+static int set_core_reg(struct kvm_vcpu *vcpu, const struct kvm_one_reg *reg)
+{
+	u32 __user *uaddr = (u32 __user *)(long)reg->addr;
+	struct kvm_regs *regs = &vcpu->arch.regs;
+	u64 off, val;
+
+	if (KVM_REG_SIZE(reg->id) != 4)
+		return -ENOENT;
+
+	/* Our ID is an index into the kvm_regs struct. */
+	off = reg->id & ~(KVM_REG_ARCH_MASK|KVM_REG_SIZE_MASK|KVM_REG_ARM_CORE);
+	if (off >= sizeof(*regs) / KVM_REG_SIZE(reg->id))
+		return -ENOENT;
+
+	if (get_user(val, uaddr) != 0)
+		return -EFAULT;
+
+	if (off == KVM_REG_ARM_CORE_REG(cpsr)) {
+		if (__vcpu_mode(val) == 0xf)
+			return -EINVAL;
+	}
+
+	((u32 *)regs)[off] = val;
+	return 0;
+}
+
 int kvm_arch_vcpu_ioctl_get_regs(struct kvm_vcpu *vcpu, struct kvm_regs *regs)
 {
-	struct kvm_vcpu_regs *vcpu_regs = &vcpu->arch.regs;
-
-	/*
-	 * GPRs and PSRs
-	 */
-	memcpy(regs->regs0_7, &(vcpu_regs->usr_regs[0]), sizeof(u32) * 8);
-	memcpy(regs->usr_regs8_12, &(vcpu_regs->usr_regs[8]), sizeof(u32) * 5);
-	memcpy(regs->fiq_regs8_12, &(vcpu_regs->fiq_regs[0]), sizeof(u32) * 5);
-	regs->reg13[MODE_FIQ] = vcpu_regs->fiq_regs[5];
-	regs->reg14[MODE_FIQ] = vcpu_regs->fiq_regs[6];
-	regs->reg13[MODE_IRQ] = vcpu_regs->irq_regs[0];
-	regs->reg14[MODE_IRQ] = vcpu_regs->irq_regs[1];
-	regs->reg13[MODE_SVC] = vcpu_regs->svc_regs[0];
-	regs->reg14[MODE_SVC] = vcpu_regs->svc_regs[1];
-	regs->reg13[MODE_ABT] = vcpu_regs->abt_regs[0];
-	regs->reg14[MODE_ABT] = vcpu_regs->abt_regs[1];
-	regs->reg13[MODE_UND] = vcpu_regs->und_regs[0];
-	regs->reg14[MODE_UND] = vcpu_regs->und_regs[1];
-	regs->reg13[MODE_USR] = vcpu_regs->usr_regs[13];
-	regs->reg14[MODE_USR] = vcpu_regs->usr_regs[14];
-
-	regs->spsr[MODE_FIQ]  = vcpu_regs->fiq_regs[7];
-	regs->spsr[MODE_IRQ]  = vcpu_regs->irq_regs[2];
-	regs->spsr[MODE_SVC]  = vcpu_regs->svc_regs[2];
-	regs->spsr[MODE_ABT]  = vcpu_regs->abt_regs[2];
-	regs->spsr[MODE_UND]  = vcpu_regs->und_regs[2];
-
-	regs->reg15 = vcpu_regs->pc;
-	regs->cpsr = vcpu_regs->cpsr;
-
-	return 0;
+	return -EINVAL;
 }
 
 int kvm_arch_vcpu_ioctl_set_regs(struct kvm_vcpu *vcpu, struct kvm_regs *regs)
 {
-	struct kvm_vcpu_regs *vcpu_regs = &vcpu->arch.regs;
+	return -EINVAL;
+}
 
-	if (__vcpu_mode(regs->cpsr) == 0xf)
+static unsigned long num_core_regs(void)
+{
+	return sizeof(struct kvm_regs) / sizeof(u32);
+}
+
+/**
+ * kvm_arm_num_regs - how many registers do we present via KVM_GET_ONE_REG
+ *
+ * This is for all registers.
+ */
+unsigned long kvm_arm_num_regs(struct kvm_vcpu *vcpu)
+{
+	return num_core_regs() + kvm_arm_num_coproc_regs(vcpu);
+}
+
+/**
+ * kvm_arm_copy_reg_indices - get indices of all registers.
+ *
+ * We do core registers right here, then we apppend coproc regs.
+ */
+int kvm_arm_copy_reg_indices(struct kvm_vcpu *vcpu, u64 __user *uindices)
+{
+	unsigned int i;
+	const u64 core_reg = KVM_REG_ARM|KVM_REG_SIZE_U32|KVM_REG_ARM_CORE;
+
+	for (i = 0; i < sizeof(struct kvm_regs)/sizeof(u32); i++) {
+		if (put_user(core_reg|i, uindices))
+			return -EFAULT;
+		uindices++;
+	}
+
+	return kvm_arm_copy_coproc_indices(vcpu, uindices);
+}
+
+int kvm_arm_get_reg(struct kvm_vcpu *vcpu, const struct kvm_one_reg *reg)
+{
+	/* We currently use nothing arch-specific in upper 64 bits */
+	if ((reg->id & ~KVM_REG_SIZE_MASK) >> 32 != KVM_REG_ARM >> 32)
 		return -EINVAL;
 
-	memcpy(&(vcpu_regs->usr_regs[0]), regs->regs0_7, sizeof(u32) * 8);
-	memcpy(&(vcpu_regs->usr_regs[8]), regs->usr_regs8_12, sizeof(u32) * 5);
-	memcpy(&(vcpu_regs->fiq_regs[0]), regs->fiq_regs8_12, sizeof(u32) * 5);
+	/* Coprocessor 16 means we want a core register. */
+	if ((reg->id & KVM_REG_ARM_COPROC_MASK) == KVM_REG_ARM_CORE)
+		return get_core_reg(vcpu, reg);
 
-	vcpu_regs->fiq_regs[5] = regs->reg13[MODE_FIQ];
-	vcpu_regs->fiq_regs[6] = regs->reg14[MODE_FIQ];
-	vcpu_regs->irq_regs[0] = regs->reg13[MODE_IRQ];
-	vcpu_regs->irq_regs[1] = regs->reg14[MODE_IRQ];
-	vcpu_regs->svc_regs[0] = regs->reg13[MODE_SVC];
-	vcpu_regs->svc_regs[1] = regs->reg14[MODE_SVC];
-	vcpu_regs->abt_regs[0] = regs->reg13[MODE_ABT];
-	vcpu_regs->abt_regs[1] = regs->reg14[MODE_ABT];
-	vcpu_regs->und_regs[0] = regs->reg13[MODE_UND];
-	vcpu_regs->und_regs[1] = regs->reg14[MODE_UND];
-	vcpu_regs->usr_regs[13] = regs->reg13[MODE_USR];
-	vcpu_regs->usr_regs[14] = regs->reg14[MODE_USR];
+	return kvm_arm_coproc_get_reg(vcpu, reg);
+}
 
-	vcpu_regs->fiq_regs[7] = regs->spsr[MODE_FIQ];
-	vcpu_regs->irq_regs[2] = regs->spsr[MODE_IRQ];
-	vcpu_regs->svc_regs[2] = regs->spsr[MODE_SVC];
-	vcpu_regs->abt_regs[2] = regs->spsr[MODE_ABT];
-	vcpu_regs->und_regs[2] = regs->spsr[MODE_UND];
+int kvm_arm_set_reg(struct kvm_vcpu *vcpu, const struct kvm_one_reg *reg)
+{
+	/* We currently use nothing arch-specific in upper 64 bits */
+	if ((reg->id & ~KVM_REG_SIZE_MASK) >> 32 != KVM_REG_ARM >> 32)
+		return -EINVAL;
 
-	vcpu_regs->pc = regs->reg15;
-	vcpu_regs->cpsr = regs->cpsr;
+	/* Coprocessor 16 means we want a core register. */
+	if ((reg->id & KVM_REG_ARM_COPROC_MASK) == KVM_REG_ARM_CORE)
+		return set_core_reg(vcpu, reg);
 
-	return 0;
+	return kvm_arm_coproc_set_reg(vcpu, reg);
 }
 
 int kvm_arch_vcpu_ioctl_get_sregs(struct kvm_vcpu *vcpu,
