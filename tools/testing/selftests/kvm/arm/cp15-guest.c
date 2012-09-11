@@ -1,5 +1,6 @@
 #include "guest.h"
 #include <stdarg.h>
+#include "cp15_test.h"
 
 /* Don't test things we know fail. */
 #define XFAIL 1
@@ -375,6 +376,7 @@ int test(void)
 {
 	const struct test32 *i, *end;
 	unsigned int opc1, crn, crm, opc2;
+	u32 val;
 
 	i = test32_table;
 	end = test32_table + sizeof(test32_table)/sizeof(test32_table[0]);
@@ -407,5 +409,37 @@ int test(void)
 		printf("What?  Still got %u remaining!\n", end - i);
 		return 2;
 	}
+
+	/* Cooperate with the host to check the userspace API, using TTBR0. */
+	assert(cp15_write(0, 2, 0, 0, 0x80000000));
+	assert(cp15_read(0, 2, 0, 0, &val));
+	assert(val == 0x80000000);
+
+	/* Host should see the right value. */
+	val = 0xdeadbeef;
+	asm volatile("ldr %0, [%1]" : "=r"(val) : "r"(CP15_TTBR0));
+	assert(val == 0x80000000);
+
+	/* Host change should make us see the right value. */
+	asm volatile("str %0, [%1]" : : "r"(0x90000000), "r"(CP15_TTBR0));
+	val = 0xdeadbeef;
+	assert(cp15_read(0, 2, 0, 0, &val));
+	assert(val == 0x90000000);
+
+	/* Now two regs at once: set TTBR1 to match TTBR0 */
+	assert(cp15_write(0, 2, 0, 1, 0x90000000));
+	
+	val = 0xdeadbeef;
+	asm volatile("ldr %0, [%1]" : "=r"(val) : "r"(CP15_TTBR0_TTBR1));
+	/* Host checks that both match. */
+	assert(val == 0x90000000);
+
+	/* Now set both. */
+	asm volatile("str %0, [%1]" : : "r"(0x80000000), "r"(CP15_TTBR0_TTBR1));
+	assert(cp15_read(0, 2, 0, 0, &val));
+	assert(val == 0x80000000);
+	assert(cp15_read(0, 2, 0, 1, &val));
+	assert(val == 0x80000000);
+
 	return 0;
 }

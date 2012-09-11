@@ -23,7 +23,7 @@
 #include "vfp_test.h"
 
 /* Return false to stop the VM */
-static bool vfp_test(struct kvm_run *kvm_run)
+static bool vfp_test(struct kvm_run *kvm_run, int vcpu_fd)
 {
 	unsigned long phys_addr;
 	bool is_write;

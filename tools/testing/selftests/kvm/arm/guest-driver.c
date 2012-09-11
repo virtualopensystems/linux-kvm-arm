@@ -175,7 +175,7 @@ static void init_vcpu(unsigned long start)
 
 /* Returns true to shut down. */
 static bool handle_mmio(struct kvm_run *kvm_run,
-			bool (*test)(struct kvm_run *kvm_run))
+			bool (*test)(struct kvm_run *kvm_run, int vcpu_fd))
 {
 	unsigned long phys_addr;
 	unsigned char *data;
@@ -214,7 +214,7 @@ static bool handle_mmio(struct kvm_run *kvm_run,
 
 	default:
 		/* Let this test handle it. */
-		if (test && test(kvm_run))
+		if (test && test(kvm_run, vcpu_fd))
 			return false;
 		errx(EXIT_FAILURE,
 		     "Guest accessed unexisting mem area: %#08lx + %#08x",
@@ -222,7 +222,7 @@ static bool handle_mmio(struct kvm_run *kvm_run,
 	}
 }
 
-static void kvm_cpu_exec(bool (*test)(struct kvm_run *kvm_run))
+static void kvm_cpu_exec(bool (*test)(struct kvm_run *kvm_run, int vcpu_fd))
 {
 	do {
 		int ret = ioctl(vcpu_fd, KVM_RUN, 0);
@@ -246,7 +246,7 @@ int main(int argc, const char *argv[])
 {
 	struct test *i;
 	const char *file = NULL;
-	bool (*test)(struct kvm_run *kvm_run);
+	bool (*test)(struct kvm_run *kvm_run, int vcpu_fd);
 	unsigned long start;
 
 	if (argc != 2)
