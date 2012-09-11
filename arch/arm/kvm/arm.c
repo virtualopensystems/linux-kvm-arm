@@ -824,20 +824,20 @@ long kvm_arch_vcpu_ioctl(struct file *filp,
 		else
 			return kvm_arm_get_reg(vcpu, &reg);
 	}
-	case KVM_VCPU_GET_MSR_INDEX_LIST: {
-		struct kvm_msr_list __user *user_msr_list = argp;
-		struct kvm_msr_list msr_list;
+	case KVM_GET_REG_LIST: {
+		struct kvm_reg_list __user *user_list = argp;
+		struct kvm_reg_list reg_list;
 		unsigned n;
 
-		if (copy_from_user(&msr_list, user_msr_list, sizeof msr_list))
+		if (copy_from_user(&reg_list, user_list, sizeof reg_list))
 			return -EFAULT;
-		n = msr_list.nmsrs;
-		msr_list.nmsrs = kvm_arm_num_guest_msrs(vcpu);
-		if (copy_to_user(user_msr_list, &msr_list, sizeof msr_list))
+		n = reg_list.n;
+		reg_list.n = kvm_arm_num_regs(vcpu);
+		if (copy_to_user(user_list, &reg_list, sizeof reg_list))
 			return -EFAULT;
-		if (n < msr_list.nmsrs)
+		if (n < reg_list.n)
 			return -E2BIG;
-		return kvm_arm_copy_msrindices(vcpu, user_msr_list->indices);
+		return kvm_arm_copy_reg_indices(vcpu, user_list->reg);
 	}
 	default:
 		return -EINVAL;

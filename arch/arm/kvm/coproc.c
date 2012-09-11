@@ -878,21 +878,21 @@ static int walk_msrs(struct kvm_vcpu *vcpu, u64 __user *uind)
 }
 
 /**
- * kvm_arm_num_guest_msrs - how many registers do we present via KVM_GET_MSR
+ * kvm_arm_num_regs - how many registers do we present via KVM_GET_ONE_REG
  *
  * This is for special registers, particularly cp15.
  */
-unsigned long kvm_arm_num_guest_msrs(struct kvm_vcpu *vcpu)
+unsigned long kvm_arm_num_regs(struct kvm_vcpu *vcpu)
 {
 	return ARRAY_SIZE(invariant_cp15) + walk_msrs(vcpu, (u64 __user *)NULL);
 }
 
 /**
- * kvm_arm_copy_msrindices - copy a series of coprocessor registers.
+ * kvm_arm_copy_reg_indices - copy a series of coprocessor registers.
  *
  * This is for special registers, particularly cp15.
  */
-int kvm_arm_copy_msrindices(struct kvm_vcpu *vcpu, u64 __user *uindices)
+int kvm_arm_copy_reg_indices(struct kvm_vcpu *vcpu, u64 __user *uindices)
 {
 	unsigned int i;
 	int err;
