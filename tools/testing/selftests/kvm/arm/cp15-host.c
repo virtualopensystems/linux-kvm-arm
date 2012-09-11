@@ -21,7 +21,7 @@ static inline u32 get_bits(u32 index, u32 mask)
 /* Exercise KVM_GET_REG_LIST */
 static void check_indexlist(int vcpu_fd)
 {
-	unsigned int i, num_core = 0;
+	unsigned int i, num_core = 0, num_demux = 0;
 	bool found_ttbr0 = false, found_ttbr1 = false, found_tpidprw = false;
 	struct {
 		struct kvm_reg_list head;
@@ -59,6 +59,9 @@ static void check_indexlist(int vcpu_fd)
 
 		if (cp == (KVM_REG_ARM_CORE >> KVM_REG_ARM_COPROC_SHIFT))
 			num_core++;
+
+		if (cp == (KVM_REG_ARM_DEMUX >> KVM_REG_ARM_COPROC_SHIFT))
+			num_demux++;
 
 		if (KVM_REG_SIZE(idx) == 8 && cp == 15
 		    && ((idx & KVM_REG_ARM_CRM_MASK) >> KVM_REG_ARM_CRM_SHIFT) == 2) {
@@ -112,6 +115,7 @@ static void check_indexlist(int vcpu_fd)
 	assert(found_ttbr0);
 	assert(found_ttbr1);
 	assert(found_tpidprw);
+	assert(num_demux > 2);
 	assert(num_core == sizeof(struct kvm_regs) / 4);
 }
 
