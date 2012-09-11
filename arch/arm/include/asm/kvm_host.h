@@ -20,6 +20,7 @@
 #define __ARM_KVM_HOST_H__
 
 #include <asm/fpstate.h>
+#include <asm/kvm.h>
 
 #define KVM_MAX_VCPUS 4
 #define KVM_MEMORY_SLOTS 32
@@ -83,16 +84,21 @@ struct kvm_mmu_memory_cache {
 	void *objects[KVM_NR_MEM_OBJS];
 };
 
-struct kvm_vcpu_regs {
-	u32 usr_regs[15];	/* R0_usr - R14_usr */
-	u32 svc_regs[3];	/* SP_svc, LR_svc, SPSR_svc */
-	u32 abt_regs[3];	/* SP_abt, LR_abt, SPSR_abt */
-	u32 und_regs[3];	/* SP_und, LR_und, SPSR_und */
-	u32 irq_regs[3];	/* SP_irq, LR_irq, SPSR_irq */
-	u32 fiq_regs[8];	/* R8_fiq - R14_fiq, SPSR_fiq */
-	u32 pc;			/* The program counter (r15) */
-	u32 cpsr;		/* The guest CPSR */
-} __packed;
+/*
+ * Modes used for short-hand mode determinition in the world-switch code and
+ * in emulation code.
+ *
+ * Note: These indices do NOT correspond to the value of the CPSR mode bits!
+ */
+enum vcpu_mode {
+	MODE_FIQ = 0,
+	MODE_IRQ,
+	MODE_SVC,
+	MODE_ABT,
+	MODE_UND,
+	MODE_USR,
+	MODE_SYS
+};
 
 /* 0 is reserved as an invalid value. */
 enum cp15_regs {
@@ -125,7 +131,7 @@ enum cp15_regs {
 };
 
 struct kvm_vcpu_arch {
-	struct kvm_vcpu_regs regs;
+	struct kvm_regs regs;
 
 	u32 target; /* Currently KVM_ARM_TARGET_CORTEX_A15 */
 	DECLARE_BITMAP(features, NUM_FEATURES);
@@ -213,4 +219,9 @@ static inline int kvm_test_age_hva(struct kvm *kvm, unsigned long hva)
 struct kvm_vcpu *kvm_arm_get_running_vcpu(void);
 struct kvm_vcpu __percpu **kvm_get_running_vcpus(void);
 
+int kvm_arm_copy_coproc_indices(struct kvm_vcpu *vcpu, u64 __user *uindices);
+unsigned long kvm_arm_num_coproc_regs(struct kvm_vcpu *vcpu);
+struct kvm_one_reg;
+int kvm_arm_coproc_get_reg(struct kvm_vcpu *vcpu, const struct kvm_one_reg *);
+int kvm_arm_coproc_set_reg(struct kvm_vcpu *vcpu, const struct kvm_one_reg *);
 #endif /* __ARM_KVM_HOST_H__ */
