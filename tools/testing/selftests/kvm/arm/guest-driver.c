@@ -31,6 +31,7 @@
 #include <linux/kvm.h>
 #include <elf.h>
 #include <err.h>
+#include <stddef.h>
  
 #include "io_common.h"
 #include "guest-driver.h"
@@ -161,16 +162,19 @@ static unsigned long load_code(const char *code_file)
 
 static void init_vcpu(unsigned long start)
 {
-	struct kvm_regs regs;
+	struct kvm_one_reg reg;
+	__u32 lr = CODE_PHYS_BASE + RAM_SIZE;
+	__u64 core_id = KVM_REG_ARM | KVM_REG_SIZE_U32 | KVM_REG_ARM_CORE;
 
-	if (ioctl(vcpu_fd, KVM_GET_REGS, &regs) < 0)
-		err(EXIT_SETUPFAIL, "error getting VCPU registers");
+	reg.id = core_id | KVM_REG_ARM_CORE_REG(pc);
+	reg.addr = (long)&start;
+	if (ioctl(vcpu_fd, KVM_SET_ONE_REG, &reg) != 0)
+		err(EXIT_SETUPFAIL, "error setting PC (%#llx)", reg.id);
 
-	regs.reg15 = start;
-	regs.reg13[MODE_SVC] = CODE_PHYS_BASE + RAM_SIZE;
-
-	if (ioctl(vcpu_fd, KVM_SET_REGS, &regs) < 0)
-		err(EXIT_SETUPFAIL, "error setting VCPU registers");
+	reg.id = core_id | KVM_REG_ARM_CORE_REG(svc_regs[2]);
+	reg.addr = (long)&lr;
+	if (ioctl(vcpu_fd, KVM_SET_ONE_REG, &reg) != 0)
+		err(EXIT_SETUPFAIL, "error setting LR");
 }
 
 /* Returns true to shut down. */
