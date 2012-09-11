@@ -506,7 +506,7 @@ static void flush_icache_guest_page(struct kvm *kvm, gfn_t gfn)
 	 */
 	if (icache_is_pipt()) {
 		unsigned long hva = gfn_to_hva(kvm, gfn);
-		__cpuc_flush_user_range(hva, hva + PAGE_SIZE, 0);
+		__cpuc_coherent_user_range(hva, hva + PAGE_SIZE);
 	} else if (!icache_is_vivt_asid_tagged()) {
 		/* any kind of VIPT cache */
 		__flush_icache_all();
