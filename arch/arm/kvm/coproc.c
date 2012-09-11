@@ -850,7 +850,7 @@ static int walk_cp15(struct kvm_vcpu *vcpu, u64 __user *uind)
 	BUG_ON(i1 == end1 || i2 == end2);
 
 	/* Walk carefully, as both tables may refer to the same register. */
-	while (i1 && i2) {
+	while (i1 || i2) {
 		int cmp = cmp_reg(i1, i2);
 		/* target-specific overrides generic entry. */
 		if (cmp <= 0) {
