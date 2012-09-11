@@ -1,5 +1,6 @@
 #ifndef __GUEST_DRIVER_H_
 #define __GUEST_DRIVER_H_
+#include <stdint.h>
 
 #define PAGE_SIZE (4096)
 #define PAGE_MASK (~(PAGE_SIZE - 1))
@@ -13,7 +14,7 @@ struct kvm_run;
 struct test {
 	const char *name;
 	const char *binname;
-	bool (*mmiofn)(struct kvm_run *kvm_run);
+	bool (*mmiofn)(struct kvm_run *kvm_run, int vcpu_fd);
 };
 
 #define stringify(expr)		stringify_1(expr)
@@ -23,5 +24,7 @@ struct test {
 #define GUEST_TEST(name, testfn)					\
 	struct test test_##name __attribute__((section("tests"))) = {	\
 		stringify(name), stringify(name) "-guest", testfn }
+
+typedef uint32_t u32;
 
 #endif /* __GUEST_DRIVER_H_ */

@@ -5,7 +5,7 @@
 #include "guest-driver.h"
 
 /* Return false to stop the VM */
-static bool cond_test(struct kvm_run *kvm_run)
+static bool cond_test(struct kvm_run *kvm_run, int vcpu_fd)
 {
 	return false;
 }

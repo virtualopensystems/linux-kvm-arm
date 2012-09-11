@@ -67,7 +67,7 @@ static int do_read(unsigned long offset, void *data, unsigned long len)
 }
 
 /* Return false to stop the VM */
-static bool mmio_test(struct kvm_run *kvm_run)
+static bool mmio_test(struct kvm_run *kvm_run, int vcpu_fd)
 {
 	unsigned long phys_addr;
 	unsigned char *data;
