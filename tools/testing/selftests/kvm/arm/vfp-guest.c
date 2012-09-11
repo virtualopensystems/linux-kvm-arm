@@ -64,5 +64,20 @@ int test(void)
 	asm volatile("ldr %0, [%1]" : "=r"(val) : "r"(VFP_USE_REG + 16));
 	assert(d16 == 2.0);
 
+	/* Now check host ioctl sees register correctly. */
+	d0 = 2.0;
+ 	asm volatile("ldr %0, [%1]" : "=r"(val) : "r"(VFP_CHECK_REG));
+
+	d0 = 2.0;
+ 	asm volatile("ldr %0, [%1]" : "=r"(val) : "r"(VFP_SET_REG));
+	assert(d0 == 3.0);
+
+	d16 = 2.0;
+ 	asm volatile("ldr %0, [%1]" : "=r"(val) : "r"(VFP_CHECK_REG+16));
+
+	d16 = 2.0;
+ 	asm volatile("ldr %0, [%1]" : "=r"(val) : "r"(VFP_SET_REG+16));
+	assert(d16 == 3.0);
+
 	return 0;
 }
