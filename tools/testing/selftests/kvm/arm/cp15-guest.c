@@ -253,10 +253,87 @@ static void ignore(const struct test32 *test)
 {
 }
 
+static void report_cache(unsigned int level, bool icache_only)
+{
+	u32 ccsidr;
+	const char *wb_wt;
+
+	/* Write to CSSELR, read from CCSIDR */
+	if (!cp15_write(2, 0, 0, 0, (level << 1) | icache_only)) {
+		printf("Unexpected fault writing %u to CSSELR\n",
+		       (level << 1) | icache_only);
+		fail();
+	}
+	if (!cp15_read(1, 0, 0, 0, &ccsidr)) {
+		printf("Unexpected fault reading CCSIDR with CSSELR %u\n",
+		       (level << 1) | icache_only);
+		fail();
+	}
+
+	switch (ccsidr >> 30) {
+	case 3:
+		wb_wt = "write-back-and-thru";
+		break;
+	case 2:
+		wb_wt = "write-thru";
+		break;
+	case 1:
+		wb_wt = "write-back";
+		break;
+	case 0:
+		wb_wt = "r/o";
+		break;
+	}
+	printf("Cache %u%s: %s%s%s %u sets of %u assoc %u linesize\n",
+	       level, icache_only ? " (icache)" : "", wb_wt,
+	       ccsidr & (1 << 29) ? " read-alloc" : "",
+	       ccsidr & (1 << 28) ? " write-alloc" : "",
+	       ((ccsidr >> 13) & ((1 << 15)-1)) + 1,
+	       ((ccsidr >> 3) & ((1 << 10)-1)) + 1,
+	       1 << ((ccsidr & 7) + 2));
+}
+
 static void test_csselr_and_ccsidr(const struct test32 *test)
 {
-	/* FIXME */
-	ignore(test);
+	unsigned int i;
+	u32 clidr;
+
+	printf("Testing csselr!\n");
+	if (!cp15_read(1, 0, 0, 1, &clidr)) {
+		printf("Unexpected fault on CLIDR read\n");
+		fail();
+		return;
+	}
+
+	/* Parse each CLIDR level. */
+	for (i = 0; i < 7; i++) {
+		u32 type = (clidr >> i*3) & 7;
+
+		if (type == 0)
+			break;
+		switch (type) {
+		case 1: /* Instruction cache only. */
+			report_cache(i, true);
+			break;
+		case 2: /* Data cache only. */
+			report_cache(i, false);
+			break;
+		case 3: /* Separate data and instruction caches. */
+			report_cache(i, true);
+			report_cache(i, false);
+			break;
+		case 4: /* Unified cache. */
+			report_cache(i, false);
+			break;
+		default:
+			printf("Unknown cache type %u at level %u\n",
+			       type, i+1);
+			fail();
+		}
+	}
+
+	/* We expect at least one cache! */
+	assert(i > 0);
 }
 
 /* TCMTR should be WI, but it faults (at least under fm, try real hw?) */
