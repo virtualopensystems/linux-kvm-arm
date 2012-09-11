@@ -426,19 +426,18 @@ int test(void)
 	assert(cp15_read(0, 2, 0, 0, &val));
 	assert(val == 0x90000000);
 
-	/* Now two regs at once: set TTBR1 to match TTBR0 */
-	assert(cp15_write(0, 2, 0, 1, 0x90000000));
+	/* Now test 32-bit reg: IFAR */
+	assert(cp15_write(0, 6, 0, 2, 0x98765432));
 	
 	val = 0xdeadbeef;
-	asm volatile("ldr %0, [%1]" : "=r"(val) : "r"(CP15_TTBR0_TTBR1));
-	/* Host checks that both match. */
-	assert(val == 0x90000000);
+	asm volatile("ldr %0, [%1]" : "=r"(val) : "r"(CP15_IFAR));
+	/* Check it sees value we expect. */
+	assert(val == 0x98765432);
 
-	/* Now set both. */
-	asm volatile("str %0, [%1]" : : "r"(0x80000000), "r"(CP15_TTBR0_TTBR1));
-	assert(cp15_read(0, 2, 0, 0, &val));
-	assert(val == 0x80000000);
-	assert(cp15_read(0, 2, 0, 1, &val));
+	/* Now set it. */
+	asm volatile("str %0, [%1]" : : "r"(0x80000000), "r"(CP15_IFAR));
+	val = 0xdeadbeef;
+	assert(cp15_read(0, 6, 0, 2, &val));
 	assert(val == 0x80000000);
 
 	return 0;

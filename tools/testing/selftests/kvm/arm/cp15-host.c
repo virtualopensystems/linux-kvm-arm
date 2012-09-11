@@ -18,45 +18,45 @@ static inline u32 get_bits(u32 index, u32 mask)
 	return (index & mask) >> (ffs(mask) - 1);
 }
 
-/* Puts in the position indicated by mask (assumes val fits in mask) */
-static inline u32 set_bits(u32 val, u32 mask)
-{
-	return val << (ffs(mask)-1);
-}
-
-/* Exercise KVM_VCPU_GET_MSR_INDEX_LIST */
+/* Exercise KVM_GET_REG_LIST */
 static void check_indexlist(int vcpu_fd)
 {
 	unsigned int i;
-	bool found_ttbr0 = false, found_ttbr1 = false;
+	bool found_ttbr0 = false, found_ttbr1 = false, found_tpidprw = false;
 	struct {
-		struct kvm_msr_list head;
-		u32 indices[MORE_THAN_ENOUGH];
+		struct kvm_reg_list head;
+		__u64 indices[MORE_THAN_ENOUGH];
 	} list;
 
 	/* Attempt with too-short array should fail, with E2BIG, and not
 	 * write outside the array bounds given. */
-	list.head.nmsrs = 1;
+	list.head.n = 1;
 	list.indices[1] = 0xdeadbeef;
 
-	if (ioctl(vcpu_fd, KVM_VCPU_GET_MSR_INDEX_LIST, &list) != -1)
-		errx(1, "KVM_VCPU_GET_MSR_INDEX_LIST(1) succeeded?");
+	if (ioctl(vcpu_fd, KVM_GET_REG_LIST, &list) != -1)
+		errx(1, "KVM_GET_REG_LIST(1) succeeded?");
 	if (errno != E2BIG)
-		err(1, "KVM_VCPU_GET_MSR_INDEX_LIST(1) failed with bad errno");
-	assert(list.head.nmsrs > 1);
+		err(1, "KVM_GET_REG_LIST(1) failed with bad errno");
+	assert(list.head.n > 1);
 	assert(list.indices[1] == 0xdeadbeef);
 
 	/* Now for real. */
-	list.head.nmsrs = MORE_THAN_ENOUGH;
-	if (ioctl(vcpu_fd, KVM_VCPU_GET_MSR_INDEX_LIST, &list) != 0)
-		err(1, "KVM_VCPU_GET_MSR_INDEX_LIST");
+	list.head.n = MORE_THAN_ENOUGH;
+	if (ioctl(vcpu_fd, KVM_GET_REG_LIST, &list) != 0)
+		err(1, "KVM_GET_REG_LIST");
 
-	assert(list.head.nmsrs < MORE_THAN_ENOUGH);
-	for (i = 0; i < list.head.nmsrs; i++) {
-		u32 idx = list.indices[i];
-		if (get_bits(idx, KVM_ARM_MSR_64_BIT_MASK) == 1
-		    && get_bits(idx, KVM_ARM_MSR_64_CRM_MASK) == 2) {
-			switch (get_bits(idx, KVM_ARM_MSR_64_OPC1_MASK)) {
+	assert(list.head.n < MORE_THAN_ENOUGH);
+	for (i = 0; i < list.head.n; i++) {
+		__u64 idx = list.indices[i];
+		struct kvm_one_reg r;
+		__u64 val;
+
+		if ((idx & KVM_REG_ARCH_MASK) != KVM_REG_ARM)
+			errx(1, "Invalid non-ARM index 0x%llx", idx);
+
+		if (KVM_REG_SIZE(idx) == 8
+		    && ((idx & KVM_REG_ARM_CRM_MASK) >> KVM_REG_ARM_CRM_SHIFT) == 2) {
+			switch ((idx & KVM_REG_ARM_OPC1_MASK) >> KVM_REG_ARM_OPC1_SHIFT) {
 			case 0:
 				assert(!found_ttbr0);
 				found_ttbr0 = true;
@@ -67,9 +67,46 @@ static void check_indexlist(int vcpu_fd)
 				break;
 			}
 		}
+		if (KVM_REG_SIZE(idx) == 4
+		    && ((idx & KVM_REG_ARM_CRM_MASK) >> KVM_REG_ARM_CRM_SHIFT == 0)
+		    && ((idx & KVM_REG_ARM_32_CRN_MASK) >> KVM_REG_ARM_32_CRN_SHIFT == 13)
+		    && ((idx & KVM_REG_ARM_32_OPC2_MASK) >> KVM_REG_ARM_32_OPC2_SHIFT == 4)
+		    && ((idx & KVM_REG_ARM_OPC1_MASK) >> KVM_REG_ARM_OPC1_SHIFT == 0)) {
+			assert(!found_tpidprw);
+			found_tpidprw = true;
+		}
+			
+
+		/* Test unchanged read/write works. */
+		r.id = idx;
+		r.addr = (long)&val;
+		printf("%u: %#llx\n", i, idx);
+		switch (KVM_REG_SIZE(idx)) {
+		case 4:
+			val = 0xabadc0ff00000000ULL;
+			if (ioctl(vcpu_fd, KVM_GET_ONE_REG, &r) != 0)
+				err(1, "Failed to GET_ONE_REG %#llx", idx);
+			if (val >> 32 != 0xabadc0ff)
+				errx(1, "GET_ONE_REG %#llx overwrote: %#llx",
+				     idx, val);
+			if (ioctl(vcpu_fd, KVM_SET_ONE_REG, &r) != 0)
+				err(1, "Failed to SET_ONE_REG %#llx", idx);
+			break;
+		case 8:
+			if (ioctl(vcpu_fd, KVM_GET_ONE_REG, &r) != 0)
+				err(1, "Failed to GET_ONE_REG %#llx", idx);
+			if (ioctl(vcpu_fd, KVM_SET_ONE_REG, &r) != 0)
+				err(1, "Failed to SET_ONE_REG %#llx", idx);
+
+			break;
+		default:
+			errx(1, "FIXME: unsupported reg size %u",
+			     KVM_REG_SIZE(idx));
+		}
 	}
 	assert(found_ttbr0);
 	assert(found_ttbr1);
+	assert(found_tpidprw);
 }
 
 /* Return false to stop the VM */
@@ -80,10 +117,9 @@ static bool cp15_test(struct kvm_run *kvm_run, int vcpu_fd)
 	bool is_write;
 	unsigned char *data;
 	unsigned long len;
-	struct msrs {
-		struct kvm_msrs head;
-		struct kvm_msr_entry entries[2];
-	} msrs;
+	struct kvm_one_reg reg;
+	__u64 reg64;
+	__u32 reg32;
 
 	/* We check here that replacing a CP15 register works. */
 	phys_addr = (unsigned long)kvm_run->mmio.phys_addr;
@@ -100,54 +136,45 @@ static bool cp15_test(struct kvm_run *kvm_run, int vcpu_fd)
 		indexlist_checked = true;
 	}
 
-	/* TTBR0 */
-	msrs.entries[0].index =
-		set_bits(15, KVM_ARM_MSR_COPROC_MASK) |
-		set_bits(1, KVM_ARM_MSR_64_BIT_MASK) |
-		set_bits(2, KVM_ARM_MSR_64_CRM_MASK);
-	/* TTBR1 */
-	msrs.entries[1].index =
-		set_bits(15, KVM_ARM_MSR_COPROC_MASK) |
-		set_bits(1, KVM_ARM_MSR_64_BIT_MASK) |
-		set_bits(2, KVM_ARM_MSR_64_CRM_MASK) |
-		set_bits(1, KVM_ARM_MSR_64_OPC1_MASK);
-
-	/* Zero out high bits of data. */
-	msrs.entries[0].data = msrs.entries[1].data = 0;
-
 	switch (phys_addr) {
 	case CP15_TTBR0:
-		msrs.head.nmsrs = 1;
+		reg.id = KVM_REG_ARM | KVM_REG_SIZE_U64
+			| (15 << KVM_REG_ARM_COPROC_SHIFT)
+			| (2 << KVM_REG_ARM_CRM_SHIFT)
+			| (0 << KVM_REG_ARM_OPC1_SHIFT);
+
+		reg.addr = (__u64)(long)&reg64;
+
 		if (is_write) {
-			memcpy(&msrs.entries[0].data, data, len);
-			if (ioctl(vcpu_fd, KVM_SET_MSRS, &msrs) != 0)
-				err(1, "KVM_SET_MSRS(TTBR0) failed");
+			/* High bits are 0. */
+			reg64 = 0;
+			memcpy(&reg64, data, len);
+			if (ioctl(vcpu_fd, KVM_SET_ONE_REG, &reg) != 0)
+				err(1, "KVM_SET_ONE_REG(TTBR0) failed");
 		} else {
-			if (ioctl(vcpu_fd, KVM_GET_MSRS, &msrs) != 0)
-				err(1, "KVM_GET_MSRS(TTBR0) failed");
-			memcpy(data, &msrs.entries[0].data, len);
+			if (ioctl(vcpu_fd, KVM_GET_ONE_REG, &reg) != 0)
+				err(1, "KVM_GET_ONE_REG(TTBR0) failed");
+			memcpy(data, &reg64, len);
 		}
 		return true;
 
-	/* Test for API with n > 1 */
-	case CP15_TTBR0_TTBR1:
-		msrs.head.nmsrs = 2;
+	case CP15_IFAR:
+		reg.id = KVM_REG_ARM | KVM_REG_SIZE_U32
+			| (15 << KVM_REG_ARM_COPROC_SHIFT)
+			| (6 << KVM_REG_ARM_32_CRN_SHIFT)
+			| (0 << KVM_REG_ARM_OPC1_SHIFT)
+			| (2 << KVM_REG_ARM_32_OPC2_SHIFT);
+
+		reg.addr = (__u64)(long)&reg32;
+		
 		if (is_write) {
-			memcpy(&msrs.entries[0].data, data, len);
-			memcpy(&msrs.entries[1].data, data, len);
-			if (ioctl(vcpu_fd, KVM_SET_MSRS, &msrs) != 0)
-				err(1, "KVM_SET_MSRS(TTBR0/1) failed");
+			memcpy(&reg32, data, len);
+			if (ioctl(vcpu_fd, KVM_SET_ONE_REG, &reg) != 0)
+				err(1, "KVM_SET_ONE_REG(IFAR) failed");
 		} else {
-			if (ioctl(vcpu_fd, KVM_GET_MSRS, &msrs) != 0)
-				err(1, "KVM_GET_MSRS(TTBR0/1) failed");
-			/* Guest sets lower 32 bits to the same value. */
-			if ((msrs.entries[0].data ^ msrs.entries[1].data)
-			    & 0xFFFFFFFF) {
-				errx(1, "TTBR0(0x%llx) != TTRB1(0x%llx)",
-				     msrs.entries[0].data,
-				     msrs.entries[1].data);
-			}
-			memcpy(data, &msrs.entries[0].data, len);
+			if (ioctl(vcpu_fd, KVM_GET_ONE_REG, &reg) != 0)
+				err(1, "KVM_GET_ONE_REG(IFAR) failed");
+			memcpy(data, &reg32, len);
 		}
 		return true;
 	}
