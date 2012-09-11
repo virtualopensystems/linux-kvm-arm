@@ -675,7 +675,6 @@ FUNCTION_FOR32(0, 2, 0, 2, ID_ISAR2)
 FUNCTION_FOR32(0, 2, 0, 3, ID_ISAR3)
 FUNCTION_FOR32(0, 2, 0, 4, ID_ISAR4)
 FUNCTION_FOR32(0, 2, 0, 5, ID_ISAR5)
-FUNCTION_FOR32(0, 0, 1, 0, CSSIDR)
 FUNCTION_FOR32(0, 0, 1, 1, CLIDR)
 FUNCTION_FOR32(0, 0, 1, 7, AIDR)
 
@@ -703,7 +702,6 @@ static struct coproc_reg invariant_cp15[] = {
 	{ CRn( 0), CRm( 2), Op1( 0), Op2( 4), is32, NULL, get_ID_ISAR4 },
 	{ CRn( 0), CRm( 2), Op1( 0), Op2( 5), is32, NULL, get_ID_ISAR5 },
 
-	{ CRn( 0), CRm( 0), Op1( 1), Op2( 0), is32, NULL, get_CSSIDR },
 	{ CRn( 0), CRm( 0), Op1( 1), Op2( 1), is32, NULL, get_CLIDR },
 	{ CRn( 0), CRm( 0), Op1( 1), Op2( 7), is32, NULL, get_AIDR },
 };
