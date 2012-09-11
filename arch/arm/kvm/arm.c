@@ -201,6 +201,7 @@ int kvm_dev_ioctl_check_extension(long ext)
 #endif
 	case KVM_CAP_USER_MEMORY:
 	case KVM_CAP_DESTROY_MEMORY_REGION_WORKS:
+	case KVM_CAP_ONE_REG:
 		r = 1;
 		break;
 	case KVM_CAP_COALESCED_MMIO:
@@ -812,6 +813,16 @@ long kvm_arch_vcpu_ioctl(struct file *filp,
 
 		return kvm_vcpu_set_target(vcpu, &init);
 
+	}
+	case KVM_SET_ONE_REG:
+	case KVM_GET_ONE_REG: {
+		struct kvm_one_reg reg;
+		if (copy_from_user(&reg, argp, sizeof(reg)))
+			return -EFAULT;
+		if (ioctl == KVM_SET_ONE_REG)
+			return kvm_arm_set_reg(vcpu, &reg);
+		else
+			return kvm_arm_get_reg(vcpu, &reg);
 	}
 	case KVM_VCPU_GET_MSR_INDEX_LIST: {
 		struct kvm_msr_list __user *user_msr_list = argp;
