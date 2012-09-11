@@ -333,6 +333,10 @@ static void reset_mpidr(struct kvm_vcpu *vcpu, const struct coproc_reg *r)
  * Important: Must be sorted ascending by CRn, CRM, Op1, Op2
  */
 static const struct coproc_reg cp15_regs[] = {
+	/* CSSELR: swapped by interrupt.S. */
+	{ CRn( 0), CRm( 0), Op1( 2), Op2( 0), is32,
+			NULL, reset_unknown, c0_CSSELR },
+
 	/* TTBR0/TTBR1: swapped by interrupt.S. */
 	{ CRm( 2), Op1( 0), is64, NULL, reset_unknown64, c2_TTBR0 },
 	{ CRm( 2), Op1( 1), is64, NULL, reset_unknown64, c2_TTBR1 },

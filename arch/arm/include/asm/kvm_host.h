@@ -103,6 +103,7 @@ enum vcpu_mode {
 /* 0 is reserved as an invalid value. */
 enum cp15_regs {
 	c0_MPIDR=1,		/* MultiProcessor ID Register */
+	c0_CSSELR,		/* Cache Size Selection Register */
 	c1_SCTLR,		/* System Control Register */
 	c1_ACTLR,		/* Auxilliary Control Register */
 	c1_CPACR,		/* Coprocessor Access Control */

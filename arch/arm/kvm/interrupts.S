@@ -200,9 +200,10 @@ ENDPROC(__kvm_flush_vm_context)
 	mrrc	p15, 1, r8, r9, c2	@ TTBR 1
 	mrc	p15, 0, r10, c10, c2, 0	@ PRRR
 	mrc	p15, 0, r11, c10, c2, 1	@ NMRR
+	mrc	p15, 2, r12, c0, c0, 0	@ CSSELR
 
 	.if \vcpu == 0
-	push	{r2-r11}		@ Push CP15 registers
+	push	{r2-r12}		@ Push CP15 registers
 	.else
 	str	r2, [\vcpup, #VCPU_SCTLR]
 	str	r3, [\vcpup, #VCPU_CPACR]
@@ -215,6 +216,7 @@ ENDPROC(__kvm_flush_vm_context)
 	sub	\vcpup, \vcpup, #(VCPU_TTBR1)
 	str	r10, [\vcpup, #VCPU_PRRR]
 	str	r11, [\vcpup, #VCPU_NMRR]
+	str	r12, [\vcpup, #VCPU_CSSELR]
 	.endif
 
 	mrc	p15, 0, r2, c13, c0, 1	@ CID
@@ -281,7 +283,7 @@ ENDPROC(__kvm_flush_vm_context)
 	mcr	p15, 0, r12, c12, c0, 0	@ VBAR
 
 	.if \vcpu == 0
-	pop	{r2-r11}
+	pop	{r2-r12}
 	.else
 	ldr	r2, [\vcpup, #VCPU_SCTLR]
 	ldr	r3, [\vcpup, #VCPU_CPACR]
@@ -294,6 +296,7 @@ ENDPROC(__kvm_flush_vm_context)
 	sub	\vcpup, \vcpup, #(VCPU_TTBR1)
 	ldr	r10, [\vcpup, #VCPU_PRRR]
 	ldr	r11, [\vcpup, #VCPU_NMRR]
+	ldr	r12, [\vcpup, #VCPU_CSSELR]
 	.endif
 
 	mcr	p15, 0, r2, c1, c0, 0	@ SCTLR
@@ -304,6 +307,7 @@ ENDPROC(__kvm_flush_vm_context)
 	mcrr	p15, 1, r8, r9, c2	@ TTBR 1
 	mcr	p15, 0, r10, c10, c2, 0	@ PRRR
 	mcr	p15, 0, r11, c10, c2, 1	@ NMRR
+	mcr	p15, 2, r12, c0, c0, 0	@ CSSELR
 .endm
 
 /*
