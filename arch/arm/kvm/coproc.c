@@ -835,7 +835,7 @@ static bool copy_reg_to_user(const struct coproc_reg *reg, u64 __user **uind)
 }
 
 /* Assumed ordered tables, see kvm_coproc_table_init. */
-static int walk_msrs(struct kvm_vcpu *vcpu, u64 __user *uind)
+static int walk_cp15(struct kvm_vcpu *vcpu, u64 __user *uind)
 {
 	const struct coproc_reg *i1, *i2, *end1, *end2;
 	unsigned int total = 0;
@@ -880,7 +880,7 @@ static int walk_msrs(struct kvm_vcpu *vcpu, u64 __user *uind)
 unsigned long kvm_arm_num_coproc_regs(struct kvm_vcpu *vcpu)
 {
 	return ARRAY_SIZE(invariant_cp15)
-		+ walk_msrs(vcpu, (u64 __user *)NULL);
+		+ walk_cp15(vcpu, (u64 __user *)NULL);
 }
 
 int kvm_arm_copy_coproc_indices(struct kvm_vcpu *vcpu, u64 __user *uindices)
@@ -895,7 +895,7 @@ int kvm_arm_copy_coproc_indices(struct kvm_vcpu *vcpu, u64 __user *uindices)
 		uindices++;
 	}
 
-	err = walk_msrs(vcpu, uindices);
+	err = walk_cp15(vcpu, uindices);
 	if (err > 0)
 		err = 0;
 	return err;
