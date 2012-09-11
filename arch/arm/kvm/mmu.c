@@ -22,6 +22,7 @@
 #include <trace/events/kvm.h>
 #include <asm/idmap.h>
 #include <asm/pgalloc.h>
+#include <asm/cacheflush.h>
 #include <asm/kvm_arm.h>
 #include <asm/kvm_mmu.h>
 #include <asm/kvm_asm.h>
@@ -492,6 +493,26 @@ out:
 	return ret;
 }
 
+static void flush_icache_guest_page(struct kvm *kvm, gfn_t gfn)
+{
+	/*
+	 * If we are going to insert an instruction page and the icache is
+	 * either VIPT or PIPT, there is a potential problem where the host
+	 * (or another VM) may have used this page at the same virtual address
+	 * as this guest, and we read incorrect data from the icache.  If
+	 * we're using a PIPT cache, we can invalidate just that page, but if
+	 * we are using a VIPT cache we need to invalidate the entire icache -
+	 * damn shame - as written in the ARM ARM (DDI 0406C - Page B3-1384)
+	 */
+	if (icache_is_pipt()) {
+		unsigned long hva = gfn_to_hva(kvm, gfn);
+		__cpuc_flush_user_range(hva, hva + PAGE_SIZE, 0);
+	} else if (!icache_is_vivt_asid_tagged()) {
+		/* any kind of VIPT cache */
+		__flush_icache_all();
+	}
+}
+
 static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
 			  gfn_t gfn, struct kvm_memory_slot *memslot,
 			  bool is_iabt)
@@ -530,12 +551,18 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
 	new_pte = pfn_pte(pfn, PAGE_KVM_GUEST);
 	if (writable)
 		pte_val(new_pte) |= L_PTE2_WRITE;
+	flush_icache_guest_page(vcpu->kvm, gfn);
+
 	spin_lock(&vcpu->kvm->arch.pgd_lock);
 	stage2_set_pte(vcpu->kvm, memcache, fault_ipa, &new_pte);
 	spin_unlock(&vcpu->kvm->arch.pgd_lock);
 
 out:
-	put_page(pfn_to_page(pfn));
+	if (writable && !ret)
+		kvm_release_pfn_dirty(pfn);
+	else
+		kvm_release_pfn_clean(pfn);
+
 	return ret;
 }
 
