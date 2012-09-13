@@ -873,20 +873,21 @@ static bool vgic_update_irq_state(struct kvm *kvm, int cpuid,
 {
 	struct vgic_dist *dist = &kvm->arch.vgic;
 	struct kvm_vcpu *vcpu;
-	int is_edge, state;
+	int is_edge, is_level, state;
 	int pend, enabled;
 
 	spin_lock(&dist->lock);
 
 	is_edge = vgic_irq_is_edge(dist, irq_num);
+	is_level = !is_edge;
 	state = vgic_bitmap_get_irq_val(&dist->irq_state, cpuid, irq_num);
 
 	/*
-	 * Inject an interrupt if:
+	 * Only inject an interrupt if:
 	 * - level triggered and we change level
 	 * - edge triggered and we have a rising edge
 	 */
-	if (!((!is_edge && (state ^ level)) || (is_edge && !state && level))) {
+	if ((is_level && !(state ^ level)) || (is_edge && (state || !level))) {
 		spin_unlock(&dist->lock);
 		return false;
 	}
