@@ -420,7 +420,7 @@ static void stage2_set_pte(struct kvm *kvm, struct kvm_mmu_memory_cache *cache,
 	pgd_t *pgd;
 	pud_t *pud;
 	pmd_t *pmd;
-	pte_t *pte;
+	pte_t *pte, old_pte;
 
 	/* Create 2nd stage page table mapping - Level 1 */
 	pgd = kvm->arch.pgd + pgd_index(addr);
@@ -448,9 +448,11 @@ static void stage2_set_pte(struct kvm *kvm, struct kvm_mmu_memory_cache *cache,
 		pte = pte_offset_kernel(pmd, addr);
 
 	/* Create 2nd stage page table mapping - Level 3 */
-	BUG_ON(pte_none(pte));
+	old_pte = *pte;
 	set_pte_ext(pte, *new_pte, 0);
 	get_page(virt_to_page(pte));
+	if (pte_present(old_pte))
+		__kvm_tlb_flush_vmid(kvm);
 }
 
 /**
@@ -515,10 +517,10 @@ static void coherent_icache_guest_page(struct kvm *kvm, gfn_t gfn)
 
 static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
 			  gfn_t gfn, struct kvm_memory_slot *memslot,
-			  bool is_iabt)
+			  bool is_iabt, unsigned long fault_status)
 {
 	pte_t new_pte;
-	pfn_t pfn;
+	pfn_t pfn, pfn_existing = KVM_PFN_ERR_BAD;
 	int ret;
 	bool write_fault, writable;
 	struct kvm_mmu_memory_cache *memcache = &vcpu->arch.mmu_page_cache;
@@ -530,18 +532,31 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
 	else
 		write_fault = true;
 
-	if ((vcpu->arch.hsr & HSR_FSC_TYPE) == FSC_PERM && !write_fault) {
+	if (fault_status == FSC_PERM && !write_fault) {
 		kvm_err("Unexpected L2 read permission error\n");
 		return -EFAULT;
 	}
 
-	pfn = gfn_to_pfn_prot(vcpu->kvm, gfn, write_fault, &writable);
+	/*
+	 * If this is a write fault (think COW) we need to make sure the
+	 * existing page, which other CPUs might still read, doesn't go away
+	 * from under us, by calling gfn_to_pfn_prot(write_fault=true).
+	 * Therefore, we call gfn_to_pfn_prot(write_fault=false), which will
+	 * pin the existing page, then we get a new page for the user space
+	 * pte and map this in the stage-2 table where we also make sure to
+	 * flush the TLB for the VM, if there was an existing entry (the entry
+	 * was updated setting the write flag to the potentially new page).
+	 */
+	if (fault_status == FSC_PERM) {
+		pfn_existing = gfn_to_pfn_prot(vcpu->kvm, gfn, false, NULL);
+		if (is_error_pfn(pfn_existing))
+			return -EFAULT;
+	}
 
+	pfn = gfn_to_pfn_prot(vcpu->kvm, gfn, write_fault, &writable);
 	if (is_error_pfn(pfn)) {
-		kvm_err("No host mapping: gfn %u (0x%08x)\n",
-			(unsigned int)gfn,
-			(unsigned int)gfn << PAGE_SHIFT);
-		return -EFAULT;
+		ret = -EFAULT;
+		goto out_put_existing;
 	}
 
 	/* We need minimum second+third level pages */
@@ -562,7 +577,9 @@ out:
 		kvm_release_pfn_dirty(pfn);
 	else
 		kvm_release_pfn_clean(pfn);
-
+out_put_existing:
+	if (!is_error_pfn(pfn_existing))
+		kvm_release_pfn_clean(pfn_existing);
 	return ret;
 }
 
@@ -858,7 +875,7 @@ int kvm_handle_guest_abort(struct kvm_vcpu *vcpu, struct kvm_run *run)
 	trace_kvm_guest_fault(*vcpu_pc(vcpu), vcpu->arch.hsr,
 			      vcpu->arch.hdfar, vcpu->arch.hifar, fault_ipa);
 
-	/* Check that the second stage fault is a translation fault */
+	/* Check the stage-2 fault is trans. fault or write fault */
 	fault_status = (vcpu->arch.hsr & HSR_FSC_TYPE);
 	if (fault_status != FSC_FAULT && fault_status != FSC_PERM) {
 		kvm_err("Unsupported fault status: EC=%#lx DFCS=%#lx\n",
@@ -886,7 +903,8 @@ int kvm_handle_guest_abort(struct kvm_vcpu *vcpu, struct kvm_run *run)
 		return -EINVAL;
 	}
 
-	ret = user_mem_abort(vcpu, fault_ipa, gfn, memslot, is_iabt);
+	ret = user_mem_abort(vcpu, fault_ipa, gfn, memslot,
+			     is_iabt, fault_status);
 	return ret ? ret : 1;
 }
 
