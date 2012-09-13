@@ -59,8 +59,8 @@
  *   bit in irq_active is set. As long as this bit is set, the line
  *   will be ignored for further interrupts. The interrupt is injected
  *   into the vcpu with the VGIC_LR_EOI bit set (generate a
- *   maintainance interrupt on EOI).
- * - When the interrupt is EOIed, the maintainance interrupt fires,
+ *   maintenance interrupt on EOI).
+ * - When the interrupt is EOIed, the maintenance interrupt fires,
  *   and clears the corresponding bit in irq_active. This allow the
  *   interrupt line to be sampled again.
  */
@@ -926,7 +926,7 @@ int kvm_vgic_inject_irq(struct kvm *kvm, int cpuid, unsigned int irq_num,
 	return 0;
 }
 
-static irqreturn_t vgic_maintainance_handler(int irq, void *data)
+static irqreturn_t vgic_maintenance_handler(int irq, void *data)
 {
 	struct kvm_vcpu *vcpu = *(struct kvm_vcpu **)data;
 	struct vgic_dist *dist;
@@ -1000,7 +1000,7 @@ void kvm_vgic_vcpu_init(struct kvm_vcpu *vcpu)
 	vgic_cpu->vgic_hcr |= VGIC_HCR_EN; /* Get the show on the road... */
 }
 
-static void vgic_init_maintainance_interrupt(void *info)
+static void vgic_init_maintenance_interrupt(void *info)
 {
 	unsigned int *irqp = info;
 
@@ -1021,7 +1021,7 @@ int kvm_vgic_hyp_init(void)
 	if (!irq)
 		return -ENXIO;
 
-	ret = request_percpu_irq(irq, vgic_maintainance_handler,
+	ret = request_percpu_irq(irq, vgic_maintenance_handler,
 				 "vgic", kvm_get_running_vcpus());
 	if (ret) {
 		kvm_err("Cannot register interrupt %d\n", irq);
@@ -1050,7 +1050,7 @@ int kvm_vgic_hyp_init(void)
 	}
 
 	kvm_info("%s@%llx IRQ%d\n", vgic_node->name, vctrl_res.start, irq);
-	on_each_cpu(vgic_init_maintainance_interrupt, &irq, 1);
+	on_each_cpu(vgic_init_maintenance_interrupt, &irq, 1);
 
 	return 0;
 
