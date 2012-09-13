@@ -573,10 +573,14 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
 	spin_unlock(&vcpu->kvm->arch.pgd_lock);
 
 out:
-	if (writable && !ret)
-		kvm_release_pfn_dirty(pfn);
-	else
-		kvm_release_pfn_clean(pfn);
+	/*
+	 * XXX TODO FIXME:
+	 * This is _really_ *weird* !!!
+	 * We should only be calling the _dirty verison when we map something
+	 * writable, but this causes memory failures in guests under heavy
+	 * memory pressure on the host and heavy swapping.
+	 */
+	kvm_release_pfn_dirty(pfn);
 out_put_existing:
 	if (!is_error_pfn(pfn_existing))
 		kvm_release_pfn_clean(pfn_existing);
