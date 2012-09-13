@@ -433,7 +433,7 @@ static bool decode_thumb_wb(struct kvm_vcpu *vcpu, struct kvm_exit_mmio *mmio,
 	/* Handle Writeback */
 	if (!P && U)
 		*vcpu_reg(vcpu, Rn) = offset_addr + imm8;
-	else if (!P && U)
+	else if (!P && !U)
 		*vcpu_reg(vcpu, Rn) = offset_addr - imm8;
 	return true;
 }
