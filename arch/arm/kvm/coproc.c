@@ -330,7 +330,7 @@ static void reset_mpidr(struct kvm_vcpu *vcpu, const struct coproc_reg *r)
 #define is32		.is_64 = false
 
 /* Architected CP15 registers.
- * Important: Must sorted ascending by CRn, CRM, Op1, Op2
+ * Important: Must be sorted ascending by CRn, CRM, Op1, Op2
  */
 static const struct coproc_reg cp15_regs[] = {
 	/* TTBR0/TTBR1: swapped by interrupt.S. */
@@ -406,7 +406,7 @@ static const struct coproc_reg cp15_regs[] = {
 
 /*
  * A15-specific CP15 registers.
- * Important: Must sorted ascending by CRn, CRM, Op1, Op2
+ * Important: Must be sorted ascending by CRn, CRM, Op1, Op2
  */
 static const struct coproc_reg cp15_cortex_a15_regs[] = {
 	/* MPIDR: we use VMPIDR for guest access. */
