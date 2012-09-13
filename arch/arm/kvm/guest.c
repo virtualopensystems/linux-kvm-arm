@@ -38,6 +38,11 @@ int kvm_arch_vcpu_setup(struct kvm_vcpu *vcpu)
 	return 0;
 }
 
+static u64 core_reg_offset_from_id(u64 id)
+{
+	return id & ~(KVM_REG_ARCH_MASK | KVM_REG_SIZE_MASK | KVM_REG_ARM_CORE);
+}
+
 static int get_core_reg(struct kvm_vcpu *vcpu, const struct kvm_one_reg *reg)
 {
 	u32 __user *uaddr = (u32 __user *)(long)reg->addr;
@@ -48,7 +53,7 @@ static int get_core_reg(struct kvm_vcpu *vcpu, const struct kvm_one_reg *reg)
 		return -ENOENT;
 
 	/* Our ID is an index into the kvm_regs struct. */
-	off = reg->id & ~(KVM_REG_ARCH_MASK|KVM_REG_SIZE_MASK|KVM_REG_ARM_CORE);
+	off = core_reg_offset_from_id(reg->id);
 	if (off >= sizeof(*regs) / KVM_REG_SIZE(reg->id))
 		return -ENOENT;
 
@@ -65,7 +70,7 @@ static int set_core_reg(struct kvm_vcpu *vcpu, const struct kvm_one_reg *reg)
 		return -ENOENT;
 
 	/* Our ID is an index into the kvm_regs struct. */
-	off = reg->id & ~(KVM_REG_ARCH_MASK|KVM_REG_SIZE_MASK|KVM_REG_ARM_CORE);
+	off = core_reg_offset_from_id(reg->id);
 	if (off >= sizeof(*regs) / KVM_REG_SIZE(reg->id))
 		return -ENOENT;
 
@@ -114,10 +119,10 @@ unsigned long kvm_arm_num_regs(struct kvm_vcpu *vcpu)
 int kvm_arm_copy_reg_indices(struct kvm_vcpu *vcpu, u64 __user *uindices)
 {
 	unsigned int i;
-	const u64 core_reg = KVM_REG_ARM|KVM_REG_SIZE_U32|KVM_REG_ARM_CORE;
+	const u64 core_reg = KVM_REG_ARM | KVM_REG_SIZE_U32 | KVM_REG_ARM_CORE;
 
 	for (i = 0; i < sizeof(struct kvm_regs)/sizeof(u32); i++) {
-		if (put_user(core_reg|i, uindices))
+		if (put_user(core_reg | i, uindices))
 			return -EFAULT;
 		uindices++;
 	}
@@ -127,7 +132,7 @@ int kvm_arm_copy_reg_indices(struct kvm_vcpu *vcpu, u64 __user *uindices)
 
 int kvm_arm_get_reg(struct kvm_vcpu *vcpu, const struct kvm_one_reg *reg)
 {
-	/* We currently use nothing arch-specific in upper 64 bits */
+	/* We currently use nothing arch-specific in upper 32 bits */
 	if ((reg->id & ~KVM_REG_SIZE_MASK) >> 32 != KVM_REG_ARM >> 32)
 		return -EINVAL;
 
@@ -140,7 +145,7 @@ int kvm_arm_get_reg(struct kvm_vcpu *vcpu, const struct kvm_one_reg *reg)
 
 int kvm_arm_set_reg(struct kvm_vcpu *vcpu, const struct kvm_one_reg *reg)
 {
-	/* We currently use nothing arch-specific in upper 64 bits */
+	/* We currently use nothing arch-specific in upper 32 bits */
 	if ((reg->id & ~KVM_REG_SIZE_MASK) >> 32 != KVM_REG_ARM >> 32)
 		return -EINVAL;
 
