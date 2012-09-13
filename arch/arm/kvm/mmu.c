@@ -493,7 +493,7 @@ out:
 	return ret;
 }
 
-static void flush_icache_guest_page(struct kvm *kvm, gfn_t gfn)
+static void coherent_icache_guest_page(struct kvm *kvm, gfn_t gfn)
 {
 	/*
 	 * If we are going to insert an instruction page and the icache is
@@ -551,7 +551,7 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
 	new_pte = pfn_pte(pfn, PAGE_KVM_GUEST);
 	if (writable)
 		pte_val(new_pte) |= L_PTE2_WRITE;
-	flush_icache_guest_page(vcpu->kvm, gfn);
+	coherent_icache_guest_page(vcpu->kvm, gfn);
 
 	spin_lock(&vcpu->kvm->arch.pgd_lock);
 	stage2_set_pte(vcpu->kvm, memcache, fault_ipa, &new_pte);
