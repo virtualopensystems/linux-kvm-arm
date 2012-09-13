@@ -913,14 +913,13 @@ int kvm_handle_guest_abort(struct kvm_vcpu *vcpu, struct kvm_run *run)
 	return ret ? ret : 1;
 }
 
-static int handle_hva_to_gpa(struct kvm *kvm, unsigned long hva,
-			     void (*handler)(struct kvm *kvm, unsigned long hva,
-					     gpa_t gpa, void *data),
-			     void *data)
+static void handle_hva_to_gpa(struct kvm *kvm, unsigned long hva,
+			      void (*handler)(struct kvm *kvm, unsigned long hva,
+					      gpa_t gpa, void *data),
+			      void *data)
 {
 	struct kvm_memslots *slots;
 	struct kvm_memory_slot *memslot;
-	int cnt = 0;
 
 	slots = kvm_memslots(kvm);
 
@@ -935,11 +934,8 @@ static int handle_hva_to_gpa(struct kvm *kvm, unsigned long hva,
 			gpa_t gpa_offset = hva - start;
 			gpa = (memslot->base_gfn << PAGE_SHIFT) + gpa_offset;
 			handler(kvm, hva, gpa, data);
-			cnt++;
 		}
 	}
-
-	return cnt;
 }
 
 static void kvm_unmap_hva_handler(struct kvm *kvm, unsigned long hva,
@@ -952,14 +948,10 @@ static void kvm_unmap_hva_handler(struct kvm *kvm, unsigned long hva,
 
 int kvm_unmap_hva(struct kvm *kvm, unsigned long hva)
 {
-	int found;
-
 	if (!kvm->arch.pgd)
 		return 0;
 
-	found = handle_hva_to_gpa(kvm, hva, &kvm_unmap_hva_handler, NULL);
-	if (found > 0)
-		__kvm_tlb_flush_vmid(kvm);
+	handle_hva_to_gpa(kvm, hva, &kvm_unmap_hva_handler, NULL);
 
 	return 0;
 }
@@ -994,16 +986,13 @@ static void kvm_set_spte_handler(struct kvm *kvm, unsigned long hva,
 
 void kvm_set_spte_hva(struct kvm *kvm, unsigned long hva, pte_t pte)
 {
-	int found;
 	pte_t stage2_pte;
 
 	if (!kvm->arch.pgd)
 		return;
 
 	stage2_pte = pfn_pte(pte_pfn(pte), PAGE_KVM_GUEST);
-	found = handle_hva_to_gpa(kvm, hva, &kvm_set_spte_handler, &stage2_pte);
-	if (found > 0)
-		__kvm_tlb_flush_vmid(kvm);
+	handle_hva_to_gpa(kvm, hva, &kvm_set_spte_handler, &stage2_pte);
 }
 
 void kvm_mmu_free_memory_caches(struct kvm_vcpu *vcpu)
