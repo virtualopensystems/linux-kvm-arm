@@ -940,6 +940,19 @@ static irqreturn_t vgic_maintenance_handler(int irq, void *data)
 	dist = &vcpu->kvm->arch.vgic;
 	kvm_debug("MISR = %08x\n", vgic_cpu->vgic_misr);
 
+	/*
+	 * We do not need to take the distributor lock here, since the only
+	 * action we perform is clearing the irq_active_bit for an EOIed
+	 * level interrupt.  There is a potential race with
+	 * the queuing of an interrupt in __kvm_sync_to_cpu(), where we check
+	 * if the interrupt is already active. Two possibilities:
+	 *
+	 * - The queuing is occuring on the same vcpu: cannot happen, as we're
+	 *   already in the context of this vcpu, and executing the handler
+	 * - The interrupt has been migrated to another vcpu, and we ignore
+	 *   this interrupt for this run. Big deal. It is still pending though,
+	 *   and will get considered when this vcpu exits.
+	 */
 	if (vgic_cpu->vgic_misr & VGIC_MISR_EOI) {
 		/*
 		 * Some level interrupts have been EOIed. Clear their
