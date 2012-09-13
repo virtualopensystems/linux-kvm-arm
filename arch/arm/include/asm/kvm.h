@@ -82,7 +82,7 @@ struct kvm_arch_memory_slot {
 
 /* for KVM_VCPU_GET_MSR_INDEX_LIST */
 struct kvm_msr_list {
-	__u64 nmsrs; /* number of msrs in entries */
+	__u64 nmsrs; /* number of msrs in indices */
 	__u64 indices[0];
 };
 
