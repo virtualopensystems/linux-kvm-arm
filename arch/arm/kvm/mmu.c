@@ -450,9 +450,10 @@ static void stage2_set_pte(struct kvm *kvm, struct kvm_mmu_memory_cache *cache,
 	/* Create 2nd stage page table mapping - Level 3 */
 	old_pte = *pte;
 	set_pte_ext(pte, *new_pte, 0);
-	get_page(virt_to_page(pte));
 	if (pte_present(old_pte))
 		__kvm_tlb_flush_vmid(kvm);
+	else
+		get_page(virt_to_page(pte));
 }
 
 /**
