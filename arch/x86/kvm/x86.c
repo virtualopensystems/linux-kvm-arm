@@ -817,7 +817,7 @@ static u32 msrs_to_save[] = {
 
 static unsigned num_msrs_to_save;
 
-static u32 emulated_msrs[] = {
+static const u32 emulated_msrs[] = {
 	MSR_IA32_TSCDEADLINE,
 	MSR_IA32_MISC_ENABLE,
 	MSR_IA32_MCG_STATUS,
@@ -2369,7 +2369,7 @@ static int kvm_vcpu_ioctl_set_lapic(struct kvm_vcpu *vcpu,
 static int kvm_vcpu_ioctl_interrupt(struct kvm_vcpu *vcpu,
 				    struct kvm_interrupt *irq)
 {
-	if (irq->irq < 0 || irq->irq >= 256)
+	if (irq->irq < 0 || irq->irq >= KVM_NR_INTERRUPTS)
 		return -EINVAL;
 	if (irqchip_in_kernel(vcpu->kvm))
 		return -ENXIO;
@@ -3776,14 +3776,14 @@ static int write_exit_mmio(struct kvm_vcpu *vcpu, gpa_t gpa,
 	return X86EMUL_CONTINUE;
 }
 
-static struct read_write_emulator_ops read_emultor = {
+static const struct read_write_emulator_ops read_emultor = {
 	.read_write_prepare = read_prepare,
 	.read_write_emulate = read_emulate,
 	.read_write_mmio = vcpu_mmio_read,
 	.read_write_exit_mmio = read_exit_mmio,
 };
 
-static struct read_write_emulator_ops write_emultor = {
+static const struct read_write_emulator_ops write_emultor = {
 	.read_write_emulate = write_emulate,
 	.read_write_mmio = write_mmio,
 	.read_write_exit_mmio = write_exit_mmio,
@@ -3794,7 +3794,7 @@ static int emulator_read_write_onepage(unsigned long addr, void *val,
 				       unsigned int bytes,
 				       struct x86_exception *exception,
 				       struct kvm_vcpu *vcpu,
-				       struct read_write_emulator_ops *ops)
+				       const struct read_write_emulator_ops *ops)
 {
 	gpa_t gpa;
 	int handled, ret;
@@ -3843,7 +3843,7 @@ mmio:
 int emulator_read_write(struct x86_emulate_ctxt *ctxt, unsigned long addr,
 			void *val, unsigned int bytes,
 			struct x86_exception *exception,
-			struct read_write_emulator_ops *ops)
+			const struct read_write_emulator_ops *ops)
 {
 	struct kvm_vcpu *vcpu = emul_to_vcpu(ctxt);
 	gpa_t gpa;
@@ -4326,7 +4326,7 @@ static void emulator_write_gpr(struct x86_emulate_ctxt *ctxt, unsigned reg, ulon
 	kvm_register_write(emul_to_vcpu(ctxt), reg, val);
 }
 
-static struct x86_emulate_ops emulate_ops = {
+static const struct x86_emulate_ops emulate_ops = {
 	.read_gpr            = emulator_read_gpr,
 	.write_gpr           = emulator_write_gpr,
 	.read_std            = kvm_read_guest_virt_system,
@@ -4547,6 +4547,9 @@ static bool retry_instruction(struct x86_emulate_ctxt *ctxt,
 	return true;
 }
 
+static int complete_emulated_mmio(struct kvm_vcpu *vcpu);
+static int complete_emulated_pio(struct kvm_vcpu *vcpu);
+
 int x86_emulate_instruction(struct kvm_vcpu *vcpu,
 			    unsigned long cr2,
 			    int emulation_type,
@@ -4617,13 +4620,16 @@ restart:
 	} else if (vcpu->arch.pio.count) {
 		if (!vcpu->arch.pio.in)
 			vcpu->arch.pio.count = 0;
-		else
+		else {
 			writeback = false;
+			vcpu->arch.complete_userspace_io = complete_emulated_pio;
+		}
 		r = EMULATE_DO_MMIO;
 	} else if (vcpu->mmio_needed) {
 		if (!vcpu->mmio_is_write)
 			writeback = false;
 		r = EMULATE_DO_MMIO;
+		vcpu->arch.complete_userspace_io = complete_emulated_mmio;
 	} else if (r == EMULATION_RESTART)
 		goto restart;
 	else
@@ -5479,6 +5485,24 @@ static int __vcpu_run(struct kvm_vcpu *vcpu)
 	return r;
 }
 
+static inline int complete_emulated_io(struct kvm_vcpu *vcpu)
+{
+	int r;
+	vcpu->srcu_idx = srcu_read_lock(&vcpu->kvm->srcu);
+	r = emulate_instruction(vcpu, EMULTYPE_NO_DECODE);
+	srcu_read_unlock(&vcpu->kvm->srcu, vcpu->srcu_idx);
+	if (r != EMULATE_DONE)
+		return 0;
+	return 1;
+}
+
+static int complete_emulated_pio(struct kvm_vcpu *vcpu)
+{
+	BUG_ON(!vcpu->arch.pio.count);
+
+	return complete_emulated_io(vcpu);
+}
+
 /*
  * Implements the following, as a state machine:
  *
@@ -5495,46 +5519,36 @@ static int __vcpu_run(struct kvm_vcpu *vcpu)
  *      copy data
  *      exit
  */
-static int complete_mmio(struct kvm_vcpu *vcpu)
+static int complete_emulated_mmio(struct kvm_vcpu *vcpu)
 {
 	struct kvm_run *run = vcpu->run;
 	struct kvm_mmio_fragment *frag;
-	int r;
 
-	if (!(vcpu->arch.pio.count || vcpu->mmio_needed))
-		return 1;
+	BUG_ON(!vcpu->mmio_needed);
 
-	if (vcpu->mmio_needed) {
-		/* Complete previous fragment */
-		frag = &vcpu->mmio_fragments[vcpu->mmio_cur_fragment++];
-		if (!vcpu->mmio_is_write)
-			memcpy(frag->data, run->mmio.data, frag->len);
-		if (vcpu->mmio_cur_fragment == vcpu->mmio_nr_fragments) {
-			vcpu->mmio_needed = 0;
-			if (vcpu->mmio_is_write)
-				return 1;
-			vcpu->mmio_read_completed = 1;
-			goto done;
-		}
-		/* Initiate next fragment */
-		++frag;
-		run->exit_reason = KVM_EXIT_MMIO;
-		run->mmio.phys_addr = frag->gpa;
+	/* Complete previous fragment */
+	frag = &vcpu->mmio_fragments[vcpu->mmio_cur_fragment++];
+	if (!vcpu->mmio_is_write)
+		memcpy(frag->data, run->mmio.data, frag->len);
+	if (vcpu->mmio_cur_fragment == vcpu->mmio_nr_fragments) {
+		vcpu->mmio_needed = 0;
 		if (vcpu->mmio_is_write)
-			memcpy(run->mmio.data, frag->data, frag->len);
-		run->mmio.len = frag->len;
-		run->mmio.is_write = vcpu->mmio_is_write;
-		return 0;
-
+			return 1;
+		vcpu->mmio_read_completed = 1;
+		return complete_emulated_io(vcpu);
 	}
-done:
-	vcpu->srcu_idx = srcu_read_lock(&vcpu->kvm->srcu);
-	r = emulate_instruction(vcpu, EMULTYPE_NO_DECODE);
-	srcu_read_unlock(&vcpu->kvm->srcu, vcpu->srcu_idx);
-	if (r != EMULATE_DONE)
-		return 0;
-	return 1;
+	/* Initiate next fragment */
+	++frag;
+	run->exit_reason = KVM_EXIT_MMIO;
+	run->mmio.phys_addr = frag->gpa;
+	if (vcpu->mmio_is_write)
+		memcpy(run->mmio.data, frag->data, frag->len);
+	run->mmio.len = frag->len;
+	run->mmio.is_write = vcpu->mmio_is_write;
+	vcpu->arch.complete_userspace_io = complete_emulated_mmio;
+	return 0;
 }
+
 
 int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *kvm_run)
 {
@@ -5562,9 +5576,14 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *kvm_run)
 		}
 	}
 
-	r = complete_mmio(vcpu);
-	if (r <= 0)
-		goto out;
+	if (unlikely(vcpu->arch.complete_userspace_io)) {
+		int (*cui)(struct kvm_vcpu *) = vcpu->arch.complete_userspace_io;
+		vcpu->arch.complete_userspace_io = NULL;
+		r = cui(vcpu);
+		if (r <= 0)
+			goto out;
+	} else
+		WARN_ON(vcpu->arch.pio.count || vcpu->mmio_needed);
 
 	r = __vcpu_run(vcpu);
 
@@ -5717,7 +5736,6 @@ int kvm_task_switch(struct kvm_vcpu *vcpu, u16 tss_selector, int idt_index,
 {
 	struct x86_emulate_ctxt *ctxt = &vcpu->arch.emulate_ctxt;
 	int ret;
-	unsigned reg;
 
 	init_emulate_ctxt(vcpu);
 
@@ -5778,7 +5796,7 @@ int kvm_arch_vcpu_ioctl_set_sregs(struct kvm_vcpu *vcpu,
 	if (mmu_reset_needed)
 		kvm_mmu_reset_context(vcpu);
 
-	max_bits = (sizeof sregs->interrupt_bitmap) << 3;
+	max_bits = KVM_NR_INTERRUPTS;
 	pending_vec = find_first_bit(
 		(const unsigned long *)sregs->interrupt_bitmap, max_bits);
 	if (pending_vec < max_bits) {
@@ -6449,12 +6467,26 @@ void kvm_arch_commit_memory_region(struct kvm *kvm,
 		kvm_mmu_change_mmu_pages(kvm, nr_mmu_pages);
 	kvm_mmu_slot_remove_write_access(kvm, mem->slot);
 	spin_unlock(&kvm->mmu_lock);
+	/*
+	 * If memory slot is created, or moved, we need to clear all
+	 * mmio sptes.
+	 */
+	if (npages && old.base_gfn != mem->guest_phys_addr >> PAGE_SHIFT) {
+		kvm_mmu_zap_all(kvm);
+		kvm_reload_remote_mmus(kvm);
+	}
 }
 
-void kvm_arch_flush_shadow(struct kvm *kvm)
+void kvm_arch_flush_shadow_all(struct kvm *kvm)
 {
 	kvm_mmu_zap_all(kvm);
 	kvm_reload_remote_mmus(kvm);
+}
+
+void kvm_arch_flush_shadow_memslot(struct kvm *kvm,
+				   struct kvm_memory_slot *slot)
+{
+	kvm_arch_flush_shadow_all(kvm);
 }
 
 int kvm_arch_vcpu_runnable(struct kvm_vcpu *vcpu)

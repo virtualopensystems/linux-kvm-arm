@@ -213,8 +213,9 @@ typedef u32 __attribute__((vector_size(16))) sse128_t;
 
 /* Type, address-of, and value of an instruction's operand. */
 struct operand {
-	enum { OP_REG, OP_MEM, OP_IMM, OP_XMM, OP_MM, OP_NONE } type;
+	enum { OP_REG, OP_MEM, OP_MEM_STR, OP_IMM, OP_XMM, OP_MM, OP_NONE } type;
 	unsigned int bytes;
+	unsigned int count;
 	union {
 		unsigned long orig_val;
 		u64 orig_val64;
@@ -234,6 +235,7 @@ struct operand {
 		char valptr[sizeof(unsigned long) + 2];
 		sse128_t vec_val;
 		u64 mm_val;
+		void *data;
 	};
 };
 
@@ -249,14 +251,23 @@ struct read_cache {
 	unsigned long end;
 };
 
+/* Execution mode, passed to the emulator. */
+enum x86emul_mode {
+	X86EMUL_MODE_REAL,	/* Real mode.             */
+	X86EMUL_MODE_VM86,	/* Virtual 8086 mode.     */
+	X86EMUL_MODE_PROT16,	/* 16-bit protected mode. */
+	X86EMUL_MODE_PROT32,	/* 32-bit protected mode. */
+	X86EMUL_MODE_PROT64,	/* 64-bit (long) mode.    */
+};
+
 struct x86_emulate_ctxt {
-	struct x86_emulate_ops *ops;
+	const struct x86_emulate_ops *ops;
 
 	/* Register state before/after emulation. */
 	unsigned long eflags;
 	unsigned long eip; /* eip before instruction emulation */
 	/* Emulated execution mode, represented by an X86EMUL_MODE value. */
-	int mode;
+	enum x86emul_mode mode;
 
 	/* interruptibility state, as a result of execution of STI or MOV SS */
 	int interruptibility;
@@ -307,17 +318,6 @@ struct x86_emulate_ctxt {
 /* Repeat String Operation Prefix */
 #define REPE_PREFIX	0xf3
 #define REPNE_PREFIX	0xf2
-
-/* Execution mode, passed to the emulator. */
-#define X86EMUL_MODE_REAL     0	/* Real mode.             */
-#define X86EMUL_MODE_VM86     1	/* Virtual 8086 mode.     */
-#define X86EMUL_MODE_PROT16   2	/* 16-bit protected mode. */
-#define X86EMUL_MODE_PROT32   4	/* 32-bit protected mode. */
-#define X86EMUL_MODE_PROT64   8	/* 64-bit (long) mode.    */
-
-/* any protected mode   */
-#define X86EMUL_MODE_PROT     (X86EMUL_MODE_PROT16|X86EMUL_MODE_PROT32| \
-			       X86EMUL_MODE_PROT64)
 
 /* CPUID vendors */
 #define X86EMUL_CPUID_VENDOR_AuthenticAMD_ebx 0x68747541

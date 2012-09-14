@@ -408,7 +408,7 @@ static void kvm_mmu_notifier_release(struct mmu_notifier *mn,
 	int idx;
 
 	idx = srcu_read_lock(&kvm->srcu);
-	kvm_arch_flush_shadow(kvm);
+	kvm_arch_flush_shadow_all(kvm);
 	srcu_read_unlock(&kvm->srcu, idx);
 }
 
@@ -582,7 +582,7 @@ static void kvm_destroy_vm(struct kvm *kvm)
 #if defined(CONFIG_MMU_NOTIFIER) && defined(KVM_ARCH_WANT_MMU_NOTIFIER)
 	mmu_notifier_unregister(&kvm->mmu_notifier, kvm->mm);
 #else
-	kvm_arch_flush_shadow(kvm);
+	kvm_arch_flush_shadow_all(kvm);
 #endif
 	kvm_arch_destroy_vm(kvm);
 	kvm_free_physmem(kvm);
@@ -791,7 +791,7 @@ int __kvm_set_memory_region(struct kvm *kvm,
 		/* destroy any largepage mappings for dirty tracking */
 	}
 
-	if (!npages) {
+	if (!npages || base_gfn != old.base_gfn) {
 		struct kvm_memory_slot *slot;
 
 		r = -ENOMEM;
@@ -807,14 +807,14 @@ int __kvm_set_memory_region(struct kvm *kvm,
 		old_memslots = kvm->memslots;
 		rcu_assign_pointer(kvm->memslots, slots);
 		synchronize_srcu_expedited(&kvm->srcu);
-		/* From this point no new shadow pages pointing to a deleted
-		 * memslot will be created.
+		/* From this point no new shadow pages pointing to a deleted,
+		 * or moved, memslot will be created.
 		 *
 		 * validation of sp->gfn happens in:
 		 * 	- gfn_to_hva (kvm_read_guest, gfn_to_pfn)
 		 * 	- kvm_is_visible_gfn (mmu_check_roots)
 		 */
-		kvm_arch_flush_shadow(kvm);
+		kvm_arch_flush_shadow_memslot(kvm, slot);
 		kfree(old_memslots);
 	}
 
@@ -848,13 +848,6 @@ int __kvm_set_memory_region(struct kvm *kvm,
 	synchronize_srcu_expedited(&kvm->srcu);
 
 	kvm_arch_commit_memory_region(kvm, mem, old, user_alloc);
-
-	/*
-	 * If the new memory slot is created, we need to clear all
-	 * mmio sptes.
-	 */
-	if (npages && old.base_gfn != mem->guest_phys_addr >> PAGE_SHIFT)
-		kvm_arch_flush_shadow(kvm);
 
 	kvm_free_physmem_slot(&old, &new);
 	kfree(old_memslots);
