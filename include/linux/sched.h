@@ -985,6 +985,12 @@ unsigned long default_scale_smt_power(struct sched_domain *sd, int cpu);
 
 bool cpus_share_cache(int this_cpu, int that_cpu);
 
+#ifdef CONFIG_SCHED_HMP
+struct hmp_domain {
+	struct cpumask cpus;
+	struct list_head hmp_domains;
+};
+#endif /* CONFIG_SCHED_HMP */
 #else /* CONFIG_SMP */
 
 struct sched_domain_attr;
