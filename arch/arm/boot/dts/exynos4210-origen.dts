@@ -304,4 +304,9 @@
 			linux,default-trigger = "heartbeat";
 		};
 	};
+
+	usb@12480000 {
+		vusb_a-supply = <&ldo3_reg>;
+		vusb_d-supply = <&ldo8_reg>;
+	};
 };
