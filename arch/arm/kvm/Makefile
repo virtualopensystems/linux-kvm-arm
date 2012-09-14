@@ -8,7 +8,7 @@ ifeq ($(plus_virt),+virt)
 endif
 
 ccflags-y += -Ivirt/kvm -Iarch/arm/kvm
-CFLAGS_arm.o     := -I. $(call as-instr,.arch_extension sec,-DREQUIRES_SEC=1) $(plus_virt_def)
+CFLAGS_arm.o := -I. $(plus_virt_def)
 CFLAGS_mmu.o := -I.
 
 AFLAGS_init.o := -Wa,-march=armv7-a$(plus_virt)
