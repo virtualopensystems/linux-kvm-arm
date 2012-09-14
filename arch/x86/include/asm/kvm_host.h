@@ -414,12 +414,15 @@ struct kvm_vcpu_arch {
 	struct x86_emulate_ctxt emulate_ctxt;
 	bool emulate_regs_need_sync_to_vcpu;
 	bool emulate_regs_need_sync_from_vcpu;
+	int (*complete_userspace_io)(struct kvm_vcpu *vcpu);
 
 	gpa_t time;
 	struct pvclock_vcpu_time_info hv_clock;
 	unsigned int hw_tsc_khz;
 	unsigned int time_offset;
 	struct page *time_page;
+	/* set guest stopped flag in pvclock flags field */
+	bool pvclock_set_guest_stopped_request;
 
 	struct {
 		u64 msr_val;
@@ -500,11 +503,11 @@ struct kvm_vcpu_arch {
 };
 
 struct kvm_lpage_info {
-	unsigned long rmap_pde;
 	int write_count;
 };
 
 struct kvm_arch_memory_slot {
+	unsigned long *rmap[KVM_NR_PAGE_SIZES];
 	struct kvm_lpage_info *lpage_info[KVM_NR_PAGE_SIZES - 1];
 };
 
@@ -957,6 +960,7 @@ extern bool kvm_rebooting;
 
 #define KVM_ARCH_WANT_MMU_NOTIFIER
 int kvm_unmap_hva(struct kvm *kvm, unsigned long hva);
+int kvm_unmap_hva_range(struct kvm *kvm, unsigned long start, unsigned long end);
 int kvm_age_hva(struct kvm *kvm, unsigned long hva);
 int kvm_test_age_hva(struct kvm *kvm, unsigned long hva);
 void kvm_set_spte_hva(struct kvm *kvm, unsigned long hva, pte_t pte);

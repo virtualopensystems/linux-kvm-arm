@@ -163,7 +163,7 @@ static DEFINE_PER_CPU(u64, current_tsc_ratio);
 
 #define MSR_INVALID			0xffffffffU
 
-static struct svm_direct_access_msrs {
+static const struct svm_direct_access_msrs {
 	u32 index;   /* Index of the MSR */
 	bool always; /* True if intercept is always on */
 } direct_access_msrs[] = {
@@ -400,7 +400,7 @@ struct svm_init_data {
 	int r;
 };
 
-static u32 msrpm_ranges[] = {0, 0xc0000000, 0xc0010000};
+static const u32 msrpm_ranges[] = {0, 0xc0000000, 0xc0010000};
 
 #define NUM_MSR_MAPS ARRAY_SIZE(msrpm_ranges)
 #define MSRS_RANGE_SIZE 2048
@@ -2063,7 +2063,7 @@ static inline bool nested_svm_intr(struct vcpu_svm *svm)
 	if (svm->nested.intercept & 1ULL) {
 		/*
 		 * The #vmexit can't be emulated here directly because this
-		 * code path runs with irqs and preemtion disabled. A
+		 * code path runs with irqs and preemption disabled. A
 		 * #vmexit emulation might sleep. Only signal request for
 		 * the #vmexit here.
 		 */
@@ -2105,7 +2105,6 @@ static void *nested_svm_map(struct vcpu_svm *svm, u64 gpa, struct page **_page)
 	return kmap(page);
 
 error:
-	kvm_release_page_clean(page);
 	kvm_inject_gp(&svm->vcpu, 0);
 
 	return NULL;
@@ -2409,7 +2408,7 @@ static bool nested_svm_vmrun_msrpm(struct vcpu_svm *svm)
 {
 	/*
 	 * This function merges the msr permission bitmaps of kvm and the
-	 * nested vmcb. It is omptimized in that it only merges the parts where
+	 * nested vmcb. It is optimized in that it only merges the parts where
 	 * the kvm msr permission bitmap may contain zero bits
 	 */
 	int i;
@@ -3268,7 +3267,7 @@ static int pause_interception(struct vcpu_svm *svm)
 	return 1;
 }
 
-static int (*svm_exit_handlers[])(struct vcpu_svm *svm) = {
+static int (*const svm_exit_handlers[])(struct vcpu_svm *svm) = {
 	[SVM_EXIT_READ_CR0]			= cr_interception,
 	[SVM_EXIT_READ_CR3]			= cr_interception,
 	[SVM_EXIT_READ_CR4]			= cr_interception,
@@ -4069,7 +4068,7 @@ static void svm_fpu_deactivate(struct kvm_vcpu *vcpu)
 #define POST_MEM(exit) { .exit_code = (exit), \
 			.stage = X86_ICPT_POST_MEMACCESS, }
 
-static struct __x86_intercept {
+static const struct __x86_intercept {
 	u32 exit_code;
 	enum x86_intercept_stage stage;
 } x86_intercept_map[] = {
