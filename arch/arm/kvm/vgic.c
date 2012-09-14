@@ -47,7 +47,7 @@
  *     registers, stored on each vcpu. We only keep one bit of
  *     information per interrupt, making sure that only one vcpu can
  *     accept the interrupt.
- *   The same is true when injecting an interrupt, except that we only
+ * - The same is true when injecting an interrupt, except that we only
  *   consider a single interrupt at a time. The irq_spi_cpu array
  *   contains the target CPU for each SPI.
  *
@@ -89,6 +89,11 @@ static void vgic_update_state(struct kvm *kvm);
 static void vgic_kick_vcpus(struct kvm *kvm);
 static void vgic_dispatch_sgi(struct kvm_vcpu *vcpu, u32 reg);
 
+static inline int vgic_irq_is_edge(struct vgic_dist *dist, int irq)
+{
+	return vgic_bitmap_get_irq_val(&dist->irq_cfg, 0, irq);
+}
+
 /**
  * vgic_reg_access - access vgic register
  * @mmio:   pointer to the data describing the mmio access
@@ -100,12 +105,8 @@ static void vgic_dispatch_sgi(struct kvm_vcpu *vcpu, u32 reg);
  * modes defined for vgic register access
  * (read,raz,write-ignored,setbit,clearbit,write)
  */
-static inline int vgic_irq_is_edge(struct vgic_dist *dist, int irq)
-{
-	return vgic_bitmap_get_irq_val(&dist->irq_cfg, 0, irq);
-}
-
-static void vgic_reg_access(struct kvm_exit_mmio *mmio, u32 *reg, u32 offset, int mode)
+static void vgic_reg_access(struct kvm_exit_mmio *mmio, u32 *reg,
+			    u32 offset, int mode)
 {
 	int word_offset = offset & 3;
 	int shift = word_offset * 8;
@@ -284,7 +285,7 @@ static u32 vgic_get_target_reg(struct kvm *kvm, int irq)
 
 	irq -= 32;
 
-	kvm_for_each_vcpu(c, vcpu, kvm) {	
+	kvm_for_each_vcpu(c, vcpu, kvm) {
 		bmap = vgic_bitmap_get_shared_map(&dist->irq_spi_target[c]);
 		for (i = 0; i < 4; i++)
 			if (test_bit(irq + i, bmap))
@@ -611,7 +612,7 @@ static int compute_pending_for_cpu(struct kvm_vcpu *vcpu)
 	pending = vgic_bitmap_get_cpu_map(&dist->irq_state, vcpu_id);
 	enabled = vgic_bitmap_get_cpu_map(&dist->irq_enabled, vcpu_id);
 	bitmap_and(pend, pending, enabled, 32);
-	
+
 	pending = vgic_bitmap_get_shared_map(&dist->irq_state);
 	enabled = vgic_bitmap_get_shared_map(&dist->irq_enabled);
 	bitmap_and(pend + 1, pending, enabled, VGIC_NR_SHARED_IRQS);
@@ -755,7 +756,7 @@ static void __kvm_vgic_sync_to_cpu(struct kvm_vcpu *vcpu)
 		clear_bit(i, pending);
 	}
 
-	
+
 	/* SPIs */
 	pending = vgic_bitmap_get_shared_map(&dist->irq_state);
 	for_each_set_bit_from(i, vgic_cpu->pending, VGIC_NR_IRQS) {
@@ -833,7 +834,7 @@ void kvm_vgic_sync_to_cpu(struct kvm_vcpu *vcpu)
 	spin_lock(&dist->lock);
 	__kvm_vgic_sync_to_cpu(vcpu);
 	spin_unlock(&dist->lock);
-}	
+}
 
 void kvm_vgic_sync_from_cpu(struct kvm_vcpu *vcpu)
 {
@@ -963,7 +964,7 @@ static irqreturn_t vgic_maintenance_handler(int irq, void *data)
 		for_each_set_bit(lr, (unsigned long *)vgic_cpu->vgic_eisr,
 				 vgic_cpu->nr_lr) {
 			irq = vgic_cpu->vgic_lr[lr] & VGIC_LR_VIRTUALID;
-			
+
 			vgic_bitmap_set_irq_val(&dist->irq_active,
 						vcpu->vcpu_id, irq, 0);
 			atomic_dec(&vgic_cpu->irq_active_count);
@@ -1040,7 +1041,7 @@ int kvm_vgic_hyp_init(void)
 		kvm_err("Cannot register interrupt %d\n", irq);
 		return ret;
 	}
-	
+
 	ret = of_address_to_resource(vgic_node, 2, &vctrl_res);
 	if (ret) {
 		kvm_err("Cannot obtain VCTRL resource\n");
@@ -1068,7 +1069,7 @@ int kvm_vgic_hyp_init(void)
 	return 0;
 
 out_unmap:
-	iounmap(vgic_vctrl_base);	
+	iounmap(vgic_vctrl_base);
 out_free_irq:
 	free_percpu_irq(irq, kvm_get_running_vcpus());
 

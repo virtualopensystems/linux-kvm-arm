@@ -26,9 +26,10 @@
 #include <asm/kvm_arm.h>
 #include <asm/kvm_mmu.h>
 #include <asm/kvm_asm.h>
+#include <asm/kvm_emulate.h>
 #include <asm/mach/map.h>
 #include <asm/kvm_asm.h>
-#include <asm/kvm_emulate.h>
+#include <trace/events/kvm.h>
 
 #include "trace.h"
 
@@ -887,7 +888,6 @@ int kvm_handle_guest_abort(struct kvm_vcpu *vcpu, struct kvm_run *run)
 			hsr_ec, fault_status);
 		return -EFAULT;
 	}
-
 
 	gfn = fault_ipa >> PAGE_SHIFT;
 	if (!kvm_is_visible_gfn(vcpu->kvm, gfn)) {

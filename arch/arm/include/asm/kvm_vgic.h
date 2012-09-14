@@ -215,7 +215,7 @@ struct vgic_cpu {
 	u32		vgic_lr[64];	/* A15 has only 4... */
 
 	/* Number of level-triggered interrupt in progress */
-	atomic_t		irq_active_count;
+	atomic_t	irq_active_count;
 #endif
 };
 

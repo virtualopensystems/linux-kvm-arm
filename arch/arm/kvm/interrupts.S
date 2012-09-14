@@ -128,6 +128,7 @@ ENDPROC(__kvm_flush_vm_context)
 	VFPFMXR FPEXC, r2	@ FPEXC	(last, in case !EN)
 .endm
 
+
 @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 @  Hypervisor world-switch code
 @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
@@ -355,7 +356,7 @@ ENDPROC(__kvm_flush_vm_context)
 2:
 #endif
 .endm
-	
+
 /*
  * Restore the VGIC CPU state from memory
  * @vcpup: Register pointing to VCPU struct
@@ -667,6 +668,10 @@ after_vfp_restore:
 	clrex				@ Clear exclusive monitor
 	bx	lr			@ return to IOCTL
 
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+@  Translate VA to PA
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
 @ Arguments:
 @  r0: pointer to vcpu struct
 @  r1: virtual address to map (rounded to page)
@@ -700,6 +705,7 @@ ENTRY(__kvm_va_to_pa)
 	pop	{r4-r12}
 	hvc	#0			@ Back to SVC
 	bx	lr
+
 
 @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 @  Hypervisor exception vector and handlers

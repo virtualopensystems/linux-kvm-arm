@@ -52,6 +52,7 @@ __asm__(".arch_extension	virt");
 
 static DEFINE_PER_CPU(unsigned long, kvm_arm_hyp_stack_page);
 static struct vfp_hard_struct __percpu *kvm_host_vfp_state;
+static unsigned long hyp_default_vectors;
 
 /* Per-CPU variable containing the currently running vcpu. */
 static DEFINE_PER_CPU(struct kvm_vcpu *, kvm_arm_running_vcpu);
@@ -98,7 +99,7 @@ int kvm_arch_vcpu_should_kick(struct kvm_vcpu *vcpu)
 		if (vgic_active_irq(vcpu) &&
 		    cmpxchg(&vcpu->mode, EXITING_GUEST_MODE, IN_GUEST_MODE) == EXITING_GUEST_MODE)
 			return 0;
-		
+
 		return 1;
 	}
 
@@ -920,8 +921,6 @@ static void cpu_init_hyp_mode(void *vector)
 		"r0", "r1", "r2", "r12");
 }
 
-static unsigned long hyp_default_vectors;
-
 /**
  * Inits Hyp-mode on all online CPUs
  */
@@ -1027,7 +1026,7 @@ static int init_hyp_mode(void)
 	err = kvm_timer_hyp_init();
 	if (err)
 		goto out_free_mappings;
-	
+
 	return 0;
 out_free_vfp:
 	free_percpu(kvm_host_vfp_state);

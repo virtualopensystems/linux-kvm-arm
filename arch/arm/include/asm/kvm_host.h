@@ -19,8 +19,8 @@
 #ifndef __ARM_KVM_HOST_H__
 #define __ARM_KVM_HOST_H__
 
-#include <asm/fpstate.h>
 #include <asm/kvm.h>
+#include <asm/fpstate.h>
 
 #define KVM_MAX_VCPUS 4
 #define KVM_MEMORY_SLOTS 32
@@ -195,6 +195,11 @@ struct kvm_vcpu_stat {
 struct kvm_vcpu_init;
 int kvm_vcpu_set_target(struct kvm_vcpu *vcpu,
 			const struct kvm_vcpu_init *init);
+unsigned long kvm_arm_num_regs(struct kvm_vcpu *vcpu);
+int kvm_arm_copy_reg_indices(struct kvm_vcpu *vcpu, u64 __user *indices);
+struct kvm_one_reg;
+int kvm_arm_get_reg(struct kvm_vcpu *vcpu, const struct kvm_one_reg *reg);
+int kvm_arm_set_reg(struct kvm_vcpu *vcpu, const struct kvm_one_reg *reg);
 
 #define KVM_ARCH_WANT_MMU_NOTIFIER
 struct kvm;

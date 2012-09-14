@@ -27,7 +27,7 @@
 @    - should be called with:
 @        r0 = Hypervisor pgd pointer
 @        r1 = top of Hyp stack (kernel VA)
-@        r2 = pointer to hyp vectors 
+@        r2 = pointer to hyp vectors
 @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 	.text
         .pushsection    .hyp.idmap.text,"ax"

@@ -32,6 +32,9 @@ unsigned long kvm_arm_num_guest_msrs(struct kvm_vcpu *vcpu);
 int kvm_arm_copy_msrindices(struct kvm_vcpu *vcpu, u64 __user *uindices);
 void kvm_coproc_table_init(void);
 
-int kvm_arm_get_reg(struct kvm_vcpu *vcpu, const struct kvm_one_reg *reg);
-int kvm_arm_set_reg(struct kvm_vcpu *vcpu, const struct kvm_one_reg *reg);
+struct kvm_one_reg;
+int kvm_arm_copy_coproc_indices(struct kvm_vcpu *vcpu, u64 __user *uindices);
+int kvm_arm_coproc_get_reg(struct kvm_vcpu *vcpu, const struct kvm_one_reg *);
+int kvm_arm_coproc_set_reg(struct kvm_vcpu *vcpu, const struct kvm_one_reg *);
+unsigned long kvm_arm_num_coproc_regs(struct kvm_vcpu *vcpu);
 #endif /* __ARM_KVM_COPROC_H__ */
