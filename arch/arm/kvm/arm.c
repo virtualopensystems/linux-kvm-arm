@@ -318,9 +318,16 @@ int kvm_arch_vcpu_ioctl_set_mpstate(struct kvm_vcpu *vcpu,
 	return -EINVAL;
 }
 
+/**
+ * kvm_arch_vcpu_runnable - determine if the vcpu can be scheduled
+ * @v:		The VCPU pointer
+ *
+ * If the guest CPU is not waiting for interrupts or an interrupt line is
+ * asserted, the CPU is by definition runnable.
+ */
 int kvm_arch_vcpu_runnable(struct kvm_vcpu *v)
 {
-	return 0;
+	return !!v->arch.irq_lines;
 }
 
 int kvm_arch_vcpu_in_guest_mode(struct kvm_vcpu *v)
@@ -586,7 +593,6 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 		 * Check conditions before entering the guest
 		 */
 		cond_resched();
-
 		update_vttbr(vcpu->kvm);
 
 		local_irq_disable();
