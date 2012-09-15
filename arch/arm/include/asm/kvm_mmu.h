@@ -16,35 +16,21 @@
  * Foundation, 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
 
-#ifndef __ARM_KVM_ASM_H__
-#define __ARM_KVM_ASM_H__
+#ifndef __ARM_KVM_MMU_H__
+#define __ARM_KVM_MMU_H__
 
-#define ARM_EXCEPTION_RESET	  0
-#define ARM_EXCEPTION_UNDEFINED   1
-#define ARM_EXCEPTION_SOFTWARE    2
-#define ARM_EXCEPTION_PREF_ABORT  3
-#define ARM_EXCEPTION_DATA_ABORT  4
-#define ARM_EXCEPTION_IRQ	  5
-#define ARM_EXCEPTION_FIQ	  6
-#define ARM_EXCEPTION_HVC	  7
+/*
+ * The architecture supports 40-bit IPA as input to the 2nd stage translations
+ * and PTRS_PER_PGD2 could therefore be 1024.
+ *
+ * To save a bit of memory and to avoid alignment issues we assume 39-bit IPA
+ * for now, but remember that the level-1 table must be aligned to its size.
+ */
+#define PTRS_PER_PGD2	512
+#define PGD2_ORDER	get_order(PTRS_PER_PGD2 * sizeof(pgd_t))
 
-#ifndef __ASSEMBLY__
-struct kvm_vcpu;
+int create_hyp_mappings(void *from, void *to);
+int create_hyp_io_mappings(void *from, void *to, phys_addr_t);
+void free_hyp_pmds(void);
 
-extern char __kvm_hyp_init[];
-extern char __kvm_hyp_init_end[];
-
-extern char __kvm_hyp_exit[];
-extern char __kvm_hyp_exit_end[];
-
-extern char __kvm_hyp_vector[];
-
-extern char __kvm_hyp_code_start[];
-extern char __kvm_hyp_code_end[];
-
-extern void __kvm_flush_vm_context(void);
-
-extern int __kvm_vcpu_run(struct kvm_vcpu *vcpu);
-#endif
-
-#endif /* __ARM_KVM_ASM_H__ */
+#endif /* __ARM_KVM_MMU_H__ */

@@ -34,10 +34,21 @@
 #include <asm/ptrace.h>
 #include <asm/mman.h>
 #include <asm/cputype.h>
+#include <asm/idmap.h>
+#include <asm/tlbflush.h>
+#include <asm/virt.h>
+#include <asm/kvm_arm.h>
+#include <asm/kvm_asm.h>
+#include <asm/kvm_mmu.h>
 
 #ifdef REQUIRES_VIRT
 __asm__(".arch_extension	virt");
 #endif
+
+static DEFINE_PER_CPU(unsigned long, kvm_arm_hyp_stack_page);
+static struct vfp_hard_struct __percpu *kvm_host_vfp_state;
+static unsigned long hyp_default_vectors;
+
 
 int kvm_arch_hardware_enable(void *garbage)
 {
@@ -321,13 +332,238 @@ long kvm_arch_vm_ioctl(struct file *filp,
 	return -EINVAL;
 }
 
+static void cpu_set_vector(void *vector)
+{
+	unsigned long vector_ptr;
+
+	vector_ptr = (unsigned long)vector;
+
+	/*
+	 * Set the HVBAR
+	 */
+	asm volatile (
+		"mov	r0, %[vector_ptr]\n\t"
+		"hvc	#0xff\n\t" : :
+		[vector_ptr] "r" (vector_ptr) :
+		"r0");
+}
+
+static void cpu_init_hyp_mode(void *vector)
+{
+	unsigned long pgd_ptr;
+	unsigned long hyp_stack_ptr;
+	unsigned long stack_page;
+	unsigned long vector_ptr;
+
+	/* Switch from the HYP stub to our own HYP init vector */
+	__hyp_set_vectors((unsigned long)vector);
+
+	pgd_ptr = virt_to_phys(hyp_pgd);
+	stack_page = __get_cpu_var(kvm_arm_hyp_stack_page);
+	hyp_stack_ptr = stack_page + PAGE_SIZE;
+	vector_ptr = (unsigned long)__kvm_hyp_vector;
+
+	/*
+	 * Call initialization code, and switch to the full blown
+	 * HYP code. The init code corrupts r12, so set the clobber
+	 * list accordingly.
+	 */
+	asm volatile (
+		"mov	r0, %[pgd_ptr]\n\t"
+		"mov	r1, %[hyp_stack_ptr]\n\t"
+		"mov	r2, %[vector_ptr]\n\t"
+		"hvc	#0\n\t" : :
+		[pgd_ptr] "r" (pgd_ptr),
+		[hyp_stack_ptr] "r" (hyp_stack_ptr),
+		[vector_ptr] "r" (vector_ptr) :
+		"r0", "r1", "r2", "r12");
+}
+
+/**
+ * Inits Hyp-mode on all online CPUs
+ */
+static int init_hyp_mode(void)
+{
+	phys_addr_t init_phys_addr;
+	int cpu;
+	int err = 0;
+
+	/*
+	 * It is probably enough to obtain the default on one
+	 * CPU. It's unlikely to be different on the others.
+	 */
+	hyp_default_vectors = __hyp_get_vectors();
+
+	/*
+	 * Allocate stack pages for Hypervisor-mode
+	 */
+	for_each_possible_cpu(cpu) {
+		unsigned long stack_page;
+
+		stack_page = __get_free_page(GFP_KERNEL);
+		if (!stack_page) {
+			err = -ENOMEM;
+			goto out_free_stack_pages;
+		}
+
+		per_cpu(kvm_arm_hyp_stack_page, cpu) = stack_page;
+	}
+
+	/*
+	 * Execute the init code on each CPU.
+	 *
+	 * Note: The stack is not mapped yet, so don't do anything else than
+	 * initializing the hypervisor mode on each CPU using a local stack
+	 * space for temporary storage.
+	 */
+	init_phys_addr = virt_to_phys(__kvm_hyp_init);
+	for_each_online_cpu(cpu) {
+		smp_call_function_single(cpu, cpu_init_hyp_mode,
+					 (void *)(long)init_phys_addr, 1);
+	}
+
+	/*
+	 * Unmap the identity mapping
+	 */
+	hyp_idmap_teardown();
+
+	/*
+	 * Map the Hyp-code called directly from the host
+	 */
+	err = create_hyp_mappings(__kvm_hyp_code_start, __kvm_hyp_code_end);
+	if (err) {
+		kvm_err("Cannot map world-switch code\n");
+		goto out_free_mappings;
+	}
+
+	/*
+	 * Map the Hyp stack pages
+	 */
+	for_each_possible_cpu(cpu) {
+		char *stack_page = (char *)per_cpu(kvm_arm_hyp_stack_page, cpu);
+		err = create_hyp_mappings(stack_page, stack_page + PAGE_SIZE);
+
+		if (err) {
+			kvm_err("Cannot map hyp stack\n");
+			goto out_free_mappings;
+		}
+	}
+
+	/*
+	 * Map the host VFP structures
+	 */
+	kvm_host_vfp_state = alloc_percpu(struct vfp_hard_struct);
+	if (!kvm_host_vfp_state) {
+		err = -ENOMEM;
+		kvm_err("Cannot allocate host VFP state\n");
+		goto out_free_mappings;
+	}
+
+	for_each_possible_cpu(cpu) {
+		struct vfp_hard_struct *vfp;
+
+		vfp = per_cpu_ptr(kvm_host_vfp_state, cpu);
+		err = create_hyp_mappings(vfp, vfp + 1);
+
+		if (err) {
+			kvm_err("Cannot map host VFP state: %d\n", err);
+			goto out_free_vfp;
+		}
+	}
+
+	return 0;
+out_free_vfp:
+	free_percpu(kvm_host_vfp_state);
+out_free_mappings:
+	free_hyp_pmds();
+out_free_stack_pages:
+	for_each_possible_cpu(cpu)
+		free_page(per_cpu(kvm_arm_hyp_stack_page, cpu));
+	return err;
+}
+
+/**
+ * Initialize Hyp-mode and memory mappings on all CPUs.
+ */
 int kvm_arch_init(void *opaque)
 {
+	int err;
+
+	if (!is_hyp_mode_available()) {
+		kvm_err("HYP mode not available\n");
+		return -ENODEV;
+	}
+
+	if (kvm_target_cpu() < 0) {
+		kvm_err("Target CPU not supported!\n");
+		return -ENODEV;
+	}
+
+	err = init_hyp_mode();
+	if (err)
+		goto out_err;
+
+	return 0;
+out_err:
+	return err;
+}
+
+static void cpu_exit_hyp_mode(void *vector)
+{
+	cpu_set_vector(vector);
+
+	/*
+	 * Disable Hyp-MMU for each cpu, and switch back to the
+	 * default vectors.
+	 */
+	asm volatile ("mov	r0, %[vector_ptr]\n\t"
+		      "hvc	#0\n\t" : :
+		      [vector_ptr] "r" (hyp_default_vectors) :
+		      "r0");
+}
+
+static int exit_hyp_mode(void)
+{
+	phys_addr_t exit_phys_addr;
+	int cpu;
+
+	/*
+	 * TODO: flush Hyp TLB in case idmap code overlaps.
+	 * Note that we should do this in the monitor code when switching the
+	 * HVBAR, but this is going  away and should be rather done in the Hyp
+	 * mode change of HVBAR.
+	 */
+	hyp_idmap_setup();
+	exit_phys_addr = virt_to_phys(__kvm_hyp_exit);
+	BUG_ON(exit_phys_addr & 0x1f);
+
+	/*
+	 * Execute the exit code on each CPU.
+	 *
+	 * Note: The stack is not mapped yet, so don't do anything else than
+	 * initializing the hypervisor mode on each CPU using a local stack
+	 * space for temporary storage.
+	 */
+	for_each_online_cpu(cpu) {
+		smp_call_function_single(cpu, cpu_exit_hyp_mode,
+					 (void *)(long)exit_phys_addr, 1);
+	}
+
 	return 0;
 }
 
 void kvm_arch_exit(void)
 {
+	int cpu;
+
+	exit_hyp_mode();
+
+	free_hyp_pmds();
+	free_percpu(kvm_host_vfp_state);
+	for_each_possible_cpu(cpu) {
+		free_page(per_cpu(kvm_arm_hyp_stack_page, cpu));
+		per_cpu(kvm_arm_hyp_stack_page, cpu) = 0;
+	}
 }
 
 static int arm_init(void)
