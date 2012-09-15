@@ -29,6 +29,7 @@
 #define KVM_HAVE_ONE_REG
 
 #include <asm/kvm_vgic.h>
+#include <asm/kvm_arch_timer.h>
 
 #define NUM_FEATURES 0
 
@@ -57,6 +58,9 @@ struct kvm_arch {
 
 	/* Interrupt controller */
 	struct vgic_dist	vgic;
+
+	/* Timer */
+	struct arch_timer_kvm	timer;
 };
 
 #define EXCEPTION_NONE      0
@@ -151,6 +155,7 @@ struct kvm_vcpu_arch {
 
 	/* VGIC state */
 	struct vgic_cpu vgic_cpu;
+	struct arch_timer_cpu timer_cpu;
 
 	/*
 	 * Anything that is not used directly from assembly code goes
