@@ -1,0 +1,172 @@
+/*
+ * Copyright (C) 2012 - Virtual Open Systems and Columbia University
+ * Author: Christoffer Dall <c.dall@virtualopensystems.com>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License, version 2, as
+ * published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+ */
+
+#ifndef __ARM_KVM_HOST_H__
+#define __ARM_KVM_HOST_H__
+
+#include <asm/kvm.h>
+
+#define KVM_MAX_VCPUS 4
+#define KVM_MEMORY_SLOTS 32
+#define KVM_PRIVATE_MEM_SLOTS 4
+#define KVM_COALESCED_MMIO_PAGE_OFFSET 1
+
+#define NUM_FEATURES 0
+
+/* We don't currently support large pages. */
+#define KVM_HPAGE_GFN_SHIFT(x)	0
+#define KVM_NR_PAGE_SIZES	1
+#define KVM_PAGES_PER_HPAGE(x)	(1UL<<31)
+
+struct kvm_vcpu;
+u32 *kvm_vcpu_reg(struct kvm_vcpu *vcpu, u8 reg_num, u32 mode);
+int kvm_target_cpu(void);
+int kvm_reset_vcpu(struct kvm_vcpu *vcpu);
+void kvm_reset_coprocs(struct kvm_vcpu *vcpu);
+
+struct kvm_arch {
+	/* The VMID generation used for the virt. memory system */
+	u64    vmid_gen;
+	u32    vmid;
+
+	/* 1-level 2nd stage table and lock */
+	spinlock_t pgd_lock;
+	pgd_t *pgd;
+
+	/* VTTBR value associated with above pgd and vmid */
+	u64    vttbr;
+};
+
+#define EXCEPTION_NONE      0
+#define EXCEPTION_RESET     0x80
+#define EXCEPTION_UNDEFINED 0x40
+#define EXCEPTION_SOFTWARE  0x20
+#define EXCEPTION_PREFETCH  0x10
+#define EXCEPTION_DATA      0x08
+#define EXCEPTION_IMPRECISE 0x04
+#define EXCEPTION_IRQ       0x02
+#define EXCEPTION_FIQ       0x01
+
+#define KVM_NR_MEM_OBJS     40
+
+/*
+ * We don't want allocation failures within the mmu code, so we preallocate
+ * enough memory for a single page fault in a cache.
+ */
+struct kvm_mmu_memory_cache {
+	int nobjs;
+	void *objects[KVM_NR_MEM_OBJS];
+};
+
+/*
+ * Modes used for short-hand mode determinition in the world-switch code and
+ * in emulation code.
+ *
+ * Note: These indices do NOT correspond to the value of the CPSR mode bits!
+ */
+enum vcpu_mode {
+	MODE_FIQ = 0,
+	MODE_IRQ,
+	MODE_SVC,
+	MODE_ABT,
+	MODE_UND,
+	MODE_USR,
+	MODE_SYS
+};
+
+/* 0 is reserved as an invalid value. */
+enum cp15_regs {
+	c0_MPIDR=1,		/* MultiProcessor ID Register */
+	c0_CSSELR,		/* Cache Size Selection Register */
+	c1_SCTLR,		/* System Control Register */
+	c1_ACTLR,		/* Auxilliary Control Register */
+	c1_CPACR,		/* Coprocessor Access Control */
+	c2_TTBR0,		/* Translation Table Base Register 0 */
+	c2_TTBR0_high,		/* TTBR0 top 32 bits */
+	c2_TTBR1,		/* Translation Table Base Register 1 */
+	c2_TTBR1_high,		/* TTBR1 top 32 bits */
+	c2_TTBCR,		/* Translation Table Base Control R. */
+	c3_DACR,		/* Domain Access Control Register */
+	c5_DFSR,		/* Data Fault Status Register */
+	c5_IFSR,		/* Instruction Fault Status Register */
+	c5_ADFSR,		/* Auxilary Data Fault Status Register */
+	c5_AIFSR,		/* Auxilary Instruction Fault Status Register */
+	c6_DFAR,		/* Data Fault Address Register */
+	c6_IFAR,		/* Instruction Fault Address Register */
+	c10_PRRR,		/* Primary Region Remap Register */
+	c10_NMRR,		/* Normal Memory Remap Register */
+	c12_VBAR,		/* Vector Base Address Register */
+	c13_CID,		/* Context ID Register */
+	c13_TID_URW,		/* Thread ID, User R/W */
+	c13_TID_URO,		/* Thread ID, User R/O */
+	c13_TID_PRIV,		/* Thread ID, Priveleged */
+
+	nr_cp15_regs
+};
+
+struct kvm_vcpu_arch {
+	struct kvm_regs regs;
+
+	u32 target; /* Currently KVM_ARM_TARGET_CORTEX_A15 */
+	DECLARE_BITMAP(features, NUM_FEATURES);
+
+	/* System control coprocessor (cp15) */
+	u32 cp15[nr_cp15_regs];
+
+	/* The CPU type we expose to the VM */
+	u32 midr;
+
+	/* Exception Information */
+	u32 hsr;		/* Hyp Syndrom Register */
+	u32 hdfar;		/* Hyp Data Fault Address Register */
+	u32 hifar;		/* Hyp Inst. Fault Address Register */
+	u32 hpfar;		/* Hyp IPA Fault Address Register */
+
+	/* IO related fields */
+	struct {
+		bool sign_extend;	/* for byte/halfword loads */
+		u32  rd;
+	} mmio;
+
+	/* Interrupt related fields */
+	u32 irq_lines;		/* IRQ and FIQ levels */
+
+	/* Hyp exception information */
+	u32 hyp_pc;		/* PC when exception was taken from Hyp mode */
+
+	/* Cache some mmu pages needed inside spinlock regions */
+	struct kvm_mmu_memory_cache mmu_page_cache;
+};
+
+struct kvm_vm_stat {
+	u32 remote_tlb_flush;
+};
+
+struct kvm_vcpu_stat {
+	u32 halt_wakeup;
+};
+
+struct kvm_vcpu_init;
+int kvm_vcpu_set_target(struct kvm_vcpu *vcpu,
+			const struct kvm_vcpu_init *init);
+unsigned long kvm_arm_num_regs(struct kvm_vcpu *vcpu);
+int kvm_arm_copy_reg_indices(struct kvm_vcpu *vcpu, u64 __user *indices);
+struct kvm_one_reg;
+int kvm_arm_get_reg(struct kvm_vcpu *vcpu, const struct kvm_one_reg *reg);
+int kvm_arm_set_reg(struct kvm_vcpu *vcpu, const struct kvm_one_reg *reg);
+#endif /* __ARM_KVM_HOST_H__ */
