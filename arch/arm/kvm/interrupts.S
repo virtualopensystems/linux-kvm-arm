@@ -31,6 +31,14 @@ __kvm_hyp_code_start:
 	.globl __kvm_hyp_code_start
 
 @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+@  Flush per-VMID TLBs
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+ENTRY(__kvm_tlb_flush_vmid)
+	bx	lr
+ENDPROC(__kvm_tlb_flush_vmid)
+
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 @  Flush TLBs and instruction caches of current CPU for all VMIDs
 @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
