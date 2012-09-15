@@ -28,6 +28,8 @@
 #define KVM_COALESCED_MMIO_PAGE_OFFSET 1
 #define KVM_HAVE_ONE_REG
 
+#include <asm/kvm_vgic.h>
+
 #define NUM_FEATURES 0
 
 /* We don't currently support large pages. */
@@ -52,6 +54,9 @@ struct kvm_arch {
 
 	/* VTTBR value associated with above pgd and vmid */
 	u64    vttbr;
+
+	/* Interrupt controller */
+	struct vgic_dist	vgic;
 };
 
 #define EXCEPTION_NONE      0
@@ -143,6 +148,9 @@ struct kvm_vcpu_arch {
 	/* Floating point registers (VFP and Advanced SIMD/NEON) */
 	struct vfp_hard_struct vfp_guest;
 	struct vfp_hard_struct *vfp_host;
+
+	/* VGIC state */
+	struct vgic_cpu vgic_cpu;
 
 	/*
 	 * Anything that is not used directly from assembly code goes
