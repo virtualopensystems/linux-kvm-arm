@@ -37,6 +37,12 @@ static struct kvm_regs a15_regs_reset = {
 	.cpsr = SVC_MODE | PSR_A_BIT | PSR_I_BIT | PSR_F_BIT,
 };
 
+#ifdef CONFIG_KVM_ARM_TIMER
+static const struct kvm_irq_level a15_virt_timer_ppi = {
+	.irq	= 27,	/* A7/A15 specific */
+	.level	= 1,
+};
+#endif
 
 /*******************************************************************************
  * Exported reset function
@@ -59,6 +65,9 @@ int kvm_reset_vcpu(struct kvm_vcpu *vcpu)
 			return -EINVAL;
 		cpu_reset = &a15_regs_reset;
 		vcpu->arch.midr = read_cpuid_id();
+#ifdef CONFIG_KVM_ARM_TIMER
+		vcpu->arch.timer_cpu.irq = &a15_virt_timer_ppi;
+#endif
 		break;
 	default:
 		return -ENODEV;
