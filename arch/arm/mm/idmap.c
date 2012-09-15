@@ -8,6 +8,7 @@
 #include <asm/pgtable.h>
 #include <asm/sections.h>
 #include <asm/system_info.h>
+#include <asm/virt.h>
 
 pgd_t *idmap_pgd;
 
@@ -149,6 +150,9 @@ EXPORT_SYMBOL_GPL(hyp_idmap_setup);
 
 static int __init hyp_init_static_idmap(void)
 {
+	if (!is_hyp_mode_available())
+		return 0;
+
 	hyp_pgd = kzalloc(PTRS_PER_PGD * sizeof(pgd_t), GFP_KERNEL);
 	if (!hyp_pgd)
 		return -ENOMEM;
