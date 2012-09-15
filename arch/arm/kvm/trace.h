@@ -39,6 +39,34 @@ TRACE_EVENT(kvm_exit,
 	TP_printk("PC: 0x%08lx", __entry->vcpu_pc)
 );
 
+TRACE_EVENT(kvm_guest_fault,
+	TP_PROTO(unsigned long vcpu_pc, unsigned long hsr,
+		 unsigned long hdfar, unsigned long hifar,
+		 unsigned long ipa),
+	TP_ARGS(vcpu_pc, hsr, hdfar, hifar, ipa),
+
+	TP_STRUCT__entry(
+		__field(	unsigned long,	vcpu_pc		)
+		__field(	unsigned long,	hsr		)
+		__field(	unsigned long,	hdfar		)
+		__field(	unsigned long,	hifar		)
+		__field(	unsigned long,	ipa		)
+	),
+
+	TP_fast_assign(
+		__entry->vcpu_pc		= vcpu_pc;
+		__entry->hsr			= hsr;
+		__entry->hdfar			= hdfar;
+		__entry->hifar			= hifar;
+		__entry->ipa			= ipa;
+	),
+
+	TP_printk("guest fault at PC %#08lx (hdfar %#08lx, hifar %#08lx, "
+		  "ipa %#08lx, hsr %#08lx",
+		  __entry->vcpu_pc, __entry->hdfar, __entry->hifar,
+		  __entry->hsr, __entry->ipa)
+);
+
 TRACE_EVENT(kvm_irq_line,
 	TP_PROTO(unsigned int type, int vcpu_idx, int irq_num, int level),
 	TP_ARGS(type, vcpu_idx, irq_num, level),
