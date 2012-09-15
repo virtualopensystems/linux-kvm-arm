@@ -34,5 +34,6 @@ EXPORT_SYMBOL_GPL(__kvm_vcpu_run);
 
 EXPORT_SYMBOL_GPL(__kvm_flush_vm_context);
 EXPORT_SYMBOL_GPL(__kvm_tlb_flush_vmid);
+EXPORT_SYMBOL_GPL(__kvm_va_to_pa);
 
 EXPORT_SYMBOL_GPL(smp_send_reschedule);
