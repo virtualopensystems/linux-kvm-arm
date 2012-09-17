@@ -238,13 +238,21 @@ static void kvm_cpu_exec(bool (*test)(struct kvm_run *kvm_run, int vcpu_fd))
 	} while (!handle_mmio(kvm_run, test));
 }
 
-static void usage(int argc, const char *argv[])
-{
-	errx(EXIT_SETUPFAIL, "Usage: %s <testname>", argv[0]);
-}
-
 /* Linker-generated symbols for GUEST_TEST() macros */
 extern struct test __start_tests[], __stop_tests[];
+
+static int usage(int argc, const char *argv[])
+{
+	struct test *i;
+
+	printf("Usage: %s <testname>\n\nAvailable tests:\n", argv[0]);
+
+	for (i = __start_tests; i < __stop_tests; i++) {
+		printf(" %s\n", i->name);
+	}
+
+	return EXIT_SETUPFAIL;
+}
 
 int main(int argc, const char *argv[])
 {
@@ -254,7 +262,7 @@ int main(int argc, const char *argv[])
 	unsigned long start;
 
 	if (argc != 2)
-		usage(argc, argv);
+		return usage(argc, argv);
 
 	for (i = __start_tests; i < __stop_tests; i++) {
 		if (strcmp(i->name, argv[1]) == 0) {
