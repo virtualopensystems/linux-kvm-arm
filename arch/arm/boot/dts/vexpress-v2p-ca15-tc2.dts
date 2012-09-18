@@ -4,12 +4,6 @@
  * CoreTile Express A15x2 A7x3
  * Cortex-A15_A7 MPCore (V2P-CA15_A7)
  *
- * This DTB describes the big (A15x2) cluster only!
- * Make sure that you have the following lines in your board.txt:
- *
- *     SCC: 0x018 0x00001FFF
- *     SCC: 0x700 0x00320003
- *
  * HBI-0249A
  */
 
