@@ -156,7 +156,12 @@
 
 	cci@2c090000 {
 		compatible = "arm,cci";
-		reg = <0 0x2c090000 0 0x8000>;
+		reg = <0 0x2c090000 0 0x10000>;
+		interrupts = <0 101 4>,
+			     <0 102 4>,
+			     <0 103 4>,
+			     <0 104 4>,
+			     <0 105 4>;
 	};
 
 	memory-controller@2b0a0000 {
