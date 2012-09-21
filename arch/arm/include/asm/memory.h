@@ -311,4 +311,6 @@ static inline __deprecated void *bus_to_virt(unsigned long x)
 
 #include <asm-generic/memory_model.h>
 
+#define ARCH_LOW_ADDRESS_LIMIT         PHYS_MASK
+
 #endif
