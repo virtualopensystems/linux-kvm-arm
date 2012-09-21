@@ -151,7 +151,7 @@ DEFINE_PER_CPU(struct cpuinfo_arm, cpu_data);
  * The initializers here prevent these from landing in the BSS section.
  */
 unsigned long __pv_offset = 0xdeadbeef;
-unsigned long __pv_phys_offset = 0xdeadbeef;
+phys_addr_t   __pv_phys_offset = 0xdeadbeef;
 EXPORT_SYMBOL(__pv_phys_offset);
 
 #endif
