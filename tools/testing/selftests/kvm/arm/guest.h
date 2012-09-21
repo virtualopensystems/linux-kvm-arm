@@ -6,6 +6,7 @@
 void ok(void);
 void fail(void);
 void putc(char c);
+void vm_exit(void);
 extern int skip_undef, undef_count;
 
 static inline void print(const char *p)

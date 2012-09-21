@@ -55,6 +55,12 @@ putc:
 	strb	r0, [r1]
 	mov	pc, lr
 
+.globl vm_exit
+vm_exit:
+	ldr	r1, =IO_CTL_STUB
+	strb	r0, [r1]
+	mov	pc, lr
+
 .section .text.extable
 	b	impossible
 	b	undef

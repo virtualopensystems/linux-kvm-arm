@@ -210,6 +210,9 @@ static bool handle_mmio(struct kvm_run *kvm_run,
 		printf("%c", data[0]);
 		return false;
 
+	case IO_CTL_STUB:
+		return false;
+
 	case IO_CTL_EXIT:
 		printf("VM shutting down status %i\n", data[0]);
 		if (data[0] != 0)

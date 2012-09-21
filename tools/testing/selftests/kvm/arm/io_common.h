@@ -7,5 +7,7 @@
 #define IO_CTL_EXIT	(0xf0000001)
 /* print a character */
 #define IO_CTL_PRINT	(0xf0000002)
+/* Stub MMIO operation, will cause a guest exit */
+#define IO_CTL_STUB	(0xf0000003)
 
 #endif /* __IO_DATA_H */
