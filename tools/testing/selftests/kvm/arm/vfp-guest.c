@@ -55,28 +55,28 @@ int test(void)
 	/* Now, try loading 2.0 and make sure host doesn't interfere! */
 	d0 = 2.0;
 	assert(d0 == 2.0);
-	asm volatile("ldr %0, [%1]" : "=r"(val) : "r"(VFP_USE_REG));
+	read(VFP_USE_REG, val);
 	assert(d0 == 2.0);
 
 	/* Same thing with upper 16 registers. */
 	d16 = 2.0;
 	assert(d16 == 2.0);
-	asm volatile("ldr %0, [%1]" : "=r"(val) : "r"(VFP_USE_REG + 16));
+	read(VFP_USE_REG + 16, val);
 	assert(d16 == 2.0);
 
 	/* Now check host ioctl sees register correctly. */
 	d0 = 2.0;
- 	asm volatile("ldr %0, [%1]" : "=r"(val) : "r"(VFP_CHECK_REG));
+	read(VFP_CHECK_REG, val);
 
 	d0 = 2.0;
- 	asm volatile("ldr %0, [%1]" : "=r"(val) : "r"(VFP_SET_REG));
+	read(VFP_SET_REG, val);
 	assert(d0 == 3.0);
 
 	d16 = 2.0;
- 	asm volatile("ldr %0, [%1]" : "=r"(val) : "r"(VFP_CHECK_REG+16));
+	read(VFP_CHECK_REG + 16, val);
 
 	d16 = 2.0;
- 	asm volatile("ldr %0, [%1]" : "=r"(val) : "r"(VFP_SET_REG+16));
+	read(VFP_SET_REG + 16, val);
 	assert(d16 == 3.0);
 
 	return 0;

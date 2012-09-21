@@ -494,11 +494,11 @@ int test(void)
 
 	/* Host should see the right value. */
 	val = 0xdeadbeef;
-	asm volatile("ldr %0, [%1]" : "=r"(val) : "r"(CP15_TTBR0));
+	read(CP15_TTBR0, val);
 	assert(val == 0x80000000);
 
 	/* Host change should make us see the right value. */
-	asm volatile("str %0, [%1]" : : "r"(0x90000000), "r"(CP15_TTBR0));
+	write(CP15_TTBR0, 0x90000000);
 	val = 0xdeadbeef;
 	assert(cp15_read(0, 2, 0, 0, &val));
 	assert(val == 0x90000000);
@@ -507,12 +507,12 @@ int test(void)
 	assert(cp15_write(0, 6, 0, 2, 0x98765432));
 	
 	val = 0xdeadbeef;
-	asm volatile("ldr %0, [%1]" : "=r"(val) : "r"(CP15_IFAR));
+	read(CP15_IFAR, val);
 	/* Check it sees value we expect. */
 	assert(val == 0x98765432);
 
 	/* Now set it. */
-	asm volatile("str %0, [%1]" : : "r"(0x80000000), "r"(CP15_IFAR));
+	write(CP15_IFAR, 0x80000000);
 	val = 0xdeadbeef;
 	assert(cp15_read(0, 6, 0, 2, &val));
 	assert(val == 0x80000000);

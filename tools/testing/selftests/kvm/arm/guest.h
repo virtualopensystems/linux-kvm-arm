@@ -29,6 +29,12 @@ static inline void print(const char *p)
 			ok();						\
 	} while(0)
 
+/* Handy MMIO read/write macros since we use those a lot */
+#define read(token, val) \
+	asm volatile("ldr %0, [%1]" : "=r"(val) : "r"(token));
+#define write(token, val) \
+	asm volatile("str %0, [%1]" : : "r"(val), "r"(token));
+
 typedef uint32_t u32;
 
 /* Each guest needs to write this. */
