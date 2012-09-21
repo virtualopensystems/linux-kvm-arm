@@ -144,6 +144,18 @@ static union { char c[4]; unsigned long l; } endian_test __initdata = { { 'l', '
 
 DEFINE_PER_CPU(struct cpuinfo_arm, cpu_data);
 
+#ifdef CONFIG_ARM_PATCH_PHYS_VIRT
+
+/*
+ * These are initialized in head.S code prior to BSS getting cleared out.
+ * The initializers here prevent these from landing in the BSS section.
+ */
+unsigned long __pv_offset = 0xdeadbeef;
+unsigned long __pv_phys_offset = 0xdeadbeef;
+EXPORT_SYMBOL(__pv_phys_offset);
+
+#endif
+
 /*
  * Standard memory resources
  */
