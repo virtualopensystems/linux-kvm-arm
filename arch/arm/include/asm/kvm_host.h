@@ -49,8 +49,7 @@ struct kvm_arch {
 	u64    vmid_gen;
 	u32    vmid;
 
-	/* 1-level 2nd stage table and lock */
-	spinlock_t pgd_lock;
+	/* Stage-2 page table */
 	pgd_t *pgd;
 
 	/* VTTBR value associated with above pgd and vmid */

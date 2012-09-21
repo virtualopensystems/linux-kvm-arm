@@ -366,7 +366,7 @@ void kvm_free_stage2_pgd(struct kvm *kvm)
  *
  * Clear a stage-2 PTE, lowering the various ref-counts. Also takes
  * care of invalidating the TLBs.  Must be called while holding
- * pgd_lock, otherwise another faulting VCPU may come in and mess
+ * mmu_lock, otherwise another faulting VCPU may come in and mess
  * things behind our back.
  */
 static void stage2_clear_pte(struct kvm *kvm, phys_addr_t addr)
@@ -485,9 +485,9 @@ int kvm_phys_addr_ioremap(struct kvm *kvm, phys_addr_t guest_ipa,
 		ret = mmu_topup_memory_cache(&cache, 2, 2);
 		if (ret)
 			goto out;
-		spin_lock(&kvm->arch.pgd_lock);
+		spin_lock(&kvm->mmu_lock);
 		stage2_set_pte(kvm, &cache, addr, &pte);
-		spin_unlock(&kvm->arch.pgd_lock);
+		spin_unlock(&kvm->mmu_lock);
 
 		pfn++;
 	}
@@ -522,9 +522,10 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
 			  bool is_iabt, unsigned long fault_status)
 {
 	pte_t new_pte;
-	pfn_t pfn, pfn_existing = KVM_PFN_ERR_BAD;
+	pfn_t pfn;
 	int ret;
 	bool write_fault, writable;
+	unsigned long mmu_seq;
 	struct kvm_mmu_memory_cache *memcache = &vcpu->arch.mmu_page_cache;
 
 	if (is_iabt)
@@ -539,54 +540,34 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
 		return -EFAULT;
 	}
 
-	/*
-	 * If this is a write fault (think COW) we need to make sure the
-	 * existing page, which other CPUs might still read, doesn't go away
-	 * from under us, by calling gfn_to_pfn_prot(write_fault=true).
-	 * Therefore, we call gfn_to_pfn_prot(write_fault=false), which will
-	 * pin the existing page, then we get a new page for the user space
-	 * pte and map this in the stage-2 table where we also make sure to
-	 * flush the TLB for the VM, if there was an existing entry (the entry
-	 * was updated setting the write flag to the potentially new page).
-	 */
-	if (fault_status == FSC_PERM) {
-		pfn_existing = gfn_to_pfn_prot(vcpu->kvm, gfn, false, NULL);
-		if (is_error_pfn(pfn_existing))
-			return -EFAULT;
-	}
-
-	pfn = gfn_to_pfn_prot(vcpu->kvm, gfn, write_fault, &writable);
-	if (is_error_pfn(pfn)) {
-		ret = -EFAULT;
-		goto out_put_existing;
-	}
-
 	/* We need minimum second+third level pages */
 	ret = mmu_topup_memory_cache(memcache, 2, KVM_NR_MEM_OBJS);
 	if (ret)
-		goto out;
+		return ret;
+
+	mmu_seq = vcpu->kvm->mmu_notifier_seq;
+	smp_rmb();
+
+	pfn = gfn_to_pfn_prot(vcpu->kvm, gfn, write_fault, &writable);
+	if (is_error_pfn(pfn))
+		return -EFAULT;
+
 	new_pte = pfn_pte(pfn, PAGE_KVM_GUEST);
-	if (writable)
-		pte_val(new_pte) |= L_PTE_S2_RDWR;
 	coherent_icache_guest_page(vcpu->kvm, gfn);
 
-	spin_lock(&vcpu->kvm->arch.pgd_lock);
+	spin_lock(&vcpu->kvm->mmu_lock);
+	if (mmu_notifier_retry(vcpu, mmu_seq))
+		goto out_unlock;
+	if (writable) {
+		pte_val(new_pte) |= L_PTE_S2_RDWR;
+		kvm_set_pfn_dirty(pfn);
+	}
 	stage2_set_pte(vcpu->kvm, memcache, fault_ipa, &new_pte);
-	spin_unlock(&vcpu->kvm->arch.pgd_lock);
 
-out:
-	/*
-	 * XXX TODO FIXME:
-	 * This is _really_ *weird* !!!
-	 * We should only be calling the _dirty verison when we map something
-	 * writable, but this causes memory failures in guests under heavy
-	 * memory pressure on the host and heavy swapping.
-	 */
-	kvm_release_pfn_dirty(pfn);
-out_put_existing:
-	if (!is_error_pfn(pfn_existing))
-		kvm_release_pfn_clean(pfn_existing);
-	return ret;
+out_unlock:
+	spin_unlock(&vcpu->kvm->mmu_lock);
+	kvm_release_pfn_clean(pfn);
+	return 0;
 }
 
 /**
@@ -913,8 +894,10 @@ int kvm_handle_guest_abort(struct kvm_vcpu *vcpu, struct kvm_run *run)
 	return ret ? ret : 1;
 }
 
-static void handle_hva_to_gpa(struct kvm *kvm, unsigned long hva,
-			      void (*handler)(struct kvm *kvm, unsigned long hva,
+static void handle_hva_to_gpa(struct kvm *kvm,
+			      unsigned long start,
+			      unsigned long end,
+			      void (*handler)(struct kvm *kvm,
 					      gpa_t gpa, void *data),
 			      void *data)
 {
@@ -925,74 +908,76 @@ static void handle_hva_to_gpa(struct kvm *kvm, unsigned long hva,
 
 	/* we only care about the pages that the guest sees */
 	kvm_for_each_memslot(memslot, slots) {
-		unsigned long start = memslot->userspace_addr;
-		unsigned long end;
+		unsigned long hva_start, hva_end;
+		gfn_t gfn, gfn_end;
 
-		end = start + (memslot->npages << PAGE_SHIFT);
-		if (hva >= start && hva < end) {
-			gpa_t gpa;
-			gpa_t gpa_offset = hva - start;
-			gpa = (memslot->base_gfn << PAGE_SHIFT) + gpa_offset;
-			handler(kvm, hva, gpa, data);
+		hva_start = max(start, memslot->userspace_addr);
+		hva_end = min(end, memslot->userspace_addr +
+					(memslot->npages << PAGE_SHIFT));
+		if (hva_start >= hva_end)
+			continue;
+
+		/*
+		 * {gfn(page) | page intersects with [hva_start, hva_end)} =
+		 * {gfn_start, gfn_start+1, ..., gfn_end-1}.
+		 */
+		gfn = hva_to_gfn_memslot(hva_start, memslot);
+		gfn_end = hva_to_gfn_memslot(hva_end + PAGE_SIZE - 1, memslot);
+
+		for (; gfn < gfn_end; ++gfn) {
+			gpa_t gpa = gfn << PAGE_SHIFT;
+			handler(kvm, gpa, data);
 		}
 	}
 }
 
-static void kvm_unmap_hva_handler(struct kvm *kvm, unsigned long hva,
-				  gpa_t gpa, void *data)
+static void kvm_unmap_hva_handler(struct kvm *kvm, gpa_t gpa, void *data)
 {
-	spin_lock(&kvm->arch.pgd_lock);
 	stage2_clear_pte(kvm, gpa);
-	spin_unlock(&kvm->arch.pgd_lock);
 }
 
 int kvm_unmap_hva(struct kvm *kvm, unsigned long hva)
 {
+	unsigned long end = hva + PAGE_SIZE;
+
 	if (!kvm->arch.pgd)
 		return 0;
 
-	handle_hva_to_gpa(kvm, hva, &kvm_unmap_hva_handler, NULL);
-
+	trace_kvm_unmap_hva(hva);
+	handle_hva_to_gpa(kvm, hva, end, &kvm_unmap_hva_handler, NULL);
 	return 0;
 }
 
 int kvm_unmap_hva_range(struct kvm *kvm,
 			unsigned long start, unsigned long end)
 {
-	unsigned long addr;
-	int ret;
+	if (!kvm->arch.pgd)
+		return 0;
 
-	BUG_ON((start | end) & (~PAGE_MASK));
-
-	for (addr = start; addr < end; addr += PAGE_SIZE) {
-		ret = kvm_unmap_hva(kvm, addr);
-		if (ret)
-			return ret;
-	}
-
+	trace_kvm_unmap_hva_range(start, end);
+	handle_hva_to_gpa(kvm, start, end, &kvm_unmap_hva_handler, NULL);
 	return 0;
 }
 
-static void kvm_set_spte_handler(struct kvm *kvm, unsigned long hva,
-				 gpa_t gpa, void *data)
+static void kvm_set_spte_handler(struct kvm *kvm, gpa_t gpa, void *data)
 {
 	pte_t *pte = (pte_t *)data;
 
-	spin_lock(&kvm->arch.pgd_lock);
 	stage2_set_pte(kvm, NULL, gpa, pte);
-	spin_unlock(&kvm->arch.pgd_lock);
 }
 
 
 void kvm_set_spte_hva(struct kvm *kvm, unsigned long hva, pte_t pte)
 {
+	unsigned long end = hva + PAGE_SIZE;
 	pte_t stage2_pte;
 
 	if (!kvm->arch.pgd)
 		return;
 
+	trace_kvm_set_spte_hva(hva);
 	stage2_pte = pfn_pte(pte_pfn(pte), PAGE_KVM_GUEST);
-	handle_hva_to_gpa(kvm, hva, &kvm_set_spte_handler, &stage2_pte);
+	handle_hva_to_gpa(kvm, hva, end, &kvm_set_spte_handler, &stage2_pte);
 }
 
 void kvm_mmu_free_memory_caches(struct kvm_vcpu *vcpu)

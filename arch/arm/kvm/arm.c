@@ -142,7 +142,6 @@ int kvm_arch_init_vm(struct kvm *kvm, unsigned long type)
 	ret = kvm_alloc_stage2_pgd(kvm);
 	if (ret)
 		goto out_fail_alloc;
-	spin_lock_init(&kvm->arch.pgd_lock);
 
 	ret = create_hyp_mappings(kvm, kvm + 1);
 	if (ret)
