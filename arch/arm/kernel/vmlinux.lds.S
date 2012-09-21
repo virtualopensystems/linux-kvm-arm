@@ -173,11 +173,6 @@ SECTIONS
 		__smpalt_end = .;
 	}
 #endif
-	.init.pv_table : {
-		__pv_table_begin = .;
-		*(.pv_table)
-		__pv_table_end = .;
-	}
 	.init.runtime_patch_table : {
 		__runtime_patch_table_begin = .;
 		*(.runtime.patch.table)

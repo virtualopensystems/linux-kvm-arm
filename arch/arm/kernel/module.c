@@ -317,11 +317,6 @@ int module_finalize(const Elf32_Ehdr *hdr, const Elf_Shdr *sechdrs,
 					         maps[i].txt_sec->sh_addr,
 					         maps[i].txt_sec->sh_size);
 #endif
-#ifdef CONFIG_ARM_PATCH_PHYS_VIRT
-	s = find_mod_section(hdr, sechdrs, ".pv_table");
-	if (s)
-		fixup_pv_table((void *)s->sh_addr, s->sh_size);
-#endif
 	s = find_mod_section(hdr, sechdrs, ".runtime.patch.table");
 	if (s) {
 		err = runtime_patch((void *)s->sh_addr, s->sh_size);
