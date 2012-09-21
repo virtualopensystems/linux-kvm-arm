@@ -168,6 +168,78 @@ static int apply_patch_imm8(const struct patch_info *p)
 	return 0;
 }
 
+#ifdef CONFIG_ARM_RUNTIME_PATCH_TEST
+
+struct patch_test_imm8 {
+	u16	imm;
+	u16	shift;
+	u32	insn;
+};
+
+static void __init __used __naked __patch_test_code_imm8(void)
+{
+	__asm__ __volatile__ (
+
+		/* a single test case */
+		"	.macro		test_one, imm, sft\n"
+		"	.hword		\\imm\n"
+		"	.hword		\\sft\n"
+		"	add		r1, r2, #(\\imm << \\sft)\n"
+		"	.endm\n"
+
+		/* a sequence of tests at 'inc' increments of shift */
+		"	.macro		test_seq, imm, sft, max, inc\n"
+		"	test_one	\\imm, \\sft\n"
+		"	.if		\\sft < \\max\n"
+		"	test_seq	\\imm, (\\sft + \\inc), \\max, \\inc\n"
+		"	.endif\n"
+		"	.endm\n"
+
+		/* an empty record to mark the end */
+		"	.macro		test_end\n"
+		"	.hword		0, 0\n"
+		"	.word		0\n"
+		"	.endm\n"
+
+		/* finally generate the test sequences */
+		"	test_seq	0x41, 0, 24, 1\n"
+		"	test_seq	0x81, 0, 24, 2\n"
+		"	test_end\n"
+		: : : "r1", "r2", "cc");
+}
+
+static void __init test_patch_imm8(void)
+{
+	u32 test_code_addr = (u32)(&__patch_test_code_imm8);
+	struct patch_test_imm8 *test = (void *)(test_code_addr & ~1);
+	u32 ninsn, insn, patched_insn;
+	int i, err;
+
+	insn = test[0].insn;
+	for (i = 0; test[i].insn; i++) {
+		err = do_patch_imm8(insn, test[i].imm << test[i].shift, &ninsn);
+		__patch_text(&patched_insn, ninsn);
+
+		if (err) {
+			pr_err("rtpatch imm8: failed at imm %x, shift %d\n",
+			       test[i].imm, test[i].shift);
+		} else if (patched_insn != test[i].insn) {
+			pr_err("rtpatch imm8: failed, need %x got %x\n",
+			       test[i].insn, patched_insn);
+		} else {
+			pr_debug("rtpatch imm8: imm %x, shift %d, %x -> %x\n",
+				 test[i].imm, test[i].shift, insn,
+				 patched_insn);
+		}
+	}
+}
+
+static void __init runtime_patch_test(void)
+{
+	test_patch_imm8();
+}
+#endif
+
 int runtime_patch(const void *table, unsigned size)
 {
 	const struct patch_info *p = table, *end = (table + size);
@@ -189,5 +261,8 @@ void __init runtime_patch_kernel(void)
 	const void *start = &__runtime_patch_table_begin;
 	const void *end   = &__runtime_patch_table_end;
 
+#ifdef CONFIG_ARM_RUNTIME_PATCH_TEST
+	runtime_patch_test();
+#endif
 	BUG_ON(runtime_patch(start, end - start));
 }
