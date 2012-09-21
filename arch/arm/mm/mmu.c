@@ -1026,15 +1026,12 @@ void __init sanity_check_meminfo(void)
 		}
 #endif
 
-		if (bank->start > ULONG_MAX)
-			highmem = 1;
-
-#ifdef CONFIG_HIGHMEM
 		if (bank->start >= vmalloc_limit)
 			highmem = 1;
 
 		bank->highmem = highmem;
 
+#ifdef CONFIG_HIGHMEM
 		/*
 		 * Split those memory banks which are partially overlapping
 		 * the vmalloc area greatly simplifying things later.
@@ -1057,26 +1054,12 @@ void __init sanity_check_meminfo(void)
 			bank->size = vmalloc_limit - bank->start;
 		}
 #else
-		bank->highmem = highmem;
-
 		/*
 		 * Highmem banks not allowed with !CONFIG_HIGHMEM.
 		 */
 		if (highmem) {
 			printk(KERN_NOTICE "Ignoring RAM at %.8llx-%.8llx "
 			       "(!CONFIG_HIGHMEM).\n",
-			       (unsigned long long)bank->start,
-			       (unsigned long long)bank->start + bank->size - 1);
-			continue;
-		}
-
-		/*
-		 * Check whether this memory bank would entirely overlap
-		 * the vmalloc area.
-		 */
-		if (bank->start >= vmalloc_limit) {
-			printk(KERN_NOTICE "Ignoring RAM at %.8llx-%.8llx "
-			       "(vmalloc region overlap).\n",
 			       (unsigned long long)bank->start,
 			       (unsigned long long)bank->start + bank->size - 1);
 			continue;
