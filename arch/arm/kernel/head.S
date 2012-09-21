@@ -567,7 +567,11 @@ ENDPROC(__fixup_pv_offsets)
 
 	.align
 1:	.long	.
+#if defined(CONFIG_ARM_LPAE) && defined(__ARMEB__)
+	.long	__pv_phys_offset + 4
+#else
 	.long	__pv_phys_offset
+#endif
 	.long	__pv_offset
 	.long	PAGE_OFFSET
 #endif

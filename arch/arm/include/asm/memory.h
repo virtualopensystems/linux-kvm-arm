@@ -154,13 +154,47 @@
 #ifdef CONFIG_ARM_PATCH_PHYS_VIRT
 
 extern unsigned long	__pv_offset;
-extern unsigned long	__pv_phys_offset;
+extern phys_addr_t	__pv_phys_offset;
 #define PHYS_OFFSET	__virt_to_phys(PAGE_OFFSET)
 
 static inline phys_addr_t __virt_to_phys(unsigned long x)
 {
-	unsigned long t;
+	phys_addr_t t;
+
+#ifndef CONFIG_ARM_LPAE
 	early_patch_imm8("add", t, x, __pv_offset, 0);
+#else
+	unsigned long __tmp;
+
+#ifndef __ARMEB__
+#define PV_PHYS_HIGH	"(__pv_phys_offset + 4)"
+#else
+#define PV_PHYS_HIGH	"__pv_phys_offset"
+#endif
+
+	early_patch_stub(
+	/* type */		PATCH_IMM8,
+	/* code */
+		"ldr		%[tmp], =__pv_offset\n"
+		"ldr		%[tmp], [%[tmp]]\n"
+		"add		%Q[to], %[from], %[tmp]\n"
+		"ldr		%[tmp], =" PV_PHYS_HIGH "\n"
+		"ldr		%[tmp], [%[tmp]]\n"
+		"mov		%R[to], %[tmp]\n",
+	/* pad */		4,
+	/* patch_data */
+		".long		__pv_offset\n"
+		"add		%Q[to], %[from], %[imm]\n"
+		".long	"	PV_PHYS_HIGH "\n"
+		"mov		%R[to], %[imm]\n",
+	/* operands */
+		: [to]	 "=r"	(t),
+		  [tmp]	 "=&r"	(__tmp)
+		: [from] "r"	(x),
+		  [imm]	 "I"	(__IMM8),
+			 "i"	(&__pv_offset),
+			 "i"	(&__pv_phys_offset));
+#endif
 	return t;
 }
 
