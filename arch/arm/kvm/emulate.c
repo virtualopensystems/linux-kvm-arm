@@ -36,7 +36,7 @@ static const unsigned long vcpu_reg_offsets[VCPU_NR_MODES][16] = {
 		USR_REG_OFFSET(0), USR_REG_OFFSET(1), USR_REG_OFFSET(2),
 		USR_REG_OFFSET(3), USR_REG_OFFSET(4), USR_REG_OFFSET(5),
 		USR_REG_OFFSET(6), USR_REG_OFFSET(7),
-		REG_OFFSET(fiq_regs[1]), /* r8 */
+		REG_OFFSET(fiq_regs[0]), /* r8 */
 		REG_OFFSET(fiq_regs[1]), /* r9 */
 		REG_OFFSET(fiq_regs[2]), /* r10 */
 		REG_OFFSET(fiq_regs[3]), /* r11 */
