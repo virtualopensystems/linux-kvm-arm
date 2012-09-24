@@ -2,6 +2,7 @@
 #define GUEST_H
 #include <stdint.h>
 #include <stdbool.h>
+#include "guest-util.h"
 
 void ok(void);
 void fail(void);

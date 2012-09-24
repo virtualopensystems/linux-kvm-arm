@@ -1,5 +1,4 @@
 #include "guest.h"
-#include <stdarg.h>
 #include "cp15_test.h"
 
 /* Don't test things we know fail. */
@@ -17,49 +16,6 @@ struct test32 {
 };
 
 extern u32 mcr_insn, mrc_insn, mcrr_insn, mrrc_insn;
-
-/* Only understands %u, %s */
-static void printf(const char *fmt, ...)
-{
-	va_list ap;
-	unsigned val;
-	char intbuf[20], *p;
-
-	va_start(ap, fmt);
-	while (*fmt) {
-		if (*fmt != '%') {
-			putc(*(fmt++));
-			continue;
-		}
-		fmt++;
-		switch (*fmt) {
-		case 'u':
-			fmt++;
-			val = va_arg(ap, int);
-			if (!val) {
-				putc('0');
-				continue;
-			}
-			p = &intbuf[19];
-			*(p--) = '\0';
-			while (val) {
-				*(p--) = (val % 10) + '0';
-				val /= 10;
-			}
-			print(p+1);
-			break;
-		case 's':
-			fmt++;
-			p = va_arg(ap, char *);
-			print(p);
-			break;
-		default:
-			putc('%');
-			continue;
-		}
-	}
-	va_end(ap);
-}
 
 /* Alter mcr or mrc instruction */
 static void alter_insn32(u32 *insn,

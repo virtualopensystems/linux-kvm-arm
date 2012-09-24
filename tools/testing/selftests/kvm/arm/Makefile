@@ -43,11 +43,14 @@ guest-driver: $(DRIVER_OBJS)
 guest-base.o: guest-base.S
 	$(GCC) $(CFLAGS) -fno-builtin -ffreestanding -c -o $@ $<
 
+guest-util.o: guest-util.c
+	$(GCC) $(CFLAGS) $(CFLAGS_$@) -fno-builtin -ffreestanding -c -o $@ $<
+
 %-guest.o: %-guest.c
 	$(GCC) $(CFLAGS) $(CFLAGS_$@) -fno-builtin -ffreestanding -c -o $@ $<
 
-%-guest: %-guest.o guest.lds guest-base.o
-	$(LD) -o $@ --script=guest.lds $< guest-base.o
+%-guest: %-guest.o guest.lds guest-base.o guest-util.o
+	$(LD) -o $@ --script=guest.lds $< guest-base.o guest-util.o
 
 %-host.o: %-host.c
 	$(GCC) $(CFLAGS) $(CFLAGS_$@) -c -o $@ $<
