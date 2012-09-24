@@ -30,10 +30,16 @@ static void turn_on_coproc_access(void)
 
 int test(void)
 {
-	double d1, d2, d3;
 	register double d0 asm("d0");
+	register double d1 asm("d1");
+	register double d2 asm("d2");
+	register double d3 asm("d3");
 	register double d16 asm("d16");
+	register double d17 asm("d17");
+	register double d18 asm("d18");
+	register double d19 asm("d19");
 	int val;
+	int i;
 
 	print("Turning on CP10/11 access\n");
 	turn_on_coproc_access();
@@ -47,9 +53,11 @@ int test(void)
 
 	print("Basic floating point test\n");
 	d1 = 1.0 / 8;
+	vm_exit();
 	d2 = 1.0 / 16;
+	vm_exit();
 	d3 = d1 + d2;
-
+	vm_exit();
 	assert(d3 == 3.0 / 16);
 
 	/* Now, try loading 2.0 and make sure host doesn't interfere! */
@@ -59,6 +67,14 @@ int test(void)
 	assert(d0 == 2.0);
 
 	/* Same thing with upper 16 registers. */
+	d17 = 1.0 / 8;
+	vm_exit();
+	d18 = 1.0 / 16;
+	vm_exit();
+	d19 = d17 + d18;
+	vm_exit();
+	assert(d19 == 3.0 / 16);
+
 	d16 = 2.0;
 	assert(d16 == 2.0);
 	read(VFP_USE_REG + 16, val);
@@ -78,6 +94,23 @@ int test(void)
 	d16 = 2.0;
 	read(VFP_SET_REG + 16, val);
 	assert(d16 == 3.0);
+
+	/* Check again a high number of exits doesn't affect results */
+	d0 = 100.0;
+	d1 = 1.073;
+	d16 = d0;
+	d17 = d1;
+
+	for(i = 0; i < 1000; i++)
+		d0 *= d1;
+
+	for(i = 0; i < 1000; i++) {
+		vm_exit();
+		d16 *= d17;
+		vm_exit();
+	}
+
+	assert(d0 == d16);
 
 	return 0;
 }
