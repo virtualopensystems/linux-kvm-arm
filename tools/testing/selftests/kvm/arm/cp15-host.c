@@ -6,6 +6,7 @@
 #include <assert.h>
 #include <errno.h>
 #include <sys/ioctl.h>
+#include <stdio.h>
 
 #include "guest-driver.h"
 #include "cp15_test.h"
