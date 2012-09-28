@@ -319,7 +319,10 @@ MODULE_DEVICE_TABLE(i2c, hdmiphy_id);
 
 #ifdef CONFIG_OF
 static struct of_device_id hdmiphy_dt_match[] = {
-	{ .compatible = "samsung,s5pv210-hdmiphy" },
+	{ .compatible = "samsung,hdmiphy-s5pv210" },
+	{ .compatible = "samsung,hdmiphy-exynos4210" },
+	{ .compatible = "samsung,hdmiphy-exynos4212" },
+	{ .compatible = "samsung,hdmiphy-exynos4412" },
 	{ },
 };
 MODULE_DEVICE_TABLE(of, hdmiphy_dt_match);
