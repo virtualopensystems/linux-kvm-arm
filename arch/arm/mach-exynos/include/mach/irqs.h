@@ -465,6 +465,9 @@
 #define IRQ_GPIO_END			(S5P_GPIOINT_BASE + S5P_GPIOINT_COUNT)
 #define IRQ_TIMER_BASE			(IRQ_GPIO_END + 64)
 
+/* optional GPIO interrupts */
+#define IRQ_BOARD_START			IRQ_GPIO_END
+
 /* Set the default NR_IRQS */
 
 #define NR_IRQS				(IRQ_TIMER_BASE + IRQ_TIMER_COUNT)
