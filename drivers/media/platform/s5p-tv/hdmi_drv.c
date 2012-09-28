@@ -1172,13 +1172,16 @@ static int hdmi_probe(struct platform_device *pdev)
 		ret = PTR_ERR(hdmi_dev->phy_sd);
 		goto fail_vdev;
 	}
-	hdmi_dev->mhl_sd = hdmi_get_subdev(hdmi_dev,
-					   pdata ? pdata->mhl_info : NULL ,
-					   pdata ? pdata->mhl_bus : -1,
-					   "mhl");
-	if (IS_ERR_OR_NULL(hdmi_dev->mhl_sd)) {
-		ret = PTR_ERR(hdmi_dev->mhl_sd);
-		goto fail_vdev;
+
+	if (pdata && pdata->mhl_info) {
+		hdmi_dev->mhl_sd = hdmi_get_subdev(hdmi_dev,
+				pdata ? pdata->mhl_info : NULL ,
+				pdata ? pdata->mhl_bus : -1,
+				"mhl");
+		if (IS_ERR_OR_NULL(hdmi_dev->mhl_sd)) {
+			ret = PTR_ERR(hdmi_dev->mhl_sd);
+			goto fail_vdev;
+		}
 	}
 
 	clk_enable(hdmi_dev->res.hdmi);
