@@ -126,7 +126,7 @@ static void create_hyp_pte_mappings(pmd_t *pmd, unsigned long start,
 	pgprot_t prot;
 
 	if (pfn_base)
-		prot = __pgprot(get_mem_type_prot_pte(MT_DEVICE) | L_PTE_USER);
+		prot = PAGE_HYP_DEVICE;
 	else
 		prot = PAGE_HYP;
 
@@ -469,18 +469,15 @@ int kvm_phys_addr_ioremap(struct kvm *kvm, phys_addr_t guest_ipa,
 			  phys_addr_t pa, unsigned long size)
 {
 	phys_addr_t addr, end;
-	pgprot_t prot;
 	int ret = 0;
 	unsigned long pfn;
 	struct kvm_mmu_memory_cache cache = { 0, };
 
 	end = (guest_ipa + size + PAGE_SIZE - 1) & PAGE_MASK;
-	prot = __pgprot(get_mem_type_prot_pte(MT_DEVICE) | L_PTE_USER |
-			L_PTE_S2_RDWR);
 	pfn = __phys_to_pfn(pa);
 
 	for (addr = guest_ipa; addr < end; addr += PAGE_SIZE) {
-		pte_t pte = pfn_pte(pfn, prot);
+		pte_t pte = pfn_pte(pfn, PAGE_S2_DEVICE);
 
 		ret = mmu_topup_memory_cache(&cache, 2, 2);
 		if (ret)
@@ -552,7 +549,7 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
 	if (is_error_pfn(pfn))
 		return -EFAULT;
 
-	new_pte = pfn_pte(pfn, PAGE_KVM_GUEST);
+	new_pte = pfn_pte(pfn, PAGE_S2);
 	coherent_icache_guest_page(vcpu->kvm, gfn);
 
 	spin_lock(&vcpu->kvm->mmu_lock);
@@ -976,7 +973,7 @@ void kvm_set_spte_hva(struct kvm *kvm, unsigned long hva, pte_t pte)
 		return;
 
 	trace_kvm_set_spte_hva(hva);
-	stage2_pte = pfn_pte(pte_pfn(pte), PAGE_KVM_GUEST);
+	stage2_pte = pfn_pte(pte_pfn(pte), PAGE_S2);
 	handle_hva_to_gpa(kvm, hva, end, &kvm_set_spte_handler, &stage2_pte);
 }
 
