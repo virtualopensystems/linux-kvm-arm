@@ -74,22 +74,6 @@ struct kvm_mmu_memory_cache {
 	void *objects[KVM_NR_MEM_OBJS];
 };
 
-/*
- * Modes used for short-hand mode determinition in the world-switch code and
- * in emulation code.
- *
- * Note: These indices do NOT correspond to the value of the CPSR mode bits!
- */
-enum vcpu_mode {
-	MODE_FIQ = 0,
-	MODE_IRQ,
-	MODE_SVC,
-	MODE_ABT,
-	MODE_UND,
-	MODE_USR,
-	MODE_SYS
-};
-
 /* 0 is reserved as an invalid value. */
 enum cp15_regs {
 	c0_MPIDR=1,		/* MultiProcessor ID Register */

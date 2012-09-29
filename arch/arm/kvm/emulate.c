@@ -24,12 +24,13 @@
 
 #include "trace.h"
 
+#define VCPU_NR_MODES 7
 #define REG_OFFSET(_reg) \
 	(offsetof(struct kvm_regs, _reg) / sizeof(u32))
 
 #define USR_REG_OFFSET(_num) REG_OFFSET(usr_regs[_num])
 
-static const unsigned long vcpu_reg_offsets[MODE_SYS + 1][16] = {
+static const unsigned long vcpu_reg_offsets[VCPU_NR_MODES][16] = {
 	/* FIQ Registers */
 	{
 		USR_REG_OFFSET(0), USR_REG_OFFSET(1), USR_REG_OFFSET(2),
@@ -119,17 +120,74 @@ static const unsigned long vcpu_reg_offsets[MODE_SYS + 1][16] = {
 };
 
 /*
+ * Modes used for short-hand mode determinition in the world-switch code and
+ * in emulation code.
+ *
+ * Note: These indices do NOT correspond to the value of the CPSR mode bits!
+ */
+enum vcpu_mode {
+	VCPU_FIQ_MODE = 0,
+	VCPU_IRQ_MODE,
+	VCPU_SVC_MODE,
+	VCPU_ABT_MODE,
+	VCPU_UND_MODE,
+	VCPU_USR_MODE,
+	VCPU_SYS_MODE
+};
+
+static const u8 modes_table[32] = {
+	0xf, 0xf, 0xf, 0xf, 0xf, 0xf, 0xf, 0xf,
+	0xf, 0xf, 0xf, 0xf, 0xf, 0xf, 0xf, 0xf,
+	VCPU_USR_MODE,	/* 0x0 */
+	VCPU_FIQ_MODE,	/* 0x1 */
+	VCPU_IRQ_MODE,	/* 0x2 */
+	VCPU_SVC_MODE,	/* 0x3 */
+	0xf, 0xf, 0xf,
+	VCPU_ABT_MODE,	/* 0x7 */
+	0xf, 0xf, 0xf,
+	VCPU_UND_MODE,	/* 0xb */
+	0xf, 0xf, 0xf,
+	VCPU_SYS_MODE	/* 0xf */
+};
+
+static enum vcpu_mode vcpu_mode(u32 cpsr)
+{
+	u8 mode = modes_table[cpsr & 0x1f];
+	BUG_ON(mode == 0xf);
+	return mode;
+};
+
+/*
  * Return a pointer to the register number valid in the specified mode of
  * the virtual CPU.
  */
-u32 *vcpu_reg_mode(struct kvm_vcpu *vcpu, u8 reg_num, u32 mode)
+u32 *vcpu_reg_mode(struct kvm_vcpu *vcpu, u8 reg_num, u32 cpsr)
 {
+	unsigned long mode = vcpu_mode(cpsr);
 	u32 *reg_array = (u32 *)&vcpu->arch.regs;
 
-	BUG_ON(reg_num > 15);
-	BUG_ON(mode > MODE_SYS);
-
 	return reg_array + vcpu_reg_offsets[mode][reg_num];
+}
+
+/*
+ * Return the SPSR for the specified mode of the virtual CPU.
+ */
+u32 *vcpu_spsr_mode(struct kvm_vcpu *vcpu, u32 cpsr)
+{
+	switch (vcpu_mode(cpsr)) {
+	case VCPU_SVC_MODE:
+		return &vcpu->arch.regs.svc_regs[2];
+	case VCPU_ABT_MODE:
+		return &vcpu->arch.regs.abt_regs[2];
+	case VCPU_UND_MODE:
+		return &vcpu->arch.regs.und_regs[2];
+	case VCPU_IRQ_MODE:
+		return &vcpu->arch.regs.irq_regs[2];
+	case VCPU_FIQ_MODE:
+		return &vcpu->arch.regs.fiq_regs[7];
+	default:
+		BUG();
+	}
 }
 
 /******************************************************************************

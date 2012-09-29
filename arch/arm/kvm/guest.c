@@ -80,8 +80,18 @@ static int set_core_reg(struct kvm_vcpu *vcpu, const struct kvm_one_reg *reg)
 		return -EFAULT;
 
 	if (off == KVM_REG_ARM_CORE_REG(cpsr)) {
-		if (__vcpu_mode(val) == 0xf)
+		unsigned long mode = val & MODE_MASK;
+		switch (mode) {
+		case USR_MODE:
+		case FIQ_MODE:
+		case IRQ_MODE:
+		case SVC_MODE:
+		case ABT_MODE:
+		case UND_MODE:
+			break;
+		default:
 			return -EINVAL;
+		}
 	}
 
 	((u32 *)regs)[off] = val;
