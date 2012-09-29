@@ -719,9 +719,9 @@ static int vcpu_interrupt_line(struct kvm_vcpu *vcpu, int number, bool level)
 	unsigned long *ptr;
 
 	if (number == KVM_ARM_IRQ_CPU_IRQ)
-		bit_index = ffs(HCR_VI) - 1;
+		bit_index = __ffs(HCR_VI);
 	else /* KVM_ARM_IRQ_CPU_FIQ */
-		bit_index = ffs(HCR_VF) - 1;
+		bit_index = __ffs(HCR_VF);
 
 	ptr = (unsigned long *)&vcpu->arch.irq_lines;
 	if (level)
