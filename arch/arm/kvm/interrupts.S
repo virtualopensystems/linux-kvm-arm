@@ -851,19 +851,6 @@ hyp_hvc:
 	cmp     r2, #0
 	bne	guest_trap		@ Guest called HVC
 
-	@ HVC came from host. Check if this is a request to
-	@ switch HVBAR to another set of vectors (kvm_exit).
-	lsl	r0, r0, #16
-	lsr	r0, r0, #16
-	cmp	r0, #0xff
-	bne	host_switch_to_hyp	@ Not HVC #0xff
-
-	@ We're switching away from this hypervisor, let's blow the TLBs.
-	pop	{r0, r1, r2}
-	mcr	p15, 4, r0, c12, c0, 0  @ HVBAR
-	mcr	p15, 4, r0, c8, c7, 0   @ Flush Hyp TLB, r0 ignored
-	eret
-
 host_switch_to_hyp:
 	@ Store lr_usr,spsr (svc cpsr) on bottom of stack
 	mov	r1, sp

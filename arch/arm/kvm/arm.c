@@ -871,22 +871,6 @@ long kvm_arch_vm_ioctl(struct file *filp,
 	}
 }
 
-static void cpu_set_vector(void *vector)
-{
-	unsigned long vector_ptr;
-
-	vector_ptr = (unsigned long)vector;
-
-	/*
-	 * Set the HVBAR
-	 */
-	asm volatile (
-		"mov	r0, %[vector_ptr]\n\t"
-		"hvc	#0xff\n\t" : :
-		[vector_ptr] "r" (vector_ptr) :
-		"r0");
-}
-
 static void cpu_init_hyp_mode(void *vector)
 {
 	unsigned long pgd_ptr;
@@ -1062,62 +1046,9 @@ out_err:
 	return err;
 }
 
-static void cpu_exit_hyp_mode(void *vector)
-{
-	cpu_set_vector(vector);
-
-	/*
-	 * Disable Hyp-MMU for each cpu, and switch back to the
-	 * default vectors.
-	 */
-	asm volatile ("mov	r0, %[vector_ptr]\n\t"
-		      "hvc	#0\n\t" : :
-		      [vector_ptr] "r" (hyp_default_vectors) :
-		      "r0");
-}
-
-static int exit_hyp_mode(void)
-{
-	phys_addr_t exit_phys_addr;
-	int cpu;
-
-	/*
-	 * TODO: flush Hyp TLB in case idmap code overlaps.
-	 * Note that we should do this in the monitor code when switching the
-	 * HVBAR, but this is going  away and should be rather done in the Hyp
-	 * mode change of HVBAR.
-	 */
-	hyp_idmap_setup();
-	exit_phys_addr = virt_to_phys(__kvm_hyp_exit);
-	BUG_ON(exit_phys_addr & 0x1f);
-
-	/*
-	 * Execute the exit code on each CPU.
-	 *
-	 * Note: The stack is not mapped yet, so don't do anything else than
-	 * initializing the hypervisor mode on each CPU using a local stack
-	 * space for temporary storage.
-	 */
-	for_each_online_cpu(cpu) {
-		smp_call_function_single(cpu, cpu_exit_hyp_mode,
-					 (void *)(long)exit_phys_addr, 1);
-	}
-
-	return 0;
-}
-
+/* NOP: Compiling as a module not supported */
 void kvm_arch_exit(void)
 {
-	int cpu;
-
-	exit_hyp_mode();
-
-	free_hyp_pmds();
-	free_percpu(kvm_host_vfp_state);
-	for_each_possible_cpu(cpu) {
-		free_page(per_cpu(kvm_arm_hyp_stack_page, cpu));
-		per_cpu(kvm_arm_hyp_stack_page, cpu) = 0;
-	}
 }
 
 static int arm_init(void)
@@ -1126,10 +1057,4 @@ static int arm_init(void)
 	return rc;
 }
 
-static void __exit arm_exit(void)
-{
-	kvm_exit();
-}
-
 module_init(arm_init);
-module_exit(arm_exit)

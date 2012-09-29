@@ -122,35 +122,4 @@ THUMB(	adr	r12, __kvm_init_sp		)
 	.globl __kvm_hyp_init_end
 __kvm_hyp_init_end:
 
-	.align 12
-__kvm_hyp_exit:
-	.globl __kvm_hyp_exit
-
-	@ Hyp-mode exception vector
-	W(b)	.
-	W(b)	.
-	W(b)	.
-	W(b)	.
-	W(b)	.
-	W(b)	__do_hyp_exit
-	W(b)	.
-	W(b)	.
-
-__do_hyp_exit:
-	@ Set the next HVBAR (normally the default vectors)
-	mcr	p15, 4, r0, c12, c0, 0	@ HVBAR
-
-	@ Clear the MMU bit in the HSCR
-	mrc	p15, 4, r0, c1, c0, 0	@ HSCR
-	bic	r0, r0, #HSCTLR_M
-
-	isb
-	mcr	p15, 4, r0, c1, c0, 0	@ HSCR
-	mcr	p15, 4, r0, c8, c7, 0   @ Flush Hyp TLB, r0 ignored
-	isb
-	eret
-
-	.globl __kvm_hyp_exit_end
-__kvm_hyp_exit_end:
-
 	.popsection
