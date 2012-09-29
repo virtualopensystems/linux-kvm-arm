@@ -667,8 +667,6 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 			continue;
 		}
 
-		BUG_ON(__vcpu_mode(*vcpu_cpsr(vcpu)) == 0xf);
-
 		/**************************************************************
 		 * Enter the guest
 		 */
