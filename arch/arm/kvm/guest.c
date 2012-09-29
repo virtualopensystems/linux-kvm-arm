@@ -180,12 +180,12 @@ int kvm_vcpu_set_target(struct kvm_vcpu *vcpu,
 		return -EINVAL;
 
 	vcpu->arch.target = init->target;
-	bitmap_zero(vcpu->arch.features, NUM_FEATURES);
+	bitmap_zero(vcpu->arch.features, KVM_VCPU_MAX_FEATURES);
 
 	/* -ENOENT for unknown features, -EINVAL for invalid combinations. */
 	for (i = 0; i < sizeof(init->features)*8; i++) {
 		if (init->features[i / 32] & (1 << (i % 32))) {
-			if (i >= NUM_FEATURES)
+			if (i >= KVM_VCPU_MAX_FEATURES)
 				return -ENOENT;
 			set_bit(i, vcpu->arch.features);
 		}

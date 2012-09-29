@@ -21,9 +21,6 @@
 
 #include <asm/types.h>
 
-/* Supported Processor Types */
-#define CORTEX_A15	(0xC0F)
-
 /* Multiprocessor Affinity Register */
 #define MPIDR_CPUID	(0x3 << 0)
 

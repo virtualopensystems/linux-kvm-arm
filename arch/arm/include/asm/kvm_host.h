@@ -22,7 +22,7 @@
 #include <asm/kvm.h>
 #include <asm/fpstate.h>
 
-#define KVM_MAX_VCPUS 4
+#define KVM_MAX_VCPUS NR_CPUS
 #define KVM_MEMORY_SLOTS 32
 #define KVM_PRIVATE_MEM_SLOTS 4
 #define KVM_COALESCED_MMIO_PAGE_OFFSET 1
@@ -31,7 +31,7 @@
 #include <asm/kvm_vgic.h>
 #include <asm/kvm_arch_timer.h>
 
-#define NUM_FEATURES 0
+#define KVM_VCPU_MAX_FEATURES 0
 
 /* We don't currently support large pages. */
 #define KVM_HPAGE_GFN_SHIFT(x)	0
@@ -62,16 +62,6 @@ struct kvm_arch {
 	/* Timer */
 	struct arch_timer_kvm	timer;
 };
-
-#define EXCEPTION_NONE      0
-#define EXCEPTION_RESET     0x80
-#define EXCEPTION_UNDEFINED 0x40
-#define EXCEPTION_SOFTWARE  0x20
-#define EXCEPTION_PREFETCH  0x10
-#define EXCEPTION_DATA      0x08
-#define EXCEPTION_IMPRECISE 0x04
-#define EXCEPTION_IRQ       0x02
-#define EXCEPTION_FIQ       0x01
 
 #define KVM_NR_MEM_OBJS     40
 
@@ -135,7 +125,7 @@ struct kvm_vcpu_arch {
 	struct kvm_regs regs;
 
 	u32 target; /* Currently KVM_ARM_TARGET_CORTEX_A15 */
-	DECLARE_BITMAP(features, NUM_FEATURES);
+	DECLARE_BITMAP(features, KVM_VCPU_MAX_FEATURES);
 
 	/* System control coprocessor (cp15) */
 	u32 cp15[nr_cp15_regs];
