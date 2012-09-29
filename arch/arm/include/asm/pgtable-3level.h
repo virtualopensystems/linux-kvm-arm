@@ -103,13 +103,18 @@
 #define L_PGD_SWAPPER		(_AT(pgdval_t, 1) << 55)	/* swapper_pg_dir entry */
 
 /*
- * 2-nd stage PTE definitions for LPAE.
+ * 2nd stage PTE definitions for LPAE.
  */
-#define L_PTE2_SHARED		L_PTE_SHARED
-#define L_PTE2_READ		(_AT(pteval_t, 1) << 6)	/* HAP[0] */
-#define L_PTE2_WRITE		(_AT(pteval_t, 1) << 7)	/* HAP[1] */
-#define L_PTE2_NORM_WB		(_AT(pteval_t, 3) << 4)	/* MemAttr[3:2] */
-#define L_PTE2_INNER_WB		(_AT(pteval_t, 3) << 2)	/* MemAttr[1:0] */
+#define L_PTE_S2_MT_UNCACHED	 (_AT(pteval_t, 0x5) << 2) /* MemAttr[3:0] */
+#define L_PTE_S2_MT_WRITETHROUGH (_AT(pteval_t, 0xa) << 2) /* MemAttr[3:0] */
+#define L_PTE_S2_MT_WRITEBACK	 (_AT(pteval_t, 0xf) << 2) /* MemAttr[3:0] */
+#define L_PTE_S2_RDONLY		 (_AT(pteval_t, 1) << 6)   /* HAP[1]   */
+#define L_PTE_S2_RDWR		 (_AT(pteval_t, 2) << 6)   /* HAP[2:1] */
+
+/*
+ * Hyp-mode PL2 PTE definitions for LPAE.
+ */
+#define L_PTE_HYP		L_PTE_USER
 
 #ifndef __ASSEMBLY__
 

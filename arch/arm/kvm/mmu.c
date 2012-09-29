@@ -476,7 +476,7 @@ int kvm_phys_addr_ioremap(struct kvm *kvm, phys_addr_t guest_ipa,
 
 	end = (guest_ipa + size + PAGE_SIZE - 1) & PAGE_MASK;
 	prot = __pgprot(get_mem_type_prot_pte(MT_DEVICE) | L_PTE_USER |
-			L_PTE2_READ | L_PTE2_WRITE);
+			L_PTE_S2_RDWR);
 	pfn = __phys_to_pfn(pa);
 
 	for (addr = guest_ipa; addr < end; addr += PAGE_SIZE) {
@@ -567,7 +567,7 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
 		goto out;
 	new_pte = pfn_pte(pfn, PAGE_KVM_GUEST);
 	if (writable)
-		pte_val(new_pte) |= L_PTE2_WRITE;
+		pte_val(new_pte) |= L_PTE_S2_RDWR;
 	coherent_icache_guest_page(vcpu->kvm, gfn);
 
 	spin_lock(&vcpu->kvm->arch.pgd_lock);
