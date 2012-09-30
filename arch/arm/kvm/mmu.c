@@ -563,7 +563,14 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
 
 out_unlock:
 	spin_unlock(&vcpu->kvm->mmu_lock);
-	kvm_release_pfn_clean(pfn);
+	/*
+	 * XXX TODO FIXME:
+-        * This is _really_ *weird* !!!
+-        * We should be calling the _clean version, because we set the pfn dirty
+	 * if we map the page writable, but this causes memory failures in
+	 * guests under heavy memory pressure on the host and heavy swapping.
+	 */
+	kvm_release_pfn_dirty(pfn);
 	return 0;
 }
 
