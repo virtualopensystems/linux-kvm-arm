@@ -77,7 +77,7 @@ struct kvm_mmu_memory_cache {
 struct kvm_vcpu_arch {
 	struct kvm_regs regs;
 
-	u32 target; /* Currently KVM_ARM_TARGET_CORTEX_A15 */
+	int target; /* Processor target */
 	DECLARE_BITMAP(features, KVM_VCPU_MAX_FEATURES);
 
 	/* System control coprocessor (cp15) */

@@ -1,6 +1,7 @@
 /*
  * Copyright (C) 2012 - Virtual Open Systems and Columbia University
- * Author: Christoffer Dall <c.dall@virtualopensystems.com>
+ * Authors: Rusty Russell <rusty@rustcorp.com.au>
+ *          Christoffer Dall <c.dall@virtualopensystems.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2, as
@@ -27,65 +28,18 @@
 #include <trace/events/kvm.h>
 
 #include "trace.h"
+#include "coproc.h"
+
 
 /******************************************************************************
  * Co-processor emulation
  *****************************************************************************/
-
-struct coproc_params {
-	unsigned long CRn;
-	unsigned long CRm;
-	unsigned long Op1;
-	unsigned long Op2;
-	unsigned long Rt1;
-	unsigned long Rt2;
-	bool is_64bit;
-	bool is_write;
-};
-
-struct coproc_reg {
-	/* MRC/MCR/MRRC/MCRR instruction which accesses it. */
-	unsigned long CRn;
-	unsigned long CRm;
-	unsigned long Op1;
-	unsigned long Op2;
-
-	bool is_64;
-
-	/* Trapped access from guest, if non-NULL. */
-	bool (*access)(struct kvm_vcpu *,
-		       const struct coproc_params *,
-		       const struct coproc_reg *);
-
-	/* Initialization for vcpu. */
-	void (*reset)(struct kvm_vcpu *, const struct coproc_reg *);
-
-	/* Index into vcpu->arch.cp15[], or 0 if we don't need to save it. */
-	unsigned long reg;
-
-	/* Value (usually reset value) */
-	u64 val;
-};
 
 /* 3 bits per cache level, as per CLIDR, but non-existent caches always 0 */
 static u32 cache_levels;
 
 /* CSSELR values; used to index KVM_REG_ARM_DEMUX_ID_CCSIDR */
 #define CSSELR_MAX 12
-
-static void print_cp_instr(const struct coproc_params *p)
-{
-	/* Look, we even formatted it for you to paste into the table! */
-	if (p->is_64bit) {
-		kvm_pr_unimpl(" { CRm(%2lu), Op1(%2lu), is64, func_%s },\n",
-			      p->CRm, p->Op1, p->is_write ? "write" : "read");
-	} else {
-		kvm_pr_unimpl(" { CRn(%2lu), CRm(%2lu), Op1(%2lu), Op2(%2lu), is32,"
-			      " func_%s },\n",
-			      p->CRn, p->CRm, p->Op1, p->Op2,
-			      p->is_write ? "write" : "read");
-	}
-}
 
 int kvm_handle_cp10_id(struct kvm_vcpu *vcpu, struct kvm_run *run)
 {
@@ -113,108 +67,6 @@ int kvm_handle_cp14_access(struct kvm_vcpu *vcpu, struct kvm_run *run)
 {
 	kvm_inject_undefined(vcpu);
 	return 1;
-}
-
-static bool ignore_write(struct kvm_vcpu *vcpu, const struct coproc_params *p)
-{
-	return true;
-}
-
-static bool read_zero(struct kvm_vcpu *vcpu, const struct coproc_params *p)
-{
-	*vcpu_reg(vcpu, p->Rt1) = 0;
-	return true;
-}
-
-static bool write_to_read_only(struct kvm_vcpu *vcpu,
-			       const struct coproc_params *params)
-{
-	kvm_debug("CP15 write to read-only register at: %08x\n",
-		  vcpu->arch.regs.pc);
-	print_cp_instr(params);
-	return false;
-}
-
-static bool read_from_write_only(struct kvm_vcpu *vcpu,
-				 const struct coproc_params *params)
-{
-	kvm_debug("CP15 read to write-only register at: %08x\n",
-		  vcpu->arch.regs.pc);
-	print_cp_instr(params);
-	return false;
-}
-
-/* A15 TRM 4.3.48: R/O WI. */
-static bool access_l2ctlr(struct kvm_vcpu *vcpu,
-			  const struct coproc_params *p,
-			  const struct coproc_reg *r)
-{
-	if (p->is_write)
-		return ignore_write(vcpu, p);
-
-	*vcpu_reg(vcpu, p->Rt1) = vcpu->arch.cp15[c9_L2CTLR];
-	return true;
-}
-
-static void reset_l2ctlr(struct kvm_vcpu *vcpu, const struct coproc_reg *r)
-{
-	u32 l2ctlr, ncores;
-
-	asm volatile("mrc p15, 1, %0, c9, c0, 2\n" : "=r" (l2ctlr));
-	l2ctlr &= ~(3 << 24);
-	ncores = atomic_read(&vcpu->kvm->online_vcpus) - 1;
-	l2ctlr |= (ncores & 3) << 24;
-
-	vcpu->arch.cp15[c9_L2CTLR] = l2ctlr;
-}
-
-/* A15 TRM 4.3.49: R/O WI (even if NSACR.NS_L2ERR, a write of 1 is ignored). */
-static bool access_l2ectlr(struct kvm_vcpu *vcpu,
-			   const struct coproc_params *p,
-			   const struct coproc_reg *r)
-{
-	if (p->is_write)
-		return ignore_write(vcpu, p);
-
-	*vcpu_reg(vcpu, p->Rt1) = 0;
-	return true;
-}
-
-/* A15 TRM 4.3.60: R/O. */
-static bool access_cbar(struct kvm_vcpu *vcpu,
-			const struct coproc_params *p,
-			const struct coproc_reg *r)
-{
-	if (p->is_write)
-		return write_to_read_only(vcpu, p);
-	return read_zero(vcpu, p);
-}
-
-/* A15 TRM 4.3.28: RO WI */
-static bool access_actlr(struct kvm_vcpu *vcpu,
-			 const struct coproc_params *p,
-			 const struct coproc_reg *r)
-{
-	if (p->is_write)
-		return ignore_write(vcpu, p);
-
-	*vcpu_reg(vcpu, p->Rt1) = vcpu->arch.cp15[c1_ACTLR];
-	return true;
-}
-
-static void reset_actlr(struct kvm_vcpu *vcpu, const struct coproc_reg *r)
-{
-	u32 actlr;
-
-	/* ACTLR contains SMP bit: make sure you create all cpus first! */
-	asm volatile("mrc p15, 0, %0, c1, c0, 1\n" : "=r" (actlr));
-	/* Make the SMP bit consistent with the guest configuration */
-	if (atomic_read(&vcpu->kvm->online_vcpus) > 1)
-		actlr |= 1U << 6;
-	else
-		actlr &= ~(1U << 6);
-
-	vcpu->arch.cp15[c1_ACTLR] = actlr;
 }
 
 /* See note at ARM ARM B1.14.4 */
@@ -290,50 +142,6 @@ static bool pm_fake(struct kvm_vcpu *vcpu,
 #define access_pmuserenr pm_fake
 #define access_pmintenset pm_fake
 #define access_pmintenclr pm_fake
-
-/* Reset functions */
-static void reset_unknown(struct kvm_vcpu *vcpu, const struct coproc_reg *r)
-{
-	BUG_ON(!r->reg);
-	BUG_ON(r->reg >= ARRAY_SIZE(vcpu->arch.cp15));
-	vcpu->arch.cp15[r->reg] = 0xdecafbad;
-}
-
-static void reset_val(struct kvm_vcpu *vcpu, const struct coproc_reg *r)
-{
-	BUG_ON(!r->reg);
-	BUG_ON(r->reg >= ARRAY_SIZE(vcpu->arch.cp15));
-	vcpu->arch.cp15[r->reg] = r->val;
-}
-
-static void reset_unknown64(struct kvm_vcpu *vcpu, const struct coproc_reg *r)
-{
-	BUG_ON(!r->reg);
-	BUG_ON(r->reg + 1 >= ARRAY_SIZE(vcpu->arch.cp15));
-
-	vcpu->arch.cp15[r->reg] = 0xdecafbad;
-	vcpu->arch.cp15[r->reg+1] = 0xd0c0ffee;
-}
-
-static void reset_mpidr(struct kvm_vcpu *vcpu, const struct coproc_reg *r)
-{
-	/*
-	 * Compute guest MPIDR:
-	 * (Even if we present only one VCPU to the guest on an SMP
-	 * host we don't set the U bit in the MPIDR, or vice versa, as
-	 * revealing the underlying hardware properties is likely to
-	 * be the best choice).
-	 */
-	vcpu->arch.cp15[c0_MPIDR] = (read_cpuid_mpidr() & ~MPIDR_CPUID)
-		| (vcpu->vcpu_id & MPIDR_CPUID);
-}
-
-#define CRn(_x)		.CRn = _x
-#define CRm(_x) 	.CRm = _x
-#define Op1(_x) 	.Op1 = _x
-#define Op2(_x) 	.Op2 = _x
-#define is64		.is_64 = true
-#define is32		.is_64 = false
 
 /* Architected CP15 registers.
  * Important: Must be sorted ascending by CRn, CRM, Op1, Op2
@@ -414,47 +222,22 @@ static const struct coproc_reg cp15_regs[] = {
 			NULL, reset_unknown, c13_TID_PRIV },
 };
 
-/*
- * A15-specific CP15 registers.
- * Important: Must be sorted ascending by CRn, CRM, Op1, Op2
- */
-static const struct coproc_reg cp15_cortex_a15_regs[] = {
-	/* MPIDR: we use VMPIDR for guest access. */
-	{ CRn( 0), CRm( 0), Op1( 0), Op2( 5), is32,
-			NULL, reset_mpidr, c0_MPIDR },
+/* Target specific emulation tables */
+static struct kvm_coproc_target_table *target_tables[KVM_ARM_NUM_TARGETS];
 
-	/* SCTLR: swapped by interrupt.S. */
-	{ CRn( 1), CRm( 0), Op1( 0), Op2( 0), is32,
-			NULL, reset_val, c1_SCTLR, 0x00C50078 },
-	/* ACTLR: trapped by HCR.TAC bit. */
-	{ CRn( 1), CRm( 0), Op1( 0), Op2( 1), is32,
-			access_actlr, reset_actlr, c1_ACTLR },
-	/* CPACR: swapped by interrupt.S. */
-	{ CRn( 1), CRm( 0), Op1( 0), Op2( 2), is32,
-			NULL, reset_val, c1_CPACR, 0x00000000 },
-
-	/*
-	 * L2CTLR access (guest wants to know #CPUs).
-	 */
-	{ CRn( 9), CRm( 0), Op1( 1), Op2( 2), is32,
-			access_l2ctlr, reset_l2ctlr, c9_L2CTLR },
-	{ CRn( 9), CRm( 0), Op1( 1), Op2( 3), is32, access_l2ectlr},
-
-	/* The Configuration Base Address Register. */
-	{ CRn(15), CRm( 0), Op1( 4), Op2( 0), is32, access_cbar},
-};
+void kvm_register_target_coproc_table(struct kvm_coproc_target_table *table)
+{
+	target_tables[table->target] = table;
+}
 
 /* Get specific register table for this target. */
 static const struct coproc_reg *get_target_table(unsigned target, size_t *num)
 {
-	switch (target) {
-	case KVM_ARM_TARGET_CORTEX_A15:
-		*num = ARRAY_SIZE(cp15_cortex_a15_regs);
-		return cp15_cortex_a15_regs;
-	default:
-		*num = 0;
-		return NULL;
-	}
+	struct kvm_coproc_target_table *table;
+
+	table = target_tables[target];
+	*num = table->num;
+	return table->table;
 }
 
 static const struct coproc_reg *find_reg(const struct coproc_params *params,
@@ -779,8 +562,8 @@ static bool is_valid_cache(u32 val)
 		return -ENOENT;
 
 	/* Bottom bit is Instruction or Data bit.  Next 3 bits are level. */
-        level = (val >> 1);
-        ctype = (cache_levels >> (level * 3)) & 7;
+	level = (val >> 1);
+	ctype = (cache_levels >> (level * 3)) & 7;
 
 	switch (ctype) {
 	case 0: /* No cache */
@@ -928,22 +711,6 @@ static int write_demux_regids(u64 __user *uindices)
 	return 0;
 }
 
-static int cmp_reg(const struct coproc_reg *i1, const struct coproc_reg *i2)
-{
-	BUG_ON(i1 == i2);
-	if (!i1)
-		return 1;
-	else if (!i2)
-		return -1;
-	if (i1->CRn != i2->CRn)
-		return i1->CRn - i2->CRn;
-	if (i1->CRm != i2->CRm)
-		return i1->CRm - i2->CRm;
-	if (i1->Op1 != i2->Op1)
-		return i1->Op1 - i2->Op1;
-	return i1->Op2 - i2->Op2;
-}
-
 static u64 cp15_to_index(const struct coproc_reg *reg)
 {
 	u64 val = KVM_REG_ARM | (15 << KVM_REG_ARM_COPROC_SHIFT);
@@ -1050,9 +817,6 @@ void kvm_coproc_table_init(void)
 	/* Make sure tables are unique and in order. */
 	for (i = 1; i < ARRAY_SIZE(cp15_regs); i++)
 		BUG_ON(cmp_reg(&cp15_regs[i-1], &cp15_regs[i]) >= 0);
-	for (i = 1; i < ARRAY_SIZE(cp15_cortex_a15_regs); i++)
-		BUG_ON(cmp_reg(&cp15_cortex_a15_regs[i-1],
-			       &cp15_cortex_a15_regs[i]) >= 0);
 
 	/* We abuse the reset function to overwrite the table itself. */
 	for (i = 0; i < ARRAY_SIZE(invariant_cp15); i++)

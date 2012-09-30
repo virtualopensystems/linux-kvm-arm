@@ -313,6 +313,9 @@ int __attribute_const__ kvm_target_cpu(void)
 
 int kvm_arch_vcpu_init(struct kvm_vcpu *vcpu)
 {
+	/* Force users to call KVM_ARM_VCPU_INIT */
+	vcpu->arch.target = -1;
+
 	/* Set up VGIC */
 	kvm_vgic_vcpu_init(vcpu);
 
@@ -625,7 +628,7 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 	sigset_t sigsaved;
 
 	/* Make sure they initialize the vcpu with KVM_ARM_VCPU_INIT */
-	if (unlikely(!vcpu->arch.target))
+	if (unlikely(vcpu->arch.target < 0))
 		return -ENOEXEC;
 
 	if (run->exit_reason == KVM_EXIT_MMIO) {

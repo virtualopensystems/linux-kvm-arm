@@ -21,9 +21,6 @@
 
 #include <asm/types.h>
 
-/* Multiprocessor Affinity Register */
-#define MPIDR_CPUID	(0x3 << 0)
-
 /* Hyp Configuration Register (HCR) bits */
 #define HCR_TGE		(1 << 27)
 #define HCR_TVM		(1 << 26)
