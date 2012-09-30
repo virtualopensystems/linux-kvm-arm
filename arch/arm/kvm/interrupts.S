@@ -36,11 +36,9 @@
 __kvm_hyp_code_start:
 	.globl __kvm_hyp_code_start
 
-@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-@  Flush per-VMID TLBs
-@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-
-/*
+/********************************************************************
+ * Flush per-VMID TLBs
+ *
  * void __kvm_tlb_flush_vmid(struct kvm *kvm);
  *
  * We rely on the hardware to broadcast the TLB invalidation to all CPUs
@@ -70,11 +68,9 @@ ENTRY(__kvm_tlb_flush_vmid)
 	bx	lr
 ENDPROC(__kvm_tlb_flush_vmid)
 
-@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-@  Flush TLBs and instruction caches of current CPU for all VMIDs
-@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-
-/*
+/********************************************************************
+ * Flush TLBs and instruction caches of current CPU for all VMIDs
+ *
  * void __kvm_flush_vm_context(void);
  */
 ENTRY(__kvm_flush_vm_context)
@@ -129,9 +125,9 @@ ENDPROC(__kvm_flush_vm_context)
 .endm
 
 
-@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-@  Hypervisor world-switch code
-@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+/********************************************************************
+ *  Hypervisor world-switch code
+ */
 
 /* These are simply for the macros to work - value don't have meaning */
 .equ usr, 0
@@ -668,15 +664,17 @@ after_vfp_restore:
 	clrex				@ Clear exclusive monitor
 	bx	lr			@ return to IOCTL
 
-@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-@  Translate VA to PA
-@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-
-@ Arguments:
-@  r0: pointer to vcpu struct
-@  r1: virtual address to map (rounded to page)
-@  r2: 1 = P1 (read) mapping, 0 = P0 (read) mapping.
-@ Returns 64 bit PAR value.
+/********************************************************************
+ * Translate VA to PA
+ *
+ * u64 __kvm_va_to_pa(struct kvm_vcpu *vcpu, u32 va, bool priv)
+ *
+ * Arguments:
+ *  r0: pointer to vcpu struct
+ *  r1: virtual address to map (rounded to page)
+ *  r2: 1 = P1 (read) mapping, 0 = P0 (read) mapping.
+ * Returns 64 bit PAR value.
+ */
 ENTRY(__kvm_va_to_pa)
 	hvc	#0			@ switch to hyp-mode
 
@@ -707,11 +705,10 @@ ENTRY(__kvm_va_to_pa)
 	bx	lr
 
 
-@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-@  Hypervisor exception vector and handlers
-@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-
-/*
+/********************************************************************
+ * Hypervisor exception vector and handlers
+ *
+ *
  * The KVM/ARM Hypervisor ABI is defined as follows:
  *
  * Entry to Hyp mode from the host kernel will happen _only_ when an HVC
@@ -746,14 +743,16 @@ ENTRY(__kvm_va_to_pa)
  * executing guest code SVC mode (with a VMID != 0).
  */
 
-@ Handle undef, svc, pabt, or dabt by crashing with a user notice
+/* Handle undef, svc, pabt, or dabt by crashing with a user notice */
 .macro bad_exception exception_code, panic_str
 	mrrc	p15, 6, r2, r3, c2	@ Read VTTBR
 	lsr	r3, r3, #16
 	ands	r3, r3, #0xff
 
-	@ COND:neq means we're probably in the guest and we can try fetching
-	@ the vcpu pointer and stuff off the stack and keep our fingers crossed
+	/*
+	 * COND:neq means we're probably in the guest and we can try fetching
+	 * the vcpu pointer and stuff off the stack and keep our fingers crossed
+	 */
 	beq	99f
 	mov	r0, #\exception_code
 	load_vcpu	r1		@ Load VCPU pointer
@@ -829,8 +828,10 @@ hyp_dabt:
 
 	.align
 hyp_hvc:
-	@ Getting here is either becuase of a trap from a guest or from calling
-	@ HVC from the host kernel, which means "switch to Hyp mode".
+	/*
+	 * Getting here is either becuase of a trap from a guest or from calling
+	 * HVC from the host kernel, which means "switch to Hyp mode".
+	 */
 	push	{r0, r1, r2}
 
 	@ Check syndrome register
@@ -843,8 +844,10 @@ hyp_hvc:
 	cmp	r1, #HSR_EC_HVC
 	bne	guest_trap		@ Not HVC instr.
 
-	@ Let's check if the HVC came from VMID 0 and allow simple
-	@ switch to Hyp mode
+	/*
+	 * Let's check if the HVC came from VMID 0 and allow simple
+	 * switch to Hyp mode
+	 */
 	mrrc    p15, 6, r1, r2, c2
 	lsr     r2, r2, #16
 	and     r2, r2, #0xff
@@ -892,10 +895,12 @@ guest_trap:
 1:	mov	r0, #ARM_EXCEPTION_HVC
 	b	__kvm_vcpu_return
 
-@ If VFPv3 support is not available, then we will not switch the VFP
-@ registers; however cp10 and cp11 accesses will still trap and fallback
-@ to the regular coprocessor emulation code, which currently will
-@ inject an undefined exception to the guest.
+/*
+ * If VFPv3 support is not available, then we will not switch the VFP
+ * registers; however cp10 and cp11 accesses will still trap and fallback
+ * to the regular coprocessor emulation code, which currently will
+ * inject an undefined exception to the guest.
+ */
 #ifdef CONFIG_VFPv3
 switch_to_guest_vfp:
 	load_vcpu	r0		@ Load VCPU pointer
