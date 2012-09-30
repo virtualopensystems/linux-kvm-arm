@@ -300,11 +300,14 @@ int kvm_cpu_has_pending_timer(struct kvm_vcpu *vcpu)
 
 int __attribute_const__ kvm_target_cpu(void)
 {
-	unsigned int midr;
+	unsigned long implementor = read_cpuid_implementor();
+	unsigned long part_number = read_cpuid_part_number();
 
-	midr = read_cpuid_id();
-	switch ((midr >> 4) & 0xfff) {
-	case KVM_ARM_TARGET_CORTEX_A15:
+	if (implementor != IMPLEMENTOR_ARM)
+		return -EINVAL;
+
+	switch (part_number) {
+	case PART_NUMBER_CORTEX_A15:
 		return KVM_ARM_TARGET_CORTEX_A15;
 	default:
 		return -EINVAL;
