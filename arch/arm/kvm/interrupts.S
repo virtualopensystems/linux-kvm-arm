@@ -29,6 +29,7 @@
 #define VCPU_USR_SP		(VCPU_USR_REG(13))
 #define VCPU_FIQ_REG(_reg_nr)	(VCPU_FIQ_REGS + (_reg_nr * 4))
 #define VCPU_FIQ_SPSR		(VCPU_FIQ_REG(7))
+#define CP15_OFFSET(_cp15_reg_idx) (VCPU_CP15 + (_cp15_reg_idx * 4))
 
 	.text
 	.align	PAGE_SHIFT
@@ -202,18 +203,18 @@ ENDPROC(__kvm_flush_vm_context)
 	.if \vcpu == 0
 	push	{r2-r12}		@ Push CP15 registers
 	.else
-	str	r2, [\vcpup, #VCPU_SCTLR]
-	str	r3, [\vcpup, #VCPU_CPACR]
-	str	r4, [\vcpup, #VCPU_TTBCR]
-	str	r5, [\vcpup, #VCPU_DACR]
-	add	\vcpup, \vcpup, #VCPU_TTBR0
+	str	r2, [\vcpup, #CP15_OFFSET(c1_SCTLR)]
+	str	r3, [\vcpup, #CP15_OFFSET(c1_CPACR)]
+	str	r4, [\vcpup, #CP15_OFFSET(c2_TTBCR)]
+	str	r5, [\vcpup, #CP15_OFFSET(c3_DACR)]
+	add	\vcpup, \vcpup, #CP15_OFFSET(c2_TTBR0)
 	strd	r6, r7, [\vcpup]
-	add	\vcpup, \vcpup, #(VCPU_TTBR1 - VCPU_TTBR0)
+	add	\vcpup, \vcpup, #CP15_OFFSET(c2_TTBR1) - CP15_OFFSET(c2_TTBR0)
 	strd	r8, r9, [\vcpup]
-	sub	\vcpup, \vcpup, #(VCPU_TTBR1)
-	str	r10, [\vcpup, #VCPU_PRRR]
-	str	r11, [\vcpup, #VCPU_NMRR]
-	str	r12, [\vcpup, #VCPU_CSSELR]
+	sub	\vcpup, \vcpup, #CP15_OFFSET(c2_TTBR1)
+	str	r10, [\vcpup, #CP15_OFFSET(c10_PRRR)]
+	str	r11, [\vcpup, #CP15_OFFSET(c10_NMRR)]
+	str	r12, [\vcpup, #CP15_OFFSET(c0_CSSELR)]
 	.endif
 
 	mrc	p15, 0, r2, c13, c0, 1	@ CID
@@ -231,17 +232,17 @@ ENDPROC(__kvm_flush_vm_context)
 	.if \vcpu == 0
 	push	{r2-r12}		@ Push CP15 registers
 	.else
-	str	r2, [\vcpup, #VCPU_CID]
-	str	r3, [\vcpup, #VCPU_TID_URW]
-	str	r4, [\vcpup, #VCPU_TID_URO]
-	str	r5, [\vcpup, #VCPU_TID_PRIV]
-	str	r6, [\vcpup, #VCPU_DFSR]
-	str	r7, [\vcpup, #VCPU_IFSR]
-	str	r8, [\vcpup, #VCPU_ADFSR]
-	str	r9, [\vcpup, #VCPU_AIFSR]
-	str	r10, [\vcpup, #VCPU_DFAR]
-	str	r11, [\vcpup, #VCPU_IFAR]
-	str	r12, [\vcpup, #VCPU_VBAR]
+	str	r2, [\vcpup, #CP15_OFFSET(c13_CID)]
+	str	r3, [\vcpup, #CP15_OFFSET(c13_TID_URW)]
+	str	r4, [\vcpup, #CP15_OFFSET(c13_TID_URO)]
+	str	r5, [\vcpup, #CP15_OFFSET(c13_TID_PRIV)]
+	str	r6, [\vcpup, #CP15_OFFSET(c5_DFSR)]
+	str	r7, [\vcpup, #CP15_OFFSET(c5_IFSR)]
+	str	r8, [\vcpup, #CP15_OFFSET(c5_ADFSR)]
+	str	r9, [\vcpup, #CP15_OFFSET(c5_AIFSR)]
+	str	r10, [\vcpup, #CP15_OFFSET(c6_DFAR)]
+	str	r11, [\vcpup, #CP15_OFFSET(c6_IFAR)]
+	str	r12, [\vcpup, #CP15_OFFSET(c12_VBAR)]
 	.endif
 .endm
 
@@ -254,17 +255,17 @@ ENDPROC(__kvm_flush_vm_context)
 	.if \vcpu == 0
 	pop	{r2-r12}
 	.else
-	ldr	r2, [\vcpup, #VCPU_CID]
-	ldr	r3, [\vcpup, #VCPU_TID_URW]
-	ldr	r4, [\vcpup, #VCPU_TID_URO]
-	ldr	r5, [\vcpup, #VCPU_TID_PRIV]
-	ldr	r6, [\vcpup, #VCPU_DFSR]
-	ldr	r7, [\vcpup, #VCPU_IFSR]
-	ldr	r8, [\vcpup, #VCPU_ADFSR]
-	ldr	r9, [\vcpup, #VCPU_AIFSR]
-	ldr	r10, [\vcpup, #VCPU_DFAR]
-	ldr	r11, [\vcpup, #VCPU_IFAR]
-	ldr	r12, [\vcpup, #VCPU_VBAR]
+	ldr	r2, [\vcpup, #CP15_OFFSET(c13_CID)]
+	ldr	r3, [\vcpup, #CP15_OFFSET(c13_TID_URW)]
+	ldr	r4, [\vcpup, #CP15_OFFSET(c13_TID_URO)]
+	ldr	r5, [\vcpup, #CP15_OFFSET(c13_TID_PRIV)]
+	ldr	r6, [\vcpup, #CP15_OFFSET(c5_DFSR)]
+	ldr	r7, [\vcpup, #CP15_OFFSET(c5_IFSR)]
+	ldr	r8, [\vcpup, #CP15_OFFSET(c5_ADFSR)]
+	ldr	r9, [\vcpup, #CP15_OFFSET(c5_AIFSR)]
+	ldr	r10, [\vcpup, #CP15_OFFSET(c6_DFAR)]
+	ldr	r11, [\vcpup, #CP15_OFFSET(c6_IFAR)]
+	ldr	r12, [\vcpup, #CP15_OFFSET(c12_VBAR)]
 	.endif
 
 	mcr	p15, 0, r2, c13, c0, 1	@ CID
@@ -282,18 +283,18 @@ ENDPROC(__kvm_flush_vm_context)
 	.if \vcpu == 0
 	pop	{r2-r12}
 	.else
-	ldr	r2, [\vcpup, #VCPU_SCTLR]
-	ldr	r3, [\vcpup, #VCPU_CPACR]
-	ldr	r4, [\vcpup, #VCPU_TTBCR]
-	ldr	r5, [\vcpup, #VCPU_DACR]
-	add	\vcpup, \vcpup, #VCPU_TTBR0
+	ldr	r2, [\vcpup, #CP15_OFFSET(c1_SCTLR)]
+	ldr	r3, [\vcpup, #CP15_OFFSET(c1_CPACR)]
+	ldr	r4, [\vcpup, #CP15_OFFSET(c2_TTBCR)]
+	ldr	r5, [\vcpup, #CP15_OFFSET(c3_DACR)]
+	add	\vcpup, \vcpup, #CP15_OFFSET(c2_TTBR0)
 	ldrd	r6, r7, [\vcpup]
-	add	\vcpup, \vcpup, #(VCPU_TTBR1 - VCPU_TTBR0)
+	add	\vcpup, \vcpup, #CP15_OFFSET(c2_TTBR1) - CP15_OFFSET(c2_TTBR0)
 	ldrd	r8, r9, [\vcpup]
-	sub	\vcpup, \vcpup, #(VCPU_TTBR1)
-	ldr	r10, [\vcpup, #VCPU_PRRR]
-	ldr	r11, [\vcpup, #VCPU_NMRR]
-	ldr	r12, [\vcpup, #VCPU_CSSELR]
+	sub	\vcpup, \vcpup, #CP15_OFFSET(c2_TTBR1)
+	ldr	r10, [\vcpup, #CP15_OFFSET(c10_PRRR)]
+	ldr	r11, [\vcpup, #CP15_OFFSET(c10_NMRR)]
+	ldr	r12, [\vcpup, #CP15_OFFSET(c0_CSSELR)]
 	.endif
 
 	mcr	p15, 0, r2, c1, c0, 0	@ SCTLR
@@ -556,7 +557,7 @@ ENTRY(__kvm_vcpu_run)
 	mcr	p15, 4, r1, c0, c0, 0
 
 	@ Write guest view of MPIDR into VMPIDR
-	ldr	r1, [r0, #VCPU_MPIDR]
+	ldr	r1, [r0, #CP15_OFFSET(c0_MPIDR)]
 	mcr	p15, 4, r1, c0, c0, 5
 
 	@ Load guest registers

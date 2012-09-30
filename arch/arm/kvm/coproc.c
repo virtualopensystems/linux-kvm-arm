@@ -61,7 +61,7 @@ struct coproc_reg {
 	void (*reset)(struct kvm_vcpu *, const struct coproc_reg *);
 
 	/* Index into vcpu->arch.cp15[], or 0 if we don't need to save it. */
-	enum cp15_regs reg;
+	unsigned long reg;
 
 	/* Value (usually reset value) */
 	u64 val;
@@ -1097,7 +1097,7 @@ void kvm_reset_coprocs(struct kvm_vcpu *vcpu)
 	table = get_target_table(vcpu->arch.target, &num);
 	reset_coproc_regs(vcpu, table, num);
 
-	for (num = 1; num < nr_cp15_regs; num++)
+	for (num = 1; num < NR_CP15_REGS; num++)
 		if (vcpu->arch.cp15[num] == 0x42424242)
 			panic("Didn't reset vcpu->arch.cp15[%zi]", num);
 }

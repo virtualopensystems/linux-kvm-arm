@@ -148,27 +148,7 @@ int main(void)
 #ifdef CONFIG_KVM_ARM_HOST
   DEFINE(VCPU_KVM,		offsetof(struct kvm_vcpu, kvm));
   DEFINE(VCPU_MIDR,		offsetof(struct kvm_vcpu, arch.midr));
-  DEFINE(VCPU_MPIDR,		offsetof(struct kvm_vcpu, arch.cp15[c0_MPIDR]));
-  DEFINE(VCPU_CSSELR,		offsetof(struct kvm_vcpu, arch.cp15[c0_CSSELR]));
-  DEFINE(VCPU_SCTLR,		offsetof(struct kvm_vcpu, arch.cp15[c1_SCTLR]));
-  DEFINE(VCPU_CPACR,		offsetof(struct kvm_vcpu, arch.cp15[c1_CPACR]));
-  DEFINE(VCPU_TTBR0,		offsetof(struct kvm_vcpu, arch.cp15[c2_TTBR0]));
-  DEFINE(VCPU_TTBR1,		offsetof(struct kvm_vcpu, arch.cp15[c2_TTBR1]));
-  DEFINE(VCPU_TTBCR,		offsetof(struct kvm_vcpu, arch.cp15[c2_TTBCR]));
-  DEFINE(VCPU_DACR,		offsetof(struct kvm_vcpu, arch.cp15[c3_DACR]));
-  DEFINE(VCPU_DFSR,		offsetof(struct kvm_vcpu, arch.cp15[c5_DFSR]));
-  DEFINE(VCPU_IFSR,		offsetof(struct kvm_vcpu, arch.cp15[c5_IFSR]));
-  DEFINE(VCPU_ADFSR,		offsetof(struct kvm_vcpu, arch.cp15[c5_ADFSR]));
-  DEFINE(VCPU_AIFSR,		offsetof(struct kvm_vcpu, arch.cp15[c5_AIFSR]));
-  DEFINE(VCPU_DFAR,		offsetof(struct kvm_vcpu, arch.cp15[c6_DFAR]));
-  DEFINE(VCPU_IFAR,		offsetof(struct kvm_vcpu, arch.cp15[c6_IFAR]));
-  DEFINE(VCPU_PRRR,		offsetof(struct kvm_vcpu, arch.cp15[c10_PRRR]));
-  DEFINE(VCPU_NMRR,		offsetof(struct kvm_vcpu, arch.cp15[c10_NMRR]));
-  DEFINE(VCPU_VBAR,		offsetof(struct kvm_vcpu, arch.cp15[c12_VBAR]));
-  DEFINE(VCPU_CID,		offsetof(struct kvm_vcpu, arch.cp15[c13_CID]));
-  DEFINE(VCPU_TID_URW,		offsetof(struct kvm_vcpu, arch.cp15[c13_TID_URW]));
-  DEFINE(VCPU_TID_URO,		offsetof(struct kvm_vcpu, arch.cp15[c13_TID_URO]));
-  DEFINE(VCPU_TID_PRIV,		offsetof(struct kvm_vcpu, arch.cp15[c13_TID_PRIV]));
+  DEFINE(VCPU_CP15,		offsetof(struct kvm_vcpu, arch.cp15));
   DEFINE(VCPU_VFP_GUEST,	offsetof(struct kvm_vcpu, arch.vfp_guest));
   DEFINE(VCPU_VFP_HOST,		offsetof(struct kvm_vcpu, arch.vfp_host));
   DEFINE(VCPU_REGS,		offsetof(struct kvm_vcpu, arch.regs));

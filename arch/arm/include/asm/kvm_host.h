@@ -21,6 +21,7 @@
 
 #include <asm/kvm.h>
 #include <asm/fpstate.h>
+#include <asm/kvm_asm.h>
 
 #define KVM_MAX_VCPUS NR_CPUS
 #define KVM_MEMORY_SLOTS 32
@@ -73,37 +74,6 @@ struct kvm_mmu_memory_cache {
 	void *objects[KVM_NR_MEM_OBJS];
 };
 
-/* 0 is reserved as an invalid value. */
-enum cp15_regs {
-	c0_MPIDR=1,		/* MultiProcessor ID Register */
-	c0_CSSELR,		/* Cache Size Selection Register */
-	c1_SCTLR,		/* System Control Register */
-	c1_ACTLR,		/* Auxilliary Control Register */
-	c1_CPACR,		/* Coprocessor Access Control */
-	c2_TTBR0,		/* Translation Table Base Register 0 */
-	c2_TTBR0_high,		/* TTBR0 top 32 bits */
-	c2_TTBR1,		/* Translation Table Base Register 1 */
-	c2_TTBR1_high,		/* TTBR1 top 32 bits */
-	c2_TTBCR,		/* Translation Table Base Control R. */
-	c3_DACR,		/* Domain Access Control Register */
-	c5_DFSR,		/* Data Fault Status Register */
-	c5_IFSR,		/* Instruction Fault Status Register */
-	c5_ADFSR,		/* Auxilary Data Fault Status Register */
-	c5_AIFSR,		/* Auxilary Instruction Fault Status Register */
-	c6_DFAR,		/* Data Fault Address Register */
-	c6_IFAR,		/* Instruction Fault Address Register */
-	c9_L2CTLR,		/* Cortex A15 L2 Control Register */
-	c10_PRRR,		/* Primary Region Remap Register */
-	c10_NMRR,		/* Normal Memory Remap Register */
-	c12_VBAR,		/* Vector Base Address Register */
-	c13_CID,		/* Context ID Register */
-	c13_TID_URW,		/* Thread ID, User R/W */
-	c13_TID_URO,		/* Thread ID, User R/O */
-	c13_TID_PRIV,		/* Thread ID, Priveleged */
-
-	nr_cp15_regs
-};
-
 struct kvm_vcpu_arch {
 	struct kvm_regs regs;
 
@@ -111,7 +81,7 @@ struct kvm_vcpu_arch {
 	DECLARE_BITMAP(features, KVM_VCPU_MAX_FEATURES);
 
 	/* System control coprocessor (cp15) */
-	u32 cp15[nr_cp15_regs];
+	u32 cp15[NR_CP15_REGS];
 
 	/* The CPU type we expose to the VM */
 	u32 midr;
@@ -203,4 +173,5 @@ unsigned long kvm_arm_num_coproc_regs(struct kvm_vcpu *vcpu);
 struct kvm_one_reg;
 int kvm_arm_coproc_get_reg(struct kvm_vcpu *vcpu, const struct kvm_one_reg *);
 int kvm_arm_coproc_set_reg(struct kvm_vcpu *vcpu, const struct kvm_one_reg *);
+
 #endif /* __ARM_KVM_HOST_H__ */
