@@ -101,7 +101,7 @@ static int __init init_static_idmap(void)
 }
 early_initcall(init_static_idmap);
 
-#ifdef CONFIG_ARM_VIRT_EXT
+#if defined(CONFIG_ARM_VIRT_EXT) && defined(CONFIG_ARM_LPAE)
 pgd_t *hyp_pgd;
 EXPORT_SYMBOL_GPL(hyp_pgd);
 
