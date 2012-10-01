@@ -54,7 +54,8 @@ static bool arch_timer_use_virtual = true;
 #define ARCH_TIMER_CTRL_IT_STAT		(1 << 2)
 
 #define ARCH_TIMER_REG_CTRL		0
-#define ARCH_TIMER_REG_TVAL		1
+#define ARCH_TIMER_REG_FREQ		1
+#define ARCH_TIMER_REG_TVAL		2
 
 #define ARCH_TIMER_PHYS_ACCESS		0
 #define ARCH_TIMER_VIRT_ACCESS		1
@@ -103,6 +104,9 @@ static inline u32 arch_timer_reg_read(const int access, const int reg)
 		case ARCH_TIMER_REG_TVAL:
 			asm volatile("mrc p15, 0, %0, c14, c2, 0" : "=r" (val));
 			break;
+		case ARCH_TIMER_REG_FREQ:
+			asm volatile("mrc p15, 0, %0, c14, c0, 0" : "=r" (val));
+			break;
 		}
 	}
 
@@ -120,22 +124,27 @@ static inline u32 arch_timer_reg_read(const int access, const int reg)
 	return val;
 }
 
+static inline cycle_t arch_timer_counter_read(const int access)
+{
+	cycle_t cval = 0;
+
+	if (access == ARCH_TIMER_PHYS_ACCESS)
+		asm volatile("mrrc p15, 0, %Q0, %R0, c14" : "=r" (cval));
+
+	if (access == ARCH_TIMER_VIRT_ACCESS)
+		asm volatile("mrrc p15, 1, %Q0, %R0, c14" : "=r" (cval));
+
+	return cval;
+}
+
 static inline cycle_t arch_counter_get_cntpct(void)
 {
-	u32 cvall, cvalh;
-
-	asm volatile("mrrc p15, 0, %0, %1, c14" : "=r" (cvall), "=r" (cvalh));
-
-	return ((cycle_t) cvalh << 32) | cvall;
+	return arch_timer_counter_read(ARCH_TIMER_PHYS_ACCESS);
 }
 
 static inline cycle_t arch_counter_get_cntvct(void)
 {
-	u32 cvall, cvalh;
-
-	asm volatile("mrrc p15, 1, %0, %1, c14" : "=r" (cvall), "=r" (cvalh));
-
-	return ((cycle_t) cvalh << 32) | cvall;
+	return arch_timer_counter_read(ARCH_TIMER_VIRT_ACCESS);
 }
 
 static irqreturn_t inline timer_handler(const int access,
@@ -224,16 +233,16 @@ static int __cpuinit arch_timer_setup(struct clock_event_device *clk)
 	clk->name = "arch_sys_timer";
 	clk->rating = 450;
 	if (arch_timer_use_virtual) {
-		arch_timer_set_mode_virt(CLOCK_EVT_MODE_SHUTDOWN, NULL);
+		clk->irq = arch_timer_ppi[VIRT_PPI];
 		clk->set_mode = arch_timer_set_mode_virt;
 		clk->set_next_event = arch_timer_set_next_event_virt;
 	} else {
-		arch_timer_set_mode_phys(CLOCK_EVT_MODE_SHUTDOWN, NULL);
+		clk->irq = arch_timer_ppi[PHYS_SECURE_PPI];
 		clk->set_mode = arch_timer_set_mode_phys;
 		clk->set_next_event = arch_timer_set_next_event_phys;
 	}
-		
-	clk->irq = arch_timer_ppi[PHYS_SECURE_PPI];
+
+	clk->set_mode(CLOCK_EVT_MODE_SHUTDOWN, NULL);
 
 	clockevents_config_and_register(clk, arch_timer_rate,
 					0xf, 0x7fffffff);
@@ -266,7 +275,8 @@ static int arch_timer_available(void)
 		return -ENXIO;
 
 	if (arch_timer_rate == 0) {
-		asm volatile("mrc p15, 0, %0, c14, c0, 0" : "=r" (freq));
+		freq = arch_timer_reg_read(ARCH_TIMER_PHYS_ACCESS,
+					   ARCH_TIMER_REG_FREQ);
 
 		/* Check the timer frequency. */
 		if (freq == 0) {
@@ -292,7 +302,7 @@ static u32 notrace arch_counter_get_cntpct32(void)
 	 * with at most 32bits. Forget about the upper 24 bits for the
 	 * time being...
 	 */
-	return (u32)(cnt & (u32)~0);
+	return (u32)cnt;
 }
 
 static u32 notrace arch_counter_get_cntvct32(void)
@@ -304,7 +314,7 @@ static u32 notrace arch_counter_get_cntvct32(void)
 	 * with at most 32bits. Forget about the upper 24 bits for the
 	 * time being...
 	 */
-	return (u32)(cnt & (u32)~0);
+	return (u32)cnt;
 }
 
 static cycle_t arch_counter_read(struct clocksource *cs)
@@ -358,15 +368,15 @@ static void __cpuinit arch_timer_stop(struct clock_event_device *clk)
 	pr_debug("arch_timer_teardown disable IRQ%d cpu #%d\n",
 		 clk->irq, smp_processor_id());
 
-	if (arch_timer_use_virtual) {
+	if (arch_timer_use_virtual)
 		disable_percpu_irq(arch_timer_ppi[VIRT_PPI]);
-		arch_timer_set_mode_virt(CLOCK_EVT_MODE_UNUSED, clk);
-	} else {
+	else {
 		disable_percpu_irq(arch_timer_ppi[PHYS_SECURE_PPI]);
 		if (arch_timer_ppi[PHYS_NONSECURE_PPI])
 			disable_percpu_irq(arch_timer_ppi[PHYS_NONSECURE_PPI]);
-		arch_timer_set_mode_phys(CLOCK_EVT_MODE_UNUSED, clk);
 	}
+
+	clk->set_mode(CLOCK_EVT_MODE_UNUSED, clk);
 }
 
 static struct local_timer_ops arch_timer_ops __cpuinitdata = {

@@ -148,7 +148,7 @@ static inline void insb(unsigned long addr, void *buffer, int count)
 	if (count) {
 		u8 *buf = buffer;
 		do {
-			u8 x = __raw_readb(addr + PCI_IOBASE);
+			u8 x = inb(addr);
 			*buf++ = x;
 		} while (--count);
 	}
@@ -161,7 +161,7 @@ static inline void insw(unsigned long addr, void *buffer, int count)
 	if (count) {
 		u16 *buf = buffer;
 		do {
-			u16 x = __raw_readw(addr + PCI_IOBASE);
+			u16 x = inw(addr);
 			*buf++ = x;
 		} while (--count);
 	}
@@ -174,7 +174,7 @@ static inline void insl(unsigned long addr, void *buffer, int count)
 	if (count) {
 		u32 *buf = buffer;
 		do {
-			u32 x = __raw_readl(addr + PCI_IOBASE);
+			u32 x = inl(addr);
 			*buf++ = x;
 		} while (--count);
 	}
@@ -187,7 +187,7 @@ static inline void outsb(unsigned long addr, const void *buffer, int count)
 	if (count) {
 		const u8 *buf = buffer;
 		do {
-			__raw_writeb(*buf++, addr + PCI_IOBASE);
+			outb(*buf++, addr);
 		} while (--count);
 	}
 }
@@ -199,7 +199,7 @@ static inline void outsw(unsigned long addr, const void *buffer, int count)
 	if (count) {
 		const u16 *buf = buffer;
 		do {
-			__raw_writew(*buf++, addr + PCI_IOBASE);
+			outw(*buf++, addr);
 		} while (--count);
 	}
 }
@@ -211,11 +211,41 @@ static inline void outsl(unsigned long addr, const void *buffer, int count)
 	if (count) {
 		const u32 *buf = buffer;
 		do {
-			__raw_writel(*buf++, addr + PCI_IOBASE);
+			outl(*buf++, addr);
 		} while (--count);
 	}
 }
 #endif
+
+static inline void readsl(const void __iomem *addr, void *buf, int len)
+{
+	insl(addr - PCI_IOBASE, buf, len);
+}
+
+static inline void readsw(const void __iomem *addr, void *buf, int len)
+{
+	insw(addr - PCI_IOBASE, buf, len);
+}
+
+static inline void readsb(const void __iomem *addr, void *buf, int len)
+{
+	insb(addr - PCI_IOBASE, buf, len);
+}
+
+static inline void writesl(const void __iomem *addr, const void *buf, int len)
+{
+	outsl(addr - PCI_IOBASE, buf, len);
+}
+
+static inline void writesw(const void __iomem *addr, const void *buf, int len)
+{
+	outsw(addr - PCI_IOBASE, buf, len);
+}
+
+static inline void writesb(const void __iomem *addr, const void *buf, int len)
+{
+	outsb(addr - PCI_IOBASE, buf, len);
+}
 
 #ifndef CONFIG_GENERIC_IOMAP
 #define ioread8(addr)		readb(addr)

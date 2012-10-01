@@ -37,7 +37,6 @@ extern void iotable_init(struct map_desc *, int);
 
 struct mem_type;
 extern const struct mem_type *get_mem_type(unsigned int type);
-extern pteval_t get_mem_type_prot_pte(unsigned int type);
 /*
  * external interface to remap single page with appropriate type
  */
