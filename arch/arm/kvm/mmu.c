@@ -28,7 +28,6 @@
 #include <asm/kvm_asm.h>
 #include <asm/kvm_emulate.h>
 #include <asm/mach/map.h>
-#include <asm/kvm_asm.h>
 #include <trace/events/kvm.h>
 
 #include "trace.h"

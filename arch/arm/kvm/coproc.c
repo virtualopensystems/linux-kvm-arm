@@ -564,8 +564,8 @@ static bool is_valid_cache(u32 val)
 		return -ENOENT;
 
 	/* Bottom bit is Instruction or Data bit.  Next 3 bits are level. */
-	level = (val >> 1);
-	ctype = (cache_levels >> (level * 3)) & 7;
+        level = (val >> 1);
+        ctype = (cache_levels >> (level * 3)) & 7;
 
 	switch (ctype) {
 	case 0: /* No cache */

@@ -81,13 +81,12 @@ ENTRY(__kvm_flush_vm_context)
 ENDPROC(__kvm_flush_vm_context)
 
 
-
 /********************************************************************
  *  Hypervisor world-switch code
+ *
+ *
+ * int __kvm_vcpu_run(struct kvm_vcpu *vcpu)
  */
-
-@ Arguments:
-@  r0: pointer to vcpu struct
 ENTRY(__kvm_vcpu_run)
 	hvc	#0			@ switch to hyp-mode
 
@@ -300,7 +299,7 @@ ENTRY(__kvm_va_to_pa)
  * instructions are called from within Hyp-mode.
  *
  * Hyp-ABI: Switching from host kernel to Hyp-mode:
- *    Switching to Hyp mode is done through a simple HVC instructions. The
+ *    Switching to Hyp mode is done through a simple HVC #0 instruction. The
  *    exception vector code will check that the HVC comes from VMID==0 and if
  *    so will store the necessary state on the Hyp stack, which will look like
  *    this (growing downwards, see the hyp_hvc handler):
@@ -316,6 +315,10 @@ ENTRY(__kvm_va_to_pa)
  *    page aligned stack is used per CPU) and the initial SVC registers are
  *    used to restore the host state.
  *
+ * Hyp-ABI: Change the HVBAR:
+ *    When removing the KVM module we want to reset our hold on Hyp mode.
+ *    This is accomplished by calling HVC #0xff from the host kernel
+ *    (VMID==0) with the desired new HVBAR in r0.
  *
  * Note that the above is used to execute code in Hyp-mode from a host-kernel
  * point of view, and is a different concept from performing a world-switch and
@@ -385,8 +388,10 @@ hyp_undef:
 
 	.align
 hyp_svc:
-	@ Can only get here if HVC or SVC is called from Hyp, mode which means
-	@ we want to change mode back to SVC mode.
+	/*
+	 * Can only get here if HVC or SVC is called from Hyp, mode which means
+	 * we want to change mode back to SVC mode.
+	 */
 	push	{r12}
 	mov	r12, sp
 	bic	r12, r12, #0x0ff

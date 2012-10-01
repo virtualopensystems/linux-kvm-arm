@@ -22,6 +22,8 @@
 #include <linux/kvm_host.h>
 #include <asm/kvm_asm.h>
 
+u32 *vcpu_reg_mode(struct kvm_vcpu *vcpu, u8 reg_num, u32 cpsr);
+u32 *vcpu_spsr_mode(struct kvm_vcpu *vcpu, u32 cpsr);
 /*
  * The in-kernel MMIO emulation code wants to use a copy of run->mmio,
  * which is an anonymous type. Use our own type instead.
@@ -42,9 +44,6 @@ static inline void kvm_prepare_mmio(struct kvm_run *run,
 	memcpy(run->mmio.data, mmio->data, mmio->len);
 	run->exit_reason	= KVM_EXIT_MMIO;
 }
-
-u32 *vcpu_reg_mode(struct kvm_vcpu *vcpu, u8 reg_num, u32 cpsr);
-u32 *vcpu_spsr_mode(struct kvm_vcpu *vcpu, u32 cpsr);
 
 int kvm_handle_wfi(struct kvm_vcpu *vcpu, struct kvm_run *run);
 int kvm_emulate_mmio_ls(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,

@@ -17,8 +17,8 @@
  */
 
 #include <linux/mm.h>
+#include <linux/kvm_host.h>
 #include <asm/kvm_arm.h>
-#include <asm/kvm_host.h>
 #include <asm/kvm_emulate.h>
 #include <trace/events/kvm.h>
 
@@ -190,28 +190,6 @@ u32 *vcpu_spsr_mode(struct kvm_vcpu *vcpu, u32 cpsr)
 	}
 }
 
-/******************************************************************************
- * Utility functions common for all emulation code
- *****************************************************************************/
-
-/*
- * This one accepts a matrix where the first element is the
- * bits as they must be, and the second element is the bitmask.
- */
-#define INSTR_NONE	-1
-static int kvm_instr_index(u32 instr, u32 table[][2], int table_entries)
-{
-	int i;
-	u32 mask;
-
-	for (i = 0; i < table_entries; i++) {
-		mask = table[i][1];
-		if ((table[i][0] & mask) == (instr & mask))
-			return i;
-	}
-	return INSTR_NONE;
-}
-
 /**
  * kvm_handle_wfi - handle a wait-for-interrupts instruction executed by a guest
  * @vcpu:	the vcpu pointer
@@ -232,6 +210,24 @@ int kvm_handle_wfi(struct kvm_vcpu *vcpu, struct kvm_run *run)
 /******************************************************************************
  * Load-Store instruction emulation
  *****************************************************************************/
+
+/*
+ * This one accepts a matrix where the first element is the
+ * bits as they must be, and the second element is the bitmask.
+ */
+#define INSTR_NONE	-1
+static int kvm_instr_index(u32 instr, u32 table[][2], int table_entries)
+{
+	int i;
+	u32 mask;
+
+	for (i = 0; i < table_entries; i++) {
+		mask = table[i][1];
+		if ((table[i][0] & mask) == (instr & mask))
+			return i;
+	}
+	return INSTR_NONE;
+}
 
 /*
  * Must be ordered with LOADS first and WRITES afterwards

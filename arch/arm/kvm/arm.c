@@ -649,6 +649,7 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 		 * Check conditions before entering the guest
 		 */
 		cond_resched();
+
 		update_vttbr(vcpu->kvm);
 
 		kvm_vgic_sync_to_cpu(vcpu);

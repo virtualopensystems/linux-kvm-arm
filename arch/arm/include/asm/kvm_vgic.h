@@ -21,13 +21,14 @@
 
 #include <linux/kernel.h>
 #include <linux/kvm.h>
+#include <linux/kvm_host.h>
 #include <linux/irqreturn.h>
 #include <linux/spinlock.h>
 #include <linux/types.h>
 
 #define VGIC_NR_IRQS		128
 #define VGIC_NR_SHARED_IRQS	(VGIC_NR_IRQS - 32)
-#define VGIC_MAX_CPUS		KVM_MAX_VCPUS
+#define VGIC_MAX_CPUS		NR_CPUS
 
 /* Sanity checks... */
 #if (VGIC_MAX_CPUS > 8)

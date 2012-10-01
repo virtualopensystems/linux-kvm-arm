@@ -22,15 +22,16 @@
 #include <asm/kvm_asm.h>
 #include <asm/kvm_arm.h>
 
-@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-@  Hypervisor initialization
-@    - should be called with:
-@        r0 = Hypervisor pgd pointer
-@        r1 = top of Hyp stack (kernel VA)
-@        r2 = pointer to hyp vectors
-@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+/********************************************************************
+ * Hypervisor initialization
+ *   - should be called with:
+ *       r0 = Hypervisor pgd pointer
+ *       r1 = top of Hyp stack (kernel VA)
+ *       r2 = pointer to hyp vectors
+ */
+
 	.text
-        .pushsection    .hyp.idmap.text,"ax"
+	.pushsection    .hyp.idmap.text,"ax"
 	.align 12
 __kvm_hyp_init:
 	.globl __kvm_hyp_init

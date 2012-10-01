@@ -20,17 +20,16 @@
 #define __ARM_KVM_HOST_H__
 
 #include <asm/kvm.h>
-#include <asm/fpstate.h>
 #include <asm/kvm_asm.h>
+#include <asm/fpstate.h>
+#include <asm/kvm_vgic.h>
+#include <asm/kvm_arch_timer.h>
 
 #define KVM_MAX_VCPUS NR_CPUS
 #define KVM_MEMORY_SLOTS 32
 #define KVM_PRIVATE_MEM_SLOTS 4
 #define KVM_COALESCED_MMIO_PAGE_OFFSET 1
 #define KVM_HAVE_ONE_REG
-
-#include <asm/kvm_vgic.h>
-#include <asm/kvm_arch_timer.h>
 
 #define KVM_VCPU_MAX_FEATURES 0
 
@@ -173,5 +172,4 @@ unsigned long kvm_arm_num_coproc_regs(struct kvm_vcpu *vcpu);
 struct kvm_one_reg;
 int kvm_arm_coproc_get_reg(struct kvm_vcpu *vcpu, const struct kvm_one_reg *);
 int kvm_arm_coproc_set_reg(struct kvm_vcpu *vcpu, const struct kvm_one_reg *);
-
 #endif /* __ARM_KVM_HOST_H__ */
