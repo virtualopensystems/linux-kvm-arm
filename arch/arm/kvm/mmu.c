@@ -34,6 +34,7 @@
 #include "trace.h"
 
 static DEFINE_MUTEX(kvm_hyp_pgd_mutex);
+static pgd_t *hyp_pgd;
 
 static int mmu_topup_memory_cache(struct kvm_mmu_memory_cache *cache,
 				  int min, int max)
@@ -993,4 +994,24 @@ void kvm_set_spte_hva(struct kvm *kvm, unsigned long hva, pte_t pte)
 void kvm_mmu_free_memory_caches(struct kvm_vcpu *vcpu)
 {
 	mmu_free_memory_cache(&vcpu->arch.mmu_page_cache);
+}
+
+unsigned long kvm_mmu_get_httbr(void)
+{
+	return virt_to_phys(hyp_pgd);
+}
+
+int kvm_mmu_init(void)
+{
+	hyp_pgd = kzalloc(PTRS_PER_PGD * sizeof(pgd_t), GFP_KERNEL);
+	if (!hyp_pgd)
+		return -ENOMEM;
+
+	hyp_idmap_setup(hyp_pgd);
+	return 0;
+}
+
+void kvm_mmu_exit(void)
+{
+	hyp_idmap_teardown(hyp_pgd);
 }

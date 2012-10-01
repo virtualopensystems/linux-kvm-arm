@@ -12,10 +12,8 @@ extern pgd_t *idmap_pgd;
 void setup_mm_for_reboot(void);
 
 #ifdef CONFIG_ARM_VIRT_EXT
-extern pgd_t *hyp_pgd;
-
-void hyp_idmap_teardown(void);
-void hyp_idmap_setup(void);
+void hyp_idmap_teardown(pgd_t *hyp_pgd);
+void hyp_idmap_setup(pgd_t *hyp_pgd);
 #endif
 
 #endif	/* __ASM_IDMAP_H */

@@ -35,7 +35,6 @@
 #include <asm/ptrace.h>
 #include <asm/mman.h>
 #include <asm/cputype.h>
-#include <asm/idmap.h>
 #include <asm/tlbflush.h>
 #include <asm/cacheflush.h>
 #include <asm/virt.h>
@@ -887,7 +886,7 @@ static void cpu_init_hyp_mode(void *vector)
 	/* Switch from the HYP stub to our own HYP init vector */
 	__hyp_set_vectors((unsigned long)vector);
 
-	pgd_ptr = virt_to_phys(hyp_pgd);
+	pgd_ptr = kvm_mmu_get_httbr();
 	stack_page = __get_cpu_var(kvm_arm_hyp_stack_page);
 	hyp_stack_ptr = stack_page + PAGE_SIZE;
 	vector_ptr = (unsigned long)__kvm_hyp_vector;
@@ -916,6 +915,13 @@ static int init_hyp_mode(void)
 	phys_addr_t init_phys_addr;
 	int cpu;
 	int err = 0;
+
+	/*
+	 * Allocate Hyp PGD and setup Hyp identity mapping
+	 */
+	err = kvm_mmu_init();
+	if (err)
+		return err;
 
 	/*
 	 * It is probably enough to obtain the default on one
@@ -954,7 +960,7 @@ static int init_hyp_mode(void)
 	/*
 	 * Unmap the identity mapping
 	 */
-	hyp_idmap_teardown();
+	kvm_mmu_exit();
 
 	/*
 	 * Map the Hyp-code called directly from the host

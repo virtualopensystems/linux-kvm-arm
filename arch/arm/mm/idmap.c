@@ -102,9 +102,6 @@ static int __init init_static_idmap(void)
 early_initcall(init_static_idmap);
 
 #if defined(CONFIG_ARM_VIRT_EXT) && defined(CONFIG_ARM_LPAE)
-pgd_t *hyp_pgd;
-EXPORT_SYMBOL_GPL(hyp_pgd);
-
 static void hyp_idmap_del_pmd(pgd_t *pgd, unsigned long addr)
 {
 	pud_t *pud;
@@ -123,7 +120,7 @@ extern char  __hyp_idmap_text_start[], __hyp_idmap_text_end[];
  * This version actually frees the underlying pmds for all pgds in range and
  * clear the pgds themselves afterwards.
  */
-void hyp_idmap_teardown(void)
+void hyp_idmap_teardown(pgd_t *hyp_pgd)
 {
 	unsigned long addr, end;
 	unsigned long next;
@@ -141,27 +138,12 @@ void hyp_idmap_teardown(void)
 }
 EXPORT_SYMBOL_GPL(hyp_idmap_teardown);
 
-void hyp_idmap_setup(void)
+void hyp_idmap_setup(pgd_t *hyp_pgd)
 {
 	identity_mapping_add(hyp_pgd, __hyp_idmap_text_start,
 			     __hyp_idmap_text_end, PMD_SECT_AP1);
 }
 EXPORT_SYMBOL_GPL(hyp_idmap_setup);
-
-static int __init hyp_init_static_idmap(void)
-{
-	if (!is_hyp_mode_available())
-		return 0;
-
-	hyp_pgd = kzalloc(PTRS_PER_PGD * sizeof(pgd_t), GFP_KERNEL);
-	if (!hyp_pgd)
-		return -ENOMEM;
-
-	hyp_idmap_setup();
-
-	return 0;
-}
-early_initcall(hyp_init_static_idmap);
 #endif
 
 /*
