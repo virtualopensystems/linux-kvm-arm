@@ -72,6 +72,7 @@
 #define ACCESS_WRITE_MASK(x)	((x) & (3 << 1))
 
 static void vgic_update_state(struct kvm *kvm);
+static void vgic_kick_vcpus(struct kvm *kvm);
 static void vgic_dispatch_sgi(struct kvm_vcpu *vcpu, u32 reg);
 
 static inline int vgic_irq_is_edge(struct vgic_dist *dist, int irq)
@@ -539,6 +540,9 @@ bool vgic_handle_mmio(struct kvm_vcpu *vcpu, struct kvm_run *run, struct kvm_exi
 	kvm_prepare_mmio(run, mmio);
 	kvm_handle_mmio_return(vcpu, run);
 
+	if (updated_state)
+		vgic_kick_vcpus(vcpu->kvm);
+
 	return true;
 }
 
@@ -830,4 +834,77 @@ int kvm_vgic_vcpu_pending_irq(struct kvm_vcpu *vcpu)
 		return 0;
 
 	return test_bit(vcpu->vcpu_id, &dist->irq_pending_on_cpu);
+}
+
+static void vgic_kick_vcpus(struct kvm *kvm)
+{
+	struct kvm_vcpu *vcpu;
+	int c;
+
+	/*
+	 * We've injected an interrupt, time to find out who deserves
+	 * a good kick...
+	 */
+	kvm_for_each_vcpu(c, vcpu, kvm) {
+		if (kvm_vgic_vcpu_pending_irq(vcpu))
+			kvm_vcpu_kick(vcpu);
+	}
+}
+
+static bool vgic_update_irq_state(struct kvm *kvm, int cpuid,
+				  unsigned int irq_num, bool level)
+{
+	struct vgic_dist *dist = &kvm->arch.vgic;
+	struct kvm_vcpu *vcpu;
+	int is_edge, is_level, state;
+	int pend, enabled;
+
+	spin_lock(&dist->lock);
+
+	is_edge = vgic_irq_is_edge(dist, irq_num);
+	is_level = !is_edge;
+	state = vgic_bitmap_get_irq_val(&dist->irq_state, cpuid, irq_num);
+
+	/*
+	 * Only inject an interrupt if:
+	 * - level triggered and we change level
+	 * - edge triggered and we have a rising edge
+	 */
+	if ((is_level && !(state ^ level)) || (is_edge && (state || !level))) {
+		spin_unlock(&dist->lock);
+		return false;
+	}
+
+	vgic_bitmap_set_irq_val(&dist->irq_state, cpuid, irq_num, level);
+
+	enabled = vgic_bitmap_get_irq_val(&dist->irq_enabled, cpuid, irq_num);
+	pend = level && enabled;
+
+	if (irq_num >= 32) {
+		cpuid = dist->irq_spi_cpu[irq_num - 32];
+		pend &= vgic_bitmap_get_irq_val(&dist->irq_spi_target[cpuid],
+						0, irq_num);
+	}
+
+	kvm_debug("Inject IRQ%d level %d CPU%d\n", irq_num, level, cpuid);
+
+	vcpu = kvm_get_vcpu(kvm, cpuid);
+	if (pend) {
+		set_bit(irq_num, vcpu->arch.vgic_cpu.pending);
+		set_bit(cpuid, &dist->irq_pending_on_cpu);
+	} else
+		clear_bit(irq_num, vcpu->arch.vgic_cpu.pending);
+
+	spin_unlock(&dist->lock);
+
+	return true;
+}
+
+int kvm_vgic_inject_irq(struct kvm *kvm, int cpuid, unsigned int irq_num,
+			bool level)
+{
+	if (vgic_update_irq_state(kvm, cpuid, irq_num, level))
+		vgic_kick_vcpus(kvm);
+
+	return 0;
 }
