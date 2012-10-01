@@ -651,15 +651,20 @@ static struct clk exynos5_init_clocks_off[] = {
 		.ctrlbit	= (1 << 15),
 	}, {
 		.name		= "sata",
-		.devname	= "ahci",
+		.devname	= "sata_exynos",
+		.parent         = &exynos5_clk_aclk_200.clk,
 		.enable		= exynos5_clk_ip_fsys_ctrl,
 		.ctrlbit	= (1 << 6),
 	}, {
 		.name		= "sata_phy",
+		.devname 	= "sata_phy_exynos",
+		.parent         = &exynos5_clk_aclk_200.clk,
 		.enable		= exynos5_clk_ip_fsys_ctrl,
 		.ctrlbit	= (1 << 24),
 	}, {
-		.name		= "sata_phy_i2c",
+		.name		= "i2c",
+		.devname	= "sata-phy-i2c",
+		.parent         = &exynos5_clk_aclk_200.clk,
 		.enable		= exynos5_clk_ip_fsys_ctrl,
 		.ctrlbit	= (1 << 25),
 	}, {
@@ -1224,6 +1229,16 @@ static struct clksrc_clk exynos5_clksrcs[] = {
 		.sources = &exynos5_clkset_aclk,
 		.reg_src = { .reg = EXYNOS5_CLKSRC_TOP0, .shift = 20, .size = 1 },
 		.reg_div = { .reg = EXYNOS5_CLKDIV_TOP0, .shift = 24, .size = 3 },
+	}, {
+		.clk	= {
+			.name		= "sclk_sata",
+			.devname	= "sata_exynos",
+			.enable		= exynos5_clksrc_mask_fsys_ctrl,
+			.ctrlbit	= (1 << 24),
+		},
+		.sources = &exynos5_clkset_aclk,
+		.reg_src = { .reg = EXYNOS5_CLKSRC_FSYS, .shift = 24, .size = 1 },
+		.reg_div = { .reg = EXYNOS5_CLKDIV_FSYS0, .shift = 20, .size = 4 },
 	}, {
 		.clk	= {
 			.name		= "sclk_gscl_wrap",
