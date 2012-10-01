@@ -94,7 +94,15 @@ int kvm_arch_hardware_enable(void *garbage)
 
 int kvm_arch_vcpu_should_kick(struct kvm_vcpu *vcpu)
 {
-	return kvm_vcpu_exiting_guest_mode(vcpu) == IN_GUEST_MODE;
+	if (kvm_vcpu_exiting_guest_mode(vcpu) == IN_GUEST_MODE) {
+		if (vgic_active_irq(vcpu) &&
+		    cmpxchg(&vcpu->mode, EXITING_GUEST_MODE, IN_GUEST_MODE) == EXITING_GUEST_MODE)
+			return 0;
+
+		return 1;
+	}
+
+	return 0;
 }
 
 void kvm_arch_hardware_disable(void *garbage)
