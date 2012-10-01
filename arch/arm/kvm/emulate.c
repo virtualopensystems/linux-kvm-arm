@@ -206,6 +206,450 @@ int kvm_handle_wfi(struct kvm_vcpu *vcpu, struct kvm_run *run)
 	return 1;
 }
 
+
+/******************************************************************************
+ * Load-Store instruction emulation
+ *****************************************************************************/
+
+/*
+ * This one accepts a matrix where the first element is the
+ * bits as they must be, and the second element is the bitmask.
+ */
+#define INSTR_NONE	-1
+static int kvm_instr_index(u32 instr, u32 table[][2], int table_entries)
+{
+	int i;
+	u32 mask;
+
+	for (i = 0; i < table_entries; i++) {
+		mask = table[i][1];
+		if ((table[i][0] & mask) == (instr & mask))
+			return i;
+	}
+	return INSTR_NONE;
+}
+
+/*
+ * Must be ordered with LOADS first and WRITES afterwards
+ * for easy distinction when doing MMIO.
+ */
+#define NUM_LD_INSTR  9
+enum INSTR_LS_INDEXES {
+	INSTR_LS_LDRBT, INSTR_LS_LDRT, INSTR_LS_LDR, INSTR_LS_LDRB,
+	INSTR_LS_LDRD, INSTR_LS_LDREX, INSTR_LS_LDRH, INSTR_LS_LDRSB,
+	INSTR_LS_LDRSH,
+	INSTR_LS_STRBT, INSTR_LS_STRT, INSTR_LS_STR, INSTR_LS_STRB,
+	INSTR_LS_STRD, INSTR_LS_STREX, INSTR_LS_STRH,
+	NUM_LS_INSTR
+};
+
+static u32 ls_instr[NUM_LS_INSTR][2] = {
+	{0x04700000, 0x0d700000}, /* LDRBT */
+	{0x04300000, 0x0d700000}, /* LDRT  */
+	{0x04100000, 0x0c500000}, /* LDR   */
+	{0x04500000, 0x0c500000}, /* LDRB  */
+	{0x000000d0, 0x0e1000f0}, /* LDRD  */
+	{0x01900090, 0x0ff000f0}, /* LDREX */
+	{0x001000b0, 0x0e1000f0}, /* LDRH  */
+	{0x001000d0, 0x0e1000f0}, /* LDRSB */
+	{0x001000f0, 0x0e1000f0}, /* LDRSH */
+	{0x04600000, 0x0d700000}, /* STRBT */
+	{0x04200000, 0x0d700000}, /* STRT  */
+	{0x04000000, 0x0c500000}, /* STR   */
+	{0x04400000, 0x0c500000}, /* STRB  */
+	{0x000000f0, 0x0e1000f0}, /* STRD  */
+	{0x01800090, 0x0ff000f0}, /* STREX */
+	{0x000000b0, 0x0e1000f0}  /* STRH  */
+};
+
+static inline int get_arm_ls_instr_index(u32 instr)
+{
+	return kvm_instr_index(instr, ls_instr, NUM_LS_INSTR);
+}
+
+/*
+ * Load-Store instruction decoding
+ */
+#define INSTR_LS_TYPE_BIT		26
+#define INSTR_LS_RD_MASK		0x0000f000
+#define INSTR_LS_RD_SHIFT		12
+#define INSTR_LS_RN_MASK		0x000f0000
+#define INSTR_LS_RN_SHIFT		16
+#define INSTR_LS_RM_MASK		0x0000000f
+#define INSTR_LS_OFFSET12_MASK		0x00000fff
+
+#define INSTR_LS_BIT_P			24
+#define INSTR_LS_BIT_U			23
+#define INSTR_LS_BIT_B			22
+#define INSTR_LS_BIT_W			21
+#define INSTR_LS_BIT_L			20
+#define INSTR_LS_BIT_S			 6
+#define INSTR_LS_BIT_H			 5
+
+/*
+ * ARM addressing mode defines
+ */
+#define OFFSET_IMM_MASK			0x0e000000
+#define OFFSET_IMM_VALUE		0x04000000
+#define OFFSET_REG_MASK			0x0e000ff0
+#define OFFSET_REG_VALUE		0x06000000
+#define OFFSET_SCALE_MASK		0x0e000010
+#define OFFSET_SCALE_VALUE		0x06000000
+
+#define SCALE_SHIFT_MASK		0x000000a0
+#define SCALE_SHIFT_SHIFT		5
+#define SCALE_SHIFT_LSL			0x0
+#define SCALE_SHIFT_LSR			0x1
+#define SCALE_SHIFT_ASR			0x2
+#define SCALE_SHIFT_ROR_RRX		0x3
+#define SCALE_SHIFT_IMM_MASK		0x00000f80
+#define SCALE_SHIFT_IMM_SHIFT		6
+
+#define PSR_BIT_C			29
+
+static unsigned long ls_word_calc_offset(struct kvm_vcpu *vcpu,
+					 unsigned long instr)
+{
+	int offset = 0;
+
+	if ((instr & OFFSET_IMM_MASK) == OFFSET_IMM_VALUE) {
+		/* Immediate offset/index */
+		offset = instr & INSTR_LS_OFFSET12_MASK;
+
+		if (!(instr & (1U << INSTR_LS_BIT_U)))
+			offset = -offset;
+	}
+
+	if ((instr & OFFSET_REG_MASK) == OFFSET_REG_VALUE) {
+		/* Register offset/index */
+		u8 rm = instr & INSTR_LS_RM_MASK;
+		offset = *vcpu_reg(vcpu, rm);
+
+		if (!(instr & (1U << INSTR_LS_BIT_P)))
+			offset = 0;
+	}
+
+	if ((instr & OFFSET_SCALE_MASK) == OFFSET_SCALE_VALUE) {
+		/* Scaled register offset */
+		u8 rm = instr & INSTR_LS_RM_MASK;
+		u8 shift = (instr & SCALE_SHIFT_MASK) >> SCALE_SHIFT_SHIFT;
+		u32 shift_imm = (instr & SCALE_SHIFT_IMM_MASK)
+				>> SCALE_SHIFT_IMM_SHIFT;
+		offset = *vcpu_reg(vcpu, rm);
+
+		switch (shift) {
+		case SCALE_SHIFT_LSL:
+			offset = offset << shift_imm;
+			break;
+		case SCALE_SHIFT_LSR:
+			if (shift_imm == 0)
+				offset = 0;
+			else
+				offset = ((u32)offset) >> shift_imm;
+			break;
+		case SCALE_SHIFT_ASR:
+			if (shift_imm == 0) {
+				if (offset & (1U << 31))
+					offset = 0xffffffff;
+				else
+					offset = 0;
+			} else {
+				/* Ensure arithmetic shift */
+				asm("mov %[r], %[op], ASR %[s]" :
+				    [r] "=r" (offset) :
+				    [op] "r" (offset), [s] "r" (shift_imm));
+			}
+			break;
+		case SCALE_SHIFT_ROR_RRX:
+			if (shift_imm == 0) {
+				u32 C = (vcpu->arch.regs.cpsr &
+						(1U << PSR_BIT_C));
+				offset = (C << 31) | offset >> 1;
+			} else {
+				/* Ensure arithmetic shift */
+				asm("mov %[r], %[op], ASR %[s]" :
+				    [r] "=r" (offset) :
+				    [op] "r" (offset), [s] "r" (shift_imm));
+			}
+			break;
+		}
+
+		if (instr & (1U << INSTR_LS_BIT_U))
+			return offset;
+		else
+			return -offset;
+	}
+
+	if (instr & (1U << INSTR_LS_BIT_U))
+		return offset;
+	else
+		return -offset;
+
+	BUG();
+}
+
+static int kvm_ls_length(struct kvm_vcpu *vcpu, u32 instr)
+{
+	int index;
+
+	index = get_arm_ls_instr_index(instr);
+
+	if (instr & (1U << INSTR_LS_TYPE_BIT)) {
+		/* LS word or unsigned byte */
+		if (instr & (1U << INSTR_LS_BIT_B))
+			return sizeof(unsigned char);
+		else
+			return sizeof(u32);
+	} else {
+		/* LS halfword, doubleword or signed byte */
+		u32 H = (instr & (1U << INSTR_LS_BIT_H));
+		u32 S = (instr & (1U << INSTR_LS_BIT_S));
+		u32 L = (instr & (1U << INSTR_LS_BIT_L));
+
+		if (!L && S) {
+			kvm_err("WARNING: d-word for MMIO\n");
+			return 2 * sizeof(u32);
+		} else if (L && S && !H)
+			return sizeof(char);
+		else
+			return sizeof(u16);
+	}
+
+	BUG();
+}
+
+static bool kvm_decode_arm_ls(struct kvm_vcpu *vcpu, unsigned long instr,
+			      struct kvm_exit_mmio *mmio)
+{
+	int index;
+	bool is_write;
+	unsigned long rd, rn, offset, len;
+
+	index = get_arm_ls_instr_index(instr);
+	if (index == INSTR_NONE)
+		return false;
+
+	is_write = (index < NUM_LD_INSTR) ? false : true;
+	rd = (instr & INSTR_LS_RD_MASK) >> INSTR_LS_RD_SHIFT;
+	len = kvm_ls_length(vcpu, instr);
+
+	mmio->is_write = is_write;
+	mmio->len = len;
+
+	vcpu->arch.mmio.sign_extend = false;
+	vcpu->arch.mmio.rd = rd;
+
+	/* Handle base register writeback */
+	if (!(instr & (1U << INSTR_LS_BIT_P)) ||
+	     (instr & (1U << INSTR_LS_BIT_W))) {
+		rn = (instr & INSTR_LS_RN_MASK) >> INSTR_LS_RN_SHIFT;
+		offset = ls_word_calc_offset(vcpu, instr);
+		*vcpu_reg(vcpu, rn) += offset;
+	}
+
+	return true;
+}
+
+struct thumb_instr {
+	bool is32;
+
+	union {
+		struct {
+			u8 opcode;
+			u8 mask;
+		} t16;
+
+		struct {
+			u8 op1;
+			u8 op2;
+			u8 op2_mask;
+		} t32;
+	};
+
+	bool (*decode)(struct kvm_vcpu *vcpu, struct kvm_exit_mmio *mmio,
+		       unsigned long instr, const struct thumb_instr *ti);
+};
+
+static bool decode_thumb_wb(struct kvm_vcpu *vcpu, struct kvm_exit_mmio *mmio,
+			    unsigned long instr)
+{
+	bool P = (instr >> 10) & 1;
+	bool U = (instr >> 9) & 1;
+	u8 imm8 = instr & 0xff;
+	u32 offset_addr = vcpu->arch.hdfar;
+	u8 Rn = (instr >> 16) & 0xf;
+
+	vcpu->arch.mmio.rd = (instr >> 12) & 0xf;
+
+	if (Rn == 15)
+		return false;
+
+	/* Handle Writeback */
+	if (!P && U)
+		*vcpu_reg(vcpu, Rn) = offset_addr + imm8;
+	else if (!P && !U)
+		*vcpu_reg(vcpu, Rn) = offset_addr - imm8;
+	return true;
+}
+
+static bool decode_thumb_str(struct kvm_vcpu *vcpu, struct kvm_exit_mmio *mmio,
+			     unsigned long instr, const struct thumb_instr *ti)
+{
+	u8 op1 = (instr >> (16 + 5)) & 0x7;
+	u8 op2 = (instr >> 6) & 0x3f;
+
+	mmio->is_write = true;
+	vcpu->arch.mmio.sign_extend = false;
+
+	switch (op1) {
+	case 0x0: mmio->len = 1; break;
+	case 0x1: mmio->len = 2; break;
+	case 0x2: mmio->len = 4; break;
+	default:
+		  return false; /* Only register write-back versions! */
+	}
+
+	if ((op2 & 0x24) == 0x24) {
+		/* STRB (immediate, thumb, W=1) */
+		return decode_thumb_wb(vcpu, mmio, instr);
+	}
+
+	return false;
+}
+
+static bool decode_thumb_ldr(struct kvm_vcpu *vcpu, struct kvm_exit_mmio *mmio,
+			     unsigned long instr, const struct thumb_instr *ti)
+{
+	u8 op1 = (instr >> (16 + 7)) & 0x3;
+	u8 op2 = (instr >> 6) & 0x3f;
+
+	mmio->is_write = false;
+
+	switch (ti->t32.op2 & 0x7) {
+	case 0x1: mmio->len = 1; break;
+	case 0x3: mmio->len = 2; break;
+	case 0x5: mmio->len = 4; break;
+	}
+
+	if (op1 == 0x0)
+		vcpu->arch.mmio.sign_extend = false;
+	else if (op1 == 0x2 && (ti->t32.op2 & 0x7) != 0x5)
+		vcpu->arch.mmio.sign_extend = true;
+	else
+		return false; /* Only register write-back versions! */
+
+	if ((op2 & 0x24) == 0x24) {
+		/* LDR{S}X (immediate, thumb, W=1) */
+		return decode_thumb_wb(vcpu, mmio, instr);
+	}
+
+	return false;
+}
+
+/*
+ * We only support instruction decoding for valid reasonable MMIO operations
+ * where trapping them do not provide sufficient information in the HSR (no
+ * 16-bit Thumb instructions provide register writeback that we care about).
+ *
+ * The following instruciton types are NOT supported for MMIO operations
+ * despite the HSR not containing decode info:
+ *  - any Load/Store multiple
+ *  - any load/store exclusive
+ *  - any load/store dual
+ *  - anything with the PC as the dest register
+ */
+static const struct thumb_instr thumb_instr[] = {
+	/**************** 32-bit Thumb instructions **********************/
+	/* Store single data item:	Op1 == 11, Op2 == 000xxx0 */
+	{ .is32 = true,  .t32 = { 3, 0x00, 0x71}, decode_thumb_str	},
+	/* Load byte:			Op1 == 11, Op2 == 00xx001 */
+	{ .is32 = true,  .t32 = { 3, 0x01, 0x67}, decode_thumb_ldr	},
+	/* Load halfword:		Op1 == 11, Op2 == 00xx011 */
+	{ .is32 = true,  .t32 = { 3, 0x03, 0x67}, decode_thumb_ldr	},
+	/* Load word:			Op1 == 11, Op2 == 00xx101 */
+	{ .is32 = true,  .t32 = { 3, 0x05, 0x67}, decode_thumb_ldr	},
+};
+
+
+
+static bool kvm_decode_thumb_ls(struct kvm_vcpu *vcpu, unsigned long instr,
+				struct kvm_exit_mmio *mmio)
+{
+	bool is32 = is_wide_instruction(instr);
+	bool is16 = !is32;
+	struct thumb_instr tinstr; /* re-use to pass on already decoded info */
+	int i;
+
+	if (is16) {
+		tinstr.t16.opcode = (instr >> 10) & 0x3f;
+	} else {
+		tinstr.t32.op1 = (instr >> (16 + 11)) & 0x3;
+		tinstr.t32.op2 = (instr >> (16 + 4)) & 0x7f;
+	}
+
+	for (i = 0; i < ARRAY_SIZE(thumb_instr); i++) {
+		const struct thumb_instr *ti = &thumb_instr[i];
+		if (ti->is32 != is32)
+			continue;
+
+		if (is16) {
+			if ((tinstr.t16.opcode & ti->t16.mask) != ti->t16.opcode)
+				continue;
+		} else {
+			if (ti->t32.op1 != tinstr.t32.op1)
+				continue;
+			if ((ti->t32.op2_mask & tinstr.t32.op2) != ti->t32.op2)
+				continue;
+		}
+
+		return ti->decode(vcpu, mmio, instr, &tinstr);
+	}
+
+	return false;
+}
+
+/**
+ * kvm_emulate_mmio_ls - emulates load/store instructions made to I/O memory
+ * @vcpu:	The vcpu pointer
+ * @fault_ipa:	The IPA that caused the 2nd stage fault
+ * @instr:	The instruction that caused the fault
+ *
+ * Handles emulation of load/store instructions which cannot be emulated through
+ * information found in the HSR on faults. It is necessary in this case to
+ * simply decode the offending instruction in software and determine the
+ * required operands.
+ */
+int kvm_emulate_mmio_ls(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
+			unsigned long instr, struct kvm_exit_mmio *mmio)
+{
+	bool is_thumb;
+
+	trace_kvm_mmio_emulate(vcpu->arch.regs.pc, instr, vcpu->arch.regs.cpsr);
+
+	mmio->phys_addr = fault_ipa;
+	is_thumb = !!(*vcpu_cpsr(vcpu) & PSR_T_BIT);
+	if (!is_thumb && !kvm_decode_arm_ls(vcpu, instr, mmio)) {
+		kvm_debug("Unable to decode inst: %#08lx (cpsr: %#08x (T=0)"
+			  "pc: %#08x)\n",
+			  instr, *vcpu_cpsr(vcpu), *vcpu_pc(vcpu));
+		kvm_inject_dabt(vcpu, vcpu->arch.hdfar);
+		return 1;
+	} else if (is_thumb && !kvm_decode_thumb_ls(vcpu, instr, mmio)) {
+		kvm_debug("Unable to decode inst: %#08lx (cpsr: %#08x (T=1)"
+			  "pc: %#08x)\n",
+			  instr, *vcpu_cpsr(vcpu), *vcpu_pc(vcpu));
+		kvm_inject_dabt(vcpu, vcpu->arch.hdfar);
+		return 1;
+	}
+
+	/*
+	 * The MMIO instruction is emulated and should not be re-executed
+	 * in the guest.
+	 */
+	kvm_skip_instr(vcpu, is_wide_instruction(instr));
+	return 0;
+}
+
 /**
  * adjust_itstate - adjust ITSTATE when emulating instructions in IT-block
  * @vcpu:	The VCPU pointer

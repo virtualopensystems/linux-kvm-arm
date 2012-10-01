@@ -24,8 +24,30 @@
 
 u32 *vcpu_reg_mode(struct kvm_vcpu *vcpu, u8 reg_num, u32 cpsr);
 u32 *vcpu_spsr_mode(struct kvm_vcpu *vcpu, u32 cpsr);
+/*
+ * The in-kernel MMIO emulation code wants to use a copy of run->mmio,
+ * which is an anonymous type. Use our own type instead.
+ */
+struct kvm_exit_mmio {
+	phys_addr_t	phys_addr;
+	u8		data[8];
+	u32		len;
+	bool		is_write;
+};
+
+static inline void kvm_prepare_mmio(struct kvm_run *run,
+				    struct kvm_exit_mmio *mmio)
+{
+	run->mmio.phys_addr	= mmio->phys_addr;
+	run->mmio.len		= mmio->len;
+	run->mmio.is_write	= mmio->is_write;
+	memcpy(run->mmio.data, mmio->data, mmio->len);
+	run->exit_reason	= KVM_EXIT_MMIO;
+}
 
 int kvm_handle_wfi(struct kvm_vcpu *vcpu, struct kvm_run *run);
+int kvm_emulate_mmio_ls(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
+			unsigned long instr, struct kvm_exit_mmio *mmio);
 void kvm_skip_instr(struct kvm_vcpu *vcpu, bool is_wide_instr);
 void kvm_inject_undefined(struct kvm_vcpu *vcpu);
 void kvm_inject_dabt(struct kvm_vcpu *vcpu, unsigned long addr);
