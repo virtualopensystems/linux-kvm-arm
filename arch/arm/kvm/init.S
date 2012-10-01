@@ -51,7 +51,7 @@ ARM(	add	r12, pc, #(__kvm_init_sp - .)	)
 ARM(	sub	r12, r12, #8			)
 THUMB(	adr	r12, __kvm_init_sp		)
 	mov	sp, r12
-	push	{r0, r1, r2}
+	push	{r1, r2}
 
 	@ Set the HTTBR to point to the hypervisor PGD pointer passed to
 	@ function and set the upper bits equal to the kernel PGD.
@@ -106,7 +106,7 @@ THUMB(	adr	r12, __kvm_init_sp		)
 	isb
 
 	@ Set stack pointer and return to the kernel
-	pop	{r0, r1, r2}
+	pop	{r1, r2}
 	mov	sp, r1
 
 	@ Set HVBAR to point to the HYP vectors
