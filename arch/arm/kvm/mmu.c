@@ -882,6 +882,12 @@ int kvm_handle_guest_abort(struct kvm_vcpu *vcpu, struct kvm_run *run)
 			return 1;
 		}
 
+		if (fault_status != FSC_FAULT) {
+			kvm_err("Unsupported fault status on io memory: %#lx\n",
+				fault_status);
+			return -EFAULT;
+		}
+
 		/* Adjust page offset */
 		fault_ipa |= vcpu->arch.hdfar & ~PAGE_MASK;
 		return io_mem_abort(vcpu, run, fault_ipa, memslot);
