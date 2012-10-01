@@ -287,9 +287,23 @@ struct kvm_mmu {
 	union kvm_mmu_page_role base_role;
 	bool direct_map;
 
+	/*
+	 * Bitmap; bit set = permission fault
+	 * Byte index: page fault error code [4:1]
+	 * Bit index: pte permissions in ACC_* format
+	 */
+	u8 permissions[16];
+
 	u64 *pae_root;
 	u64 *lm_root;
 	u64 rsvd_bits_mask[2][4];
+
+	/*
+	 * Bitmap: bit set = last pte in walk
+	 * index[0:1]: level (zero-based)
+	 * index[2]: pte.ps
+	 */
+	u8 last_pte_bitmap;
 
 	bool nx;
 
@@ -414,12 +428,15 @@ struct kvm_vcpu_arch {
 	struct x86_emulate_ctxt emulate_ctxt;
 	bool emulate_regs_need_sync_to_vcpu;
 	bool emulate_regs_need_sync_from_vcpu;
+	int (*complete_userspace_io)(struct kvm_vcpu *vcpu);
 
 	gpa_t time;
 	struct pvclock_vcpu_time_info hv_clock;
 	unsigned int hw_tsc_khz;
 	unsigned int time_offset;
 	struct page *time_page;
+	/* set guest stopped flag in pvclock flags field */
+	bool pvclock_set_guest_stopped_request;
 
 	struct {
 		u64 msr_val;
@@ -500,12 +517,22 @@ struct kvm_vcpu_arch {
 };
 
 struct kvm_lpage_info {
-	unsigned long rmap_pde;
 	int write_count;
 };
 
 struct kvm_arch_memory_slot {
+	unsigned long *rmap[KVM_NR_PAGE_SIZES];
 	struct kvm_lpage_info *lpage_info[KVM_NR_PAGE_SIZES - 1];
+};
+
+struct kvm_apic_map {
+	struct rcu_head rcu;
+	u8 ldr_bits;
+	/* fields bellow are used to decode ldr values in different modes */
+	u32 cid_shift, cid_mask, lid_mask;
+	struct kvm_lapic *phys_map[256];
+	/* first index is cluster id second is cpu id in a cluster */
+	struct kvm_lapic *logical_map[16][16];
 };
 
 struct kvm_arch {
@@ -525,6 +552,8 @@ struct kvm_arch {
 	struct kvm_ioapic *vioapic;
 	struct kvm_pit *vpit;
 	int vapics_in_nmi_mode;
+	struct mutex apic_map_lock;
+	struct kvm_apic_map *apic_map;
 
 	unsigned int tss_addr;
 	struct page *apic_access_page;
@@ -957,6 +986,7 @@ extern bool kvm_rebooting;
 
 #define KVM_ARCH_WANT_MMU_NOTIFIER
 int kvm_unmap_hva(struct kvm *kvm, unsigned long hva);
+int kvm_unmap_hva_range(struct kvm *kvm, unsigned long start, unsigned long end);
 int kvm_age_hva(struct kvm *kvm, unsigned long hva);
 int kvm_test_age_hva(struct kvm *kvm, unsigned long hva);
 void kvm_set_spte_hva(struct kvm *kvm, unsigned long hva, pte_t pte);
