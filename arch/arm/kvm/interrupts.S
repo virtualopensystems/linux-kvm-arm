@@ -105,6 +105,7 @@ ENTRY(__kvm_vcpu_run)
 	store_mode_state sp, fiq
 
 	restore_vgic_state r0
+	restore_timer_state r0
 
 	@ Store hardware CP15 state and load guest state
 	read_cp15_state
@@ -223,6 +224,7 @@ after_vfp_restore:
 	read_cp15_state 1, r1
 	write_cp15_state
 
+	save_timer_state r1
 	save_vgic_state	r1
 
 	load_mode_state sp, fiq
