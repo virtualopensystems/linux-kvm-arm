@@ -25,6 +25,12 @@
 u32 *vcpu_reg_mode(struct kvm_vcpu *vcpu, u8 reg_num, u32 cpsr);
 u32 *vcpu_spsr_mode(struct kvm_vcpu *vcpu, u32 cpsr);
 
+int kvm_handle_wfi(struct kvm_vcpu *vcpu, struct kvm_run *run);
+void kvm_skip_instr(struct kvm_vcpu *vcpu, bool is_wide_instr);
+void kvm_inject_undefined(struct kvm_vcpu *vcpu);
+void kvm_inject_dabt(struct kvm_vcpu *vcpu, unsigned long addr);
+void kvm_inject_pabt(struct kvm_vcpu *vcpu, unsigned long addr);
+
 /* Get vcpu register for current mode */
 static inline u32 *vcpu_reg(struct kvm_vcpu *vcpu, unsigned long reg_num)
 {
