@@ -1,7 +1,7 @@
 config NET_DSA
 	tristate "Distributed Switch Architecture support"
 	default n
-	depends on EXPERIMENTAL && NETDEVICES && !S390
+	depends on NETDEVICES && !S390
 	select PHYLIB
 	---help---
 	  This allows you to use hardware switch chips that use
