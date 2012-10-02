@@ -276,7 +276,7 @@ int __init tc2_idle_init(void)
 
 	/* enable all wake-up IRQs by default */
 	vexpress_spc_set_wake_intr(0x7ff);
-	v2m_flags_set(virt_to_phys(tc2_cpu_resume));
+	vexpress_flags_set(virt_to_phys(tc2_cpu_resume));
 
 	/*
 	 * Enable idle by default for all possible clusters.
