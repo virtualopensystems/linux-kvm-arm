@@ -188,6 +188,24 @@ DEFINE_GUEST_HANDLE_STRUCT(xen_add_to_physmap);
 /*** REMOVED ***/
 /*#define XENMEM_translate_gpfn_list  8*/
 
+#define XENMEM_add_to_physmap_range 23
+struct xen_add_to_physmap_range {
+    /* Which domain to change the mapping for. */
+    domid_t domid;
+    uint16_t space; /* => enum phys_map_space */
+
+    /* Number of pages to go through */
+    uint16_t size;
+    domid_t foreign_domid; /* IFF gmfn_foreign */
+
+    /* Indexes into space being mapped. */
+    GUEST_HANDLE(xen_ulong_t) idxs;
+
+    /* GPFN in domid where the source mapping page should appear. */
+    GUEST_HANDLE(xen_pfn_t) gpfns;
+};
+DEFINE_GUEST_HANDLE_STRUCT(xen_add_to_physmap_range);
+
 /*
  * Returns the pseudo-physical memory map as it was when the domain
  * was started (specified by XENMEM_set_memory_map).
