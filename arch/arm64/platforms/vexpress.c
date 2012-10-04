@@ -12,6 +12,8 @@
 #include <linux/spinlock.h>
 #include <linux/clkdev.h>
 #include <linux/clk-provider.h>
+#include <linux/amba/bus.h>
+#include <linux/amba/clcd.h>
 #include <linux/mm.h>
 
 #include <asm/system_misc.h>
@@ -132,6 +134,77 @@ static void __init v2m_clk_init(void)
 }
 
 /*
+ * CLCDC.
+ */
+static struct clcd_panel xvga_panel = {
+	.mode		= {
+		.name		= "XVGA",
+		.refresh	= 60,
+		.xres		= 1024,
+		.yres		= 768,
+		.pixclock	= 15384,
+		.left_margin	= 168,
+		.right_margin	= 8,
+		.upper_margin	= 29,
+		.lower_margin	= 3,
+		.hsync_len	= 144,
+		.vsync_len	= 6,
+		.sync		= 0,
+		.vmode		= FB_VMODE_NONINTERLACED,
+	},
+	.width		= -1,
+	.height		= -1,
+	.tim2		= TIM2_BCD | TIM2_IPC,
+	.cntl		= CNTL_LCDTFT | CNTL_BGR | CNTL_LCDVCOMP(1),
+	.bpp		= 16,
+};
+
+static void v2m_clcd_enable(struct clcd_fb *fb)
+{
+	v2m_sysregs_cfg_write(SYS_CFG_MUXFPGA | SYS_CFG_SITE_MB, 0);
+}
+
+static int v2m_clcd_setup(struct clcd_fb *fb)
+{
+	unsigned long framesize = 1024 * 768 * 2;
+
+	fb->panel = &xvga_panel;
+	fb->fb.screen_base = ioremap_wc(V2M_VIDEO_SRAM, framesize);
+
+	if (!fb->fb.screen_base) {
+		pr_err("CLCD: unable to map frame buffer\n");
+		return -ENOMEM;
+	}
+
+	fb->fb.fix.smem_start = V2M_VIDEO_SRAM;
+	fb->fb.fix.smem_len = framesize;
+
+	return 0;
+}
+
+static int v2m_clcd_mmap(struct clcd_fb *fb, struct vm_area_struct *vma)
+{
+	unsigned long off, user_size, kern_size;
+
+	off = vma->vm_pgoff << PAGE_SHIFT;
+	user_size = vma->vm_end - vma->vm_start;
+	kern_size = fb->fb.fix.smem_len;
+
+	if (off >= kern_size || user_size > (kern_size - off))
+		return -ENXIO;
+
+	return remap_pfn_range(vma, vma->vm_start,
+			__phys_to_pfn(fb->fb.fix.smem_start) + vma->vm_pgoff,
+			user_size,
+			pgprot_writecombine(vma->vm_page_prot));
+}
+
+static void v2m_clcd_remove(struct clcd_fb *fb)
+{
+	iounmap(fb->fb.screen_base);
+}
+
+/*
  * Platform data definitions.
  */
 static unsigned int v2m_mmci_status(struct device *dev)
@@ -144,8 +217,20 @@ static struct mmci_platform_data v2m_mmci_data = {
 	.status		= v2m_mmci_status,
 };
 
+static struct clcd_board v2m_clcd_data = {
+	.name		= "V2M",
+	.check		= clcdfb_check,
+	.decode		= clcdfb_decode,
+	.enable		= v2m_clcd_enable,
+	.setup		= v2m_clcd_setup,
+	.mmap		= v2m_clcd_mmap,
+	.remove		= v2m_clcd_remove,
+};
+
+
 static struct of_dev_auxdata v2m_dt_auxdata_lookup[] __initdata = {
 	OF_DEV_AUXDATA("arm,primecell", V2M_MMCI, "mb:mmci", &v2m_mmci_data),
+	OF_DEV_AUXDATA("arm,primecell", V2M_CLCD, "mb:clcd", &v2m_clcd_data),
 	{}
 };
 
