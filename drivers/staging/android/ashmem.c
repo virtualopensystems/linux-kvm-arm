@@ -411,7 +411,7 @@ out:
 	return ret;
 }
 
-static int set_name(struct ashmem_area *asma, void __user *name)
+static int set_name(struct ashmem_area *asma, userptr32_t name)
 {
 	int ret = 0;
 
@@ -424,7 +424,7 @@ static int set_name(struct ashmem_area *asma, void __user *name)
 	}
 
 	if (unlikely(copy_from_user(asma->name + ASHMEM_NAME_PREFIX_LEN,
-				    name, ASHMEM_NAME_LEN)))
+				    (void *)(unsigned long)name, ASHMEM_NAME_LEN)))
 		ret = -EFAULT;
 	asma->name[ASHMEM_FULL_NAME_LEN-1] = '\0';
 
@@ -434,7 +434,7 @@ out:
 	return ret;
 }
 
-static int get_name(struct ashmem_area *asma, void __user *name)
+static int get_name(struct ashmem_area *asma, userptr32_t name)
 {
 	int ret = 0;
 
@@ -447,11 +447,11 @@ static int get_name(struct ashmem_area *asma, void __user *name)
 		 * prevents us from revealing one user's stack to another.
 		 */
 		len = strlen(asma->name + ASHMEM_NAME_PREFIX_LEN) + 1;
-		if (unlikely(copy_to_user(name,
+		if (unlikely(copy_to_user((void *)(unsigned long)name,
 				asma->name + ASHMEM_NAME_PREFIX_LEN, len)))
 			ret = -EFAULT;
 	} else {
-		if (unlikely(copy_to_user(name, ASHMEM_NAME_DEF,
+		if (unlikely(copy_to_user((void *)(unsigned long)name, ASHMEM_NAME_DEF,
 					  sizeof(ASHMEM_NAME_DEF))))
 			ret = -EFAULT;
 	}
@@ -586,7 +586,7 @@ static int ashmem_get_pin_status(struct ashmem_area *asma, size_t pgstart,
 }
 
 static int ashmem_pin_unpin(struct ashmem_area *asma, unsigned long cmd,
-			    void __user *p)
+			    userptr32_t p)
 {
 	struct ashmem_pin pin;
 	size_t pgstart, pgend;
@@ -595,7 +595,7 @@ static int ashmem_pin_unpin(struct ashmem_area *asma, unsigned long cmd,
 	if (unlikely(!asma->file))
 		return -EINVAL;
 
-	if (unlikely(copy_from_user(&pin, p, sizeof(pin))))
+	if (unlikely(copy_from_user(&pin, (void *)(unsigned long)p, sizeof(pin))))
 		return -EFAULT;
 
 	/* per custom, you can pass zero for len to mean "everything onward" */
@@ -638,35 +638,50 @@ static long ashmem_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	struct ashmem_area *asma = file->private_data;
 	long ret = -ENOTTY;
 
-	switch (cmd) {
-	case ASHMEM_SET_NAME:
-		ret = set_name(asma, (void __user *) arg);
+	/*
+	 * since  the transaction's IOCTL number are generated using
+	 * _IOC(dir,type,nr,size), a different userspace size will not
+	 * fall through
+	 */
+	switch (_IOC_NR(cmd)) {
+	case _IOC_NR(ASHMEM_SET_NAME):
+		if (_IOC_SIZE(cmd) != sizeof(char[ASHMEM_NAME_LEN]))
+			pr_err("ashmem: ASHMEM_SET_NAME transaction size differs\n");
+		ret = set_name(asma, arg);
 		break;
-	case ASHMEM_GET_NAME:
-		ret = get_name(asma, (void __user *) arg);
+	case _IOC_NR(ASHMEM_GET_NAME):
+		if (_IOC_SIZE(cmd) != sizeof(char[ASHMEM_NAME_LEN]))
+			pr_err("ashmem: ASHMEM_GET_NAME transaction size differs\n");
+		ret = get_name(asma, arg);
 		break;
-	case ASHMEM_SET_SIZE:
+	case _IOC_NR(ASHMEM_SET_SIZE):
+		if (_IOC_SIZE(cmd) != sizeof(uint32_t))
+			pr_err("ashmem: ASHMEM_SET_SIZE transaction size differs\n");
 		ret = -EINVAL;
 		if (!asma->file) {
 			ret = 0;
 			asma->size = (size_t) arg;
 		}
 		break;
-	case ASHMEM_GET_SIZE:
+	case _IOC_NR(ASHMEM_GET_SIZE):
 		ret = asma->size;
 		break;
-	case ASHMEM_SET_PROT_MASK:
+	case _IOC_NR(ASHMEM_SET_PROT_MASK):
+		if (_IOC_SIZE(cmd) != sizeof(uint32_t))
+			pr_err("ashmem: ASHMEM_SET_PROT_MASK transaction size differs\n");
 		ret = set_prot_mask(asma, arg);
 		break;
-	case ASHMEM_GET_PROT_MASK:
+	case _IOC_NR(ASHMEM_GET_PROT_MASK):
 		ret = asma->prot_mask;
 		break;
-	case ASHMEM_PIN:
-	case ASHMEM_UNPIN:
-	case ASHMEM_GET_PIN_STATUS:
-		ret = ashmem_pin_unpin(asma, cmd, (void __user *) arg);
+	case _IOC_NR(ASHMEM_PIN):
+	case _IOC_NR(ASHMEM_UNPIN):
+	case _IOC_NR(ASHMEM_GET_PIN_STATUS):
+		if (_IOC_SIZE(cmd) != sizeof(struct ashmem_pin))
+			pr_err("ashmem: ASHMEM_PIN transaction size differs\n");
+		ret = ashmem_pin_unpin(asma, cmd, arg);
 		break;
-	case ASHMEM_PURGE_ALL_CACHES:
+	case _IOC_NR(ASHMEM_PURGE_ALL_CACHES):
 		ret = -EPERM;
 		if (capable(CAP_SYS_ADMIN)) {
 			struct shrink_control sc = {
@@ -677,6 +692,9 @@ static long ashmem_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 			sc.nr_to_scan = ret;
 			ashmem_shrink(&ashmem_shrinker, &sc);
 		}
+		break;
+	default:
+		pr_err("ashmem: IOCTL No. not found\n");
 		break;
 	}
 
