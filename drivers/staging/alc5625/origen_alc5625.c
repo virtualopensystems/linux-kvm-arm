@@ -12,7 +12,6 @@
 #include <linux/platform_device.h>
 #include <linux/clk.h>
 #include <linux/module.h>
-#include <linux/of.h>
 
 #include <sound/soc.h>
 #include <sound/soc-dapm.h>
@@ -173,67 +172,39 @@ static struct snd_soc_dai_link origen_dai[] = {
 	},
 };
 
-static struct snd_soc_card snd_soc_origen_audio = {
+static struct snd_soc_card origen = {
 	.name = "ORIGEN-I2S",
 	.dai_link = origen_dai,
 	.num_links = ARRAY_SIZE(origen_dai),
 };
 
-static int origen_audio_probe(struct platform_device *pdev)
-{
-	int ret;
-	struct snd_soc_card *card = &snd_soc_origen_audio;
-
-	card->dev = &pdev->dev;
-
-	ret = snd_soc_register_card(card);
-	if (ret)
-		dev_err(&pdev->dev, "snd_soc_register_card() failed: %d\n",
-				ret);
-
-	return ret;
-}
-
-static int __devexit origen_audio_remove(struct platform_device *pdev)
-{
-	struct snd_soc_card *card = platform_get_drvdata(pdev);
-
-	snd_soc_unregister_card(card);
-
-	return 0;
-}
-
-#if defined(CONFIG_OF)
-static const struct of_device_id origen_audio_of_match[] = {
-	{ .compatible = "samsung,origen_audio", },
-	{ }
-};
-MODULE_DEVICE_TABLE(of, origen_audio_of_match);
-#endif
-
-static struct platform_driver origen_audio_driver = {
-	.driver		= {
-		.name	= "origen-audio",
-		.owner	= THIS_MODULE,
-		.of_match_table = of_match_ptr(origen_audio_of_match),
-	},
-	.probe		= origen_audio_probe,
-	.remove		= __devexit_p(origen_audio_remove),
-};
+static struct platform_device *origen_snd_device;
 
 static int __init origen_audio_init(void)
 {
-	return platform_driver_register(&origen_audio_driver);
+	int ret;
+
+	origen_snd_device = platform_device_alloc("soc-audio", -1);
+	if (!origen_snd_device)
+		return -ENOMEM;
+
+	platform_set_drvdata(origen_snd_device, &origen);
+
+	ret = platform_device_add(origen_snd_device);
+
+	if (ret)
+		platform_device_put(origen_snd_device);
+
+	return ret;
 }
 late_initcall(origen_audio_init);
 
 static void __exit origen_audio_exit(void)
 {
-	platform_driver_unregister(&origen_audio_driver);
+	platform_device_unregister(origen_snd_device);
 }
 module_exit(origen_audio_exit);
 
 MODULE_AUTHOR("Pan, <pan@insignal.co.kr>");
 MODULE_DESCRIPTION("ALSA SoC ORIGEN+ALC5625");
 MODULE_LICENSE("GPL");
-MODULE_ALIAS("platform:origen-audio");
