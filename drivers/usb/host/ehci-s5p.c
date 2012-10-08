@@ -90,6 +90,26 @@ static void s5p_ehci_phy_disable(struct s5p_ehci_hcd *s5p_ehci)
 		s5p_ehci->pdata->phy_exit(pdev, USB_PHY_TYPE_HOST);
 }
 
+static void s5p_setup_hub_gpio(struct platform_device *pdev, const char *propname, int level)
+{
+	int err;
+	int gpio;
+
+	if (!pdev->dev.of_node)
+		return;
+
+	gpio = of_get_named_gpio(pdev->dev.of_node, propname, 0);
+	if (!gpio_is_valid(gpio))
+		return;
+
+	err = gpio_request_one(gpio, level, "ehci_vbus_gpio");
+
+	if (err)
+		dev_err(&pdev->dev, "can't request ehci hub-reset gpio %d", gpio);
+	else
+		gpio_free(gpio);
+}
+
 static void s5p_setup_vbus_gpio(struct platform_device *pdev)
 {
 	int err;
@@ -200,7 +220,14 @@ static int s5p_ehci_probe(struct platform_device *pdev)
 	if (s5p_ehci->otg)
 		s5p_ehci->otg->set_host(s5p_ehci->otg, &s5p_ehci->hcd->self);
 
+	s5p_setup_hub_gpio(pdev, "samsung,hub-reset", GPIOF_OUT_INIT_LOW);
+	s5p_setup_hub_gpio(pdev, "samsung,hub-connect", GPIOF_OUT_INIT_LOW);
+
 	s5p_ehci_phy_enable(s5p_ehci);
+
+	mdelay(1);
+	s5p_setup_hub_gpio(pdev, "samsung,hub-reset", GPIOF_OUT_INIT_HIGH);
+	s5p_setup_hub_gpio(pdev, "samsung,hub-connect", GPIOF_OUT_INIT_HIGH);
 
 	ehci = hcd_to_ehci(hcd);
 	ehci->caps = hcd->regs;
