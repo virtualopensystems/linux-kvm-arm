@@ -40,7 +40,7 @@ struct cci_drvdata {
 
 static struct cci_drvdata *info;
 
-void disable_cci(int cluster)
+void notrace disable_cci(int cluster)
 {
 	u32 slave_reg = cluster ? CCI400_KF_OFFSET : CCI400_EAG_OFFSET;
 	writel_relaxed(0x0, info->baseaddr + slave_reg);
