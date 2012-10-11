@@ -12,6 +12,7 @@
 #include <linux/of_platform.h>
 #include <linux/serial_core.h>
 
+#include <asm/io.h>
 #include <asm/mach/arch.h>
 #include <asm/hardware/gic.h>
 #include <mach/map.h>
@@ -105,14 +106,6 @@ static const struct of_dev_auxdata exynos5250_auxdata_lookup[] __initconst = {
 				"sata_phy_exynos", NULL),
 	OF_DEV_AUXDATA("samsung,s3c2440-sataphy-i2c", EXYNOS5_PA_SATA_PHY_I2C,
 				"sata-phy-i2c", NULL),
-	OF_DEV_AUXDATA("samsung,exynos5250-dw-mshc", EXYNOS5_PA_DWMCI(0),
-				"dw_mmc.0", NULL),
-	OF_DEV_AUXDATA("samsung,exynos5250-dw-mshc", EXYNOS5_PA_DWMCI(1),
-				"dw_mmc.1", NULL),
-	OF_DEV_AUXDATA("samsung,exynos5250-dw-mshc", EXYNOS5_PA_DWMCI(2),
-				"dw_mmc.2", NULL),
-	OF_DEV_AUXDATA("samsung,exynos5250-dw-mshc", EXYNOS5_PA_DWMCI(3),
-				"dw_mmc.3", NULL),
 	OF_DEV_AUXDATA("arm,pl330", EXYNOS5_PA_PDMA0, "dma-pl330.0", NULL),
 	OF_DEV_AUXDATA("arm,pl330", EXYNOS5_PA_PDMA1, "dma-pl330.1", NULL),
 	OF_DEV_AUXDATA("arm,pl330", EXYNOS5_PA_MDMA1, "dma-pl330.2", NULL),
