@@ -129,6 +129,9 @@
 				compatible = "arm,pl111", "arm,primecell";
 				reg = <0x1f0000 0x1000>;
 				interrupts = <14>;
+				mode = "VGA";
+				use_dma = <1>;
+				framebuffer = <0x18000000 0x01000000>;
 			};
 		};
 	};
