@@ -258,7 +258,7 @@ static struct cpufreq_driver vexpress_cpufreq_driver = {
 	.target	= vexpress_cpufreq_set_target,
 	.get	= vexpress_cpufreq_get,
 	.init	= vexpress_cpufreq_init,
-	.name	= "cpufreq_vexpress",
+	.name	= "vexpress-spc",
 	.attr	= vexpress_cpufreq_attr,
 };
 
