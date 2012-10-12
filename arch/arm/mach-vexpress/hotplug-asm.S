@@ -11,14 +11,11 @@ ENTRY(disable_clean_inv_dcache)
 	mcr	p15, 0, r3, c1, c0, 0
 	dsb
 	isb
-	cmp	r0, #0
-	mrc	p15, 1, r0, c0, c0, 1
-	andeq	r0, r0, #0xe00000
-	moveq	r0, r0, lsr #21
-	andne	r0, r0, #0x7000000
-	movne	r0, r0, lsr #24
-	movs	r0, r0
-	blne	v7_flush_dcache_level
+	mov	r12, r0
+	cmp	r12, #0
+	bleq	v7_flush_dcache_louis
+	cmp	r12, #0
+	blne	v7_flush_dcache_all
 	clrex
 	mrc	p15, 0, r3, c1, c0, 1
 	bic	r3, #0x40		@ clear SMP bit
