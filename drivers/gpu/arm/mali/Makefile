@@ -47,6 +47,10 @@ ifeq ($(CONFIG_USING_GPU_UTILIZATION),y)
 USING_GPU_UTILIZATION =1
 endif
 
+ifeq ($(CONFIG_USING_GPU_DEVFREQ),y)
+USING_GPU_DEVFREQ =1
+endif
+
 ifeq ($(CONFIG_USING_MALI_RUN_TIME_PM),y)
 USING_MALI_RUN_TIME_PM =1
 endif
@@ -66,6 +70,7 @@ USING_UMP ?= 0
 USING_OS_MEMORY ?= 0
 USING_PMM ?= 0
 USING_GPU_UTILIZATION ?= 0
+USING_GPU_DEVFREQ ?= 0
 USING_MALI_RUN_TIME_PM ?= 0
 USING_MALI_PMM_TESTSUITE ?= 0
 OS_MEMORY_KERNEL_BUFFER_SIZE_IN_MB ?= 6
@@ -109,6 +114,7 @@ endif
 
 DEFINES += -DUSING_MALI_PMM=$(USING_PMM)
 DEFINES += -DMALI_GPU_UTILIZATION=$(USING_GPU_UTILIZATION)
+DEFINES += -DMALI_GPU_DEVFREQ=$(USING_GPU_DEVFREQ)
 
 ifeq ($(CONFIG_DEBUG_BUILD),y)
 DEFINES += -DDEBUG
@@ -213,8 +219,13 @@ mali-y += \
 endif
 
 ifeq ($(USING_GPU_UTILIZATION),1)
+ifeq ($(USING_GPU_DEVFREQ),1)
+mali-y += \
+	linux/mali_kernel_devfreq.o
+else
 mali-y += \
 	common/mali_kernel_utilization.o
+endif
 endif
 
 ifneq ($(call submodule_enabled, $M, MALI400PP),0)

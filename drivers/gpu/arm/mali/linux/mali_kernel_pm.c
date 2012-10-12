@@ -41,6 +41,10 @@
 #include "mali_kernel_utilization.h"
 #endif /* MALI_GPU_UTILIZATION */
 
+#if MALI_GPU_DEVFREQ
+#include "mali_kernel_devfreq.h"
+#endif /* MALI_GPU_DEVFREQ */
+
 #if MALI_POWER_MGMT_TEST_SUITE
 #ifdef CONFIG_PM
 #include "mali_linux_pm_testsuite.h"
@@ -419,6 +423,9 @@ static int mali_pm_os_resume_on_hibernation(struct device *dev)
  */
 static int mali_device_runtime_suspend(struct device *dev)
 {
+#if MALI_GPU_DEVFREQ
+	mali_utilization_suspend();
+#endif /* MALI_GPU_DEVFREQ */
 	MALI_DEBUG_PRINT(4, ("PMMDEBUG: Mali device Run time suspended \n" ));
 	return 0;
 }
@@ -427,6 +434,9 @@ static int mali_device_runtime_suspend(struct device *dev)
  */
 static int mali_device_runtime_resume(struct device *dev)
 {
+#if MALI_GPU_DEVFREQ
+	mali_utilization_resume();
+#endif /* MALI_GPU_DEVFREQ */
 	MALI_DEBUG_PRINT(4, ("PMMDEBUG: Mali device Run time Resumed \n" ));
 	return 0;
 }

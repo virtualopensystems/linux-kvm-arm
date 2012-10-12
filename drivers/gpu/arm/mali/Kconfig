@@ -39,6 +39,13 @@ config USING_GPU_UTILIZATION
         ---help---
                 This enables GPU utilization information.
 
+config USING_GPU_DEVFREQ
+	bool "GPU devfreq"
+        depends on MALI400MP && USING_GPU_UTILIZATION
+        default n
+        ---help---
+                This enables GPU devfreq.
+
 config USING_MALI_RUN_TIME_PM
         bool "Using Run time Power Management"
         depends on MALI400MP

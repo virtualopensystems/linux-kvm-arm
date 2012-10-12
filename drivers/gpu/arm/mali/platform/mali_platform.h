@@ -93,6 +93,14 @@ void mali_gpu_utilization_handler(u32 utilization);
  */
 void set_mali_parent_power_domain(void* dev);
 
+/** @brief Get MALI current running frequency
+ *
+ * This function gets the current running frequency of MALI
+ *
+ * @return frequency in Hz
+ */
+unsigned long get_mali_platform_cur_freq(void);
+
 #ifdef __cplusplus
 }
 #endif

@@ -40,4 +40,7 @@ void set_mali_parent_power_domain(void* dev)
 {
 }
 
-
+unsigned long get_mali_platform_cur_freq(void)
+{
+    return 0;
+}
