@@ -746,6 +746,11 @@ struct kvm_dirty_tlb {
 #define KVM_REG_SIZE_U512	0x0060000000000000ULL
 #define KVM_REG_SIZE_U1024	0x0070000000000000ULL
 
+struct kvm_reg_list {
+	__u64 n; /* number of regs */
+	__u64 reg[0];
+};
+
 struct kvm_one_reg {
 	__u64 id;
 	__u64 addr;
