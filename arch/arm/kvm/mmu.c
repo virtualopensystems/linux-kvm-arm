@@ -703,10 +703,10 @@ static bool copy_current_insn(struct kvm_vcpu *vcpu, unsigned long *instr)
 	is_thumb = !!(*vcpu_cpsr(vcpu) & PSR_T_BIT);
 	instr_len = (is_thumb) ? 2 : 4;
 
-	BUG_ON(!is_thumb && vcpu->arch.regs.pc & 0x3);
+	BUG_ON(!is_thumb && vcpu->arch.regs.usr_regs.ARM_pc & 0x3);
 
 	/* Now guest isn't running, we can va->pa map and copy atomically. */
-	ret = copy_from_guest_va(vcpu, instr, vcpu->arch.regs.pc, instr_len,
+	ret = copy_from_guest_va(vcpu, instr, vcpu->arch.regs.usr_regs.ARM_pc, instr_len,
 				 vcpu_mode_priv(vcpu));
 	if (!ret)
 		goto out;
@@ -714,7 +714,7 @@ static bool copy_current_insn(struct kvm_vcpu *vcpu, unsigned long *instr)
 	/* A 32-bit thumb2 instruction can actually go over a page boundary! */
 	if (is_thumb && is_wide_instruction(*instr)) {
 		*instr = *instr << 16;
-		ret = copy_from_guest_va(vcpu, instr, vcpu->arch.regs.pc + 2, 2,
+		ret = copy_from_guest_va(vcpu, instr, vcpu->arch.regs.usr_regs.ARM_pc + 2, 2,
 					 vcpu_mode_priv(vcpu));
 	}
 

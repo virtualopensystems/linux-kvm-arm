@@ -79,7 +79,7 @@ static int set_core_reg(struct kvm_vcpu *vcpu, const struct kvm_one_reg *reg)
 	if (get_user(val, uaddr) != 0)
 		return -EFAULT;
 
-	if (off == KVM_REG_ARM_CORE_REG(cpsr)) {
+	if (off == KVM_REG_ARM_CORE_REG(usr_regs.ARM_cpsr)) {
 		unsigned long mode = val & MODE_MASK;
 		switch (mode) {
 		case USR_MODE:

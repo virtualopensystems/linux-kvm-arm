@@ -56,34 +56,34 @@ void kvm_inject_pabt(struct kvm_vcpu *vcpu, unsigned long addr);
 /* Get vcpu register for current mode */
 static inline u32 *vcpu_reg(struct kvm_vcpu *vcpu, unsigned long reg_num)
 {
-	return vcpu_reg_mode(vcpu, reg_num, vcpu->arch.regs.cpsr);
+	return vcpu_reg_mode(vcpu, reg_num, vcpu->arch.regs.usr_regs.ARM_cpsr);
 }
 
 static inline u32 *vcpu_pc(struct kvm_vcpu *vcpu)
 {
-	return vcpu_reg(vcpu, 15);
+	return (u32 *)&vcpu->arch.regs.usr_regs.ARM_pc;
 }
 
 static inline u32 *vcpu_cpsr(struct kvm_vcpu *vcpu)
 {
-	return &vcpu->arch.regs.cpsr;
+	return (u32 *)&vcpu->arch.regs.usr_regs.ARM_cpsr;
 }
 
 /* Get vcpu SPSR for current mode */
 static inline u32 *vcpu_spsr(struct kvm_vcpu *vcpu)
 {
-	return vcpu_spsr_mode(vcpu, vcpu->arch.regs.cpsr);
+	return vcpu_spsr_mode(vcpu, vcpu->arch.regs.usr_regs.ARM_cpsr);
 }
 
 static inline bool mode_has_spsr(struct kvm_vcpu *vcpu)
 {
-	unsigned long cpsr_mode = vcpu->arch.regs.cpsr & MODE_MASK;
+	unsigned long cpsr_mode = vcpu->arch.regs.usr_regs.ARM_cpsr & MODE_MASK;
 	return (cpsr_mode > USR_MODE && cpsr_mode < SYSTEM_MODE);
 }
 
 static inline bool vcpu_mode_priv(struct kvm_vcpu *vcpu)
 {
-	unsigned long cpsr_mode = vcpu->arch.regs.cpsr & MODE_MASK;
+	unsigned long cpsr_mode = vcpu->arch.regs.usr_regs.ARM_cpsr & MODE_MASK;
 	return cpsr_mode > USR_MODE;;
 }
 

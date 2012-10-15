@@ -28,7 +28,7 @@
 #define REG_OFFSET(_reg) \
 	(offsetof(struct kvm_regs, _reg) / sizeof(u32))
 
-#define USR_REG_OFFSET(_num) REG_OFFSET(usr_regs[_num])
+#define USR_REG_OFFSET(_num) REG_OFFSET(usr_regs.uregs[_num])
 
 static const unsigned long vcpu_reg_offsets[VCPU_NR_MODES][16] = {
 	/* FIQ Registers */
@@ -43,7 +43,7 @@ static const unsigned long vcpu_reg_offsets[VCPU_NR_MODES][16] = {
 		REG_OFFSET(fiq_regs[4]), /* r12 */
 		REG_OFFSET(fiq_regs[5]), /* r13 */
 		REG_OFFSET(fiq_regs[6]), /* r14 */
-		REG_OFFSET(pc)		 /* r15 */
+		REG_OFFSET(usr_regs.ARM_pc)
 	},
 
 	/* IRQ Registers */
@@ -55,7 +55,7 @@ static const unsigned long vcpu_reg_offsets[VCPU_NR_MODES][16] = {
 		USR_REG_OFFSET(12),
 		REG_OFFSET(irq_regs[0]), /* r13 */
 		REG_OFFSET(irq_regs[1]), /* r14 */
-		REG_OFFSET(pc)	         /* r15 */
+		REG_OFFSET(usr_regs.ARM_pc)
 	},
 
 	/* SVC Registers */
@@ -67,7 +67,7 @@ static const unsigned long vcpu_reg_offsets[VCPU_NR_MODES][16] = {
 		USR_REG_OFFSET(12),
 		REG_OFFSET(svc_regs[0]), /* r13 */
 		REG_OFFSET(svc_regs[1]), /* r14 */
-		REG_OFFSET(pc)		 /* r15 */
+		REG_OFFSET(usr_regs.ARM_pc)
 	},
 
 	/* ABT Registers */
@@ -79,7 +79,7 @@ static const unsigned long vcpu_reg_offsets[VCPU_NR_MODES][16] = {
 		USR_REG_OFFSET(12),
 		REG_OFFSET(abt_regs[0]), /* r13 */
 		REG_OFFSET(abt_regs[1]), /* r14 */
-		REG_OFFSET(pc)	         /* r15 */
+		REG_OFFSET(usr_regs.ARM_pc)
 	},
 
 	/* UND Registers */
@@ -91,7 +91,7 @@ static const unsigned long vcpu_reg_offsets[VCPU_NR_MODES][16] = {
 		USR_REG_OFFSET(12),
 		REG_OFFSET(und_regs[0]), /* r13 */
 		REG_OFFSET(und_regs[1]), /* r14 */
-		REG_OFFSET(pc)	         /* r15 */
+		REG_OFFSET(usr_regs.ARM_pc)
 	},
 
 	/* USR Registers */
@@ -100,10 +100,8 @@ static const unsigned long vcpu_reg_offsets[VCPU_NR_MODES][16] = {
 		USR_REG_OFFSET(3), USR_REG_OFFSET(4), USR_REG_OFFSET(5),
 		USR_REG_OFFSET(6), USR_REG_OFFSET(7), USR_REG_OFFSET(8),
 		USR_REG_OFFSET(9), USR_REG_OFFSET(10), USR_REG_OFFSET(11),
-		USR_REG_OFFSET(12),
-		REG_OFFSET(usr_regs[13]), /* r13 */
-		REG_OFFSET(usr_regs[14]), /* r14 */
-		REG_OFFSET(pc)	          /* r15 */
+		USR_REG_OFFSET(12), USR_REG_OFFSET(13),	USR_REG_OFFSET(14),
+		REG_OFFSET(usr_regs.ARM_pc)
 	},
 
 	/* SYS Registers */
@@ -112,10 +110,8 @@ static const unsigned long vcpu_reg_offsets[VCPU_NR_MODES][16] = {
 		USR_REG_OFFSET(3), USR_REG_OFFSET(4), USR_REG_OFFSET(5),
 		USR_REG_OFFSET(6), USR_REG_OFFSET(7), USR_REG_OFFSET(8),
 		USR_REG_OFFSET(9), USR_REG_OFFSET(10), USR_REG_OFFSET(11),
-		USR_REG_OFFSET(12),
-		REG_OFFSET(usr_regs[13]), /* r13 */
-		REG_OFFSET(usr_regs[14]), /* r14 */
-		REG_OFFSET(pc)	          /* r15 */
+		USR_REG_OFFSET(12), USR_REG_OFFSET(13),	USR_REG_OFFSET(14),
+		REG_OFFSET(usr_regs.ARM_pc)
 	},
 };
 
@@ -201,7 +197,7 @@ u32 *vcpu_spsr_mode(struct kvm_vcpu *vcpu, u32 cpsr)
  */
 int kvm_handle_wfi(struct kvm_vcpu *vcpu, struct kvm_run *run)
 {
-	trace_kvm_wfi(vcpu->arch.regs.pc);
+	trace_kvm_wfi(vcpu->arch.regs.usr_regs.ARM_pc);
 	kvm_vcpu_block(vcpu);
 	return 1;
 }
@@ -362,7 +358,7 @@ static unsigned long ls_word_calc_offset(struct kvm_vcpu *vcpu,
 			break;
 		case SCALE_SHIFT_ROR_RRX:
 			if (shift_imm == 0) {
-				u32 C = (vcpu->arch.regs.cpsr &
+				u32 C = (vcpu->arch.regs.usr_regs.ARM_cpsr &
 						(1U << PSR_BIT_C));
 				offset = (C << 31) | offset >> 1;
 			} else {
@@ -624,7 +620,7 @@ int kvm_emulate_mmio_ls(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
 {
 	bool is_thumb;
 
-	trace_kvm_mmio_emulate(vcpu->arch.regs.pc, instr, vcpu->arch.regs.cpsr);
+	trace_kvm_mmio_emulate(vcpu->arch.regs.usr_regs.ARM_pc, instr, vcpu->arch.regs.usr_regs.ARM_cpsr);
 
 	mmio->phys_addr = fault_ipa;
 	is_thumb = !!(*vcpu_cpsr(vcpu) & PSR_T_BIT);
