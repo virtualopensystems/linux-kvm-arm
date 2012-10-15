@@ -86,22 +86,10 @@ ENDPROC(__kvm_flush_vm_context)
  * int __kvm_vcpu_run(struct kvm_vcpu *vcpu)
  */
 ENTRY(__kvm_vcpu_run)
-	@ Preserve ELR_hyp to return to the HYP trampoline
-	mrs	r1, ELR_hyp
-	push	{r1}
-
 	@ Save the vcpu pointer
 	mcr	p15, 4, r0, c13, c0, 2	@ HTPIDR
 
-	@ Now we're in Hyp-mode and ELR_hyp, spsr_hyp are on the stack
-	store_mode_state sp, usr
-	push	{r4-r12}		@ Push r4-r12
-
-	store_mode_state sp, svc
-	store_mode_state sp, abt
-	store_mode_state sp, und
-	store_mode_state sp, irq
-	store_mode_state sp, fiq
+	save_host_regs
 
 	restore_vgic_state r0
 	restore_timer_state r0
@@ -226,18 +214,7 @@ after_vfp_restore:
 	save_timer_state r1
 	save_vgic_state	r1
 
-	load_mode_state sp, fiq
-	load_mode_state sp, irq
-	load_mode_state sp, und
-	load_mode_state sp, abt
-	load_mode_state sp, svc
-
-	pop	{r4-r12}		@ Pop r4-r12
-	load_mode_state sp, usr		@ SP_usr, LR_usr
-
-	pop	{r2}
-	msr	ELR_hyp, r2
-
+	restore_host_regs
 	clrex				@ Clear exclusive monitor
 	bx	lr			@ return to IOCTL
 

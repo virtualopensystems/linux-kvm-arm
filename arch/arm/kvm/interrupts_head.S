@@ -50,6 +50,73 @@
 .equ irq, 4
 .equ fiq, 5
 
+.macro push_host_regs_mode mode
+	mrs	r2, SP_\mode
+	mrs	r3, LR_\mode
+	mrs	r4, SPSR_\mode
+	push	{r2, r3, r4}
+.endm
+
+.macro save_host_regs
+	/* Hyp regs. Only ELR_hyp (SPSR_hyp already saved) */
+	mrs	r2, ELR_hyp
+	push	{r2}
+
+	/* usr regs */
+	push	{r4-r12}	@ r0-r3 are always clobbered
+	mrs	r2, SP_usr
+	mov	r3, lr
+	push	{r2, r3}
+
+	push_host_regs_mode svc
+	push_host_regs_mode abt
+	push_host_regs_mode und
+	push_host_regs_mode irq
+
+	/* fiq regs */
+	mrs	r2, r8_fiq
+	mrs	r3, r9_fiq
+	mrs	r4, r10_fiq
+	mrs	r5, r11_fiq
+	mrs	r6, r12_fiq
+	mrs	r7, SP_fiq
+	mrs	r8, LR_fiq
+	mrs	r9, SPSR_fiq
+	push	{r2-r9}
+.endm
+
+.macro pop_host_regs_mode mode
+	pop	{r2, r3, r4}
+	msr	SP_\mode, r2
+	msr	LR_\mode, r3
+	msr	SPSR_\mode, r4
+.endm
+
+.macro restore_host_regs
+	pop	{r2-r9}
+	msr	r8_fiq, r2
+	msr	r9_fiq, r3
+	msr	r10_fiq, r4
+	msr	r11_fiq, r5
+	msr	r12_fiq, r6
+	msr	SP_fiq, r7
+	msr	LR_fiq, r8
+	msr	SPSR_fiq, r9
+
+	pop_host_regs_mode irq
+	pop_host_regs_mode und
+	pop_host_regs_mode abt
+	pop_host_regs_mode svc
+
+	pop	{r2, r3}
+	msr	SP_usr, r2
+	mov	lr, r3
+	pop	{r4-r12}
+
+	pop	{r2}
+	msr	ELR_hyp, r2
+.endm
+
 .macro store_mode_state base_reg, mode
 	.if \mode == usr
 	mrs	r2, SP_usr
