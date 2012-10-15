@@ -22,8 +22,6 @@
 #include <linux/kvm_host.h>
 #include <asm/kvm_asm.h>
 
-u32 *vcpu_reg_mode(struct kvm_vcpu *vcpu, u8 reg_num, u32 cpsr);
-u32 *vcpu_spsr_mode(struct kvm_vcpu *vcpu, u32 cpsr);
 /*
  * The in-kernel MMIO emulation code wants to use a copy of run->mmio,
  * which is an anonymous type. Use our own type instead.
@@ -45,6 +43,9 @@ static inline void kvm_prepare_mmio(struct kvm_run *run,
 	run->exit_reason	= KVM_EXIT_MMIO;
 }
 
+u32 *vcpu_reg(struct kvm_vcpu *vcpu, u8 reg_num);
+u32 *vcpu_spsr(struct kvm_vcpu *vcpu);
+
 int kvm_handle_wfi(struct kvm_vcpu *vcpu, struct kvm_run *run);
 int kvm_emulate_mmio_ls(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
 			unsigned long instr, struct kvm_exit_mmio *mmio);
@@ -52,12 +53,6 @@ void kvm_skip_instr(struct kvm_vcpu *vcpu, bool is_wide_instr);
 void kvm_inject_undefined(struct kvm_vcpu *vcpu);
 void kvm_inject_dabt(struct kvm_vcpu *vcpu, unsigned long addr);
 void kvm_inject_pabt(struct kvm_vcpu *vcpu, unsigned long addr);
-
-/* Get vcpu register for current mode */
-static inline u32 *vcpu_reg(struct kvm_vcpu *vcpu, unsigned long reg_num)
-{
-	return vcpu_reg_mode(vcpu, reg_num, vcpu->arch.regs.usr_regs.ARM_cpsr);
-}
 
 static inline u32 *vcpu_pc(struct kvm_vcpu *vcpu)
 {
@@ -67,12 +62,6 @@ static inline u32 *vcpu_pc(struct kvm_vcpu *vcpu)
 static inline u32 *vcpu_cpsr(struct kvm_vcpu *vcpu)
 {
 	return (u32 *)&vcpu->arch.regs.usr_regs.ARM_cpsr;
-}
-
-/* Get vcpu SPSR for current mode */
-static inline u32 *vcpu_spsr(struct kvm_vcpu *vcpu)
-{
-	return vcpu_spsr_mode(vcpu, vcpu->arch.regs.usr_regs.ARM_cpsr);
 }
 
 static inline bool mode_has_spsr(struct kvm_vcpu *vcpu)

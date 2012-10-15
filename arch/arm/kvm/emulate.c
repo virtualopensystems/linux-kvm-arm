@@ -24,13 +24,23 @@
 
 #include "trace.h"
 
-#define VCPU_NR_MODES 7
+#define VCPU_NR_MODES 6
 #define REG_OFFSET(_reg) \
 	(offsetof(struct kvm_regs, _reg) / sizeof(u32))
 
 #define USR_REG_OFFSET(_num) REG_OFFSET(usr_regs.uregs[_num])
 
 static const unsigned long vcpu_reg_offsets[VCPU_NR_MODES][16] = {
+	/* USR/SYS Registers */
+	{
+		USR_REG_OFFSET(0), USR_REG_OFFSET(1), USR_REG_OFFSET(2),
+		USR_REG_OFFSET(3), USR_REG_OFFSET(4), USR_REG_OFFSET(5),
+		USR_REG_OFFSET(6), USR_REG_OFFSET(7), USR_REG_OFFSET(8),
+		USR_REG_OFFSET(9), USR_REG_OFFSET(10), USR_REG_OFFSET(11),
+		USR_REG_OFFSET(12), USR_REG_OFFSET(13),	USR_REG_OFFSET(14),
+		REG_OFFSET(usr_regs.ARM_pc)
+	},
+
 	/* FIQ Registers */
 	{
 		USR_REG_OFFSET(0), USR_REG_OFFSET(1), USR_REG_OFFSET(2),
@@ -93,93 +103,57 @@ static const unsigned long vcpu_reg_offsets[VCPU_NR_MODES][16] = {
 		REG_OFFSET(und_regs[1]), /* r14 */
 		REG_OFFSET(usr_regs.ARM_pc)
 	},
-
-	/* USR Registers */
-	{
-		USR_REG_OFFSET(0), USR_REG_OFFSET(1), USR_REG_OFFSET(2),
-		USR_REG_OFFSET(3), USR_REG_OFFSET(4), USR_REG_OFFSET(5),
-		USR_REG_OFFSET(6), USR_REG_OFFSET(7), USR_REG_OFFSET(8),
-		USR_REG_OFFSET(9), USR_REG_OFFSET(10), USR_REG_OFFSET(11),
-		USR_REG_OFFSET(12), USR_REG_OFFSET(13),	USR_REG_OFFSET(14),
-		REG_OFFSET(usr_regs.ARM_pc)
-	},
-
-	/* SYS Registers */
-	{
-		USR_REG_OFFSET(0), USR_REG_OFFSET(1), USR_REG_OFFSET(2),
-		USR_REG_OFFSET(3), USR_REG_OFFSET(4), USR_REG_OFFSET(5),
-		USR_REG_OFFSET(6), USR_REG_OFFSET(7), USR_REG_OFFSET(8),
-		USR_REG_OFFSET(9), USR_REG_OFFSET(10), USR_REG_OFFSET(11),
-		USR_REG_OFFSET(12), USR_REG_OFFSET(13),	USR_REG_OFFSET(14),
-		REG_OFFSET(usr_regs.ARM_pc)
-	},
 };
 
 /*
- * Modes used for short-hand mode determinition in the world-switch code and
- * in emulation code.
- *
- * Note: These indices do NOT correspond to the value of the CPSR mode bits!
- */
-enum vcpu_mode {
-	VCPU_FIQ_MODE = 0,
-	VCPU_IRQ_MODE,
-	VCPU_SVC_MODE,
-	VCPU_ABT_MODE,
-	VCPU_UND_MODE,
-	VCPU_USR_MODE,
-	VCPU_SYS_MODE
-};
-
-static const u8 modes_table[32] = {
-	0xf, 0xf, 0xf, 0xf, 0xf, 0xf, 0xf, 0xf,
-	0xf, 0xf, 0xf, 0xf, 0xf, 0xf, 0xf, 0xf,
-	VCPU_USR_MODE,	/* 0x0 */
-	VCPU_FIQ_MODE,	/* 0x1 */
-	VCPU_IRQ_MODE,	/* 0x2 */
-	VCPU_SVC_MODE,	/* 0x3 */
-	0xf, 0xf, 0xf,
-	VCPU_ABT_MODE,	/* 0x7 */
-	0xf, 0xf, 0xf,
-	VCPU_UND_MODE,	/* 0xb */
-	0xf, 0xf, 0xf,
-	VCPU_SYS_MODE	/* 0xf */
-};
-
-static enum vcpu_mode vcpu_mode(u32 cpsr)
-{
-	u8 mode = modes_table[cpsr & 0x1f];
-	BUG_ON(mode == 0xf);
-	return mode;
-};
-
-/*
- * Return a pointer to the register number valid in the specified mode of
+ * Return a pointer to the register number valid in the current mode of
  * the virtual CPU.
  */
-u32 *vcpu_reg_mode(struct kvm_vcpu *vcpu, u8 reg_num, u32 cpsr)
+u32 *vcpu_reg(struct kvm_vcpu *vcpu, u8 reg_num)
 {
-	unsigned long mode = vcpu_mode(cpsr);
 	u32 *reg_array = (u32 *)&vcpu->arch.regs;
+	u32 mode = *vcpu_cpsr(vcpu) & MODE_MASK;
+
+	switch (mode) {
+	case USR_MODE...SVC_MODE:
+		mode &= ~MODE32_BIT; /* 0 ... 3 */
+		break;
+
+	case ABT_MODE:
+		mode = 4;
+		break;
+
+	case UND_MODE:
+		mode = 5;
+		break;
+
+	case SYSTEM_MODE:
+		mode = 0;
+		break;
+
+	default:
+		BUG();
+	}
 
 	return reg_array + vcpu_reg_offsets[mode][reg_num];
 }
 
 /*
- * Return the SPSR for the specified mode of the virtual CPU.
+ * Return the SPSR for the current mode of the virtual CPU.
  */
-u32 *vcpu_spsr_mode(struct kvm_vcpu *vcpu, u32 cpsr)
+u32 *vcpu_spsr(struct kvm_vcpu *vcpu)
 {
-	switch (vcpu_mode(cpsr)) {
-	case VCPU_SVC_MODE:
+	u32 mode = *vcpu_cpsr(vcpu) & MODE_MASK;
+	switch (mode) {
+	case SVC_MODE:
 		return &vcpu->arch.regs.svc_regs[2];
-	case VCPU_ABT_MODE:
+	case ABT_MODE:
 		return &vcpu->arch.regs.abt_regs[2];
-	case VCPU_UND_MODE:
+	case UND_MODE:
 		return &vcpu->arch.regs.und_regs[2];
-	case VCPU_IRQ_MODE:
+	case IRQ_MODE:
 		return &vcpu->arch.regs.irq_regs[2];
-	case VCPU_FIQ_MODE:
+	case FIQ_MODE:
 		return &vcpu->arch.regs.fiq_regs[7];
 	default:
 		BUG();
