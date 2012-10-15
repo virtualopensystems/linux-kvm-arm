@@ -20,6 +20,7 @@
 #include <linux/const.h>
 #include <asm/unified.h>
 #include <asm/page.h>
+#include <asm/ptrace.h>
 #include <asm/asm-offsets.h>
 #include <asm/kvm_asm.h>
 #include <asm/kvm_arm.h>
@@ -44,7 +45,6 @@ __kvm_hyp_code_start:
  * hardware assisted version.
  */
 ENTRY(__kvm_tlb_flush_vmid)
-	hvc	#0			@ Switch to Hyp mode
 	push	{r2, r3}
 
 	add	r0, r0, #KVM_VTTBR
@@ -57,9 +57,9 @@ ENTRY(__kvm_tlb_flush_vmid)
 	mov	r2, #0
 	mov	r3, #0
 	mcrr	p15, 6, r2, r3, c2	@ Back to VMID #0
+	isb				@ Not necessary if followed by eret
 
 	pop	{r2, r3}
-	hvc	#0			@ Back to SVC
 	bx	lr
 ENDPROC(__kvm_tlb_flush_vmid)
 
@@ -69,14 +69,12 @@ ENDPROC(__kvm_tlb_flush_vmid)
  * void __kvm_flush_vm_context(void);
  */
 ENTRY(__kvm_flush_vm_context)
-	hvc	#0			@ switch to hyp-mode
-
 	mov	r0, #0			@ rn parameter for c15 flushes is SBZ
 	mcr     p15, 4, r0, c8, c7, 4   @ Invalidate Non-secure Non-Hyp TLB
 	mcr     p15, 0, r0, c7, c5, 0   @ Invalidate instruction caches
 	dsb
+	isb				@ Not necessary if followed by eret
 
-	hvc	#0			@ switch back to svc-mode, see hyp_svc
 	bx	lr
 ENDPROC(__kvm_flush_vm_context)
 
@@ -88,14 +86,15 @@ ENDPROC(__kvm_flush_vm_context)
  * int __kvm_vcpu_run(struct kvm_vcpu *vcpu)
  */
 ENTRY(__kvm_vcpu_run)
-	hvc	#0			@ switch to hyp-mode
+	@ Preserve ELR_hyp to return to the HYP trampoline
+	mrs	r1, ELR_hyp
+	push	{r1}
 
 	@ Save the vcpu pointer
 	mcr	p15, 4, r0, c13, c0, 2	@ HTPIDR
 
-	@ Now we're in Hyp-mode and lr_usr, spsr_hyp are on the stack
-	mrs	r2, sp_usr
-	push	{r2}			@ Push r13_usr
+	@ Now we're in Hyp-mode and ELR_hyp, spsr_hyp are on the stack
+	store_mode_state sp, usr
 	push	{r4-r12}		@ Push r4-r12
 
 	store_mode_state sp, svc
@@ -234,10 +233,10 @@ after_vfp_restore:
 	load_mode_state sp, svc
 
 	pop	{r4-r12}		@ Pop r4-r12
-	pop	{r2}			@ Pop r13_usr
-	msr	sp_usr, r2
+	load_mode_state sp, usr		@ SP_usr, LR_usr
 
-	hvc	#0			@ switch back to svc-mode, see hyp_svc
+	pop	{r2}
+	msr	ELR_hyp, r2
 
 	clrex				@ Clear exclusive monitor
 	bx	lr			@ return to IOCTL
@@ -254,8 +253,6 @@ after_vfp_restore:
  * Returns 64 bit PAR value.
  */
 ENTRY(__kvm_va_to_pa)
-	hvc	#0			@ switch to hyp-mode
-
 	push	{r4-r12}
 
 	@ Fold flag into r1, easier than using stack.
@@ -279,7 +276,10 @@ ENTRY(__kvm_va_to_pa)
 
 	mrrc	p15, 0, r0, r1, c7	@ PAR
 	pop	{r4-r12}
-	hvc	#0			@ Back to SVC
+	bx	lr
+
+ENTRY(kvm_call_hyp)
+	hvc	#0
 	bx	lr
 
 
@@ -298,22 +298,14 @@ ENTRY(__kvm_va_to_pa)
  * host kernel) and they cause a trap to the vector page + offset 0xc when HVC
  * instructions are called from within Hyp-mode.
  *
- * Hyp-ABI: Switching from host kernel to Hyp-mode:
+ * Hyp-ABI: Calling HYP-mode functions from host (in SVC mode):
  *    Switching to Hyp mode is done through a simple HVC #0 instruction. The
  *    exception vector code will check that the HVC comes from VMID==0 and if
- *    so will store the necessary state on the Hyp stack, which will look like
- *    this (growing downwards, see the hyp_hvc handler):
- *      ...
- *      stack_page + 4: spsr (Host-SVC cpsr)
- *      stack_page    : lr_usr
- *      --------------: stack bottom
- *
- * Hyp-ABI: Switching from Hyp-mode to host kernel SVC mode:
- *    When returning from Hyp mode to SVC mode, another HVC instruction is
- *    executed from Hyp mode, which is taken in the hyp_svc handler. The
- *    bottom of the Hyp is derived from the Hyp stack pointer (only a single
- *    page aligned stack is used per CPU) and the initial SVC registers are
- *    used to restore the host state.
+ *    so will push the necessary state (SPSR, lr_usr) on the Hyp stack.
+ *    - r0 contains a pointer to a HYP function
+ *    - r1, r2, and r3 contain arguments to the above function.
+ *    - The HYP function will be called with its arguments in r0, r1 and r2.
+ *    On HYP function return, we return directly to SVC.
  *
  * Hyp-ABI: Change the HVBAR:
  *    When removing the KVM module we want to reset our hold on Hyp mode.
@@ -354,12 +346,17 @@ ENTRY(__kvm_va_to_pa)
 	str	r2, [r1, #VCPU_HYP_PC]
 	b	__kvm_vcpu_return
 
-	@ We were in the host already
-99:	hvc	#0	@ switch to SVC mode
-	ldr	r0, \panic_str
+	@ We were in the host already. Let's craft a panic-ing return to SVC.
+99:	mrs	r2, cpsr
+	bic	r2, r2, #MODE_MASK
+	orr	r2, r2, #SVC_MODE
+THUMB(	orr	r2, r2, #PSR_T_BIT	)
+	msr	spsr_cxsf, r2
 	mrs	r1, ELR_hyp
-	b	panic
-
+	ldr	r2, =BSYM(panic)
+	msr	ELR_hyp, r2
+	ldr	r0, \panic_str
+	eret
 .endm
 
 	.text
@@ -388,19 +385,7 @@ hyp_undef:
 
 	.align
 hyp_svc:
-	/*
-	 * Can only get here if HVC or SVC is called from Hyp, mode which means
-	 * we want to change mode back to SVC mode.
-	 */
-	push	{r12}
-	mov	r12, sp
-	bic	r12, r12, #0x0ff
-	bic	r12, r12, #0xf00
-	ldr	lr, [r12, #4]
-	msr	SPSR_csxf, lr
-	ldr	lr, [r12]
-	pop	{r12}
-	eret
+	bad_exception ARM_EXCEPTION_HVC, svc_die_str
 
 	.align
 hyp_pabt:
@@ -439,19 +424,24 @@ hyp_hvc:
 	bne	guest_trap		@ Guest called HVC
 
 host_switch_to_hyp:
-	@ Store lr_usr,spsr (svc cpsr) on bottom of stack
-	mov	r1, sp
-	bic	r1, r1, #0x0ff
-	bic	r1, r1, #0xf00
-	str	lr, [r1]
-	mrs	lr, spsr
-	str	lr, [r1, #4]
-
 	pop	{r0, r1, r2}
 
-	@ Return to caller in Hyp mode
-	mrs	lr, ELR_hyp
-	mov	pc, lr
+	push	{lr}
+	mrs	lr, SPSR
+	push	{lr}
+
+	mov	lr, r0
+	mov	r0, r1
+	mov	r1, r2
+	mov	r2, r3
+
+THUMB(	orr	lr, #1)
+	blx	lr			@ Call the HYP function
+
+	pop	{lr}
+	msr	SPSR_csxf, lr
+	pop	{lr}
+	eret
 
 guest_trap:
 	load_vcpu	r1		@ Load VCPU pointer
@@ -530,6 +520,8 @@ pabt_die_str:
 	.ascii	"unexpected prefetch abort in Hyp mode at: %#08x"
 dabt_die_str:
 	.ascii	"unexpected data abort in Hyp mode at: %#08x"
+svc_die_str:
+	.ascii	"unexpected HVC/SVC trap in Hyp mode at: %#08x"
 
 /*
  * The below lines makes sure the HYP mode code fits in a single page (the

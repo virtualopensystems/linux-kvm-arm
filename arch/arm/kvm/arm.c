@@ -393,7 +393,7 @@ int kvm_arch_vcpu_in_guest_mode(struct kvm_vcpu *v)
 
 static void reset_vm_context(void *info)
 {
-	__kvm_flush_vm_context();
+	kvm_call_hyp(__kvm_flush_vm_context);
 }
 
 /**
@@ -684,7 +684,7 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 			/* This means ignore, try again. */
 			ret = ARM_EXCEPTION_IRQ;
 		} else {
-			ret = __kvm_vcpu_run(vcpu);
+			ret = kvm_call_hyp(__kvm_vcpu_run, vcpu);
 		}
 
 		vcpu->mode = OUTSIDE_GUEST_MODE;

@@ -35,6 +35,11 @@
 static DEFINE_MUTEX(kvm_hyp_pgd_mutex);
 static pgd_t *hyp_pgd;
 
+static void kvm_tlb_flush_vmid(struct kvm *kvm)
+{
+	kvm_call_hyp(__kvm_tlb_flush_vmid, kvm);
+}
+
 static int mmu_topup_memory_cache(struct kvm_mmu_memory_cache *cache,
 				  int min, int max)
 {
@@ -392,7 +397,7 @@ static void stage2_clear_pte(struct kvm *kvm, phys_addr_t addr)
 	page = virt_to_page(pte);
 	put_page(page);
 	if (page_count(page) != 1) {
-		__kvm_tlb_flush_vmid(kvm);
+		kvm_tlb_flush_vmid(kvm);
 		return;
 	}
 
@@ -403,7 +408,7 @@ static void stage2_clear_pte(struct kvm *kvm, phys_addr_t addr)
 	page = virt_to_page(pmd);
 	put_page(page);
 	if (page_count(page) != 1) {
-		__kvm_tlb_flush_vmid(kvm);
+		kvm_tlb_flush_vmid(kvm);
 		return;
 	}
 
@@ -412,7 +417,7 @@ static void stage2_clear_pte(struct kvm *kvm, phys_addr_t addr)
 
 	page = virt_to_page(pud);
 	put_page(page);
-	__kvm_tlb_flush_vmid(kvm);
+	kvm_tlb_flush_vmid(kvm);
 }
 
 static void stage2_set_pte(struct kvm *kvm, struct kvm_mmu_memory_cache *cache,
@@ -452,7 +457,7 @@ static void stage2_set_pte(struct kvm *kvm, struct kvm_mmu_memory_cache *cache,
 	old_pte = *pte;
 	set_pte_ext(pte, *new_pte, 0);
 	if (pte_present(old_pte))
-		__kvm_tlb_flush_vmid(kvm);
+		kvm_tlb_flush_vmid(kvm);
 	else
 		get_page(virt_to_page(pte));
 }
@@ -610,6 +615,11 @@ int kvm_handle_mmio_return(struct kvm_vcpu *vcpu, struct kvm_run *run)
 	return 0;
 }
 
+static u64 kvm_va_to_pa(struct kvm_vcpu *vcpu, u32 va, bool priv)
+{
+	return kvm_call_hyp(__kvm_va_to_pa, vcpu, va, priv);
+}
+
 /**
  * copy_from_guest_va - copy memory from guest (very slow!)
  * @vcpu:	vcpu pointer
@@ -630,7 +640,7 @@ static bool copy_from_guest_va(struct kvm_vcpu *vcpu,
 	int err;
 
 	BUG_ON((gva & PAGE_MASK) != ((gva + len) & PAGE_MASK));
-	par = __kvm_va_to_pa(vcpu, gva & PAGE_MASK, priv);
+	par = kvm_va_to_pa(vcpu, gva & PAGE_MASK, priv);
 	if (par & 1) {
 		kvm_err("IO abort from invalid instruction address"
 			" %#lx!\n", gva);
