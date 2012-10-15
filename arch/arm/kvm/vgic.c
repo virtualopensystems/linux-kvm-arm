@@ -769,9 +769,10 @@ static void __kvm_vgic_sync_to_cpu(struct kvm_vcpu *vcpu)
 		}
 
 		/* Immediate clear on edge, set active on level */
-		if (vgic_irq_is_edge(dist, i))
+		if (vgic_irq_is_edge(dist, i)) {
 			clear_bit(i - 32, pending);
-		else
+			clear_bit(i, vgic_cpu->pending);
+		} else
 			vgic_bitmap_set_irq_val(&dist->irq_active, 0, i, 1);
 	}
 
@@ -875,7 +876,8 @@ static bool vgic_update_irq_state(struct kvm *kvm, int cpuid,
 	struct vgic_dist *dist = &kvm->arch.vgic;
 	struct kvm_vcpu *vcpu;
 	int is_edge, is_level, state;
-	int pend, enabled;
+	int enabled;
+	bool ret = true;
 
 	spin_lock(&dist->lock);
 
@@ -889,33 +891,45 @@ static bool vgic_update_irq_state(struct kvm *kvm, int cpuid,
 	 * - edge triggered and we have a rising edge
 	 */
 	if ((is_level && !(state ^ level)) || (is_edge && (state || !level))) {
-		spin_unlock(&dist->lock);
-		return false;
+		ret = false;
+		goto out;
 	}
 
 	vgic_bitmap_set_irq_val(&dist->irq_state, cpuid, irq_num, level);
 
 	enabled = vgic_bitmap_get_irq_val(&dist->irq_enabled, cpuid, irq_num);
-	pend = level && enabled;
 
-	if (irq_num >= 32) {
-		cpuid = dist->irq_spi_cpu[irq_num - 32];
-		pend &= vgic_bitmap_get_irq_val(&dist->irq_spi_target[cpuid],
-						0, irq_num);
+	if (!enabled) {
+		ret = false;
+		goto out;
 	}
+
+	if (is_level && vgic_bitmap_get_irq_val(&dist->irq_active,
+						cpuid, irq_num)) {
+		/*
+		 * Level interrupt in progress, will be picked up
+		 * when EOId.
+		 */
+		ret = false;
+		goto out;
+	}
+
+	if (irq_num >= 32)
+		cpuid = dist->irq_spi_cpu[irq_num - 32];
 
 	kvm_debug("Inject IRQ%d level %d CPU%d\n", irq_num, level, cpuid);
 
 	vcpu = kvm_get_vcpu(kvm, cpuid);
-	if (pend) {
+
+	if (level) {
 		set_bit(irq_num, vcpu->arch.vgic_cpu.pending);
 		set_bit(cpuid, &dist->irq_pending_on_cpu);
-	} else
-		clear_bit(irq_num, vcpu->arch.vgic_cpu.pending);
+	}
 
+out:
 	spin_unlock(&dist->lock);
 
-	return true;
+	return ret;
 }
 
 int kvm_vgic_inject_irq(struct kvm *kvm, int cpuid, unsigned int irq_num,
@@ -972,6 +986,15 @@ static irqreturn_t vgic_maintenance_handler(int irq, void *data)
 			vgic_cpu->vgic_lr[lr] &= ~VGIC_LR_EOI;
 			writel_relaxed(vgic_cpu->vgic_lr[lr],
 				       dist->vctrl_base + GICH_LR0 + (lr << 2));
+
+			/* Any additionnal pending interrupt? */
+			if (vgic_bitmap_get_irq_val(&dist->irq_state,
+						    vcpu->vcpu_id, irq)) {
+				set_bit(irq, vcpu->arch.vgic_cpu.pending);
+				set_bit(vcpu->vcpu_id,
+					&dist->irq_pending_on_cpu);
+			} else
+				clear_bit(irq, vgic_cpu->pending);
 		}
 	}
 
