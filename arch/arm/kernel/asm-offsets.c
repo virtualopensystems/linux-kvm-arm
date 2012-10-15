@@ -162,8 +162,7 @@ int main(void)
   DEFINE(VCPU_CPSR,		offsetof(struct kvm_vcpu, arch.regs.usr_regs.ARM_cpsr));
   DEFINE(VCPU_IRQ_LINES,	offsetof(struct kvm_vcpu, arch.irq_lines));
   DEFINE(VCPU_HSR,		offsetof(struct kvm_vcpu, arch.hsr));
-  DEFINE(VCPU_HDFAR,		offsetof(struct kvm_vcpu, arch.hdfar));
-  DEFINE(VCPU_HIFAR,		offsetof(struct kvm_vcpu, arch.hifar));
+  DEFINE(VCPU_HxFAR,		offsetof(struct kvm_vcpu, arch.hxfar));
   DEFINE(VCPU_HPFAR,		offsetof(struct kvm_vcpu, arch.hpfar));
   DEFINE(VCPU_HYP_PC,		offsetof(struct kvm_vcpu, arch.hyp_pc));
 #ifdef CONFIG_KVM_ARM_VGIC

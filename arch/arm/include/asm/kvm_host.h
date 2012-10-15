@@ -87,8 +87,7 @@ struct kvm_vcpu_arch {
 
 	/* Exception Information */
 	u32 hsr;		/* Hyp Syndrom Register */
-	u32 hdfar;		/* Hyp Data Fault Address Register */
-	u32 hifar;		/* Hyp Inst. Fault Address Register */
+	u32 hxfar;		/* Hyp Data/Inst Fault Address Register */
 	u32 hpfar;		/* Hyp IPA Fault Address Register */
 
 	/* Floating point registers (VFP and Advanced SIMD/NEON) */

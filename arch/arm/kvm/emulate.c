@@ -472,7 +472,7 @@ static bool decode_thumb_wb(struct kvm_vcpu *vcpu, struct kvm_exit_mmio *mmio,
 	bool P = (instr >> 10) & 1;
 	bool U = (instr >> 9) & 1;
 	u8 imm8 = instr & 0xff;
-	u32 offset_addr = vcpu->arch.hdfar;
+	u32 offset_addr = vcpu->arch.hxfar;
 	u8 Rn = (instr >> 16) & 0xf;
 
 	vcpu->arch.mmio.rd = (instr >> 12) & 0xf;
@@ -628,13 +628,13 @@ int kvm_emulate_mmio_ls(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
 		kvm_debug("Unable to decode inst: %#08lx (cpsr: %#08x (T=0)"
 			  "pc: %#08x)\n",
 			  instr, *vcpu_cpsr(vcpu), *vcpu_pc(vcpu));
-		kvm_inject_dabt(vcpu, vcpu->arch.hdfar);
+		kvm_inject_dabt(vcpu, vcpu->arch.hxfar);
 		return 1;
 	} else if (is_thumb && !kvm_decode_thumb_ls(vcpu, instr, mmio)) {
 		kvm_debug("Unable to decode inst: %#08lx (cpsr: %#08x (T=1)"
 			  "pc: %#08x)\n",
 			  instr, *vcpu_cpsr(vcpu), *vcpu_pc(vcpu));
-		kvm_inject_dabt(vcpu, vcpu->arch.hdfar);
+		kvm_inject_dabt(vcpu, vcpu->arch.hxfar);
 		return 1;
 	}
 

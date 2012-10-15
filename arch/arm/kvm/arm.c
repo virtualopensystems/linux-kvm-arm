@@ -489,7 +489,7 @@ static int handle_pabt_hyp(struct kvm_vcpu *vcpu, struct kvm_run *run)
 {
 	/* The hypervisor should never cause aborts */
 	kvm_err("Prefetch Abort taken from Hyp mode at %#08x (HSR: %#08x)\n",
-		vcpu->arch.hifar, vcpu->arch.hsr);
+		vcpu->arch.hxfar, vcpu->arch.hsr);
 	return -EFAULT;
 }
 
@@ -497,7 +497,7 @@ static int handle_dabt_hyp(struct kvm_vcpu *vcpu, struct kvm_run *run)
 {
 	/* This is either an error in the ws. code or an external abort */
 	kvm_err("Data Abort taken from Hyp mode at %#08x (HSR: %#08x)\n",
-		vcpu->arch.hdfar, vcpu->arch.hsr);
+		vcpu->arch.hxfar, vcpu->arch.hsr);
 	return -EFAULT;
 }
 

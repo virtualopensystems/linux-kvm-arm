@@ -282,13 +282,13 @@ ENTRY(kvm_call_hyp)
 	mrc	p15, 4, r2, c5, c2, 0	@ HSR
 	mrc	p15, 4, r0, c6, c0, 0	@ HDFAR
 	str	r2, [r1, #VCPU_HSR]
-	str	r0, [r1, #VCPU_HDFAR]
+	str	r0, [r1, #VCPU_HxFAR]
 	.endif
 	.if \exception_code == ARM_EXCEPTION_PREF_ABORT
 	mrc	p15, 4, r2, c5, c2, 0	@ HSR
 	mrc	p15, 4, r0, c6, c0, 2	@ HIFAR
 	str	r2, [r1, #VCPU_HSR]
-	str	r0, [r1, #VCPU_HIFAR]
+	str	r0, [r1, #VCPU_HxFAR]
 	.endif
 	mov	r0, #\exception_code
 	b	__kvm_vcpu_return
@@ -398,14 +398,13 @@ guest_trap:
 	lsr	r0, r0, #HSR_EC_SHIFT
 	cmp	r0, #HSR_EC_IABT
 	mrceq	p15, 4, r2, c6, c0, 2	@ HIFAR
-	streq	r2, [r1, #VCPU_HIFAR]
 	beq	2f
 	cmp	r0, #HSR_EC_DABT
 	bne	1f
 	mrc	p15, 4, r2, c6, c0, 0	@ HDFAR
-	str	r2, [r1, #VCPU_HDFAR]
 
-2:	mrc	p15, 4, r2, c6, c0, 4	@ HPFAR
+2:	str	r2, [r1, #VCPU_HxFAR]
+	mrc	p15, 4, r2, c6, c0, 4	@ HPFAR
 	str	r2, [r1, #VCPU_HPFAR]
 
 1:	mov	r0, #ARM_EXCEPTION_HVC

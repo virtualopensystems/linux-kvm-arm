@@ -760,13 +760,13 @@ static int decode_hsr(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
 
 	if ((vcpu->arch.hsr >> 8) & 1) {
 		/* cache operation on I/O addr, tell guest unsupported */
-		kvm_inject_dabt(vcpu, vcpu->arch.hdfar);
+		kvm_inject_dabt(vcpu, vcpu->arch.hxfar);
 		return 1;
 	}
 
 	if ((vcpu->arch.hsr >> 7) & 1) {
 		/* page table accesses IO mem: tell guest to fix its TTBR */
-		kvm_inject_dabt(vcpu, vcpu->arch.hdfar);
+		kvm_inject_dabt(vcpu, vcpu->arch.hxfar);
 		return 1;
 	}
 
@@ -791,7 +791,7 @@ static int decode_hsr(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
 
 	if (rd == 15) {
 		/* IO memory trying to read/write pc */
-		kvm_inject_pabt(vcpu, vcpu->arch.hdfar);
+		kvm_inject_pabt(vcpu, vcpu->arch.hxfar);
 		return 1;
 	}
 
@@ -874,7 +874,7 @@ int kvm_handle_guest_abort(struct kvm_vcpu *vcpu, struct kvm_run *run)
 	fault_ipa = ((phys_addr_t)vcpu->arch.hpfar & HPFAR_MASK) << 8;
 
 	trace_kvm_guest_fault(*vcpu_pc(vcpu), vcpu->arch.hsr,
-			      vcpu->arch.hdfar, vcpu->arch.hifar, fault_ipa);
+			      vcpu->arch.hxfar, fault_ipa);
 
 	/* Check the stage-2 fault is trans. fault or write fault */
 	fault_status = (vcpu->arch.hsr & HSR_FSC_TYPE);
@@ -888,7 +888,7 @@ int kvm_handle_guest_abort(struct kvm_vcpu *vcpu, struct kvm_run *run)
 	if (!kvm_is_visible_gfn(vcpu->kvm, gfn)) {
 		if (is_iabt) {
 			/* Prefetch Abort on I/O address */
-			kvm_inject_pabt(vcpu, vcpu->arch.hifar);
+			kvm_inject_pabt(vcpu, vcpu->arch.hxfar);
 			return 1;
 		}
 
@@ -899,7 +899,7 @@ int kvm_handle_guest_abort(struct kvm_vcpu *vcpu, struct kvm_run *run)
 		}
 
 		/* Adjust page offset */
-		fault_ipa |= vcpu->arch.hdfar & ~PAGE_MASK;
+		fault_ipa |= vcpu->arch.hxfar & ~PAGE_MASK;
 		return io_mem_abort(vcpu, run, fault_ipa, memslot);
 	}
 
