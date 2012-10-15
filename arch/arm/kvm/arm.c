@@ -199,6 +199,7 @@ int kvm_dev_ioctl_check_extension(long ext)
 		break;
 #endif
 	case KVM_CAP_USER_MEMORY:
+	case KVM_CAP_SYNC_MMU:
 	case KVM_CAP_DESTROY_MEMORY_REGION_WORKS:
 	case KVM_CAP_ONE_REG:
 		r = 1;
