@@ -124,54 +124,29 @@ ENTRY(__kvm_vcpu_run)
 	ldr	r1, [r0, #CP15_OFFSET(c0_MPIDR)]
 	mcr	p15, 4, r1, c0, c0, 5
 
-	@ Load guest registers
-	add	r0, r0, #(VCPU_USR_SP)
-	load_mode_state r0, usr
-	load_mode_state r0, svc
-	load_mode_state r0, abt
-	load_mode_state r0, und
-	load_mode_state r0, irq
-	load_mode_state r0, fiq
-
-	@ Load return state (r0 now points to vcpu->arch.regs.pc)
-	ldmia	r0, {r2, r3}
-	msr	ELR_hyp, r2
-	msr	SPSR_cxsf, r3
-
 	@ Set up guest memory translation
-	sub	r1, r0, #(VCPU_PC - VCPU_KVM)	@ r1 points to kvm struct
-	ldr	r1, [r1]
-	add	r1, r1, #KVM_VTTBR
-	ldrd	r2, r3, [r1]
+	ldr	r1, [r0, #VCPU_KVM]
+	ldrd	r2, r3, [r1, #KVM_VTTBR]
 	mcrr	p15, 6, r2, r3, c2	@ Write VTTBR
 
-	@ Load remaining registers and do the switch
-	sub	r0, r0, #(VCPU_PC - VCPU_USR_REGS)
-	ldmia	r0, {r0-r12}
+	@ At this point, r0 must contain the pointer to the VCPU
+	restore_guest_regs
 	clrex				@ Clear exclusive monitor
 	eret
 
 __kvm_vcpu_return:
+	/*
+	 * return convention:
+	 * vcpu r0, r1, r2 saved on the stack
+	 * r0: exception code
+	 * r1: vcpu pointer
+	 */
+	save_guest_regs
+
 	@ Set VMID == 0
 	mov	r2, #0
 	mov	r3, #0
 	mcrr	p15, 6, r2, r3, c2	@ Write VTTBR
-
-	@ Store return state
-	mrs	r2, ELR_hyp
-	mrs	r3, spsr
-	str	r2, [r1, #VCPU_PC]
-	str	r3, [r1, #VCPU_CPSR]
-
-	@ Store guest registers
-	add	r1, r1, #(VCPU_FIQ_SPSR + 4)
-	store_mode_state r1, fiq
-	store_mode_state r1, irq
-	store_mode_state r1, und
-	store_mode_state r1, abt
-	store_mode_state r1, svc
-	store_mode_state r1, usr
-	sub	r1, r1, #(VCPU_USR_REG(13))
 
 	@ Don't trap coprocessor accesses for host kernel
 	set_hstr 0
@@ -296,31 +271,26 @@ ENTRY(kvm_call_hyp)
 
 /* Handle undef, svc, pabt, or dabt by crashing with a user notice */
 .macro bad_exception exception_code, panic_str
-	mrrc	p15, 6, r2, r3, c2	@ Read VTTBR
-	lsr	r3, r3, #16
-	ands	r3, r3, #0xff
-
-	/*
-	 * COND:neq means we're probably in the guest and we can try fetching
-	 * the vcpu pointer and stuff off the stack and keep our fingers crossed
-	 */
+	push	{r0-r2}
+	mrrc	p15, 6, r0, r1, c2	@ Read VTTBR
+	lsr	r1, r1, #16
+	ands	r1, r1, #0xff
 	beq	99f
-	mov	r0, #\exception_code
+
 	load_vcpu	r1		@ Load VCPU pointer
 	.if \exception_code == ARM_EXCEPTION_DATA_ABORT
 	mrc	p15, 4, r2, c5, c2, 0	@ HSR
-	mrc	p15, 4, r3, c6, c0, 0	@ HDFAR
+	mrc	p15, 4, r0, c6, c0, 0	@ HDFAR
 	str	r2, [r1, #VCPU_HSR]
-	str	r3, [r1, #VCPU_HDFAR]
+	str	r0, [r1, #VCPU_HDFAR]
 	.endif
 	.if \exception_code == ARM_EXCEPTION_PREF_ABORT
 	mrc	p15, 4, r2, c5, c2, 0	@ HSR
-	mrc	p15, 4, r3, c6, c0, 2	@ HIFAR
+	mrc	p15, 4, r0, c6, c0, 2	@ HIFAR
 	str	r2, [r1, #VCPU_HSR]
-	str	r3, [r1, #VCPU_HIFAR]
+	str	r0, [r1, #VCPU_HIFAR]
 	.endif
-	mrs	r2, ELR_hyp
-	str	r2, [r1, #VCPU_HYP_PC]
+	mov	r0, #\exception_code
 	b	__kvm_vcpu_return
 
 	@ We were in the host already. Let's craft a panic-ing return to SVC.
@@ -423,25 +393,20 @@ THUMB(	orr	lr, #1)
 guest_trap:
 	load_vcpu	r1		@ Load VCPU pointer
 	str	r0, [r1, #VCPU_HSR]
-	add	r1, r1, #VCPU_USR_REG(3)
-	stmia	r1, {r3-r12}
-	sub	r1, r1, #(VCPU_USR_REG(3) - VCPU_USR_REG(0))
-	pop	{r3, r4, r5}
-	stmia	r1, {r3, r4, r5}
-	sub	r1, r1, #VCPU_USR_REG(0)
 
 	@ Check if we need the fault information
-	lsr	r2, r0, #HSR_EC_SHIFT
-	cmp	r2, #HSR_EC_IABT
+	lsr	r0, r0, #HSR_EC_SHIFT
+	cmp	r0, #HSR_EC_IABT
+	mrceq	p15, 4, r2, c6, c0, 2	@ HIFAR
+	streq	r2, [r1, #VCPU_HIFAR]
 	beq	2f
-	cmpne	r2, #HSR_EC_DABT
+	cmp	r0, #HSR_EC_DABT
 	bne	1f
+	mrc	p15, 4, r2, c6, c0, 0	@ HDFAR
+	str	r2, [r1, #VCPU_HDFAR]
 
-2:	mrc	p15, 4, r2, c6, c0, 0	@ HDFAR
-	mrc	p15, 4, r3, c6, c0, 2	@ HIFAR
-	mrc	p15, 4, r4, c6, c0, 4	@ HPFAR
-	add	r5, r1, #VCPU_HDFAR
-	stmia	r5, {r2, r3, r4}
+2:	mrc	p15, 4, r2, c6, c0, 4	@ HPFAR
+	str	r2, [r1, #VCPU_HPFAR]
 
 1:	mov	r0, #ARM_EXCEPTION_HVC
 	b	__kvm_vcpu_return
@@ -474,15 +439,9 @@ switch_to_guest_vfp:
 
 	.align
 hyp_irq:
-	push	{r0}
-	load_vcpu	r0		@ Load VCPU pointer
-	add	r0, r0, #(VCPU_USR_REG(1))
-	stmia	r0, {r1-r12}
-	pop	{r0}
-	load_vcpu	r1		@ Load VCPU pointer again
-	str	r0, [r1, #VCPU_USR_REG(0)]
-
+	push	{r0, r1, r2}
 	mov	r0, #ARM_EXCEPTION_IRQ
+	load_vcpu	r1		@ Load VCPU pointer
 	b	__kvm_vcpu_return
 
 	.align

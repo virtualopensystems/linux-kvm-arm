@@ -1,7 +1,6 @@
 #define VCPU_USR_REG(_reg_nr)	(VCPU_USR_REGS + (_reg_nr * 4))
 #define VCPU_USR_SP		(VCPU_USR_REG(13))
-#define VCPU_FIQ_REG(_reg_nr)	(VCPU_FIQ_REGS + (_reg_nr * 4))
-#define VCPU_FIQ_SPSR		(VCPU_FIQ_REG(7))
+#define VCPU_USR_LR		(VCPU_USR_REG(14))
 #define CP15_OFFSET(_cp15_reg_idx) (VCPU_CP15 + (_cp15_reg_idx * 4))
 
 /* Clobbers {r2-r6} */
@@ -117,41 +116,33 @@
 	msr	ELR_hyp, r2
 .endm
 
-.macro store_mode_state base_reg, mode
-	.if \mode == usr
-	mrs	r2, SP_usr
-	mov	r3, lr
-	stmdb	\base_reg!, {r2, r3}
-	.elseif \mode != fiq
-	mrs	r2, SP_\mode
-	mrs	r3, LR_\mode
-	mrs	r4, SPSR_\mode
-	stmdb	\base_reg!, {r2, r3, r4}
-	.else
-	mrs	r2, r8_fiq
-	mrs	r3, r9_fiq
-	mrs	r4, r10_fiq
-	mrs	r5, r11_fiq
-	mrs	r6, r12_fiq
-	mrs	r7, SP_fiq
-	mrs	r8, LR_fiq
-	mrs	r9, SPSR_fiq
-	stmdb	\base_reg!, {r2-r9}
-	.endif
-.endm
-
-.macro load_mode_state base_reg, mode
-	.if \mode == usr
-	ldmia	\base_reg!, {r2, r3}
-	msr	SP_usr, r2
-	mov	lr, r3
-	.elseif \mode != fiq
-	ldmia	\base_reg!, {r2, r3, r4}
+/*
+ * Restore SP, LR and SPSR for a given mode. offset is the offset of
+ * this mode's registers from the VCPU base.
+ * r0: VCPU address
+ * Clobbers r1, r2, r3, r4.
+ */
+.macro restore_guest_regs_mode mode, offset
+	add	r1, r0, \offset
+	ldm	r1, {r2, r3, r4}
 	msr	SP_\mode, r2
 	msr	LR_\mode, r3
 	msr	SPSR_\mode, r4
-	.else
-	ldmia	\base_reg!, {r2-r9}
+.endm
+
+/*
+ * Restore all guest registers.
+ * r0: VCPU address
+ * Clobbers *all* registers.
+ */
+.macro restore_guest_regs
+	restore_guest_regs_mode svc, #VCPU_SVC_REGS
+	restore_guest_regs_mode abt, #VCPU_ABT_REGS
+	restore_guest_regs_mode und, #VCPU_UND_REGS
+	restore_guest_regs_mode irq, #VCPU_IRQ_REGS
+
+	add	r1, r0, #VCPU_FIQ_REGS
+	ldm	r1, {r2-r9}
 	msr	r8_fiq, r2
 	msr	r9_fiq, r3
 	msr	r10_fiq, r4
@@ -160,7 +151,65 @@
 	msr	SP_fiq, r7
 	msr	LR_fiq, r8
 	msr	SPSR_fiq, r9
-	.endif
+
+	@ Load return state
+	ldr	r2, [r0, #VCPU_PC]
+	ldr	r3, [r0, #VCPU_CPSR]
+	msr	ELR_hyp, r2
+	msr	SPSR_cxsf, r3
+
+	@ Load user registers
+	ldr	r2, [r0, #VCPU_USR_SP]
+	ldr	r3, [r0, #VCPU_USR_LR]
+	msr	SP_usr, r2
+	mov	lr, r3
+	add	r0, r0, #(VCPU_USR_REGS)
+	ldm	r0, {r0-r12}
+.endm
+
+/*
+ * Save SP, LR and SPSR for a given mode. offset is the offset of
+ * this mode's registers from the VCPU base.
+ * r1: VCPU address
+ * Clobbers r2, r3, r4, r5.
+ */
+.macro save_guest_regs_mode mode, offset
+	add	r2, r1, \offset
+	mrs	r3, SP_\mode
+	mrs	r4, LR_\mode
+	mrs	r5, SPSR_\mode
+	stm	r2, {r3, r4, r5}
+.endm
+
+/*
+ * Save all guest registers
+ * r1: VCPU address
+ * Expects guest's r0, r1, r2 on the stack.
+ * Clobbers r2, r3, r4, r5.
+ */
+.macro save_guest_regs
+	@ Store usr registers
+	add	r2, r1, #VCPU_USR_REG(3)
+	stm	r2, {r3-r12}
+	add	r2, r1, #VCPU_USR_REG(0)
+	pop	{r3, r4, r5}		@ r0, r1, r2
+	stm	r2, {r3, r4, r5}
+	mrs	r2, SP_usr
+	mov	r3, lr
+	str	r2, [r1, #VCPU_USR_SP]
+	str	r3, [r1, #VCPU_USR_LR]
+
+	@ Store return state
+	mrs	r2, ELR_hyp
+	mrs	r3, spsr
+	str	r2, [r1, #VCPU_PC]
+	str	r3, [r1, #VCPU_CPSR]
+
+	@ Store other guest registers
+	save_guest_regs_mode svc, #VCPU_SVC_REGS
+	save_guest_regs_mode abt, #VCPU_ABT_REGS
+	save_guest_regs_mode und, #VCPU_UND_REGS
+	save_guest_regs_mode irq, #VCPU_IRQ_REGS
 .endm
 
 /* Reads cp15 registers from hardware and stores them in memory
