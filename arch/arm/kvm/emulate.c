@@ -30,7 +30,7 @@
 
 #define USR_REG_OFFSET(_num) REG_OFFSET(usr_regs.uregs[_num])
 
-static const unsigned long vcpu_reg_offsets[VCPU_NR_MODES][16] = {
+static const unsigned long vcpu_reg_offsets[VCPU_NR_MODES][15] = {
 	/* USR/SYS Registers */
 	{
 		USR_REG_OFFSET(0), USR_REG_OFFSET(1), USR_REG_OFFSET(2),
@@ -38,7 +38,6 @@ static const unsigned long vcpu_reg_offsets[VCPU_NR_MODES][16] = {
 		USR_REG_OFFSET(6), USR_REG_OFFSET(7), USR_REG_OFFSET(8),
 		USR_REG_OFFSET(9), USR_REG_OFFSET(10), USR_REG_OFFSET(11),
 		USR_REG_OFFSET(12), USR_REG_OFFSET(13),	USR_REG_OFFSET(14),
-		REG_OFFSET(usr_regs.ARM_pc)
 	},
 
 	/* FIQ Registers */
@@ -53,7 +52,6 @@ static const unsigned long vcpu_reg_offsets[VCPU_NR_MODES][16] = {
 		REG_OFFSET(fiq_regs[4]), /* r12 */
 		REG_OFFSET(fiq_regs[5]), /* r13 */
 		REG_OFFSET(fiq_regs[6]), /* r14 */
-		REG_OFFSET(usr_regs.ARM_pc)
 	},
 
 	/* IRQ Registers */
@@ -65,7 +63,6 @@ static const unsigned long vcpu_reg_offsets[VCPU_NR_MODES][16] = {
 		USR_REG_OFFSET(12),
 		REG_OFFSET(irq_regs[0]), /* r13 */
 		REG_OFFSET(irq_regs[1]), /* r14 */
-		REG_OFFSET(usr_regs.ARM_pc)
 	},
 
 	/* SVC Registers */
@@ -77,7 +74,6 @@ static const unsigned long vcpu_reg_offsets[VCPU_NR_MODES][16] = {
 		USR_REG_OFFSET(12),
 		REG_OFFSET(svc_regs[0]), /* r13 */
 		REG_OFFSET(svc_regs[1]), /* r14 */
-		REG_OFFSET(usr_regs.ARM_pc)
 	},
 
 	/* ABT Registers */
@@ -89,7 +85,6 @@ static const unsigned long vcpu_reg_offsets[VCPU_NR_MODES][16] = {
 		USR_REG_OFFSET(12),
 		REG_OFFSET(abt_regs[0]), /* r13 */
 		REG_OFFSET(abt_regs[1]), /* r14 */
-		REG_OFFSET(usr_regs.ARM_pc)
 	},
 
 	/* UND Registers */
@@ -101,7 +96,6 @@ static const unsigned long vcpu_reg_offsets[VCPU_NR_MODES][16] = {
 		USR_REG_OFFSET(12),
 		REG_OFFSET(und_regs[0]), /* r13 */
 		REG_OFFSET(und_regs[1]), /* r14 */
-		REG_OFFSET(usr_regs.ARM_pc)
 	},
 };
 
