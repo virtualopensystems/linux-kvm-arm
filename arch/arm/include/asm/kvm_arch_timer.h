@@ -44,6 +44,21 @@ struct arch_timer_kvm {
 
 struct arch_timer_cpu {
 #ifdef CONFIG_KVM_ARM_TIMER
+	/* Registers: control register, timer value */
+	u32				cntv_ctl;	/* Saved/restored */
+	union {
+		cycle_t			cntv_cval;
+		struct {
+			u32		low;		/* Saved/restored */
+			u32		high;		/* Saved/restored */
+		} cntv_cval32;
+	};
+
+	/*
+	 * Anything that is not used directly from assembly code goes
+	 * here.
+	 */
+
 	/* Background timer used when the guest is not running */
 	struct hrtimer			timer;
 
@@ -55,16 +70,6 @@ struct arch_timer_cpu {
 
 	/* Timer IRQ */
 	const struct kvm_irq_level	*irq;
-
-	/* Registers: control register, timer value */
-	u32				cntv_ctl;	/* Saved/restored */
-	union {
-		cycle_t			cntv_cval;
-		struct {
-			u32		low;		/* Saved/restored */
-			u32		high;		/* Saved/restored */
-		} cntv_cval32;
-	};
 #endif
 };
 
