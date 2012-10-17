@@ -295,7 +295,7 @@ static int emulate_cp15(struct kvm_vcpu *vcpu,
 		/* If access function fails, it should complain. */
 	} else {
 		kvm_err("Unsupported guest CP15 access at: %08lx\n",
-			vcpu->arch.regs.usr_regs.ARM_pc);
+			*vcpu_pc(vcpu));
 		print_cp_instr(params);
 	}
 	kvm_inject_undefined(vcpu);

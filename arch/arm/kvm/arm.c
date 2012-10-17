@@ -471,7 +471,7 @@ static int handle_hvc(struct kvm_vcpu *vcpu, struct kvm_run *run)
 	 * Let it know we don't want that by injecting an undefined exception.
 	 */
 	kvm_debug("hvc: %x (at %08lx)", vcpu->arch.hsr & ((1 << 16) - 1),
-				     vcpu->arch.regs.usr_regs.ARM_pc);
+		  *vcpu_pc(vcpu));
 	kvm_debug("         HSR: %8x", vcpu->arch.hsr);
 	kvm_inject_undefined(vcpu);
 	return 1;
@@ -480,7 +480,7 @@ static int handle_hvc(struct kvm_vcpu *vcpu, struct kvm_run *run)
 static int handle_smc(struct kvm_vcpu *vcpu, struct kvm_run *run)
 {
 	/* We don't support SMC; don't do that. */
-	kvm_debug("smc: at %08lx", vcpu->arch.regs.usr_regs.ARM_pc);
+	kvm_debug("smc: at %08lx", *vcpu_pc(vcpu));
 	kvm_inject_undefined(vcpu);
 	return 1;
 }
@@ -675,7 +675,7 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 		/**************************************************************
 		 * Enter the guest
 		 */
-		trace_kvm_entry(vcpu->arch.regs.usr_regs.ARM_pc);
+		trace_kvm_entry(*vcpu_pc(vcpu));
 		kvm_guest_enter();
 		vcpu->mode = IN_GUEST_MODE;
 
@@ -690,7 +690,7 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 		vcpu->mode = OUTSIDE_GUEST_MODE;
 		vcpu->arch.last_pcpu = smp_processor_id();
 		kvm_guest_exit();
-		trace_kvm_exit(vcpu->arch.regs.usr_regs.ARM_pc);
+		trace_kvm_exit(*vcpu_pc(vcpu));
 		/*
 		 * We may have taken a host interrupt in HYP mode (ie
 		 * while executing the guest). This interrupt is still

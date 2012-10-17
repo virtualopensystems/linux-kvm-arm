@@ -85,7 +85,7 @@ static inline bool write_to_read_only(struct kvm_vcpu *vcpu,
 				      const struct coproc_params *params)
 {
 	kvm_debug("CP15 write to read-only register at: %08lx\n",
-		  vcpu->arch.regs.usr_regs.ARM_pc);
+		  *vcpu_pc(vcpu));
 	print_cp_instr(params);
 	return false;
 }
@@ -94,7 +94,7 @@ static inline bool read_from_write_only(struct kvm_vcpu *vcpu,
 					const struct coproc_params *params)
 {
 	kvm_debug("CP15 read to write-only register at: %08lx\n",
-		  vcpu->arch.regs.usr_regs.ARM_pc);
+		  *vcpu_pc(vcpu));
 	print_cp_instr(params);
 	return false;
 }

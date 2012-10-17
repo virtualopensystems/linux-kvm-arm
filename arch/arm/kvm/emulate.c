@@ -171,7 +171,7 @@ u32 *vcpu_spsr(struct kvm_vcpu *vcpu)
  */
 int kvm_handle_wfi(struct kvm_vcpu *vcpu, struct kvm_run *run)
 {
-	trace_kvm_wfi(vcpu->arch.regs.usr_regs.ARM_pc);
+	trace_kvm_wfi(*vcpu_pc(vcpu));
 	kvm_vcpu_block(vcpu);
 	return 1;
 }
@@ -332,8 +332,7 @@ static unsigned long ls_word_calc_offset(struct kvm_vcpu *vcpu,
 			break;
 		case SCALE_SHIFT_ROR_RRX:
 			if (shift_imm == 0) {
-				u32 C = (vcpu->arch.regs.usr_regs.ARM_cpsr &
-						(1U << PSR_BIT_C));
+				u32 C = (*vcpu_cpsr(vcpu) & (1U << PSR_BIT_C));
 				offset = (C << 31) | offset >> 1;
 			} else {
 				/* Ensure arithmetic shift */
@@ -594,7 +593,7 @@ int kvm_emulate_mmio_ls(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
 {
 	bool is_thumb;
 
-	trace_kvm_mmio_emulate(vcpu->arch.regs.usr_regs.ARM_pc, instr, vcpu->arch.regs.usr_regs.ARM_cpsr);
+	trace_kvm_mmio_emulate(*vcpu_pc(vcpu), instr, *vcpu_cpsr(vcpu));
 
 	mmio->phys_addr = fault_ipa;
 	is_thumb = !!(*vcpu_cpsr(vcpu) & PSR_T_BIT);
