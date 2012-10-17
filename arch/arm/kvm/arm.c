@@ -470,7 +470,7 @@ static int handle_hvc(struct kvm_vcpu *vcpu, struct kvm_run *run)
 	 * Guest called HVC instruction:
 	 * Let it know we don't want that by injecting an undefined exception.
 	 */
-	kvm_debug("hvc: %x (at %08lx)", vcpu->arch.hsr & ((1 << 16) - 1),
+	kvm_debug("hvc: %x (at %08x)", vcpu->arch.hsr & ((1 << 16) - 1),
 		  *vcpu_pc(vcpu));
 	kvm_debug("         HSR: %8x", vcpu->arch.hsr);
 	kvm_inject_undefined(vcpu);
@@ -480,7 +480,7 @@ static int handle_hvc(struct kvm_vcpu *vcpu, struct kvm_run *run)
 static int handle_smc(struct kvm_vcpu *vcpu, struct kvm_run *run)
 {
 	/* We don't support SMC; don't do that. */
-	kvm_debug("smc: at %08lx", *vcpu_pc(vcpu));
+	kvm_debug("smc: at %08x", *vcpu_pc(vcpu));
 	kvm_inject_undefined(vcpu);
 	return 1;
 }
