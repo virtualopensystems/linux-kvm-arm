@@ -169,7 +169,13 @@ struct xen_add_to_physmap {
     /* Source mapping space. */
 #define XENMAPSPACE_shared_info 0 /* shared info page */
 #define XENMAPSPACE_grant_table 1 /* grant table page */
-    unsigned int space;
+#define XENMAPSPACE_gmfn        2 /* GMFN */
+#define XENMAPSPACE_gmfn_range  3 /* GMFN range */
+#define XENMAPSPACE_gmfn_foreign 4 /* GMFN from another guest */
+    uint16_t space;
+    domid_t foreign_domid;         /* IFF XENMAPSPACE_gmfn_foreign */
+
+#define XENMAPIDX_grant_table_status 0x80000000
 
     /* Index into source mapping space. */
     xen_ulong_t idx;
@@ -217,4 +223,20 @@ DEFINE_GUEST_HANDLE_STRUCT(xen_memory_map);
  * during a driver critical region.
  */
 extern spinlock_t xen_reservation_lock;
+
+/*
+ * Unmaps the page appearing at a particular GPFN from the specified guest's
+ * pseudophysical address space.
+ * arg == addr of xen_remove_from_physmap_t.
+ */
+#define XENMEM_remove_from_physmap      15
+struct xen_remove_from_physmap {
+    /* Which domain to change the mapping for. */
+    domid_t domid;
+
+    /* GPFN of the current mapping of the page. */
+    xen_pfn_t gpfn;
+};
+DEFINE_GUEST_HANDLE_STRUCT(xen_remove_from_physmap);
+
 #endif /* __XEN_PUBLIC_MEMORY_H__ */
