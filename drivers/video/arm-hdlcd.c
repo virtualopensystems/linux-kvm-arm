@@ -412,7 +412,7 @@ static int hdlcd_mmap(struct fb_info *info, struct vm_area_struct *vma)
 	off += start;
 
 	vma->vm_pgoff = off >> PAGE_SHIFT;
-	vma->vm_flags |= VM_IO | VM_RESERVED;
+	vma->vm_flags |= VM_IO;
 	vma->vm_page_prot = pgprot_writecombine(vma->vm_page_prot);
 	vma->vm_ops = &hdlcd_mmap_ops;
 	if (io_remap_pfn_range(vma, vma->vm_start, off >> PAGE_SHIFT,
