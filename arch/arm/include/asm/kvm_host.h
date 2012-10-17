@@ -45,6 +45,17 @@ int kvm_reset_vcpu(struct kvm_vcpu *vcpu);
 void kvm_reset_coprocs(struct kvm_vcpu *vcpu);
 
 struct kvm_arch {
+	/* VTTBR value associated with below pgd and vmid */
+	u64    vttbr;
+
+	/* Timer */
+	struct arch_timer_kvm	timer;
+
+	/*
+	 * Anything that is not used directly from assembly code goes
+	 * here.
+	 */
+
 	/* The VMID generation used for the virt. memory system */
 	u64    vmid_gen;
 	u32    vmid;
@@ -52,14 +63,8 @@ struct kvm_arch {
 	/* Stage-2 page table */
 	pgd_t *pgd;
 
-	/* VTTBR value associated with above pgd and vmid */
-	u64    vttbr;
-
 	/* Interrupt controller */
 	struct vgic_dist	vgic;
-
-	/* Timer */
-	struct arch_timer_kvm	timer;
 };
 
 #define KVM_NR_MEM_OBJS     40
