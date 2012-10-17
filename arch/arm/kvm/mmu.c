@@ -789,7 +789,7 @@ static int decode_hsr(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
 	sign_extend = vcpu->arch.hsr & HSR_SSE;
 	rd = (vcpu->arch.hsr & HSR_SRT_MASK) >> HSR_SRT_SHIFT;
 
-	if (rd == 15) {
+	if (kvm_vcpu_reg_is_pc(vcpu, rd)) {
 		/* IO memory trying to read/write pc */
 		kvm_inject_pabt(vcpu, vcpu->arch.hxfar);
 		return 1;

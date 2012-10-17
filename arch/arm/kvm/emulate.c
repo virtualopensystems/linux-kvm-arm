@@ -444,7 +444,7 @@ static bool decode_thumb_wb(struct kvm_vcpu *vcpu, struct kvm_exit_mmio *mmio,
 
 	vcpu->arch.mmio.rd = (instr >> 12) & 0xf;
 
-	if (Rn == 15)
+	if (kvm_vcpu_reg_is_pc(vcpu, Rn))
 		return false;
 
 	/* Handle Writeback */
