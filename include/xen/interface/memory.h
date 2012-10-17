@@ -153,6 +153,14 @@ struct xen_machphys_mapping {
 };
 DEFINE_GUEST_HANDLE_STRUCT(xen_machphys_mapping_t);
 
+#define XENMAPSPACE_shared_info  0 /* shared info page */
+#define XENMAPSPACE_grant_table  1 /* grant table page */
+#define XENMAPSPACE_gmfn         2 /* GMFN */
+#define XENMAPSPACE_gmfn_range   3 /* GMFN range, XENMEM_add_to_physmap only. */
+#define XENMAPSPACE_gmfn_foreign 4 /* GMFN from another dom,
+				    * XENMEM_add_to_physmap_range only.
+				    */
+
 /*
  * Sets the GPFN at which a particular page appears in the specified guest's
  * pseudophysical address space.
@@ -167,15 +175,7 @@ struct xen_add_to_physmap {
     uint16_t    size;
 
     /* Source mapping space. */
-#define XENMAPSPACE_shared_info 0 /* shared info page */
-#define XENMAPSPACE_grant_table 1 /* grant table page */
-#define XENMAPSPACE_gmfn        2 /* GMFN */
-#define XENMAPSPACE_gmfn_range  3 /* GMFN range */
-#define XENMAPSPACE_gmfn_foreign 4 /* GMFN from another guest */
-    uint16_t space;
-    domid_t foreign_domid;         /* IFF XENMAPSPACE_gmfn_foreign */
-
-#define XENMAPIDX_grant_table_status 0x80000000
+    unsigned int space;
 
     /* Index into source mapping space. */
     xen_ulong_t idx;
