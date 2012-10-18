@@ -181,6 +181,9 @@ static int cci_pmu_map_event(struct perf_event *event)
 	int mapping;
 	u8 config = event->attr.config & CCI400_PMU_EVENT_MASK;
 
+	if (event->attr.type < PERF_TYPE_MAX)
+		return -ENOENT;
+
 	/* 0xff is used to represent CCI Cycles */
 	if (config == 0xff)
 		mapping = config;
