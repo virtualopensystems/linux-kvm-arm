@@ -34,7 +34,7 @@
 static const int a15_max_cpu_idx = 3;
 
 static struct kvm_regs a15_regs_reset = {
-	.usr_regs.ARM_cpsr = SVC_MODE | PSR_A_BIT | PSR_I_BIT | PSR_F_BIT,
+	.cpsr = SVC_MODE | PSR_A_BIT | PSR_I_BIT | PSR_F_BIT,
 };
 
 #ifdef CONFIG_KVM_ARM_TIMER

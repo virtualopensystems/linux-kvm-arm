@@ -56,23 +56,23 @@ void kvm_inject_pabt(struct kvm_vcpu *vcpu, unsigned long addr);
 
 static inline u32 *vcpu_pc(struct kvm_vcpu *vcpu)
 {
-	return (u32 *)&vcpu->arch.regs.usr_regs.ARM_pc;
+	return &vcpu->arch.regs.pc;
 }
 
 static inline u32 *vcpu_cpsr(struct kvm_vcpu *vcpu)
 {
-	return (u32 *)&vcpu->arch.regs.usr_regs.ARM_cpsr;
+	return &vcpu->arch.regs.cpsr;
 }
 
 static inline bool mode_has_spsr(struct kvm_vcpu *vcpu)
 {
-	unsigned long cpsr_mode = vcpu->arch.regs.usr_regs.ARM_cpsr & MODE_MASK;
+	unsigned long cpsr_mode = vcpu->arch.regs.cpsr & MODE_MASK;
 	return (cpsr_mode > USR_MODE && cpsr_mode < SYSTEM_MODE);
 }
 
 static inline bool vcpu_mode_priv(struct kvm_vcpu *vcpu)
 {
-	unsigned long cpsr_mode = vcpu->arch.regs.usr_regs.ARM_cpsr & MODE_MASK;
+	unsigned long cpsr_mode = vcpu->arch.regs.cpsr & MODE_MASK;
 	return cpsr_mode > USR_MODE;;
 }
 

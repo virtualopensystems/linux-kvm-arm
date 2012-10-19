@@ -158,8 +158,8 @@ int main(void)
   DEFINE(VCPU_UND_REGS,		offsetof(struct kvm_vcpu, arch.regs.und_regs));
   DEFINE(VCPU_IRQ_REGS,		offsetof(struct kvm_vcpu, arch.regs.irq_regs));
   DEFINE(VCPU_FIQ_REGS,		offsetof(struct kvm_vcpu, arch.regs.fiq_regs));
-  DEFINE(VCPU_PC,		offsetof(struct kvm_vcpu, arch.regs.usr_regs.ARM_pc));
-  DEFINE(VCPU_CPSR,		offsetof(struct kvm_vcpu, arch.regs.usr_regs.ARM_cpsr));
+  DEFINE(VCPU_PC,		offsetof(struct kvm_vcpu, arch.regs.pc));
+  DEFINE(VCPU_CPSR,		offsetof(struct kvm_vcpu, arch.regs.cpsr));
   DEFINE(VCPU_IRQ_LINES,	offsetof(struct kvm_vcpu, arch.irq_lines));
   DEFINE(VCPU_HSR,		offsetof(struct kvm_vcpu, arch.hsr));
   DEFINE(VCPU_HxFAR,		offsetof(struct kvm_vcpu, arch.hxfar));

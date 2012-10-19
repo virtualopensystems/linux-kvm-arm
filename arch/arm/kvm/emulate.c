@@ -28,7 +28,7 @@
 #define REG_OFFSET(_reg) \
 	(offsetof(struct kvm_regs, _reg) / sizeof(u32))
 
-#define USR_REG_OFFSET(_num) REG_OFFSET(usr_regs.uregs[_num])
+#define USR_REG_OFFSET(_num) REG_OFFSET(usr_regs[_num])
 
 static const unsigned long vcpu_reg_offsets[VCPU_NR_MODES][15] = {
 	/* USR/SYS Registers */
@@ -107,6 +107,8 @@ u32 *vcpu_reg(struct kvm_vcpu *vcpu, u8 reg_num)
 {
 	u32 *reg_array = (u32 *)&vcpu->arch.regs;
 	u32 mode = *vcpu_cpsr(vcpu) & MODE_MASK;
+
+	BUG_ON(reg_num >= 15);
 
 	switch (mode) {
 	case USR_MODE...SVC_MODE:
