@@ -86,8 +86,11 @@ ENDPROC(ret_to_user)
  */
 ENTRY(ret_from_fork)
 	bl	schedule_tail
+	cmp	r5, #0
+	movne	r0, r4
+	movne	lr, pc
+	movne	pc, r5
 	get_thread_info tsk
-	mov	why, #1
 	b	ret_slow_syscall
 ENDPROC(ret_from_fork)
 
@@ -516,11 +519,6 @@ sys_vfork_wrapper:
 		add	r0, sp, #S_OFF
 		b	sys_vfork
 ENDPROC(sys_vfork_wrapper)
-
-sys_execve_wrapper:
-		add	r3, sp, #S_OFF
-		b	sys_execve
-ENDPROC(sys_execve_wrapper)
 
 sys_clone_wrapper:
 		add	ip, sp, #S_OFF
