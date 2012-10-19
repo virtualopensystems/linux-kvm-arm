@@ -206,6 +206,9 @@ int kvm_dev_ioctl_check_extension(long ext)
 	case KVM_CAP_COALESCED_MMIO:
 		r = KVM_COALESCED_MMIO_PAGE_OFFSET;
 		break;
+	case KVM_CAP_SET_DEVICE_ADDR:
+		r = 1;
+		break;
 	default:
 		r = 0;
 		break;
@@ -858,20 +861,46 @@ int kvm_vm_ioctl_get_dirty_log(struct kvm *kvm, struct kvm_dirty_log *log)
 	return -EINVAL;
 }
 
+static int kvm_vm_ioctl_set_device_address(struct kvm *kvm,
+					   struct kvm_device_address *dev_addr)
+{
+	unsigned long dev_id, type;
+
+	dev_id = (dev_addr->id & KVM_DEVICE_ID_MASK) >> KVM_DEVICE_ID_SHIFT;
+	type = (dev_addr->id & KVM_DEVICE_TYPE_MASK) >> KVM_DEVICE_TYPE_SHIFT;
+
+	switch (dev_id) {
+	case KVM_ARM_DEVICE_VGIC_V2:
+		if (!vgic_present)
+			return -ENXIO;
+		return kvm_vgic_set_addr(kvm, type, dev_addr->addr);
+	default:
+		return -ENODEV;
+	}
+}
+
 long kvm_arch_vm_ioctl(struct file *filp,
 		       unsigned int ioctl, unsigned long arg)
 {
+	struct kvm *kvm = filp->private_data;
+	void __user *argp = (void __user *)arg;
 
 	switch (ioctl) {
 #ifdef CONFIG_KVM_ARM_VGIC
 	case KVM_CREATE_IRQCHIP: {
-		struct kvm *kvm = filp->private_data;
 		if (vgic_present)
 			return kvm_vgic_init(kvm);
 		else
 			return -EINVAL;
 	}
 #endif
+	case KVM_SET_DEVICE_ADDRESS: {
+		struct kvm_device_address dev_addr;
+
+		if (copy_from_user(&dev_addr, argp, sizeof(dev_addr)))
+			return -EFAULT;
+		return kvm_vm_ioctl_set_device_address(kvm, &dev_addr);
+	}
 	default:
 		return -EINVAL;
 	}

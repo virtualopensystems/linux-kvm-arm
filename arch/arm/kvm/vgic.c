@@ -1140,3 +1140,31 @@ out:
 
 	return ret;
 }
+
+int kvm_vgic_set_addr(struct kvm *kvm, unsigned long type, u64 addr)
+{
+	int r = 0;
+
+	if (addr & ~KVM_PHYS_MASK)
+		return -E2BIG;
+
+	if (addr & ~PAGE_MASK)
+		return -EINVAL;
+
+	mutex_lock(&kvm->lock);
+	switch (type) {
+	case KVM_VGIC_V2_ADDR_TYPE_DIST:
+		if (addr != VGIC_DIST_BASE)
+			return -EINVAL;
+		break;
+	case KVM_VGIC_V2_ADDR_TYPE_CPU:
+		if (addr != VGIC_CPU_BASE)
+			return -EINVAL;
+		break;
+	default:
+		r = -ENODEV;
+	}
+
+	mutex_unlock(&kvm->lock);
+	return r;
+}
