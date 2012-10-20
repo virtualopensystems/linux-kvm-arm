@@ -421,8 +421,8 @@ static void stage2_clear_pte(struct kvm *kvm, phys_addr_t addr)
 	kvm_tlb_flush_vmid(kvm);
 }
 
-static void stage2_set_pte(struct kvm *kvm, struct kvm_mmu_memory_cache *cache,
-			   phys_addr_t addr, const pte_t *new_pte)
+static int stage2_set_pte(struct kvm *kvm, struct kvm_mmu_memory_cache *cache,
+			  phys_addr_t addr, const pte_t *new_pte, bool iomap)
 {
 	pgd_t *pgd;
 	pud_t *pud;
@@ -434,7 +434,7 @@ static void stage2_set_pte(struct kvm *kvm, struct kvm_mmu_memory_cache *cache,
 	pud = pud_offset(pgd, addr);
 	if (pud_none(*pud)) {
 		if (!cache)
-			return; /* ignore calls from kvm_set_spte_hva */
+			return 0; /* ignore calls from kvm_set_spte_hva */
 		pmd = mmu_memory_cache_alloc(cache);
 		pud_populate(NULL, pud, pmd);
 		pmd += pmd_index(addr);
@@ -445,7 +445,7 @@ static void stage2_set_pte(struct kvm *kvm, struct kvm_mmu_memory_cache *cache,
 	/* Create 2nd stage page table mapping - Level 2 */
 	if (pmd_none(*pmd)) {
 		if (!cache)
-			return; /* ignore calls from kvm_set_spte_hva */
+			return 0; /* ignore calls from kvm_set_spte_hva */
 		pte = mmu_memory_cache_alloc(cache);
 		clean_pte_table(pte);
 		pmd_populate_kernel(NULL, pmd, pte);
@@ -454,6 +454,9 @@ static void stage2_set_pte(struct kvm *kvm, struct kvm_mmu_memory_cache *cache,
 	} else
 		pte = pte_offset_kernel(pmd, addr);
 
+	if (iomap && pte_present(*pte))
+		return -EFAULT;
+
 	/* Create 2nd stage page table mapping - Level 3 */
 	old_pte = *pte;
 	set_pte_ext(pte, *new_pte, 0);
@@ -461,6 +464,8 @@ static void stage2_set_pte(struct kvm *kvm, struct kvm_mmu_memory_cache *cache,
 		kvm_tlb_flush_vmid(kvm);
 	else
 		get_page(virt_to_page(pte));
+
+	return 0;
 }
 
 /**
@@ -489,8 +494,10 @@ int kvm_phys_addr_ioremap(struct kvm *kvm, phys_addr_t guest_ipa,
 		if (ret)
 			goto out;
 		spin_lock(&kvm->mmu_lock);
-		stage2_set_pte(kvm, &cache, addr, &pte);
+		ret = stage2_set_pte(kvm, &cache, addr, &pte, true);
 		spin_unlock(&kvm->mmu_lock);
+		if (ret)
+			goto out;
 
 		pfn++;
 	}
@@ -565,7 +572,7 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
 		pte_val(new_pte) |= L_PTE_S2_RDWR;
 		kvm_set_pfn_dirty(pfn);
 	}
-	stage2_set_pte(vcpu->kvm, memcache, fault_ipa, &new_pte);
+	stage2_set_pte(vcpu->kvm, memcache, fault_ipa, &new_pte, false);
 
 out_unlock:
 	spin_unlock(&vcpu->kvm->mmu_lock);
@@ -716,7 +723,7 @@ static void kvm_set_spte_handler(struct kvm *kvm, gpa_t gpa, void *data)
 {
 	pte_t *pte = (pte_t *)data;
 
-	stage2_set_pte(kvm, NULL, gpa, pte);
+	stage2_set_pte(kvm, NULL, gpa, pte, false);
 }
 
 
