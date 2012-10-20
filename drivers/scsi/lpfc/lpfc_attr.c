@@ -3617,6 +3617,104 @@ lpfc_sriov_nr_virtfn_init(struct lpfc_hba *phba, int val)
 static DEVICE_ATTR(lpfc_sriov_nr_virtfn, S_IRUGO | S_IWUSR,
 		   lpfc_sriov_nr_virtfn_show, lpfc_sriov_nr_virtfn_store);
 
+/**
+ * lpfc_fcp_imax_store
+ *
+ * @dev: class device that is converted into a Scsi_host.
+ * @attr: device attribute, not used.
+ * @buf: string with the number of fast-path FCP interrupts per second.
+ * @count: unused variable.
+ *
+ * Description:
+ * If val is in a valid range [636,651042], then set the adapter's
+ * maximum number of fast-path FCP interrupts per second.
+ *
+ * Returns:
+ * length of the buf on success if val is in range the intended mode
+ * is supported.
+ * -EINVAL if val out of range or intended mode is not supported.
+ **/
+static ssize_t
+lpfc_fcp_imax_store(struct device *dev, struct device_attribute *attr,
+			 const char *buf, size_t count)
+{
+	struct Scsi_Host *shost = class_to_shost(dev);
+	struct lpfc_vport *vport = (struct lpfc_vport *)shost->hostdata;
+	struct lpfc_hba *phba = vport->phba;
+	int val = 0, i;
+
+	/* fcp_imax is only valid for SLI4 */
+	if (phba->sli_rev != LPFC_SLI_REV4)
+		return -EINVAL;
+
+	/* Sanity check on user data */
+	if (!isdigit(buf[0]))
+		return -EINVAL;
+	if (sscanf(buf, "%i", &val) != 1)
+		return -EINVAL;
+
+	/*
+	 * Value range for the HBA is [5000,5000000]
+	 * The value for each EQ depends on how many EQs are configured.
+	 */
+	if (val < LPFC_MIN_IMAX || val > LPFC_MAX_IMAX)
+		return -EINVAL;
+
+	phba->cfg_fcp_imax = (uint32_t)val;
+	for (i = 0; i < phba->cfg_fcp_io_channel; i += LPFC_MAX_EQ_DELAY)
+		lpfc_modify_fcp_eq_delay(phba, i);
+
+	return strlen(buf);
+}
+
+/*
+# lpfc_fcp_imax: The maximum number of fast-path FCP interrupts per second
+# for the HBA.
+#
+# Value range is [5,000 to 5,000,000]. Default value is 50,000.
+*/
+static int lpfc_fcp_imax = LPFC_DEF_IMAX;
+module_param(lpfc_fcp_imax, int, S_IRUGO|S_IWUSR);
+MODULE_PARM_DESC(lpfc_fcp_imax,
+	    "Set the maximum number of FCP interrupts per second per HBA");
+lpfc_param_show(fcp_imax)
+
+/**
+ * lpfc_fcp_imax_init - Set the initial sr-iov virtual function enable
+ * @phba: lpfc_hba pointer.
+ * @val: link speed value.
+ *
+ * Description:
+ * If val is in a valid range [636,651042], then initialize the adapter's
+ * maximum number of fast-path FCP interrupts per second.
+ *
+ * Returns:
+ * zero if val saved.
+ * -EINVAL val out of range
+ **/
+static int
+lpfc_fcp_imax_init(struct lpfc_hba *phba, int val)
+{
+	if (phba->sli_rev != LPFC_SLI_REV4) {
+		phba->cfg_fcp_imax = 0;
+		return 0;
+	}
+
+	if (val >= LPFC_MIN_IMAX && val <= LPFC_MAX_IMAX) {
+		phba->cfg_fcp_imax = val;
+		return 0;
+	}
+
+	lpfc_printf_log(phba, KERN_ERR, LOG_INIT,
+			"3016 fcp_imax: %d out of range, using default\n", val);
+	phba->cfg_fcp_imax = LPFC_DEF_IMAX;
+
+	return 0;
+}
+
+static DEVICE_ATTR(lpfc_fcp_imax, S_IRUGO | S_IWUSR,
+		   lpfc_fcp_imax_show, lpfc_fcp_imax_store);
+
 /*
 # lpfc_fcp_class:  Determines FC class to use for the FCP protocol.
 # Value range is [2,3]. Default value is 3.
@@ -3678,6 +3776,16 @@ static DEVICE_ATTR(lpfc_max_scsicmpl_time, S_IRUGO | S_IWUSR,
 # range is [0,1]. Default value is 0.
 */
 LPFC_ATTR_R(ack0, 0, 0, 1, "Enable ACK0 support");
+
+/*
+# lpfc_fcp_io_sched: Determine scheduling algrithmn for issuing FCP cmds
+# range is [0,1]. Default value is 0.
+# For [0], FCP commands are issued to Work Queues ina round robin fashion.
+# For [1], FCP commands are issued to a Work Queue associated with the
+#          current CPU.
+*/
+LPFC_ATTR_RW(fcp_io_sched, 0, 0, 1, "Determine scheduling algrithmn for "
+		"issuing commands [0] - Round Robin, [1] - Current CPU");
 
 /*
 # lpfc_cr_delay & lpfc_cr_count: Default values for I/O colaesing
@@ -3758,28 +3866,32 @@ LPFC_ATTR_R(use_msi, 2, 0, 2, "Use Message Signaled Interrupts (1) or "
 	    "MSI-X (2), if possible");
 
 /*
-# lpfc_fcp_imax: Set the maximum number of fast-path FCP interrupts per second
-#
-# Value range is [636,651042]. Default value is 10000.
-*/
-LPFC_ATTR_R(fcp_imax, LPFC_FP_DEF_IMAX, LPFC_MIM_IMAX, LPFC_DMULT_CONST,
-	    "Set the maximum number of fast-path FCP interrupts per second");
-
-/*
 # lpfc_fcp_wq_count: Set the number of fast-path FCP work queues
+# This parameter is ignored and will eventually be depricated
 #
-# Value range is [1,31]. Default value is 4.
+# Value range is [1,7]. Default value is 4.
 */
-LPFC_ATTR_R(fcp_wq_count, LPFC_FP_WQN_DEF, LPFC_FP_WQN_MIN, LPFC_FP_WQN_MAX,
+LPFC_ATTR_R(fcp_wq_count, LPFC_FCP_IO_CHAN_DEF, LPFC_FCP_IO_CHAN_MIN,
+	    LPFC_FCP_IO_CHAN_MAX,
 	    "Set the number of fast-path FCP work queues, if possible");
 
 /*
-# lpfc_fcp_eq_count: Set the number of fast-path FCP event queues
+# lpfc_fcp_eq_count: Set the number of FCP EQ/CQ/WQ IO channels
 #
-# Value range is [1,7]. Default value is 1.
+# Value range is [1,7]. Default value is 4.
 */
-LPFC_ATTR_R(fcp_eq_count, LPFC_FP_EQN_DEF, LPFC_FP_EQN_MIN, LPFC_FP_EQN_MAX,
+LPFC_ATTR_R(fcp_eq_count, LPFC_FCP_IO_CHAN_DEF, LPFC_FCP_IO_CHAN_MIN,
+	    LPFC_FCP_IO_CHAN_MAX,
 	    "Set the number of fast-path FCP event queues, if possible");
+
+/*
+# lpfc_fcp_io_channel: Set the number of FCP EQ/CQ/WQ IO channels
+#
+# Value range is [1,7]. Default value is 4.
+*/
+LPFC_ATTR_R(fcp_io_channel, LPFC_FCP_IO_CHAN_DEF, LPFC_FCP_IO_CHAN_MIN,
+	    LPFC_FCP_IO_CHAN_MAX,
+	    "Set the number of FCP I/O channels");
 
 /*
 # lpfc_enable_hba_reset: Allow or prevent HBA resets to the hardware.
@@ -3806,12 +3918,29 @@ LPFC_ATTR_R(enable_hba_heartbeat, 0, 0, 1, "Enable HBA Heartbeat.");
 LPFC_ATTR_R(enable_bg, 0, 0, 1, "Enable BlockGuard Support");
 
 /*
+# lpfc_fcp_look_ahead: Look ahead for completions in FCP start routine
+#       0  = disabled (default)
+#       1  = enabled
+# Value range is [0,1]. Default value is 0.
+*/
+unsigned int lpfc_fcp_look_ahead = LPFC_LOOK_AHEAD_OFF;
+
+module_param(lpfc_fcp_look_ahead, uint, S_IRUGO);
+MODULE_PARM_DESC(lpfc_fcp_look_ahead, "Look ahead for completions");
+
+/*
 # lpfc_prot_mask: i
 #	- Bit mask of host protection capabilities used to register with the
 #	  SCSI mid-layer
 # 	- Only meaningful if BG is turned on (lpfc_enable_bg=1).
 #	- Allows you to ultimately specify which profiles to use
 #	- Default will result in registering capabilities for all profiles.
+#	- SHOST_DIF_TYPE1_PROTECTION	1
+#		HBA supports T10 DIF Type 1: HBA to Target Type 1 Protection
+#	- SHOST_DIX_TYPE0_PROTECTION	8
+#		HBA supports DIX Type 0: Host to HBA protection only
+#	- SHOST_DIX_TYPE1_PROTECTION	16
+#		HBA supports DIX Type 1: Host to HBA  Type 1 protection
 #
 */
 unsigned int lpfc_prot_mask = SHOST_DIF_TYPE1_PROTECTION |
@@ -3824,7 +3953,7 @@ MODULE_PARM_DESC(lpfc_prot_mask, "host protection mask");
 /*
 # lpfc_prot_guard: i
 #	- Bit mask of protection guard types to register with the SCSI mid-layer
-# 	- Guard types are currently either 1) IP checksum 2) T10-DIF CRC
+#	- Guard types are currently either 1) T10-DIF CRC 2) IP checksum
 #	- Allows you to ultimately specify which profiles to use
 #	- Default will result in registering capabilities for all guard types
 #
@@ -3899,6 +4028,7 @@ struct device_attribute *lpfc_hba_attrs[] = {
 	&dev_attr_lpfc_topology,
 	&dev_attr_lpfc_scan_down,
 	&dev_attr_lpfc_link_speed,
+	&dev_attr_lpfc_fcp_io_sched,
 	&dev_attr_lpfc_cr_delay,
 	&dev_attr_lpfc_cr_count,
 	&dev_attr_lpfc_multi_ring_support,
@@ -3925,6 +4055,7 @@ struct device_attribute *lpfc_hba_attrs[] = {
 	&dev_attr_lpfc_fcp_imax,
 	&dev_attr_lpfc_fcp_wq_count,
 	&dev_attr_lpfc_fcp_eq_count,
+	&dev_attr_lpfc_fcp_io_channel,
 	&dev_attr_lpfc_enable_bg,
 	&dev_attr_lpfc_soft_wwnn,
 	&dev_attr_lpfc_soft_wwpn,
@@ -4887,6 +5018,7 @@ struct fc_function_template lpfc_vport_transport_functions = {
 void
 lpfc_get_cfgparam(struct lpfc_hba *phba)
 {
+	lpfc_fcp_io_sched_init(phba, lpfc_fcp_io_sched);
 	lpfc_cr_delay_init(phba, lpfc_cr_delay);
 	lpfc_cr_count_init(phba, lpfc_cr_count);
 	lpfc_multi_ring_support_init(phba, lpfc_multi_ring_support);
@@ -4903,6 +5035,7 @@ lpfc_get_cfgparam(struct lpfc_hba *phba)
 	lpfc_fcp_imax_init(phba, lpfc_fcp_imax);
 	lpfc_fcp_wq_count_init(phba, lpfc_fcp_wq_count);
 	lpfc_fcp_eq_count_init(phba, lpfc_fcp_eq_count);
+	lpfc_fcp_io_channel_init(phba, lpfc_fcp_io_channel);
 	lpfc_enable_hba_reset_init(phba, lpfc_enable_hba_reset);
 	lpfc_enable_hba_heartbeat_init(phba, lpfc_enable_hba_heartbeat);
 	lpfc_enable_bg_init(phba, lpfc_enable_bg);

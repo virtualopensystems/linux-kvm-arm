@@ -28,6 +28,7 @@
 #include <net/netfilter/nf_conntrack_core.h>
 #include <net/netfilter/nf_conntrack_zones.h>
 #include <net/netfilter/ipv6/nf_conntrack_ipv6.h>
+#include <net/netfilter/nf_nat_helper.h>
 #include <net/netfilter/ipv6/nf_defrag_ipv6.h>
 #include <net/netfilter/nf_log.h>
 
@@ -64,83 +65,76 @@ static int ipv6_print_tuple(struct seq_file *s,
 			  tuple->src.u3.ip6, tuple->dst.u3.ip6);
 }
 
-/*
- * Based on ipv6_skip_exthdr() in net/ipv6/exthdr.c
- *
- * This function parses (probably truncated) exthdr set "hdr"
- * of length "len". "nexthdrp" initially points to some place,
- * where type of the first header can be found.
- *
- * It skips all well-known exthdrs, and returns pointer to the start
- * of unparsable area i.e. the first header with unknown type.
- * if success, *nexthdr is updated by type/protocol of this header.
- *
- * NOTES: - it may return pointer pointing beyond end of packet,
- *          if the last recognized header is truncated in the middle.
- *        - if packet is truncated, so that all parsed headers are skipped,
- *          it returns -1.
- *        - if packet is fragmented, return pointer of the fragment header.
- *        - ESP is unparsable for now and considered like
- *          normal payload protocol.
- *        - Note also special handling of AUTH header. Thanks to IPsec wizards.
- */
-
-static int nf_ct_ipv6_skip_exthdr(const struct sk_buff *skb, int start,
-				  u8 *nexthdrp, int len)
-{
-	u8 nexthdr = *nexthdrp;
-
-	while (ipv6_ext_hdr(nexthdr)) {
-		struct ipv6_opt_hdr hdr;
-		int hdrlen;
-
-		if (len < (int)sizeof(struct ipv6_opt_hdr))
-			return -1;
-		if (nexthdr == NEXTHDR_NONE)
-			break;
-		if (nexthdr == NEXTHDR_FRAGMENT)
-			break;
-		if (skb_copy_bits(skb, start, &hdr, sizeof(hdr)))
-			BUG();
-		if (nexthdr == NEXTHDR_AUTH)
-			hdrlen = (hdr.hdrlen+2)<<2;
-		else
-			hdrlen = ipv6_optlen(&hdr);
-
-		nexthdr = hdr.nexthdr;
-		len -= hdrlen;
-		start += hdrlen;
-	}
-
-	*nexthdrp = nexthdr;
-	return start;
-}
-
 static int ipv6_get_l4proto(const struct sk_buff *skb, unsigned int nhoff,
 			    unsigned int *dataoff, u_int8_t *protonum)
 {
 	unsigned int extoff = nhoff + sizeof(struct ipv6hdr);
-	unsigned char pnum;
+	__be16 frag_off;
 	int protoff;
+	u8 nexthdr;
 
 	if (skb_copy_bits(skb, nhoff + offsetof(struct ipv6hdr, nexthdr),
-			  &pnum, sizeof(pnum)) != 0) {
+			  &nexthdr, sizeof(nexthdr)) != 0) {
 		pr_debug("ip6_conntrack_core: can't get nexthdr\n");
 		return -NF_ACCEPT;
 	}
-	protoff = nf_ct_ipv6_skip_exthdr(skb, extoff, &pnum, skb->len - extoff);
+	protoff = ipv6_skip_exthdr(skb, extoff, &nexthdr, &frag_off);
 	/*
 	 * (protoff == skb->len) mean that the packet doesn't have no data
 	 * except of IPv6 & ext headers. but it's tracked anyway. - YK
 	 */
-	if ((protoff < 0) || (protoff > skb->len)) {
+	if (protoff < 0 || (frag_off & htons(~0x7)) != 0) {
 		pr_debug("ip6_conntrack_core: can't find proto in pkt\n");
 		return -NF_ACCEPT;
 	}
 
 	*dataoff = protoff;
-	*protonum = pnum;
+	*protonum = nexthdr;
 	return NF_ACCEPT;
+}
+
+static unsigned int ipv6_helper(unsigned int hooknum,
+				struct sk_buff *skb,
+				const struct net_device *in,
+				const struct net_device *out,
+				int (*okfn)(struct sk_buff *))
+{
+	struct nf_conn *ct;
+	const struct nf_conn_help *help;
+	const struct nf_conntrack_helper *helper;
+	enum ip_conntrack_info ctinfo;
+	unsigned int ret;
+	__be16 frag_off;
+	int protoff;
+	u8 nexthdr;
+
+	/* This is where we call the helper: as the packet goes out. */
+	ct = nf_ct_get(skb, &ctinfo);
+	if (!ct || ctinfo == IP_CT_RELATED_REPLY)
+		return NF_ACCEPT;
+
+	help = nfct_help(ct);
+	if (!help)
+		return NF_ACCEPT;
+	/* rcu_read_lock()ed by nf_hook_slow */
+	helper = rcu_dereference(help->helper);
+	if (!helper)
+		return NF_ACCEPT;
+
+	nexthdr = ipv6_hdr(skb)->nexthdr;
+	protoff = ipv6_skip_exthdr(skb, sizeof(struct ipv6hdr), &nexthdr,
+				   &frag_off);
+	if (protoff < 0 || (frag_off & htons(~0x7)) != 0) {
+		pr_debug("proto header not found\n");
+		return NF_ACCEPT;
+	}
+
+	ret = helper->help(skb, protoff, ct, ctinfo);
+	if (ret != NF_ACCEPT && (ret & NF_VERDICT_MASK) != NF_QUEUE) {
+		nf_log_packet(NFPROTO_IPV6, hooknum, skb, in, out, NULL,
+			      "nf_ct_%s: dropping packet", helper->name);
+	}
+	return ret;
 }
 
 static unsigned int ipv6_confirm(unsigned int hooknum,
@@ -150,39 +144,33 @@ static unsigned int ipv6_confirm(unsigned int hooknum,
 				 int (*okfn)(struct sk_buff *))
 {
 	struct nf_conn *ct;
-	const struct nf_conn_help *help;
-	const struct nf_conntrack_helper *helper;
 	enum ip_conntrack_info ctinfo;
-	unsigned int ret, protoff;
-	unsigned int extoff = (u8 *)(ipv6_hdr(skb) + 1) - skb->data;
 	unsigned char pnum = ipv6_hdr(skb)->nexthdr;
+	int protoff;
+	__be16 frag_off;
 
-
-	/* This is where we call the helper: as the packet goes out. */
 	ct = nf_ct_get(skb, &ctinfo);
 	if (!ct || ctinfo == IP_CT_RELATED_REPLY)
 		goto out;
 
-	help = nfct_help(ct);
-	if (!help)
-		goto out;
-	/* rcu_read_lock()ed by nf_hook_slow */
-	helper = rcu_dereference(help->helper);
-	if (!helper)
-		goto out;
-
-	protoff = nf_ct_ipv6_skip_exthdr(skb, extoff, &pnum,
-					 skb->len - extoff);
-	if (protoff > skb->len || pnum == NEXTHDR_FRAGMENT) {
+	protoff = ipv6_skip_exthdr(skb, sizeof(struct ipv6hdr), &pnum,
+				   &frag_off);
+	if (protoff < 0 || (frag_off & htons(~0x7)) != 0) {
 		pr_debug("proto header not found\n");
-		return NF_ACCEPT;
+		goto out;
 	}
 
-	ret = helper->help(skb, protoff, ct, ctinfo);
-	if (ret != NF_ACCEPT) {
-		nf_log_packet(NFPROTO_IPV6, hooknum, skb, in, out, NULL,
-			      "nf_ct_%s: dropping packet", helper->name);
-		return ret;
+	/* adjust seqs for loopback traffic only in outgoing direction */
+	if (test_bit(IPS_SEQ_ADJUST_BIT, &ct->status) &&
+	    !nf_is_loopback_packet(skb)) {
+		typeof(nf_nat_seq_adjust_hook) seq_adjust;
+
+		seq_adjust = rcu_dereference(nf_nat_seq_adjust_hook);
+		if (!seq_adjust ||
+		    !seq_adjust(skb, ct, ctinfo, protoff)) {
+			NF_CT_STAT_INC_ATOMIC(nf_ct_net(ct), drop);
+			return NF_DROP;
+		}
 	}
 out:
 	/* We've seen it coming out the other side: confirm it */
@@ -192,9 +180,14 @@ out:
 static unsigned int __ipv6_conntrack_in(struct net *net,
 					unsigned int hooknum,
 					struct sk_buff *skb,
+					const struct net_device *in,
+					const struct net_device *out,
 					int (*okfn)(struct sk_buff *))
 {
 	struct sk_buff *reasm = skb->nfct_reasm;
+	const struct nf_conn_help *help;
+	struct nf_conn *ct;
+	enum ip_conntrack_info ctinfo;
 
 	/* This packet is fragmented and has reassembled packet. */
 	if (reasm) {
@@ -206,6 +199,25 @@ static unsigned int __ipv6_conntrack_in(struct net *net,
 			if (ret != NF_ACCEPT)
 				return ret;
 		}
+
+		/* Conntrack helpers need the entire reassembled packet in the
+		 * POST_ROUTING hook. In case of unconfirmed connections NAT
+		 * might reassign a helper, so the entire packet is also
+		 * required.
+		 */
+		ct = nf_ct_get(reasm, &ctinfo);
+		if (ct != NULL && !nf_ct_is_untracked(ct)) {
+			help = nfct_help(ct);
+			if ((help && help->helper) || !nf_ct_is_confirmed(ct)) {
+				nf_conntrack_get_reasm(skb);
+				NF_HOOK_THRESH(NFPROTO_IPV6, hooknum, reasm,
+					       (struct net_device *)in,
+					       (struct net_device *)out,
+					       okfn, NF_IP6_PRI_CONNTRACK + 1);
+				return NF_DROP_ERR(-ECANCELED);
+			}
+		}
+
 		nf_conntrack_get(reasm->nfct);
 		skb->nfct = reasm->nfct;
 		skb->nfctinfo = reasm->nfctinfo;
@@ -221,7 +233,7 @@ static unsigned int ipv6_conntrack_in(unsigned int hooknum,
 				      const struct net_device *out,
 				      int (*okfn)(struct sk_buff *))
 {
-	return __ipv6_conntrack_in(dev_net(in), hooknum, skb, okfn);
+	return __ipv6_conntrack_in(dev_net(in), hooknum, skb, in, out, okfn);
 }
 
 static unsigned int ipv6_conntrack_local(unsigned int hooknum,
@@ -235,7 +247,7 @@ static unsigned int ipv6_conntrack_local(unsigned int hooknum,
 		net_notice_ratelimited("ipv6_conntrack_local: packet too short\n");
 		return NF_ACCEPT;
 	}
-	return __ipv6_conntrack_in(dev_net(out), hooknum, skb, okfn);
+	return __ipv6_conntrack_in(dev_net(out), hooknum, skb, in, out, okfn);
 }
 
 static struct nf_hook_ops ipv6_conntrack_ops[] __read_mostly = {
@@ -254,11 +266,25 @@ static struct nf_hook_ops ipv6_conntrack_ops[] __read_mostly = {
 		.priority	= NF_IP6_PRI_CONNTRACK,
 	},
 	{
+		.hook		= ipv6_helper,
+		.owner		= THIS_MODULE,
+		.pf		= NFPROTO_IPV6,
+		.hooknum	= NF_INET_POST_ROUTING,
+		.priority	= NF_IP6_PRI_CONNTRACK_HELPER,
+	},
+	{
 		.hook		= ipv6_confirm,
 		.owner		= THIS_MODULE,
 		.pf		= NFPROTO_IPV6,
 		.hooknum	= NF_INET_POST_ROUTING,
 		.priority	= NF_IP6_PRI_LAST,
+	},
+	{
+		.hook		= ipv6_helper,
+		.owner		= THIS_MODULE,
+		.pf		= NFPROTO_IPV6,
+		.hooknum	= NF_INET_LOCAL_IN,
+		.priority	= NF_IP6_PRI_CONNTRACK_HELPER,
 	},
 	{
 		.hook		= ipv6_confirm,
@@ -333,6 +359,65 @@ MODULE_ALIAS("nf_conntrack-" __stringify(AF_INET6));
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Yasuyuki KOZAKAI @USAGI <yasuyuki.kozakai@toshiba.co.jp>");
 
+static int ipv6_net_init(struct net *net)
+{
+	int ret = 0;
+
+	ret = nf_conntrack_l4proto_register(net,
+					    &nf_conntrack_l4proto_tcp6);
+	if (ret < 0) {
+		printk(KERN_ERR "nf_conntrack_l4proto_tcp6: protocol register failed\n");
+		goto out;
+	}
+	ret = nf_conntrack_l4proto_register(net,
+					    &nf_conntrack_l4proto_udp6);
+	if (ret < 0) {
+		printk(KERN_ERR "nf_conntrack_l4proto_udp6: protocol register failed\n");
+		goto cleanup_tcp6;
+	}
+	ret = nf_conntrack_l4proto_register(net,
+					    &nf_conntrack_l4proto_icmpv6);
+	if (ret < 0) {
+		printk(KERN_ERR "nf_conntrack_l4proto_icmp6: protocol register failed\n");
+		goto cleanup_udp6;
+	}
+	ret = nf_conntrack_l3proto_register(net,
+					    &nf_conntrack_l3proto_ipv6);
+	if (ret < 0) {
+		printk(KERN_ERR "nf_conntrack_l3proto_ipv6: protocol register failed\n");
+		goto cleanup_icmpv6;
+	}
+	return 0;
+ cleanup_icmpv6:
+	nf_conntrack_l4proto_unregister(net,
+					&nf_conntrack_l4proto_icmpv6);
+ cleanup_udp6:
+	nf_conntrack_l4proto_unregister(net,
+					&nf_conntrack_l4proto_udp6);
+ cleanup_tcp6:
+	nf_conntrack_l4proto_unregister(net,
+					&nf_conntrack_l4proto_tcp6);
+ out:
+	return ret;
+}
+
+static void ipv6_net_exit(struct net *net)
+{
+	nf_conntrack_l3proto_unregister(net,
+					&nf_conntrack_l3proto_ipv6);
+	nf_conntrack_l4proto_unregister(net,
+					&nf_conntrack_l4proto_icmpv6);
+	nf_conntrack_l4proto_unregister(net,
+					&nf_conntrack_l4proto_udp6);
+	nf_conntrack_l4proto_unregister(net,
+					&nf_conntrack_l4proto_tcp6);
+}
+
+static struct pernet_operations ipv6_net_ops = {
+	.init = ipv6_net_init,
+	.exit = ipv6_net_exit,
+};
+
 static int __init nf_conntrack_l3proto_ipv6_init(void)
 {
 	int ret = 0;
@@ -340,30 +425,9 @@ static int __init nf_conntrack_l3proto_ipv6_init(void)
 	need_conntrack();
 	nf_defrag_ipv6_enable();
 
-	ret = nf_conntrack_l4proto_register(&nf_conntrack_l4proto_tcp6);
-	if (ret < 0) {
-		pr_err("nf_conntrack_ipv6: can't register tcp.\n");
-		return ret;
-	}
-
-	ret = nf_conntrack_l4proto_register(&nf_conntrack_l4proto_udp6);
-	if (ret < 0) {
-		pr_err("nf_conntrack_ipv6: can't register udp.\n");
-		goto cleanup_tcp;
-	}
-
-	ret = nf_conntrack_l4proto_register(&nf_conntrack_l4proto_icmpv6);
-	if (ret < 0) {
-		pr_err("nf_conntrack_ipv6: can't register icmpv6.\n");
-		goto cleanup_udp;
-	}
-
-	ret = nf_conntrack_l3proto_register(&nf_conntrack_l3proto_ipv6);
-	if (ret < 0) {
-		pr_err("nf_conntrack_ipv6: can't register ipv6\n");
-		goto cleanup_icmpv6;
-	}
-
+	ret = register_pernet_subsys(&ipv6_net_ops);
+	if (ret < 0)
+		goto cleanup_pernet;
 	ret = nf_register_hooks(ipv6_conntrack_ops,
 				ARRAY_SIZE(ipv6_conntrack_ops));
 	if (ret < 0) {
@@ -374,13 +438,8 @@ static int __init nf_conntrack_l3proto_ipv6_init(void)
 	return ret;
 
  cleanup_ipv6:
-	nf_conntrack_l3proto_unregister(&nf_conntrack_l3proto_ipv6);
- cleanup_icmpv6:
-	nf_conntrack_l4proto_unregister(&nf_conntrack_l4proto_icmpv6);
- cleanup_udp:
-	nf_conntrack_l4proto_unregister(&nf_conntrack_l4proto_udp6);
- cleanup_tcp:
-	nf_conntrack_l4proto_unregister(&nf_conntrack_l4proto_tcp6);
+	unregister_pernet_subsys(&ipv6_net_ops);
+ cleanup_pernet:
 	return ret;
 }
 
@@ -388,10 +447,7 @@ static void __exit nf_conntrack_l3proto_ipv6_fini(void)
 {
 	synchronize_net();
 	nf_unregister_hooks(ipv6_conntrack_ops, ARRAY_SIZE(ipv6_conntrack_ops));
-	nf_conntrack_l3proto_unregister(&nf_conntrack_l3proto_ipv6);
-	nf_conntrack_l4proto_unregister(&nf_conntrack_l4proto_icmpv6);
-	nf_conntrack_l4proto_unregister(&nf_conntrack_l4proto_udp6);
-	nf_conntrack_l4proto_unregister(&nf_conntrack_l4proto_tcp6);
+	unregister_pernet_subsys(&ipv6_net_ops);
 }
 
 module_init(nf_conntrack_l3proto_ipv6_init);

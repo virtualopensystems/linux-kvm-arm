@@ -7,6 +7,7 @@
 
 #include "bcma_private.h"
 #include <linux/module.h>
+#include <linux/platform_device.h>
 #include <linux/bcma/bcma.h>
 #include <linux/slab.h>
 
@@ -61,6 +62,13 @@ static struct bus_type bcma_bus_type = {
 	.dev_attrs	= bcma_device_attrs,
 };
 
+static u16 bcma_cc_core_id(struct bcma_bus *bus)
+{
+	if (bus->chipinfo.id == BCMA_CHIP_ID_BCM4706)
+		return BCMA_CORE_4706_CHIPCOMMON;
+	return BCMA_CORE_CHIPCOMMON;
+}
+
 struct bcma_device *bcma_find_core(struct bcma_bus *bus, u16 coreid)
 {
 	struct bcma_device *core;
@@ -91,10 +99,12 @@ static int bcma_register_cores(struct bcma_bus *bus)
 	list_for_each_entry(core, &bus->cores, list) {
 		/* We support that cores ourself */
 		switch (core->id.id) {
+		case BCMA_CORE_4706_CHIPCOMMON:
 		case BCMA_CORE_CHIPCOMMON:
 		case BCMA_CORE_PCI:
 		case BCMA_CORE_PCIE:
 		case BCMA_CORE_MIPS_74K:
+		case BCMA_CORE_4706_MAC_GBIT_COMMON:
 			continue;
 		}
 
@@ -118,13 +128,30 @@ static int bcma_register_cores(struct bcma_bus *bus)
 
 		err = device_register(&core->dev);
 		if (err) {
-			pr_err("Could not register dev for core 0x%03X\n",
-			       core->id.id);
+			bcma_err(bus,
+				 "Could not register dev for core 0x%03X\n",
+				 core->id.id);
 			continue;
 		}
 		core->dev_registered = true;
 		dev_id++;
 	}
+
+#ifdef CONFIG_BCMA_SFLASH
+	if (bus->drv_cc.sflash.present) {
+		err = platform_device_register(&bcma_sflash_dev);
+		if (err)
+			bcma_err(bus, "Error registering serial flash\n");
+	}
+#endif
+
+#ifdef CONFIG_BCMA_NFLASH
+	if (bus->drv_cc.nflash.present) {
+		err = platform_device_register(&bcma_nflash_dev);
+		if (err)
+			bcma_err(bus, "Error registering NAND flash\n");
+	}
+#endif
 
 	return 0;
 }
@@ -151,12 +178,12 @@ int __devinit bcma_bus_register(struct bcma_bus *bus)
 	/* Scan for devices (cores) */
 	err = bcma_bus_scan(bus);
 	if (err) {
-		pr_err("Failed to scan: %d\n", err);
+		bcma_err(bus, "Failed to scan: %d\n", err);
 		return -1;
 	}
 
 	/* Init CC core */
-	core = bcma_find_core(bus, BCMA_CORE_CHIPCOMMON);
+	core = bcma_find_core(bus, bcma_cc_core_id(bus));
 	if (core) {
 		bus->drv_cc.core = core;
 		bcma_core_chipcommon_init(&bus->drv_cc);
@@ -176,24 +203,41 @@ int __devinit bcma_bus_register(struct bcma_bus *bus)
 		bcma_core_pci_init(&bus->drv_pci);
 	}
 
+	/* Init GBIT MAC COMMON core */
+	core = bcma_find_core(bus, BCMA_CORE_4706_MAC_GBIT_COMMON);
+	if (core) {
+		bus->drv_gmac_cmn.core = core;
+		bcma_core_gmac_cmn_init(&bus->drv_gmac_cmn);
+	}
+
 	/* Try to get SPROM */
 	err = bcma_sprom_get(bus);
 	if (err == -ENOENT) {
-		pr_err("No SPROM available\n");
+		bcma_err(bus, "No SPROM available\n");
 	} else if (err)
-		pr_err("Failed to get SPROM: %d\n", err);
+		bcma_err(bus, "Failed to get SPROM: %d\n", err);
 
 	/* Register found cores */
 	bcma_register_cores(bus);
 
-	pr_info("Bus registered\n");
+	bcma_info(bus, "Bus registered\n");
 
 	return 0;
 }
 
 void bcma_bus_unregister(struct bcma_bus *bus)
 {
+	struct bcma_device *cores[3];
+
+	cores[0] = bcma_find_core(bus, BCMA_CORE_MIPS_74K);
+	cores[1] = bcma_find_core(bus, BCMA_CORE_PCIE);
+	cores[2] = bcma_find_core(bus, BCMA_CORE_4706_MAC_GBIT_COMMON);
+
 	bcma_unregister_cores(bus);
+
+	kfree(cores[2]);
+	kfree(cores[1]);
+	kfree(cores[0]);
 }
 
 int __init bcma_bus_early_register(struct bcma_bus *bus,
@@ -207,14 +251,14 @@ int __init bcma_bus_early_register(struct bcma_bus *bus,
 	bcma_init_bus(bus);
 
 	match.manuf = BCMA_MANUF_BCM;
-	match.id = BCMA_CORE_CHIPCOMMON;
+	match.id = bcma_cc_core_id(bus);
 	match.class = BCMA_CL_SIM;
 	match.rev = BCMA_ANY_REV;
 
 	/* Scan for chip common core */
 	err = bcma_bus_scan_early(bus, &match, core_cc);
 	if (err) {
-		pr_err("Failed to scan for common core: %d\n", err);
+		bcma_err(bus, "Failed to scan for common core: %d\n", err);
 		return -1;
 	}
 
@@ -226,12 +270,12 @@ int __init bcma_bus_early_register(struct bcma_bus *bus,
 	/* Scan for mips core */
 	err = bcma_bus_scan_early(bus, &match, core_mips);
 	if (err) {
-		pr_err("Failed to scan for mips core: %d\n", err);
+		bcma_err(bus, "Failed to scan for mips core: %d\n", err);
 		return -1;
 	}
 
 	/* Init CC core */
-	core = bcma_find_core(bus, BCMA_CORE_CHIPCOMMON);
+	core = bcma_find_core(bus, bcma_cc_core_id(bus));
 	if (core) {
 		bus->drv_cc.core = core;
 		bcma_core_chipcommon_init(&bus->drv_cc);
@@ -244,7 +288,7 @@ int __init bcma_bus_early_register(struct bcma_bus *bus,
 		bcma_core_mips_init(&bus->drv_mips);
 	}
 
-	pr_info("Early bus registered\n");
+	bcma_info(bus, "Early bus registered\n");
 
 	return 0;
 }
@@ -270,8 +314,7 @@ int bcma_bus_resume(struct bcma_bus *bus)
 	struct bcma_device *core;
 
 	/* Init CC core */
-	core = bcma_find_core(bus, BCMA_CORE_CHIPCOMMON);
-	if (core) {
+	if (bus->drv_cc.core) {
 		bus->drv_cc.setup_done = false;
 		bcma_core_chipcommon_init(&bus->drv_cc);
 	}

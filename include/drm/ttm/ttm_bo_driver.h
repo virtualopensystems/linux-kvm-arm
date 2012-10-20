@@ -30,16 +30,14 @@
 #ifndef _TTM_BO_DRIVER_H_
 #define _TTM_BO_DRIVER_H_
 
-#include "ttm/ttm_bo_api.h"
-#include "ttm/ttm_memory.h"
-#include "ttm/ttm_module.h"
-#include "drm_mm.h"
-#include "drm_global.h"
-#include "linux/workqueue.h"
-#include "linux/fs.h"
-#include "linux/spinlock.h"
-
-struct ttm_backend;
+#include <ttm/ttm_bo_api.h>
+#include <ttm/ttm_memory.h>
+#include <ttm/ttm_module.h>
+#include <drm/drm_mm.h>
+#include <drm/drm_global.h>
+#include <linux/workqueue.h>
+#include <linux/fs.h>
+#include <linux/spinlock.h>
 
 struct ttm_backend_func {
 	/**
@@ -119,7 +117,6 @@ struct ttm_tt {
 	unsigned long num_pages;
 	struct sg_table *sg; /* for SG objects via dma-buf */
 	struct ttm_bo_global *glob;
-	struct ttm_backend *be;
 	struct file *swap_storage;
 	enum ttm_caching_state caching_state;
 	enum {

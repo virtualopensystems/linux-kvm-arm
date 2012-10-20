@@ -1,6 +1,4 @@
 /*
- * drivers/s390/net/ctcm_main.c
- *
  * Copyright IBM Corp. 2001, 2009
  * Author(s):
  *	Original CTC driver(s):
@@ -1456,7 +1454,7 @@ static int add_channel(struct ccw_device *cdev, enum ctcm_channel_types type,
 				ch_fsm_len, GFP_KERNEL);
 	}
 	if (ch->fsm == NULL)
-				goto free_return;
+				goto nomem_return;
 
 	fsm_newstate(ch->fsm, CTC_STATE_IDLE);
 

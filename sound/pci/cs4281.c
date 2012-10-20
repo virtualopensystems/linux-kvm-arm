@@ -486,7 +486,7 @@ struct cs4281 {
 
 	struct gameport *gameport;
 
-#ifdef CONFIG_PM
+#ifdef CONFIG_PM_SLEEP
 	u32 suspend_regs[SUSPEND_REGISTERS];
 #endif
 
@@ -1977,7 +1977,7 @@ static void __devexit snd_cs4281_remove(struct pci_dev *pci)
 /*
  * Power Management
  */
-#ifdef CONFIG_PM
+#ifdef CONFIG_PM_SLEEP
 
 static int saved_regs[SUSPEND_REGISTERS] = {
 	BA0_JSCTL,
@@ -1997,9 +1997,10 @@ static int saved_regs[SUSPEND_REGISTERS] = {
 
 #define CLKCR1_CKRA                             0x00010000L
 
-static int cs4281_suspend(struct pci_dev *pci, pm_message_t state)
+static int cs4281_suspend(struct device *dev)
 {
-	struct snd_card *card = pci_get_drvdata(pci);
+	struct pci_dev *pci = to_pci_dev(dev);
+	struct snd_card *card = dev_get_drvdata(dev);
 	struct cs4281 *chip = card->private_data;
 	u32 ulCLK;
 	unsigned int i;
@@ -2040,13 +2041,14 @@ static int cs4281_suspend(struct pci_dev *pci, pm_message_t state)
 
 	pci_disable_device(pci);
 	pci_save_state(pci);
-	pci_set_power_state(pci, pci_choose_state(pci, state));
+	pci_set_power_state(pci, PCI_D3hot);
 	return 0;
 }
 
-static int cs4281_resume(struct pci_dev *pci)
+static int cs4281_resume(struct device *dev)
 {
-	struct snd_card *card = pci_get_drvdata(pci);
+	struct pci_dev *pci = to_pci_dev(dev);
+	struct snd_card *card = dev_get_drvdata(dev);
 	struct cs4281 *chip = card->private_data;
 	unsigned int i;
 	u32 ulCLK;
@@ -2082,17 +2084,21 @@ static int cs4281_resume(struct pci_dev *pci)
 	snd_power_change_state(card, SNDRV_CTL_POWER_D0);
 	return 0;
 }
-#endif /* CONFIG_PM */
+
+static SIMPLE_DEV_PM_OPS(cs4281_pm, cs4281_suspend, cs4281_resume);
+#define CS4281_PM_OPS	&cs4281_pm
+#else
+#define CS4281_PM_OPS	NULL
+#endif /* CONFIG_PM_SLEEP */
 
 static struct pci_driver cs4281_driver = {
 	.name = KBUILD_MODNAME,
 	.id_table = snd_cs4281_ids,
 	.probe = snd_cs4281_probe,
 	.remove = __devexit_p(snd_cs4281_remove),
-#ifdef CONFIG_PM
-	.suspend = cs4281_suspend,
-	.resume = cs4281_resume,
-#endif
+	.driver = {
+		.pm = CS4281_PM_OPS,
+	},
 };
 	
 module_pci_driver(cs4281_driver);

@@ -1,8 +1,6 @@
 /*
- *  arch/s390/kernel/setup.c
- *
  *  S390 version
- *    Copyright (C) IBM Corp. 1999,2012
+ *    Copyright IBM Corp. 1999, 2012
  *    Author(s): Hartmut Penner (hp@de.ibm.com),
  *               Martin Schwidefsky (schwidefsky@de.ibm.com)
  *
@@ -63,6 +61,7 @@
 #include <asm/kvm_virtio.h>
 #include <asm/diag.h>
 #include <asm/os_info.h>
+#include <asm/sclp.h>
 #include "entry.h"
 
 long psw_kernel_bits	= PSW_DEFAULT_KEY | PSW_MASK_BASE | PSW_ASC_PRIMARY |
@@ -106,6 +105,11 @@ EXPORT_SYMBOL(VMALLOC_END);
 struct page *vmemmap;
 EXPORT_SYMBOL(vmemmap);
 
+#ifdef CONFIG_64BIT
+unsigned long MODULES_VADDR;
+unsigned long MODULES_END;
+#endif
+
 /* An array with a pointer to the lowcore of every CPU. */
 struct _lowcore *lowcore_ptr[NR_CPUS];
 EXPORT_SYMBOL(lowcore_ptr);
@@ -138,9 +142,14 @@ __setup("condev=", condev_setup);
 
 static void __init set_preferred_console(void)
 {
-	if (MACHINE_IS_KVM)
-		add_preferred_console("hvc", 0, NULL);
-	else if (CONSOLE_IS_3215 || CONSOLE_IS_SCLP)
+	if (MACHINE_IS_KVM) {
+		if (sclp_has_vt220())
+			add_preferred_console("ttyS", 1, NULL);
+		else if (sclp_has_linemode())
+			add_preferred_console("ttyS", 0, NULL);
+		else
+			add_preferred_console("hvc", 0, NULL);
+	} else if (CONSOLE_IS_3215 || CONSOLE_IS_SCLP)
 		add_preferred_console("ttyS", 0, NULL);
 	else if (CONSOLE_IS_3270)
 		add_preferred_console("tty3270", 0, NULL);
@@ -298,10 +307,10 @@ static int __init parse_vmalloc(char *arg)
 }
 early_param("vmalloc", parse_vmalloc);
 
-unsigned int user_mode = HOME_SPACE_MODE;
-EXPORT_SYMBOL_GPL(user_mode);
+unsigned int s390_user_mode = PRIMARY_SPACE_MODE;
+EXPORT_SYMBOL_GPL(s390_user_mode);
 
-static int set_amode_primary(void)
+static void __init set_user_mode_primary(void)
 {
 	psw_kernel_bits = (psw_kernel_bits & ~PSW_MASK_ASC) | PSW_ASC_HOME;
 	psw_user_bits = (psw_user_bits & ~PSW_MASK_ASC) | PSW_ASC_PRIMARY;
@@ -309,48 +318,30 @@ static int set_amode_primary(void)
 	psw32_user_bits =
 		(psw32_user_bits & ~PSW32_MASK_ASC) | PSW32_ASC_PRIMARY;
 #endif
-
-	if (MACHINE_HAS_MVCOS) {
-		memcpy(&uaccess, &uaccess_mvcos_switch, sizeof(uaccess));
-		return 1;
-	} else {
-		memcpy(&uaccess, &uaccess_pt, sizeof(uaccess));
-		return 0;
-	}
+	uaccess = MACHINE_HAS_MVCOS ? uaccess_mvcos_switch : uaccess_pt;
 }
-
-/*
- * Switch kernel/user addressing modes?
- */
-static int __init early_parse_switch_amode(char *p)
-{
-	user_mode = PRIMARY_SPACE_MODE;
-	return 0;
-}
-early_param("switch_amode", early_parse_switch_amode);
 
 static int __init early_parse_user_mode(char *p)
 {
 	if (p && strcmp(p, "primary") == 0)
-		user_mode = PRIMARY_SPACE_MODE;
+		s390_user_mode = PRIMARY_SPACE_MODE;
 	else if (!p || strcmp(p, "home") == 0)
-		user_mode = HOME_SPACE_MODE;
+		s390_user_mode = HOME_SPACE_MODE;
 	else
 		return 1;
 	return 0;
 }
 early_param("user_mode", early_parse_user_mode);
 
-static void setup_addressing_mode(void)
+static void __init setup_addressing_mode(void)
 {
-	if (user_mode == PRIMARY_SPACE_MODE) {
-		if (set_amode_primary())
-			pr_info("Address spaces switched, "
-				"mvcos available\n");
-		else
-			pr_info("Address spaces switched, "
-				"mvcos not available\n");
-	}
+	if (s390_user_mode != PRIMARY_SPACE_MODE)
+		return;
+	set_user_mode_primary();
+	if (MACHINE_HAS_MVCOS)
+		pr_info("Address spaces switched, mvcos available\n");
+	else
+		pr_info("Address spaces switched, mvcos not available\n");
 }
 
 void *restart_stack __attribute__((__section__(".data")));
@@ -430,10 +421,11 @@ static void __init setup_lowcore(void)
 	lc->restart_source = -1UL;
 
 	/* Setup absolute zero lowcore */
-	memcpy_absolute(&S390_lowcore.restart_stack, &lc->restart_stack,
-			4 * sizeof(unsigned long));
-	memcpy_absolute(&S390_lowcore.restart_psw, &lc->restart_psw,
-			sizeof(lc->restart_psw));
+	mem_assign_absolute(S390_lowcore.restart_stack, lc->restart_stack);
+	mem_assign_absolute(S390_lowcore.restart_fn, lc->restart_fn);
+	mem_assign_absolute(S390_lowcore.restart_data, lc->restart_data);
+	mem_assign_absolute(S390_lowcore.restart_source, lc->restart_source);
+	mem_assign_absolute(S390_lowcore.restart_psw, lc->restart_psw);
 
 	set_prefix((u32)(unsigned long) lc);
 	lowcore_ptr[0] = lc;
@@ -557,19 +549,23 @@ static void __init setup_memory_end(void)
 
 	/* Choose kernel address space layout: 2, 3, or 4 levels. */
 #ifdef CONFIG_64BIT
-	vmalloc_size = VMALLOC_END ?: 128UL << 30;
+	vmalloc_size = VMALLOC_END ?: (128UL << 30) - MODULES_LEN;
 	tmp = (memory_end ?: real_memory_size) / PAGE_SIZE;
 	tmp = tmp * (sizeof(struct page) + PAGE_SIZE) + vmalloc_size;
 	if (tmp <= (1UL << 42))
 		vmax = 1UL << 42;	/* 3-level kernel page table */
 	else
 		vmax = 1UL << 53;	/* 4-level kernel page table */
+	/* module area is at the end of the kernel address space. */
+	MODULES_END = vmax;
+	MODULES_VADDR = MODULES_END - MODULES_LEN;
+	VMALLOC_END = MODULES_VADDR;
 #else
 	vmalloc_size = VMALLOC_END ?: 96UL << 20;
 	vmax = 1UL << 31;		/* 2-level kernel page table */
-#endif
 	/* vmalloc area is at the end of the kernel address space. */
 	VMALLOC_END = vmax;
+#endif
 	VMALLOC_START = vmax - vmalloc_size;
 
 	/* Split remaining virtual space between 1:1 mapping & vmemmap array */
@@ -597,11 +593,7 @@ static void __init setup_memory_end(void)
 
 static void __init setup_vmcoreinfo(void)
 {
-#ifdef CONFIG_KEXEC
-	unsigned long ptr = paddr_vmcoreinfo_note();
-
-	memcpy_absolute(&S390_lowcore.vmcore_info, &ptr, sizeof(ptr));
-#endif
+	mem_assign_absolute(S390_lowcore.vmcore_info, paddr_vmcoreinfo_note());
 }
 
 #ifdef CONFIG_CRASH_DUMP
@@ -785,6 +777,40 @@ static void __init reserve_crashkernel(void)
 #endif
 }
 
+static void __init init_storage_keys(unsigned long start, unsigned long end)
+{
+	unsigned long boundary, function, size;
+
+	while (start < end) {
+		if (MACHINE_HAS_EDAT2) {
+			/* set storage keys for a 2GB frame */
+			function = 0x22000 | PAGE_DEFAULT_KEY;
+			size = 1UL << 31;
+			boundary = (start + size) & ~(size - 1);
+			if (boundary <= end) {
+				do {
+					start = pfmf(function, start);
+				} while (start < boundary);
+				continue;
+			}
+		}
+		if (MACHINE_HAS_EDAT1) {
+			/* set storage keys for a 1MB frame */
+			function = 0x21000 | PAGE_DEFAULT_KEY;
+			size = 1UL << 20;
+			boundary = (start + size) & ~(size - 1);
+			if (boundary <= end) {
+				do {
+					start = pfmf(function, start);
+				} while (start < boundary);
+				continue;
+			}
+		}
+		page_set_storage_key(start, PAGE_DEFAULT_KEY, 0);
+		start += PAGE_SIZE;
+	}
+}
+
 static void __init setup_memory(void)
 {
         unsigned long bootmap_size;
@@ -863,9 +889,7 @@ static void __init setup_memory(void)
 		memblock_add_node(PFN_PHYS(start_chunk),
 				  PFN_PHYS(end_chunk - start_chunk), 0);
 		pfn = max(start_chunk, start_pfn);
-		for (; pfn < end_chunk; pfn++)
-			page_set_storage_key(PFN_PHYS(pfn),
-					     PAGE_DEFAULT_KEY, 0);
+		init_storage_keys(PFN_PHYS(pfn), PFN_PHYS(end_chunk));
 	}
 
 	psw_set_key(PAGE_DEFAULT_KEY);
@@ -971,11 +995,19 @@ static void __init setup_hwcaps(void)
 	if (MACHINE_HAS_HPAGE)
 		elf_hwcap |= HWCAP_S390_HPAGE;
 
+#if defined(CONFIG_64BIT)
 	/*
 	 * 64-bit register support for 31-bit processes
 	 * HWCAP_S390_HIGH_GPRS is bit 9.
 	 */
 	elf_hwcap |= HWCAP_S390_HIGH_GPRS;
+
+	/*
+	 * Transactional execution support HWCAP_S390_TE is bit 10.
+	 */
+	if (test_facility(50) && test_facility(73))
+		elf_hwcap |= HWCAP_S390_TE;
+#endif
 
 	get_cpu_id(&cpu_id);
 	switch (cpu_id.machine) {

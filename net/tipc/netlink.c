@@ -62,7 +62,7 @@ static int handle_cmd(struct sk_buff *skb, struct genl_info *info)
 		rep_nlh = nlmsg_hdr(rep_buf);
 		memcpy(rep_nlh, req_nlh, hdr_space);
 		rep_nlh->nlmsg_len = rep_buf->len;
-		genlmsg_unicast(&init_net, rep_buf, NETLINK_CB(skb).pid);
+		genlmsg_unicast(&init_net, rep_buf, NETLINK_CB(skb).portid);
 	}
 
 	return 0;
@@ -90,7 +90,7 @@ int tipc_netlink_start(void)
 	res = genl_register_family_with_ops(&tipc_genl_family,
 		&tipc_genl_ops, 1);
 	if (res) {
-		err("Failed to register netlink interface\n");
+		pr_err("Failed to register netlink interface\n");
 		return res;
 	}
 

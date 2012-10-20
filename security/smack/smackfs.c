@@ -49,6 +49,7 @@ enum smk_inos {
 	SMK_LOAD_SELF2	= 15,	/* load task specific rules with long labels */
 	SMK_ACCESS2	= 16,	/* make an access check with long labels */
 	SMK_CIPSO2	= 17,	/* load long label -> CIPSO mapping */
+	SMK_REVOKE_SUBJ	= 18,	/* set rules with subject label to '-' */
 };
 
 /*
@@ -215,28 +216,27 @@ static int smk_set_access(struct smack_rule *srp, struct list_head *rule_list,
  * @access: access string
  * @rule: Smack rule
  * @import: if non-zero, import labels
+ * @len: label length limit
  *
  * Returns 0 on success, -1 on failure
  */
 static int smk_fill_rule(const char *subject, const char *object,
 				const char *access, struct smack_rule *rule,
-				int import)
+				int import, int len)
 {
-	int rc = -1;
-	int done;
 	const char *cp;
 	struct smack_known *skp;
 
 	if (import) {
-		rule->smk_subject = smk_import(subject, 0);
+		rule->smk_subject = smk_import(subject, len);
 		if (rule->smk_subject == NULL)
 			return -1;
 
-		rule->smk_object = smk_import(object, 0);
+		rule->smk_object = smk_import(object, len);
 		if (rule->smk_object == NULL)
 			return -1;
 	} else {
-		cp = smk_parse_smack(subject, 0);
+		cp = smk_parse_smack(subject, len);
 		if (cp == NULL)
 			return -1;
 		skp = smk_find_entry(cp);
@@ -245,7 +245,7 @@ static int smk_fill_rule(const char *subject, const char *object,
 			return -1;
 		rule->smk_subject = skp->smk_known;
 
-		cp = smk_parse_smack(object, 0);
+		cp = smk_parse_smack(object, len);
 		if (cp == NULL)
 			return -1;
 		skp = smk_find_entry(cp);
@@ -257,7 +257,7 @@ static int smk_fill_rule(const char *subject, const char *object,
 
 	rule->smk_access = 0;
 
-	for (cp = access, done = 0; *cp && !done; cp++) {
+	for (cp = access; *cp != '\0'; cp++) {
 		switch (*cp) {
 		case '-':
 			break;
@@ -282,13 +282,11 @@ static int smk_fill_rule(const char *subject, const char *object,
 			rule->smk_access |= MAY_TRANSMUTE;
 			break;
 		default:
-			done = 1;
-			break;
+			return 0;
 		}
 	}
-	rc = 0;
 
-	return rc;
+	return 0;
 }
 
 /**
@@ -304,7 +302,8 @@ static int smk_parse_rule(const char *data, struct smack_rule *rule, int import)
 	int rc;
 
 	rc = smk_fill_rule(data, data + SMK_LABELLEN,
-			   data + SMK_LABELLEN + SMK_LABELLEN, rule, import);
+			   data + SMK_LABELLEN + SMK_LABELLEN, rule, import,
+			   SMK_LABELLEN);
 	return rc;
 }
 
@@ -325,11 +324,11 @@ static int smk_parse_long_rule(const char *data, struct smack_rule *rule,
 	int datalen;
 	int rc = -1;
 
-	/*
-	 * This is probably inefficient, but safe.
-	 */
+	/* This is inefficient */
 	datalen = strlen(data);
-	subject = kzalloc(datalen, GFP_KERNEL);
+
+	/* Our first element can be 64 + \0 with no spaces */
+	subject = kzalloc(datalen + 1, GFP_KERNEL);
 	if (subject == NULL)
 		return -1;
 	object = kzalloc(datalen, GFP_KERNEL);
@@ -340,7 +339,7 @@ static int smk_parse_long_rule(const char *data, struct smack_rule *rule,
 		goto free_out_o;
 
 	if (sscanf(data, "%s %s %s", subject, object, access) == 3)
-		rc = smk_fill_rule(subject, object, access, rule, import);
+		rc = smk_fill_rule(subject, object, access, rule, import, 0);
 
 	kfree(access);
 free_out_o:
@@ -520,6 +519,9 @@ static void smk_rule_show(struct seq_file *s, struct smack_rule *srp, int max)
 	if (strlen(srp->smk_subject) >= max || strlen(srp->smk_object) >= max)
 		return;
 
+	if (srp->smk_access == 0)
+		return;
+
 	seq_printf(s, "%s %s", srp->smk_subject, srp->smk_object);
 
 	seq_putc(s, ' ');
@@ -534,8 +536,6 @@ static void smk_rule_show(struct seq_file *s, struct smack_rule *srp, int max)
 		seq_putc(s, 'a');
 	if (srp->smk_access & MAY_TRANSMUTE)
 		seq_putc(s, 't');
-	if (srp->smk_access == 0)
-		seq_putc(s, '-');
 
 	seq_putc(s, '\n');
 }
@@ -595,13 +595,12 @@ static int smk_open_load(struct inode *inode, struct file *file)
 static ssize_t smk_write_load(struct file *file, const char __user *buf,
 			      size_t count, loff_t *ppos)
 {
-
 	/*
 	 * Must have privilege.
 	 * No partial writes.
 	 * Enough data must be present.
 	 */
-	if (!capable(CAP_MAC_ADMIN))
+	if (!smack_privileged(CAP_MAC_ADMIN))
 		return -EPERM;
 
 	return smk_write_rules_list(file, buf, count, ppos, NULL, NULL,
@@ -787,7 +786,7 @@ static ssize_t smk_set_cipso(struct file *file, const char __user *buf,
 	 * No partial writes.
 	 * Enough data must be present.
 	 */
-	if (!capable(CAP_MAC_ADMIN))
+	if (!smack_privileged(CAP_MAC_ADMIN))
 		return -EPERM;
 	if (*ppos != 0)
 		return -EINVAL;
@@ -1090,7 +1089,7 @@ static ssize_t smk_write_netlbladdr(struct file *file, const char __user *buf,
 	 * "<addr/mask, as a.b.c.d/e><space><label>"
 	 * "<addr, as a.b.c.d><space><label>"
 	 */
-	if (!capable(CAP_MAC_ADMIN))
+	if (!smack_privileged(CAP_MAC_ADMIN))
 		return -EPERM;
 	if (*ppos != 0)
 		return -EINVAL;
@@ -1267,7 +1266,7 @@ static ssize_t smk_write_doi(struct file *file, const char __user *buf,
 	char temp[80];
 	int i;
 
-	if (!capable(CAP_MAC_ADMIN))
+	if (!smack_privileged(CAP_MAC_ADMIN))
 		return -EPERM;
 
 	if (count >= sizeof(temp) || count == 0)
@@ -1334,7 +1333,7 @@ static ssize_t smk_write_direct(struct file *file, const char __user *buf,
 	char temp[80];
 	int i;
 
-	if (!capable(CAP_MAC_ADMIN))
+	if (!smack_privileged(CAP_MAC_ADMIN))
 		return -EPERM;
 
 	if (count >= sizeof(temp) || count == 0)
@@ -1412,7 +1411,7 @@ static ssize_t smk_write_mapped(struct file *file, const char __user *buf,
 	char temp[80];
 	int i;
 
-	if (!capable(CAP_MAC_ADMIN))
+	if (!smack_privileged(CAP_MAC_ADMIN))
 		return -EPERM;
 
 	if (count >= sizeof(temp) || count == 0)
@@ -1503,7 +1502,7 @@ static ssize_t smk_write_ambient(struct file *file, const char __user *buf,
 	char *data;
 	int rc = count;
 
-	if (!capable(CAP_MAC_ADMIN))
+	if (!smack_privileged(CAP_MAC_ADMIN))
 		return -EPERM;
 
 	data = kzalloc(count + 1, GFP_KERNEL);
@@ -1586,7 +1585,7 @@ static ssize_t smk_write_onlycap(struct file *file, const char __user *buf,
 	char *sp = smk_of_task(current->cred->security);
 	int rc = count;
 
-	if (!capable(CAP_MAC_ADMIN))
+	if (!smack_privileged(CAP_MAC_ADMIN))
 		return -EPERM;
 
 	/*
@@ -1664,7 +1663,7 @@ static ssize_t smk_write_logging(struct file *file, const char __user *buf,
 	char temp[32];
 	int i;
 
-	if (!capable(CAP_MAC_ADMIN))
+	if (!smack_privileged(CAP_MAC_ADMIN))
 		return -EPERM;
 
 	if (count >= sizeof(temp) || count == 0)
@@ -1885,7 +1884,7 @@ static ssize_t smk_write_load2(struct file *file, const char __user *buf,
 	/*
 	 * Must have privilege.
 	 */
-	if (!capable(CAP_MAC_ADMIN))
+	if (!smack_privileged(CAP_MAC_ADMIN))
 		return -EPERM;
 
 	return smk_write_rules_list(file, buf, count, ppos, NULL, NULL,
@@ -1994,6 +1993,77 @@ static const struct file_operations smk_access2_ops = {
 };
 
 /**
+ * smk_write_revoke_subj - write() for /smack/revoke-subject
+ * @file: file pointer
+ * @buf: data from user space
+ * @count: bytes sent
+ * @ppos: where to start - must be 0
+ */
+static ssize_t smk_write_revoke_subj(struct file *file, const char __user *buf,
+				size_t count, loff_t *ppos)
+{
+	char *data = NULL;
+	const char *cp = NULL;
+	struct smack_known *skp;
+	struct smack_rule *sp;
+	struct list_head *rule_list;
+	struct mutex *rule_lock;
+	int rc = count;
+
+	if (*ppos != 0)
+		return -EINVAL;
+
+	if (!smack_privileged(CAP_MAC_ADMIN))
+		return -EPERM;
+
+	if (count == 0 || count > SMK_LONGLABEL)
+		return -EINVAL;
+
+	data = kzalloc(count, GFP_KERNEL);
+	if (data == NULL)
+		return -ENOMEM;
+
+	if (copy_from_user(data, buf, count) != 0) {
+		rc = -EFAULT;
+		goto free_out;
+	}
+
+	cp = smk_parse_smack(data, count);
+	if (cp == NULL) {
+		rc = -EINVAL;
+		goto free_out;
+	}
+
+	skp = smk_find_entry(cp);
+	if (skp == NULL) {
+		rc = -EINVAL;
+		goto free_out;
+	}
+
+	rule_list = &skp->smk_rules;
+	rule_lock = &skp->smk_rules_lock;
+
+	mutex_lock(rule_lock);
+
+	list_for_each_entry_rcu(sp, rule_list, list)
+		sp->smk_access = 0;
+
+	mutex_unlock(rule_lock);
+
+free_out:
+	kfree(data);
+	kfree(cp);
+	return rc;
+}
+
+static const struct file_operations smk_revoke_subj_ops = {
+	.write		= smk_write_revoke_subj,
+	.read		= simple_transaction_read,
+	.release	= simple_transaction_release,
+	.llseek		= generic_file_llseek,
+};
+
+/**
  * smk_fill_super - fill the /smackfs superblock
  * @sb: the empty superblock
  * @data: unused
@@ -2039,6 +2109,9 @@ static int smk_fill_super(struct super_block *sb, void *data, int silent)
 			"access2", &smk_access2_ops, S_IRUGO|S_IWUGO},
 		[SMK_CIPSO2] = {
 			"cipso2", &smk_cipso2_ops, S_IRUGO|S_IWUSR},
+		[SMK_REVOKE_SUBJ] = {
+			"revoke-subject", &smk_revoke_subj_ops,
+			S_IRUGO|S_IWUSR},
 		/* last one */
 			{""}
 	};
@@ -2051,7 +2124,6 @@ static int smk_fill_super(struct super_block *sb, void *data, int silent)
 	}
 
 	root_inode = sb->s_root->d_inode;
-	root_inode->i_security = new_inode_smack(smack_known_floor.smk_known);
 
 	return 0;
 }

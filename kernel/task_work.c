@@ -2,83 +2,91 @@
 #include <linux/task_work.h>
 #include <linux/tracehook.h>
 
+static struct callback_head work_exited; /* all we need is ->next == NULL */
+
 int
-task_work_add(struct task_struct *task, struct task_work *twork, bool notify)
+task_work_add(struct task_struct *task, struct callback_head *work, bool notify)
 {
-	unsigned long flags;
-	int err = -ESRCH;
+	struct callback_head *head;
 
-#ifndef TIF_NOTIFY_RESUME
+	do {
+		head = ACCESS_ONCE(task->task_works);
+		if (unlikely(head == &work_exited))
+			return -ESRCH;
+		work->next = head;
+	} while (cmpxchg(&task->task_works, head, work) != head);
+
 	if (notify)
-		return -ENOTSUPP;
-#endif
-	/*
-	 * We must not insert the new work if the task has already passed
-	 * exit_task_work(). We rely on do_exit()->raw_spin_unlock_wait()
-	 * and check PF_EXITING under pi_lock.
-	 */
-	raw_spin_lock_irqsave(&task->pi_lock, flags);
-	if (likely(!(task->flags & PF_EXITING))) {
-		hlist_add_head(&twork->hlist, &task->task_works);
-		err = 0;
-	}
-	raw_spin_unlock_irqrestore(&task->pi_lock, flags);
-
-	/* test_and_set_bit() implies mb(), see tracehook_notify_resume(). */
-	if (likely(!err) && notify)
 		set_notify_resume(task);
-	return err;
+	return 0;
 }
 
-struct task_work *
+struct callback_head *
 task_work_cancel(struct task_struct *task, task_work_func_t func)
 {
+	struct callback_head **pprev = &task->task_works;
+	struct callback_head *work = NULL;
 	unsigned long flags;
-	struct task_work *twork;
-	struct hlist_node *pos;
-
+	/*
+	 * If cmpxchg() fails we continue without updating pprev.
+	 * Either we raced with task_work_add() which added the
+	 * new entry before this work, we will find it again. Or
+	 * we raced with task_work_run(), *pprev == NULL/exited.
+	 */
 	raw_spin_lock_irqsave(&task->pi_lock, flags);
-	hlist_for_each_entry(twork, pos, &task->task_works, hlist) {
-		if (twork->func == func) {
-			hlist_del(&twork->hlist);
-			goto found;
-		}
+	while ((work = ACCESS_ONCE(*pprev))) {
+		read_barrier_depends();
+		if (work->func != func)
+			pprev = &work->next;
+		else if (cmpxchg(pprev, work, work->next) == work)
+			break;
 	}
-	twork = NULL;
- found:
 	raw_spin_unlock_irqrestore(&task->pi_lock, flags);
 
-	return twork;
+	return work;
 }
 
 void task_work_run(void)
 {
 	struct task_struct *task = current;
-	struct hlist_head task_works;
-	struct hlist_node *pos;
-
-	raw_spin_lock_irq(&task->pi_lock);
-	hlist_move_list(&task->task_works, &task_works);
-	raw_spin_unlock_irq(&task->pi_lock);
-
-	if (unlikely(hlist_empty(&task_works)))
-		return;
-	/*
-	 * We use hlist to save the space in task_struct, but we want fifo.
-	 * Find the last entry, the list should be short, then process them
-	 * in reverse order.
-	 */
-	for (pos = task_works.first; pos->next; pos = pos->next)
-		;
+	struct callback_head *work, *head, *next;
 
 	for (;;) {
-		struct hlist_node **pprev = pos->pprev;
-		struct task_work *twork = container_of(pos, struct task_work,
-							hlist);
-		twork->func(twork);
+		/*
+		 * work->func() can do task_work_add(), do not set
+		 * work_exited unless the list is empty.
+		 */
+		do {
+			work = ACCESS_ONCE(task->task_works);
+			head = !work && (task->flags & PF_EXITING) ?
+				&work_exited : NULL;
+		} while (cmpxchg(&task->task_works, work, head) != work);
 
-		if (pprev == &task_works.first)
+		if (!work)
 			break;
-		pos = container_of(pprev, struct hlist_node, next);
+		/*
+		 * Synchronize with task_work_cancel(). It can't remove
+		 * the first entry == work, cmpxchg(task_works) should
+		 * fail, but it can play with *work and other entries.
+		 */
+		raw_spin_unlock_wait(&task->pi_lock);
+		smp_mb();
+
+		/* Reverse the list to run the works in fifo order */
+		head = NULL;
+		do {
+			next = work->next;
+			work->next = head;
+			head = work;
+			work = next;
+		} while (work);
+
+		work = head;
+		do {
+			next = work->next;
+			work->func(work);
+			work = next;
+			cond_resched();
+		} while (work);
 	}
 }

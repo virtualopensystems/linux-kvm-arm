@@ -1541,6 +1541,26 @@ static int __devinit snd_intel8x0_pcm1(struct intel8x0 *chip, int device,
 					      snd_dma_pci_data(chip->pci),
 					      rec->prealloc_size, rec->prealloc_max_size);
 
+	if (rec->ac97_idx == ICHD_PCMOUT && rec->playback_ops) {
+		struct snd_pcm_chmap *chmap;
+		int chs = 2;
+		if (rec->ac97_idx == ICHD_PCMOUT) {
+			if (chip->multi8)
+				chs = 8;
+			else if (chip->multi6)
+				chs = 6;
+			else if (chip->multi4)
+				chs = 4;
+		}
+		err = snd_pcm_add_chmap_ctls(pcm, SNDRV_PCM_STREAM_PLAYBACK,
+					     snd_pcm_alt_chmaps, chs, 0,
+					     &chmap);
+		if (err < 0)
+			return err;
+		chmap->channel_mask = SND_PCM_CHMAP_MASK_2468;
+		chip->ac97[0]->chmaps[SNDRV_PCM_STREAM_PLAYBACK] = chmap;
+	}
+
 	return 0;
 }
 
@@ -2206,7 +2226,7 @@ static int __devinit snd_intel8x0_mixer(struct intel8x0 *chip, int ac97_clock,
 		case DEVICE_INTEL_ICH4:
 			chip->spdif_idx = ICHD_SPBAR;
 			break;
-		};
+		}
 	}
 
 	chip->in_ac97_init = 1;
@@ -2620,13 +2640,14 @@ static int snd_intel8x0_free(struct intel8x0 *chip)
 	return 0;
 }
 
-#ifdef CONFIG_PM
+#ifdef CONFIG_PM_SLEEP
 /*
  * power management
  */
-static int intel8x0_suspend(struct pci_dev *pci, pm_message_t state)
+static int intel8x0_suspend(struct device *dev)
 {
-	struct snd_card *card = pci_get_drvdata(pci);
+	struct pci_dev *pci = to_pci_dev(dev);
+	struct snd_card *card = dev_get_drvdata(dev);
 	struct intel8x0 *chip = card->private_data;
 	int i;
 
@@ -2658,13 +2679,14 @@ static int intel8x0_suspend(struct pci_dev *pci, pm_message_t state)
 	/* The call below may disable built-in speaker on some laptops
 	 * after S2RAM.  So, don't touch it.
 	 */
-	/* pci_set_power_state(pci, pci_choose_state(pci, state)); */
+	/* pci_set_power_state(pci, PCI_D3hot); */
 	return 0;
 }
 
-static int intel8x0_resume(struct pci_dev *pci)
+static int intel8x0_resume(struct device *dev)
 {
-	struct snd_card *card = pci_get_drvdata(pci);
+	struct pci_dev *pci = to_pci_dev(dev);
+	struct snd_card *card = dev_get_drvdata(dev);
 	struct intel8x0 *chip = card->private_data;
 	int i;
 
@@ -2734,7 +2756,12 @@ static int intel8x0_resume(struct pci_dev *pci)
 	snd_power_change_state(card, SNDRV_CTL_POWER_D0);
 	return 0;
 }
-#endif /* CONFIG_PM */
+
+static SIMPLE_DEV_PM_OPS(intel8x0_pm, intel8x0_suspend, intel8x0_resume);
+#define INTEL8X0_PM_OPS	&intel8x0_pm
+#else
+#define INTEL8X0_PM_OPS	NULL
+#endif /* CONFIG_PM_SLEEP */
 
 #define INTEL8X0_TESTBUF_SIZE	32768	/* enough large for one shot */
 
@@ -3343,10 +3370,9 @@ static struct pci_driver intel8x0_driver = {
 	.id_table = snd_intel8x0_ids,
 	.probe = snd_intel8x0_probe,
 	.remove = __devexit_p(snd_intel8x0_remove),
-#ifdef CONFIG_PM
-	.suspend = intel8x0_suspend,
-	.resume = intel8x0_resume,
-#endif
+	.driver = {
+		.pm = INTEL8X0_PM_OPS,
+	},
 };
 
 module_pci_driver(intel8x0_driver);

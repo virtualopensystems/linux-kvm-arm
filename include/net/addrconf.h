@@ -46,7 +46,8 @@ struct prefix_info {
 #include <net/if_inet6.h>
 #include <net/ipv6.h>
 
-#define IN6_ADDR_HSIZE		16
+#define IN6_ADDR_HSIZE_SHIFT	4
+#define IN6_ADDR_HSIZE		(1 << IN6_ADDR_HSIZE_SHIFT)
 
 extern int			addrconf_init(void);
 extern void			addrconf_cleanup(void);
@@ -77,7 +78,7 @@ extern struct inet6_ifaddr      *ipv6_get_ifaddr(struct net *net,
 						 int strict);
 
 extern int			ipv6_dev_get_saddr(struct net *net,
-					       struct net_device *dev,
+					       const struct net_device *dev,
 					       const struct in6_addr *daddr,
 					       unsigned int srcprefs,
 					       struct in6_addr *saddr);

@@ -34,6 +34,7 @@
 
 #include <mach/hardware.h>
 #include <mach/board.h>
+#include <mach/at91_aic.h>
 
 #include "generic.h"
 
@@ -74,12 +75,12 @@ static struct spi_board_info flexibity_spi_devices[] = {
 };
 
 /* MCI (SD/MMC) */
-static struct at91_mmc_data __initdata flexibity_mmc_data = {
-	.slot_b		= 0,
-	.wire4		= 1,
-	.det_pin	= AT91_PIN_PC9,
-	.wp_pin		= AT91_PIN_PC4,
-	.vcc_pin	= -EINVAL,
+static struct mci_platform_data __initdata flexibity_mci0_data = {
+	.slot[0] = {
+		.bus_width	= 4,
+		.detect_pin	= AT91_PIN_PC9,
+		.wp_pin		= AT91_PIN_PC4,
+	},
 };
 
 /* LEDs */
@@ -151,7 +152,7 @@ static void __init flexibity_board_init(void)
 	at91_add_device_spi(flexibity_spi_devices,
 		ARRAY_SIZE(flexibity_spi_devices));
 	/* MMC */
-	at91_add_device_mmc(0, &flexibity_mmc_data);
+	at91_add_device_mci(0, &flexibity_mci0_data);
 	/* LEDs */
 	at91_gpio_leds(flexibity_leds, ARRAY_SIZE(flexibity_leds));
 }
@@ -160,6 +161,7 @@ MACHINE_START(FLEXIBITY, "Flexibity Connect")
 	/* Maintainer: Maxim Osipov */
 	.timer		= &at91sam926x_timer,
 	.map_io		= at91_map_io,
+	.handle_irq	= at91_aic_handle_irq,
 	.init_early	= flexibity_init_early,
 	.init_irq	= at91_init_irq_default,
 	.init_machine	= flexibity_board_init,

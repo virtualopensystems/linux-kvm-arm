@@ -21,9 +21,6 @@
 #include <net/ipv6.h>
 #include <net/tcp.h>
 
-extern int sysctl_tcp_syncookies;
-extern __u32 syncookie_secret[2][16-4+SHA_DIGEST_WORDS];
-
 #define COOKIEBITS 24	/* Upper bits store count */
 #define COOKIEMASK (((__u32)1 << COOKIEBITS) - 1)
 
@@ -180,7 +177,7 @@ struct sock *cookie_v6_check(struct sock *sk, struct sk_buff *skb)
 
 	/* check for timestamp cookie support */
 	memset(&tcp_opt, 0, sizeof(tcp_opt));
-	tcp_parse_options(skb, &tcp_opt, &hash_location, 0);
+	tcp_parse_options(skb, &tcp_opt, &hash_location, 0, NULL);
 
 	if (!cookie_check_timestamp(&tcp_opt, &ecn_ok))
 		goto out;
@@ -193,6 +190,7 @@ struct sock *cookie_v6_check(struct sock *sk, struct sk_buff *skb)
 	ireq = inet_rsk(req);
 	ireq6 = inet6_rsk(req);
 	treq = tcp_rsk(req);
+	treq->listener = NULL;
 
 	if (security_inet_conn_request(sk, skb, req))
 		goto out_free;

@@ -155,11 +155,11 @@ static int efx_init_rx_buffers_skb(struct efx_rx_queue *rx_queue)
 		rx_buf->len = skb_len - NET_IP_ALIGN;
 		rx_buf->flags = 0;
 
-		rx_buf->dma_addr = pci_map_single(efx->pci_dev,
+		rx_buf->dma_addr = dma_map_single(&efx->pci_dev->dev,
 						  skb->data, rx_buf->len,
-						  PCI_DMA_FROMDEVICE);
-		if (unlikely(pci_dma_mapping_error(efx->pci_dev,
-						   rx_buf->dma_addr))) {
+						  DMA_FROM_DEVICE);
+		if (unlikely(dma_mapping_error(&efx->pci_dev->dev,
+					       rx_buf->dma_addr))) {
 			dev_kfree_skb_any(skb);
 			rx_buf->u.skb = NULL;
 			return -EIO;
@@ -200,10 +200,10 @@ static int efx_init_rx_buffers_page(struct efx_rx_queue *rx_queue)
 				   efx->rx_buffer_order);
 		if (unlikely(page == NULL))
 			return -ENOMEM;
-		dma_addr = pci_map_page(efx->pci_dev, page, 0,
+		dma_addr = dma_map_page(&efx->pci_dev->dev, page, 0,
 					efx_rx_buf_size(efx),
-					PCI_DMA_FROMDEVICE);
-		if (unlikely(pci_dma_mapping_error(efx->pci_dev, dma_addr))) {
+					DMA_FROM_DEVICE);
+		if (unlikely(dma_mapping_error(&efx->pci_dev->dev, dma_addr))) {
 			__free_pages(page, efx->rx_buffer_order);
 			return -EIO;
 		}
@@ -247,14 +247,14 @@ static void efx_unmap_rx_buffer(struct efx_nic *efx,
 
 		state = page_address(rx_buf->u.page);
 		if (--state->refcnt == 0) {
-			pci_unmap_page(efx->pci_dev,
+			dma_unmap_page(&efx->pci_dev->dev,
 				       state->dma_addr,
 				       efx_rx_buf_size(efx),
-				       PCI_DMA_FROMDEVICE);
+				       DMA_FROM_DEVICE);
 		}
 	} else if (!(rx_buf->flags & EFX_RX_BUF_PAGE) && rx_buf->u.skb) {
-		pci_unmap_single(efx->pci_dev, rx_buf->dma_addr,
-				 rx_buf->len, PCI_DMA_FROMDEVICE);
+		dma_unmap_single(&efx->pci_dev->dev, rx_buf->dma_addr,
+				 rx_buf->len, DMA_FROM_DEVICE);
 	}
 }
 
@@ -336,6 +336,7 @@ static void efx_recycle_rx_buffer(struct efx_channel *channel,
 /**
  * efx_fast_push_rx_descriptors - push new RX descriptors quickly
  * @rx_queue:		RX descriptor queue
+ *
  * This will aim to fill the RX descriptor queue up to
  * @rx_queue->@max_fill. If there is insufficient atomic
  * memory to do so, a slow fill will be scheduled.
@@ -478,7 +479,7 @@ static void efx_rx_packet_gro(struct efx_channel *channel,
 		skb->ip_summed = ((rx_buf->flags & EFX_RX_PKT_CSUMMED) ?
 				  CHECKSUM_UNNECESSARY : CHECKSUM_NONE);
 
-		skb_record_rx_queue(skb, channel->channel);
+		skb_record_rx_queue(skb, channel->rx_queue.core_index);
 
 		gro_result = napi_gro_frags(napi);
 	} else {
@@ -570,8 +571,14 @@ static void efx_rx_deliver(struct efx_channel *channel,
 	/* Set the SKB flags */
 	skb_checksum_none_assert(skb);
 
+	/* Record the rx_queue */
+	skb_record_rx_queue(skb, channel->rx_queue.core_index);
+
 	/* Pass the packet up */
-	netif_receive_skb(skb);
+	if (channel->type->receive_skb)
+		channel->type->receive_skb(channel, skb);
+	else
+		netif_receive_skb(skb);
 
 	/* Update allocation strategy method */
 	channel->rx_alloc_level += RX_ALLOC_FACTOR_SKB;
@@ -607,13 +614,14 @@ void __efx_rx_packet(struct efx_channel *channel, struct efx_rx_buffer *rx_buf)
 		 * at the ethernet header */
 		skb->protocol = eth_type_trans(skb, efx->net_dev);
 
-		skb_record_rx_queue(skb, channel->channel);
+		skb_record_rx_queue(skb, channel->rx_queue.core_index);
 	}
 
 	if (unlikely(!(efx->net_dev->features & NETIF_F_RXCSUM)))
 		rx_buf->flags &= ~EFX_RX_PKT_CSUMMED;
 
-	if (likely(rx_buf->flags & (EFX_RX_BUF_PAGE | EFX_RX_PKT_CSUMMED)))
+	if (likely(rx_buf->flags & (EFX_RX_BUF_PAGE | EFX_RX_PKT_CSUMMED)) &&
+	    !channel->type->receive_skb)
 		efx_rx_packet_gro(channel, rx_buf, eh);
 	else
 		efx_rx_deliver(channel, rx_buf);
@@ -622,6 +630,11 @@ void __efx_rx_packet(struct efx_channel *channel, struct efx_rx_buffer *rx_buf)
 void efx_rx_strategy(struct efx_channel *channel)
 {
 	enum efx_rx_alloc_method method = rx_alloc_method;
+
+	if (channel->type->receive_skb) {
+		channel->rx_alloc_push_pages = false;
+		return;
+	}
 
 	/* Only makes sense to use page based allocation if GRO is enabled */
 	if (!(channel->efx->net_dev->features & NETIF_F_GRO)) {

@@ -406,7 +406,7 @@ static ssize_t write_threads(struct file *file, char *buf, size_t size)
 			return rv;
 		if (newthreads < 0)
 			return -EINVAL;
-		rv = nfsd_svc(NFS_PORT, newthreads);
+		rv = nfsd_svc(newthreads);
 		if (rv < 0)
 			return rv;
 	} else
@@ -673,34 +673,13 @@ static ssize_t __write_ports_addfd(char *buf)
 
 	err = svc_addsock(nfsd_serv, fd, buf, SIMPLE_TRANSACTION_LIMIT);
 	if (err < 0) {
-		if (nfsd_serv->sv_nrthreads == 1)
-			svc_shutdown_net(nfsd_serv, net);
-		svc_destroy(nfsd_serv);
+		nfsd_destroy(net);
 		return err;
 	}
 
 	/* Decrease the count, but don't shut down the service */
 	nfsd_serv->sv_nrthreads--;
 	return err;
-}
-
-/*
- * A '-' followed by the 'name' of a socket means we close the socket.
- */
-static ssize_t __write_ports_delfd(char *buf)
-{
-	char *toclose;
-	int len = 0;
-
-	toclose = kstrdup(buf + 1, GFP_KERNEL);
-	if (toclose == NULL)
-		return -ENOMEM;
-
-	if (nfsd_serv != NULL)
-		len = svc_sock_names(nfsd_serv, buf,
-					SIMPLE_TRANSACTION_LIMIT, toclose);
-	kfree(toclose);
-	return len;
 }
 
 /*
@@ -714,7 +693,7 @@ static ssize_t __write_ports_addxprt(char *buf)
 	int port, err;
 	struct net *net = &init_net;
 
-	if (sscanf(buf, "%15s %4u", transport, &port) != 2)
+	if (sscanf(buf, "%15s %5u", transport, &port) != 2)
 		return -EINVAL;
 
 	if (port < 1 || port > USHRT_MAX)
@@ -744,35 +723,8 @@ out_close:
 		svc_xprt_put(xprt);
 	}
 out_err:
-	if (nfsd_serv->sv_nrthreads == 1)
-		svc_shutdown_net(nfsd_serv, net);
-	svc_destroy(nfsd_serv);
+	nfsd_destroy(net);
 	return err;
-}
-
-/*
- * A transport listener is removed by writing a "-", it's transport
- * name, and it's port number.
- */
-static ssize_t __write_ports_delxprt(char *buf)
-{
-	struct svc_xprt *xprt;
-	char transport[16];
-	int port;
-
-	if (sscanf(&buf[1], "%15s %4u", transport, &port) != 2)
-		return -EINVAL;
-
-	if (port < 1 || port > USHRT_MAX || nfsd_serv == NULL)
-		return -EINVAL;
-
-	xprt = svc_find_xprt(nfsd_serv, transport, &init_net, AF_UNSPEC, port);
-	if (xprt == NULL)
-		return -ENOTCONN;
-
-	svc_close_xprt(xprt);
-	svc_xprt_put(xprt);
-	return 0;
 }
 
 static ssize_t __write_ports(struct file *file, char *buf, size_t size)
@@ -783,14 +735,8 @@ static ssize_t __write_ports(struct file *file, char *buf, size_t size)
 	if (isdigit(buf[0]))
 		return __write_ports_addfd(buf);
 
-	if (buf[0] == '-' && isdigit(buf[1]))
-		return __write_ports_delfd(buf);
-
 	if (isalpha(buf[0]))
 		return __write_ports_addxprt(buf);
-
-	if (buf[0] == '-' && isalpha(buf[1]))
-		return __write_ports_delxprt(buf);
 
 	return -EINVAL;
 }
@@ -829,21 +775,6 @@ static ssize_t __write_ports(struct file *file, char *buf, size_t size)
  * OR
  *
  * Input:
- *			buf:		C string containing a "-" followed
- *					by an integer value representing a
- *					previously passed in socket file
- *					descriptor
- *			size:		non-zero length of C string in @buf
- * Output:
- *	On success:	NFS service no longer listens on that socket;
- *			passed-in buffer filled with a '\n'-terminated C
- *			string containing a unique name of the listener;
- *			return code is the size in bytes of the string
- *	On error:	return code is a negative errno value
- *
- * OR
- *
- * Input:
  *			buf:		C string containing a transport
  *					name and an unsigned integer value
  *					representing the port to listen on,
@@ -851,19 +782,6 @@ static ssize_t __write_ports(struct file *file, char *buf, size_t size)
  *			size:		non-zero length of C string in @buf
  * Output:
  *	On success:	returns zero; NFS service is started
- *	On error:	return code is a negative errno value
- *
- * OR
- *
- * Input:
- *			buf:		C string containing a "-" followed
- *					by a transport name and an unsigned
- *					integer value representing the port
- *					to listen on, separated by whitespace
- *			size:		non-zero length of C string in @buf
- * Output:
- *	On success:	returns zero; NFS service no longer listens
- *			on that transport
  *	On error:	return code is a negative errno value
  */
 static ssize_t write_ports(struct file *file, char *buf, size_t size)
@@ -1011,8 +929,6 @@ static ssize_t write_gracetime(struct file *file, char *buf, size_t size)
 {
 	return nfsd4_write_time(file, buf, size, &nfsd4_grace);
 }
-
-extern char *nfs4_recoverydir(void);
 
 static ssize_t __write_recoverydir(struct file *file, char *buf, size_t size)
 {

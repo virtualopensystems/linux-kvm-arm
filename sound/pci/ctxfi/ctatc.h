@@ -143,8 +143,8 @@ struct ct_atc {
 
 	struct ct_timer *timer;
 
-#ifdef CONFIG_PM
-	int (*suspend)(struct ct_atc *atc, pm_message_t state);
+#ifdef CONFIG_PM_SLEEP
+	int (*suspend)(struct ct_atc *atc);
 	int (*resume)(struct ct_atc *atc);
 #define NUM_PCMS (NUM_CTALSADEVS - 1)
 	struct snd_pcm *pcms[NUM_PCMS];

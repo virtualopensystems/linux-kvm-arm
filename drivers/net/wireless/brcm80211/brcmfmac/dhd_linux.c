@@ -272,30 +272,6 @@ static void brcmf_netdev_set_multicast_list(struct net_device *ndev)
 	schedule_work(&drvr->multicast_work);
 }
 
-int brcmf_sendpkt(struct brcmf_pub *drvr, int ifidx, struct sk_buff *pktbuf)
-{
-	/* Reject if down */
-	if (!drvr->bus_if->drvr_up || (drvr->bus_if->state == BRCMF_BUS_DOWN))
-		return -ENODEV;
-
-	/* Update multicast statistic */
-	if (pktbuf->len >= ETH_ALEN) {
-		u8 *pktdata = (u8 *) (pktbuf->data);
-		struct ethhdr *eh = (struct ethhdr *)pktdata;
-
-		if (is_multicast_ether_addr(eh->h_dest))
-			drvr->tx_multicast++;
-		if (ntohs(eh->h_proto) == ETH_P_PAE)
-			atomic_inc(&drvr->pend_8021x_cnt);
-	}
-
-	/* If the protocol uses a data header, apply it */
-	brcmf_proto_hdrpush(drvr, ifidx, pktbuf);
-
-	/* Use bus module to send data frame */
-	return drvr->bus_if->brcmf_bus_txdata(drvr->dev, pktbuf);
-}
-
 static int brcmf_netdev_start_xmit(struct sk_buff *skb, struct net_device *ndev)
 {
 	int ret;
@@ -338,7 +314,22 @@ static int brcmf_netdev_start_xmit(struct sk_buff *skb, struct net_device *ndev)
 		}
 	}
 
-	ret = brcmf_sendpkt(drvr, ifp->idx, skb);
+	/* Update multicast statistic */
+	if (skb->len >= ETH_ALEN) {
+		u8 *pktdata = (u8 *)(skb->data);
+		struct ethhdr *eh = (struct ethhdr *)pktdata;
+
+		if (is_multicast_ether_addr(eh->h_dest))
+			drvr->tx_multicast++;
+		if (ntohs(eh->h_proto) == ETH_P_PAE)
+			atomic_inc(&drvr->pend_8021x_cnt);
+	}
+
+	/* If the protocol uses a data header, apply it */
+	brcmf_proto_hdrpush(drvr, ifp->idx, skb);
+
+	/* Use bus module to send data frame */
+	ret =  drvr->bus_if->brcmf_bus_txdata(drvr->dev, skb);
 
 done:
 	if (ret)
@@ -350,19 +341,23 @@ done:
 	return 0;
 }
 
-void brcmf_txflowcontrol(struct device *dev, int ifidx, bool state)
+void brcmf_txflowblock(struct device *dev, bool state)
 {
 	struct net_device *ndev;
 	struct brcmf_bus *bus_if = dev_get_drvdata(dev);
 	struct brcmf_pub *drvr = bus_if->drvr;
+	int i;
 
 	brcmf_dbg(TRACE, "Enter\n");
 
-	ndev = drvr->iflist[ifidx]->ndev;
-	if (state == ON)
-		netif_stop_queue(ndev);
-	else
-		netif_wake_queue(ndev);
+	for (i = 0; i < BRCMF_MAX_IFS; i++)
+		if (drvr->iflist[i]) {
+			ndev = drvr->iflist[i]->ndev;
+			if (state)
+				netif_stop_queue(ndev);
+			else
+				netif_wake_queue(ndev);
+		}
 }
 
 static int brcmf_host_event(struct brcmf_pub *drvr, int *ifidx,
@@ -775,6 +770,14 @@ done:
 	return err;
 }
 
+int brcmf_netlink_dcmd(struct net_device *ndev, struct brcmf_dcmd *dcmd)
+{
+	brcmf_dbg(TRACE, "enter: cmd %x buf %p len %d\n",
+		  dcmd->cmd, dcmd->buf, dcmd->len);
+
+	return brcmf_exec_dcmd(ndev, dcmd->cmd, dcmd->buf, dcmd->len);
+}
+
 static int brcmf_netdev_stop(struct net_device *ndev)
 {
 	struct brcmf_if *ifp = netdev_priv(ndev);
@@ -1007,6 +1010,9 @@ int brcmf_attach(uint bus_hdrlen, struct device *dev)
 	drvr->bus_if->drvr = drvr;
 	drvr->dev = dev;
 
+	/* create device debugfs folder */
+	brcmf_debugfs_attach(drvr);
+
 	/* Attach and link in the protocol */
 	ret = brcmf_proto_attach(drvr);
 	if (ret != 0) {
@@ -1016,6 +1022,8 @@ int brcmf_attach(uint bus_hdrlen, struct device *dev)
 
 	INIT_WORK(&drvr->setmacaddr_work, _brcmf_set_mac_address);
 	INIT_WORK(&drvr->multicast_work, _brcmf_set_multicast_list);
+
+	INIT_LIST_HEAD(&drvr->bus_if->dcmd_list);
 
 	return ret;
 
@@ -1123,6 +1131,7 @@ void brcmf_detach(struct device *dev)
 		brcmf_proto_detach(drvr);
 	}
 
+	brcmf_debugfs_detach(drvr);
 	bus_if->drvr = NULL;
 	kfree(drvr);
 }
@@ -1182,7 +1191,7 @@ exit:
 	kfree(buf);
 	/* close file before return */
 	if (fp)
-		filp_close(fp, current->files);
+		filp_close(fp, NULL);
 	/* restore previous address limit */
 	set_fs(old_fs);
 
@@ -1192,6 +1201,8 @@ exit:
 
 static void brcmf_driver_init(struct work_struct *work)
 {
+	brcmf_debugfs_init();
+
 #ifdef CONFIG_BRCMFMAC_SDIO
 	brcmf_sdio_init();
 #endif
@@ -1219,6 +1230,7 @@ static void __exit brcmfmac_module_exit(void)
 #ifdef CONFIG_BRCMFMAC_USB
 	brcmf_usb_exit();
 #endif
+	brcmf_debugfs_exit();
 }
 
 module_init(brcmfmac_module_init);

@@ -14,7 +14,9 @@
 #include <linux/platform_device.h>
 
 #include <plat/iommu.h>
-#include <plat/irqs.h>
+
+#include "soc.h"
+#include "common.h"
 
 struct iommu_device {
 	resource_size_t base;
@@ -29,7 +31,7 @@ static int num_iommu_devices;
 static struct iommu_device omap3_devices[] = {
 	{
 		.base = 0x480bd400,
-		.irq = 24,
+		.irq = 24 + OMAP_INTC_START,
 		.pdata = {
 			.name = "isp",
 			.nr_tlb_entries = 8,
@@ -41,7 +43,7 @@ static struct iommu_device omap3_devices[] = {
 #if defined(CONFIG_OMAP_IOMMU_IVA2)
 	{
 		.base = 0x5d000000,
-		.irq = 28,
+		.irq = 28 + OMAP_INTC_START,
 		.pdata = {
 			.name = "iva2",
 			.nr_tlb_entries = 32,
@@ -64,7 +66,7 @@ static struct platform_device *omap3_iommu_pdev[NR_OMAP3_IOMMU_DEVICES];
 static struct iommu_device omap4_devices[] = {
 	{
 		.base = OMAP4_MMU1_BASE,
-		.irq = OMAP44XX_IRQ_DUCATI_MMU,
+		.irq = 100 + OMAP44XX_IRQ_GIC_START,
 		.pdata = {
 			.name = "ducati",
 			.nr_tlb_entries = 32,
@@ -73,19 +75,17 @@ static struct iommu_device omap4_devices[] = {
 			.da_end = 0xFFFFF000,
 		},
 	},
-#if defined(CONFIG_MPU_TESLA_IOMMU)
 	{
 		.base = OMAP4_MMU2_BASE,
-		.irq = INT_44XX_DSP_MMU,
+		.irq = 28 + OMAP44XX_IRQ_GIC_START,
 		.pdata = {
 			.name = "tesla",
 			.nr_tlb_entries = 32,
-			.clk_name = "tesla_ick",
+			.clk_name = "dsp_fck",
 			.da_start = 0x0,
 			.da_end = 0xFFFFF000,
 		},
 	},
-#endif
 };
 #define NR_OMAP4_IOMMU_DEVICES ARRAY_SIZE(omap4_devices)
 static struct platform_device *omap4_iommu_pdev[NR_OMAP4_IOMMU_DEVICES];

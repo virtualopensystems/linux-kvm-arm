@@ -24,7 +24,7 @@
 #include <linux/time.h>
 #include <linux/module.h>
 #include <sound/core.h>
-#include <sound/ymfpci.h>
+#include "ymfpci.h"
 #include <sound/mpu401.h>
 #include <sound/opl3.h>
 #include <sound/initval.h>
@@ -355,9 +355,10 @@ static struct pci_driver ymfpci_driver = {
 	.id_table = snd_ymfpci_ids,
 	.probe = snd_card_ymfpci_probe,
 	.remove = __devexit_p(snd_card_ymfpci_remove),
-#ifdef CONFIG_PM
-	.suspend = snd_ymfpci_suspend,
-	.resume = snd_ymfpci_resume,
+#ifdef CONFIG_PM_SLEEP
+	.driver = {
+		.pm = &snd_ymfpci_pm,
+	},
 #endif
 };
 

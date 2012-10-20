@@ -10,7 +10,7 @@
  */
 
 /dts-v1/;
-/include/ "db8500.dtsi"
+/include/ "dbx5x0.dtsi"
 
 / {
 	model = "Calao Systems Snowball platform with device tree";
@@ -77,10 +77,28 @@
 		used-led {
 			label = "user_led";
 			gpios = <&gpio4 14 0x4>;
+			default-state = "on";
+			linux,default-trigger = "heartbeat";
 		};
 	};
 
 	soc-u9500 {
+
+		sound {
+			compatible = "stericsson,snd-soc-mop500";
+
+			stericsson,cpu-dai = <&msp1 &msp3>;
+			stericsson,audio-codec = <&codec>;
+		};
+
+		msp1: msp@80124000 {
+			status = "okay";
+		};
+
+		msp3: msp@80125000 {
+			status = "okay";
+		};
+
 		external-bus@50000000 {
 			status = "okay";
 
@@ -101,15 +119,29 @@
 			};
 		};
 
+		// External Micro SD slot
 		sdi@80126000 {
-			status = "enabled";
+			arm,primecell-periphid = <0x10480180>;
+			max-frequency = <50000000>;
+			bus-width = <8>;
+			mmc-cap-mmc-highspeed;
 			vmmc-supply = <&ab8500_ldo_aux3_reg>;
+
 			cd-gpios  = <&gpio6 26 0x4>; // 218
+			cd-inverted;
+
+			status = "okay";
 		};
 
+		// On-board eMMC
 		sdi@80114000 {
-			status = "enabled";
+			arm,primecell-periphid = <0x10480180>;
+		        max-frequency = <50000000>;
+			bus-width = <8>;
+			mmc-cap-mmc-highspeed;
 			vmmc-supply = <&ab8500_ldo_aux2_reg>;
+
+			status = "okay";
 		};
 
 		uart@80120000 {

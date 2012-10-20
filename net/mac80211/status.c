@@ -34,7 +34,7 @@ void ieee80211_tx_status_irqsafe(struct ieee80211_hw *hw,
 		skb_queue_len(&local->skb_queue_unreliable);
 	while (tmp > IEEE80211_IRQSAFE_QUEUE_LIMIT &&
 	       (skb = skb_dequeue(&local->skb_queue_unreliable))) {
-		dev_kfree_skb_irq(skb);
+		ieee80211_free_txskb(hw, skb);
 		tmp--;
 		I802_DEBUG_INC(local->tx_status_drop);
 	}
@@ -155,14 +155,11 @@ static void ieee80211_handle_filtered_frame(struct ieee80211_local *local,
 		return;
 	}
 
-#ifdef CONFIG_MAC80211_VERBOSE_DEBUG
-	if (net_ratelimit())
-		wiphy_debug(local->hw.wiphy,
-			    "dropped TX filtered frame, queue_len=%d PS=%d @%lu\n",
-			    skb_queue_len(&sta->tx_filtered[ac]),
-			    !!test_sta_flag(sta, WLAN_STA_PS_STA), jiffies);
-#endif
-	dev_kfree_skb(skb);
+	ps_dbg_ratelimited(sta->sdata,
+			   "dropped TX filtered frame, queue_len=%d PS=%d @%lu\n",
+			   skb_queue_len(&sta->tx_filtered[ac]),
+			   !!test_sta_flag(sta, WLAN_STA_PS_STA), jiffies);
+	ieee80211_free_txskb(&local->hw, skb);
 }
 
 static void ieee80211_check_pending_bar(struct sta_info *sta, u8 *addr, u8 tid)
@@ -520,36 +517,41 @@ void ieee80211_tx_status(struct ieee80211_hw *hw, struct sk_buff *skb)
 
 	if (info->flags & IEEE80211_TX_INTFL_NL80211_FRAME_TX) {
 		u64 cookie = (unsigned long)skb;
+		bool found = false;
 
-		if (ieee80211_is_nullfunc(hdr->frame_control) ||
-		    ieee80211_is_qos_nullfunc(hdr->frame_control)) {
-			acked = info->flags & IEEE80211_TX_STAT_ACK;
+		acked = info->flags & IEEE80211_TX_STAT_ACK;
 
-			cfg80211_probe_status(skb->dev, hdr->addr1,
+		rcu_read_lock();
+
+		list_for_each_entry_rcu(sdata, &local->interfaces, list) {
+			if (!sdata->dev)
+				continue;
+
+			if (skb->dev != sdata->dev)
+				continue;
+
+			found = true;
+			break;
+		}
+
+		if (!skb->dev) {
+			sdata = rcu_dereference(local->p2p_sdata);
+			if (sdata)
+				found = true;
+		}
+
+		if (!found)
+			skb->dev = NULL;
+		else if (ieee80211_is_nullfunc(hdr->frame_control) ||
+			 ieee80211_is_qos_nullfunc(hdr->frame_control)) {
+			cfg80211_probe_status(sdata->dev, hdr->addr1,
 					      cookie, acked, GFP_ATOMIC);
 		} else {
-			struct ieee80211_work *wk;
-
-			rcu_read_lock();
-			list_for_each_entry_rcu(wk, &local->work_list, list) {
-				if (wk->type != IEEE80211_WORK_OFFCHANNEL_TX)
-					continue;
-				if (wk->offchan_tx.frame != skb)
-					continue;
-				wk->offchan_tx.status = true;
-				break;
-			}
-			rcu_read_unlock();
-			if (local->hw_roc_skb_for_status == skb) {
-				cookie = local->hw_roc_cookie ^ 2;
-				local->hw_roc_skb_for_status = NULL;
-			}
-
-			cfg80211_mgmt_tx_status(
-				skb->dev, cookie, skb->data, skb->len,
-				!!(info->flags & IEEE80211_TX_STAT_ACK),
-				GFP_ATOMIC);
+			cfg80211_mgmt_tx_status(&sdata->wdev, cookie, skb->data,
+						skb->len, acked, GFP_ATOMIC);
 		}
+
+		rcu_read_unlock();
 	}
 
 	if (unlikely(info->ack_frame_id)) {
@@ -589,7 +591,7 @@ void ieee80211_tx_status(struct ieee80211_hw *hw, struct sk_buff *skb)
 	/* send frame to monitor interfaces now */
 	rtap_len = ieee80211_tx_radiotap_len(info);
 	if (WARN_ON_ONCE(skb_headroom(skb) < rtap_len)) {
-		printk(KERN_ERR "ieee80211_tx_status: headroom too small\n");
+		pr_err("ieee80211_tx_status: headroom too small\n");
 		dev_kfree_skb(skb);
 		return;
 	}

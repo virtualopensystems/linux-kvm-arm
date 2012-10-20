@@ -1,5 +1,4 @@
 /*
- *  arch/s390/kernel/time.c
  *    Time of day based timer functions.
  *
  *  S390 version
@@ -35,7 +34,7 @@
 #include <linux/profile.h>
 #include <linux/timex.h>
 #include <linux/notifier.h>
-#include <linux/clocksource.h>
+#include <linux/timekeeper_internal.h>
 #include <linux/clockchips.h>
 #include <linux/gfp.h>
 #include <linux/kprobes.h>
@@ -45,7 +44,7 @@
 #include <asm/vdso.h>
 #include <asm/irq.h>
 #include <asm/irq_regs.h>
-#include <asm/timer.h>
+#include <asm/vtimer.h>
 #include <asm/etr.h>
 #include <asm/cio.h>
 #include "entry.h"
@@ -220,7 +219,7 @@ struct clocksource * __init clocksource_default_clock(void)
 	return &clocksource_tod;
 }
 
-void update_vsyscall(struct timespec *wall_time, struct timespec *wtm,
+void update_vsyscall_old(struct timespec *wall_time, struct timespec *wtm,
 			struct clocksource *clock, u32 mult)
 {
 	if (clock != &clocksource_tod)
@@ -330,7 +329,7 @@ static unsigned long clock_sync_flags;
  * The synchronous get_clock function. It will write the current clock
  * value to the clock pointer and return 0 if the clock is in sync with
  * the external time source. If the clock mode is local it will return
- * -ENOSYS and -EAGAIN if the clock is not in sync with the external
+ * -EOPNOTSUPP and -EAGAIN if the clock is not in sync with the external
  * reference.
  */
 int get_sync_clock(unsigned long long *clock)
@@ -348,7 +347,7 @@ int get_sync_clock(unsigned long long *clock)
 		return 0;
 	if (!test_bit(CLOCK_SYNC_HAS_ETR, &clock_sync_flags) &&
 	    !test_bit(CLOCK_SYNC_HAS_STP, &clock_sync_flags))
-		return -ENOSYS;
+		return -EOPNOTSUPP;
 	if (!test_bit(CLOCK_SYNC_ETR, &clock_sync_flags) &&
 	    !test_bit(CLOCK_SYNC_STP, &clock_sync_flags))
 		return -EACCES;

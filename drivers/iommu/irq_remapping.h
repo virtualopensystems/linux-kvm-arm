@@ -59,11 +59,9 @@ struct irq_remap_ops {
 				  unsigned int, int,
 				  struct io_apic_irq_attr *);
 
-#ifdef CONFIG_SMP
 	/* Set the CPU affinity of a remapped interrupt */
 	int (*set_affinity)(struct irq_data *data, const struct cpumask *mask,
 			    bool force);
-#endif
 
 	/* Free an IRQ */
 	int (*free_irq)(int);
@@ -84,6 +82,12 @@ struct irq_remap_ops {
 };
 
 extern struct irq_remap_ops intel_irq_remap_ops;
+extern struct irq_remap_ops amd_iommu_irq_ops;
+
+#else  /* CONFIG_IRQ_REMAP */
+
+#define irq_remapping_enabled 0
+#define disable_irq_remap     1
 
 #endif /* CONFIG_IRQ_REMAP */
 

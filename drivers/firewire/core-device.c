@@ -32,6 +32,7 @@
 #include <linux/mod_devicetable.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
+#include <linux/random.h>
 #include <linux/rwsem.h>
 #include <linux/slab.h>
 #include <linux/spinlock.h>
@@ -398,6 +399,14 @@ static ssize_t guid_show(struct device *dev,
 	return ret;
 }
 
+static ssize_t is_local_show(struct device *dev,
+			     struct device_attribute *attr, char *buf)
+{
+	struct fw_device *device = fw_device(dev);
+
+	return sprintf(buf, "%u\n", device->is_local);
+}
+
 static int units_sprintf(char *buf, const u32 *directory)
 {
 	struct fw_csr_iterator ci;
@@ -447,6 +456,7 @@ static ssize_t units_show(struct device *dev,
 static struct device_attribute fw_device_attributes[] = {
 	__ATTR_RO(config_rom),
 	__ATTR_RO(guid),
+	__ATTR_RO(is_local),
 	__ATTR_RO(units),
 	__ATTR_NULL,
 };
@@ -1057,6 +1067,8 @@ static void fw_device_init(struct work_struct *work)
 		device->config_rom_retries = 0;
 
 		set_broadcast_channel(device, device->generation);
+
+		add_device_randomness(&device->config_rom[3], 8);
 	}
 
 	/*

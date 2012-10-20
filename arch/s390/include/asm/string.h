@@ -1,8 +1,6 @@
 /*
- *  include/asm-s390/string.h
- *
  *  S390 version
- *    Copyright (C) 1999 IBM Deutschland Entwicklung GmbH, IBM Corporation
+ *    Copyright IBM Corp. 1999
  *    Author(s): Martin Schwidefsky (schwidefsky@de.ibm.com),
  */
 
@@ -98,7 +96,6 @@ static inline char *strcat(char *dst, const char *src)
 
 static inline char *strcpy(char *dst, const char *src)
 {
-#if __GNUC__ < 4
 	register int r0 asm("0") = 0;
 	char *ret = dst;
 
@@ -108,14 +105,10 @@ static inline char *strcpy(char *dst, const char *src)
 		: "+&a" (dst), "+&a" (src) : "d" (r0)
 		: "cc", "memory");
 	return ret;
-#else
-	return __builtin_strcpy(dst, src);
-#endif
 }
 
 static inline size_t strlen(const char *s)
 {
-#if __GNUC__ < 4
 	register unsigned long r0 asm("0") = 0;
 	const char *tmp = s;
 
@@ -124,9 +117,6 @@ static inline size_t strlen(const char *s)
 		"	jo	0b"
 		: "+d" (r0), "+a" (tmp) :  : "cc");
 	return r0 - (unsigned long) s;
-#else
-	return __builtin_strlen(s);
-#endif
 }
 
 static inline size_t strnlen(const char * s, size_t n)

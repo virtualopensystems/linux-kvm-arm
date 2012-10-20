@@ -150,7 +150,7 @@ static int lm3530_get_mode_from_str(const char *str)
 		if (sysfs_streq(str, mode_map[i].mode))
 			return mode_map[i].mode_val;
 
-	return -1;
+	return -EINVAL;
 }
 
 static void lm3530_als_configure(struct lm3530_platform_data *pdata,
@@ -358,7 +358,7 @@ static ssize_t lm3530_mode_set(struct device *dev, struct device_attribute
 	mode = lm3530_get_mode_from_str(buf);
 	if (mode < 0) {
 		dev_err(dev, "Invalid mode\n");
-		return -EINVAL;
+		return mode;
 	}
 
 	drvdata->mode = mode;
@@ -386,28 +386,24 @@ static int __devinit lm3530_probe(struct i2c_client *client,
 
 	if (pdata == NULL) {
 		dev_err(&client->dev, "platform data required\n");
-		err = -ENODEV;
-		goto err_out;
+		return -ENODEV;
 	}
 
 	/* BL mode */
 	if (pdata->mode > LM3530_BL_MODE_PWM) {
 		dev_err(&client->dev, "Illegal Mode request\n");
-		err = -EINVAL;
-		goto err_out;
+		return -EINVAL;
 	}
 
 	if (!i2c_check_functionality(client->adapter, I2C_FUNC_I2C)) {
 		dev_err(&client->dev, "I2C_FUNC_I2C not supported\n");
-		err = -EIO;
-		goto err_out;
+		return -EIO;
 	}
 
-	drvdata = kzalloc(sizeof(struct lm3530_data), GFP_KERNEL);
-	if (drvdata == NULL) {
-		err = -ENOMEM;
-		goto err_out;
-	}
+	drvdata = devm_kzalloc(&client->dev, sizeof(struct lm3530_data),
+				GFP_KERNEL);
+	if (drvdata == NULL)
+		return -ENOMEM;
 
 	drvdata->mode = pdata->mode;
 	drvdata->client = client;
@@ -420,12 +416,12 @@ static int __devinit lm3530_probe(struct i2c_client *client,
 
 	i2c_set_clientdata(client, drvdata);
 
-	drvdata->regulator = regulator_get(&client->dev, "vin");
+	drvdata->regulator = devm_regulator_get(&client->dev, "vin");
 	if (IS_ERR(drvdata->regulator)) {
 		dev_err(&client->dev, "regulator get failed\n");
 		err = PTR_ERR(drvdata->regulator);
 		drvdata->regulator = NULL;
-		goto err_regulator_get;
+		return err;
 	}
 
 	if (drvdata->pdata->brt_val) {
@@ -433,15 +429,13 @@ static int __devinit lm3530_probe(struct i2c_client *client,
 		if (err < 0) {
 			dev_err(&client->dev,
 				"Register Init failed: %d\n", err);
-			err = -ENODEV;
-			goto err_reg_init;
+			return err;
 		}
 	}
 	err = led_classdev_register(&client->dev, &drvdata->led_dev);
 	if (err < 0) {
 		dev_err(&client->dev, "Register led class failed: %d\n", err);
-		err = -ENODEV;
-		goto err_class_register;
+		return err;
 	}
 
 	err = device_create_file(drvdata->led_dev.dev, &dev_attr_mode);
@@ -455,12 +449,6 @@ static int __devinit lm3530_probe(struct i2c_client *client,
 
 err_create_file:
 	led_classdev_unregister(&drvdata->led_dev);
-err_class_register:
-err_reg_init:
-	regulator_put(drvdata->regulator);
-err_regulator_get:
-	kfree(drvdata);
-err_out:
 	return err;
 }
 
@@ -472,9 +460,7 @@ static int __devexit lm3530_remove(struct i2c_client *client)
 
 	if (drvdata->enable)
 		regulator_disable(drvdata->regulator);
-	regulator_put(drvdata->regulator);
 	led_classdev_unregister(&drvdata->led_dev);
-	kfree(drvdata);
 	return 0;
 }
 

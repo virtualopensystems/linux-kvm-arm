@@ -1,8 +1,6 @@
 /*
- *  include/asm-s390/uaccess.h
- *
  *  S390 version
- *    Copyright (C) 1999,2000 IBM Deutschland Entwicklung GmbH, IBM Corporation
+ *    Copyright IBM Corp. 1999, 2000
  *    Author(s): Hartmut Penner (hp@de.ibm.com),
  *               Martin Schwidefsky (schwidefsky@de.ibm.com)
  *
@@ -78,8 +76,21 @@ static inline int __range_ok(unsigned long addr, unsigned long size)
 
 struct exception_table_entry
 {
-        unsigned long insn, fixup;
+	int insn, fixup;
 };
+
+static inline unsigned long extable_insn(const struct exception_table_entry *x)
+{
+	return (unsigned long)&x->insn + x->insn;
+}
+
+static inline unsigned long extable_fixup(const struct exception_table_entry *x)
+{
+	return (unsigned long)&x->fixup + x->fixup;
+}
+
+#define ARCH_HAS_SORT_EXTABLE
+#define ARCH_HAS_SEARCH_EXTABLE
 
 struct uaccess_ops {
 	size_t (*copy_from_user)(size_t, const void __user *, void *);
@@ -381,8 +392,6 @@ clear_user(void __user *to, unsigned long n)
 	return n;
 }
 
-extern int memcpy_real(void *, void *, size_t);
-extern void memcpy_absolute(void *, void *, size_t);
 extern int copy_to_user_real(void __user *dest, void *src, size_t count);
 extern int copy_from_user_real(void *dest, void __user *src, size_t count);
 

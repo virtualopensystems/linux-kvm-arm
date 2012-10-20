@@ -38,6 +38,7 @@
 #include <asm/mach/irq.h>
 
 #include <mach/board.h>
+#include <mach/at91_aic.h>
 #include <mach/at91rm9200_mc.h>
 #include <mach/at91_ramc.h>
 
@@ -61,12 +62,12 @@ static struct at91_usbh_data __initdata picotux200_usbh_data = {
 	.overcurrent_pin= {-EINVAL, -EINVAL},
 };
 
-static struct at91_mmc_data __initdata picotux200_mmc_data = {
-	.det_pin	= AT91_PIN_PB27,
-	.slot_b		= 0,
-	.wire4		= 1,
-	.wp_pin		= AT91_PIN_PA17,
-	.vcc_pin	= -EINVAL,
+static struct mci_platform_data __initdata picotux200_mci0_data = {
+	.slot[0] = {
+		.bus_width	= 4,
+		.detect_pin	= AT91_PIN_PB27,
+		.wp_pin		= AT91_PIN_PA17,
+	},
 };
 
 #define PICOTUX200_FLASH_BASE	AT91_CHIPSELECT_0
@@ -111,7 +112,7 @@ static void __init picotux200_board_init(void)
 	at91_add_device_i2c(NULL, 0);
 	/* MMC */
 	at91_set_gpio_output(AT91_PIN_PB22, 1);	/* this MMC card slot can optionally use SPI signaling (CS3). */
-	at91_add_device_mmc(0, &picotux200_mmc_data);
+	at91_add_device_mci(0, &picotux200_mci0_data);
 	/* NOR Flash */
 	platform_device_register(&picotux200_flash);
 }
@@ -120,6 +121,7 @@ MACHINE_START(PICOTUX2XX, "picotux 200")
 	/* Maintainer: Kleinhenz Elektronik GmbH */
 	.timer		= &at91rm9200_timer,
 	.map_io		= at91_map_io,
+	.handle_irq	= at91_aic_handle_irq,
 	.init_early	= picotux200_init_early,
 	.init_irq	= at91_init_irq_default,
 	.init_machine	= picotux200_board_init,

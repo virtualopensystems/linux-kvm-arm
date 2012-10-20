@@ -87,7 +87,15 @@
 
 #define	CONFIG_MEMSIZE					0x5428
 
+#define	BIF_FB_EN						0x5490
+#define		FB_READ_EN					(1 << 0)
+#define		FB_WRITE_EN					(1 << 1)
+
 #define	CP_COHER_BASE					0x85F8
+#define	CP_STALLED_STAT1			0x8674
+#define	CP_STALLED_STAT2			0x8678
+#define	CP_BUSY_STAT				0x867C
+#define	CP_STAT						0x8680
 #define CP_ME_CNTL					0x86D8
 #define		CP_ME_HALT					(1 << 28)
 #define		CP_PFP_HALT					(1 << 26)
@@ -425,6 +433,9 @@
 #define		NOOFCHAN_SHIFT					12
 #define		NOOFCHAN_MASK					0x00003000
 #define MC_SHARED_CHREMAP					0x2008
+
+#define MC_SHARED_BLACKOUT_CNTL           		0x20ac
+#define		BLACKOUT_MODE_MASK			0x00000007
 
 #define	MC_ARB_RAMCFG					0x2760
 #define		NOOFBANK_SHIFT					0
@@ -1273,6 +1284,8 @@
 #define   S_028044_FORMAT(x)                           (((x) & 0x1) << 0)
 #define   G_028044_FORMAT(x)                           (((x) >> 0) & 0x1)
 #define   C_028044_FORMAT                              0xFFFFFFFE
+#define	    V_028044_STENCIL_INVALID			0
+#define	    V_028044_STENCIL_8				1
 #define   G_028044_TILE_SPLIT(x)                       (((x) >> 8) & 0x7)
 #define DB_Z_READ_BASE					0x28048
 #define DB_STENCIL_READ_BASE				0x2804c

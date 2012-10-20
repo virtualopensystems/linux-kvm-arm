@@ -192,7 +192,7 @@ _ENTRY(__early_start)
 	li	r0,0
 	stwu	r0,THREAD_SIZE-STACK_FRAME_OVERHEAD(r1)
 
-	rlwinm  r22,r1,0,0,31-THREAD_SHIFT      /* current thread_info */
+	CURRENT_THREAD_INFO(r22, r1)
 	stw	r24, TI_CPU(r22)
 
 	bl	early_init
@@ -556,8 +556,10 @@ END_FTR_SECTION_IFSET(CPU_FTR_EMB_HV)
 	/* SPE Unavailable */
 	START_EXCEPTION(SPEUnavailable)
 	NORMAL_EXCEPTION_PROLOG(SPE_UNAVAIL)
-	bne	load_up_spe
-	addi	r3,r1,STACK_FRAME_OVERHEAD
+	beq	1f
+	bl	load_up_spe
+	b	fast_exception_return
+1:	addi	r3,r1,STACK_FRAME_OVERHEAD
 	EXC_XFER_EE_LITE(0x2010, KernelSPE)
 #else
 	EXCEPTION(0x2020, SPE_UNAVAIL, SPEUnavailable, \
@@ -778,7 +780,7 @@ tlb_write_entry:
 /* Note that the SPE support is closely modeled after the AltiVec
  * support.  Changes to one are likely to be applicable to the
  * other!  */
-load_up_spe:
+_GLOBAL(load_up_spe)
 /*
  * Disable SPE for the task which had SPE previously,
  * and save its SPE registers in its thread_struct.
@@ -826,20 +828,7 @@ load_up_spe:
 	subi	r4,r5,THREAD
 	stw	r4,last_task_used_spe@l(r3)
 #endif /* !CONFIG_SMP */
-	/* restore registers and return */
-2:	REST_4GPRS(3, r11)
-	lwz	r10,_CCR(r11)
-	REST_GPR(1, r11)
-	mtcr	r10
-	lwz	r10,_LINK(r11)
-	mtlr	r10
-	REST_GPR(10, r11)
-	mtspr	SPRN_SRR1,r9
-	mtspr	SPRN_SRR0,r12
-	REST_GPR(9, r11)
-	REST_GPR(12, r11)
-	lwz	r11,GPR11(r11)
-	rfi
+	blr
 
 /*
  * SPE unavailable trap from kernel - print a message, but let
@@ -906,15 +895,11 @@ _GLOBAL(__setup_e500mc_ivors)
 	mtspr	SPRN_IVOR36,r3
 	li	r3,CriticalDoorbell@l
 	mtspr	SPRN_IVOR37,r3
+	sync
+	blr
 
-	/*
-	 * We only want to touch IVOR38-41 if we're running on hardware
-	 * that supports category E.HV.  The architectural way to determine
-	 * this is MMUCFG[LPIDSIZE].
-	 */
-	mfspr	r3, SPRN_MMUCFG
-	andis.	r3, r3, MMUCFG_LPIDSIZE@h
-	beq	no_hv
+/* setup ehv ivors for */
+_GLOBAL(__setup_ehv_ivors)
 	li	r3,GuestDoorbell@l
 	mtspr	SPRN_IVOR38,r3
 	li	r3,CriticalGuestDoorbell@l
@@ -923,14 +908,8 @@ _GLOBAL(__setup_e500mc_ivors)
 	mtspr	SPRN_IVOR40,r3
 	li	r3,Ehvpriv@l
 	mtspr	SPRN_IVOR41,r3
-skip_hv_ivors:
 	sync
 	blr
-no_hv:
-	lwz	r3, CPU_SPEC_FEATURES(r5)
-	rlwinm	r3, r3, 0, ~CPU_FTR_EMB_HV
-	stw	r3, CPU_SPEC_FEATURES(r5)
-	b	skip_hv_ivors
 
 #ifdef CONFIG_SPE
 /*
@@ -1050,6 +1029,34 @@ _GLOBAL(flush_dcache_L1)
 	
 	/* restore HID0 */
 	mtspr	SPRN_HID0,r8
+	isync
+
+	blr
+
+/* Flush L1 d-cache, invalidate and disable d-cache and i-cache */
+_GLOBAL(__flush_disable_L1)
+	mflr	r10
+	bl	flush_dcache_L1	/* Flush L1 d-cache */
+	mtlr	r10
+
+	mfspr	r4, SPRN_L1CSR0	/* Invalidate and disable d-cache */
+	li	r5, 2
+	rlwimi	r4, r5, 0, 3
+
+	msync
+	isync
+	mtspr	SPRN_L1CSR0, r4
+	isync
+
+1:	mfspr	r4, SPRN_L1CSR0	/* Wait for the invalidate to finish */
+	andi.	r4, r4, 2
+	bne	1b
+
+	mfspr	r4, SPRN_L1CSR1	/* Invalidate and disable i-cache */
+	li	r5, 2
+	rlwimi	r4, r5, 0, 3
+
+	mtspr	SPRN_L1CSR1, r4
 	isync
 
 	blr

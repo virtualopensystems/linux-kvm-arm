@@ -16,6 +16,7 @@
 #include <linux/mfd/wm831x/irq.h>
 #include <linux/mfd/wm831x/gpio.h>
 #include <linux/mfd/wm8994/pdata.h>
+#include <linux/mfd/arizona/pdata.h>
 
 #include <linux/regulator/machine.h>
 
@@ -24,12 +25,11 @@
 #include <sound/wm8962.h>
 #include <sound/wm9081.h>
 
-#include <plat/s3c64xx-spi.h>
+#include <linux/platform_data/spi-s3c64xx.h>
 
 #include <mach/crag6410.h>
 
 static struct s3c64xx_spi_csinfo wm0010_spi_csinfo = {
-	.set_level = gpio_set_value,
 	.line = S3C64XX_GPC(3),
 };
 
@@ -39,6 +39,7 @@ static struct spi_board_info wm1253_devs[] = {
 		.bus_num	= 0,
 		.chip_select	= 0,
 		.mode		= SPI_MODE_0,
+		.irq		= S3C_EINT(5),
 		.controller_data = &wm0010_spi_csinfo,
 	},
 };
@@ -168,7 +169,6 @@ static struct wm8994_pdata wm8994_pdata = {
 	.gpio_defaults = {
 		0x3,          /* IRQ out, active high, CMOS */
 	},
-	.irq_base = CODEC_IRQ_BASE,
 	.ldo = {
 		 { .init_data = &wm8994_ldo1, },
 		 { .init_data = &wm8994_ldo2, },
@@ -179,6 +179,35 @@ static const struct i2c_board_info wm1277_devs[] = {
 	{ I2C_BOARD_INFO("wm8958", 0x1a),  /* WM8958 is the superset */
 	  .platform_data = &wm8994_pdata,
 	  .irq = GLENFARCLAS_PMIC_IRQ_BASE + WM831X_IRQ_GPIO_2,
+	},
+};
+
+static struct arizona_pdata wm5102_pdata = {
+	.ldoena = S3C64XX_GPN(7),
+	.gpio_base = CODEC_GPIO_BASE,
+	.irq_active_high = true,
+	.micd_pol_gpio = CODEC_GPIO_BASE + 4,
+	.gpio_defaults = {
+		[2] = 0x10000, /* AIF3TXLRCLK */
+		[3] = 0x4,     /* OPCLK */
+	},
+};
+
+static struct s3c64xx_spi_csinfo wm5102_spi_csinfo = {
+	.line = S3C64XX_GPN(5),
+};
+
+static struct spi_board_info wm5102_spi_devs[] = {
+	[0] = {
+		.modalias	= "wm5102",
+		.max_speed_hz	= 10 * 1000 * 1000,
+		.bus_num	= 0,
+		.chip_select	= 0,
+		.mode		= SPI_MODE_0,
+		.irq		= GLENFARCLAS_PMIC_IRQ_BASE +
+				  WM831X_IRQ_GPIO_2,
+		.controller_data = &wm5102_spi_csinfo,
+		.platform_data = &wm5102_pdata,
 	},
 };
 
@@ -209,6 +238,7 @@ static __devinitdata const struct {
 	  .spi_devs = wm1253_devs, .num_spi_devs = ARRAY_SIZE(wm1253_devs) },
 	{ .id = 0x32, .name = "XXXX-EV1 Caol Illa" },
 	{ .id = 0x33, .name = "XXXX-EV1 Oban" },
+	{ .id = 0x34, .name = "WM0010-6320-CS42 Balblair" },
 	{ .id = 0x39, .name = "1254-EV1 Dallas Dhu",
 	  .i2c_devs = wm1254_devs, .num_i2c_devs = ARRAY_SIZE(wm1254_devs) },
 	{ .id = 0x3a, .name = "1259-EV1 Tobermory",
@@ -218,6 +248,9 @@ static __devinitdata const struct {
 	{ .id = 0x3c, .name = "1273-EV1 Longmorn" },
 	{ .id = 0x3d, .name = "1277-EV1 Littlemill",
 	  .i2c_devs = wm1277_devs, .num_i2c_devs = ARRAY_SIZE(wm1277_devs) },
+	{ .id = 0x3e, .name = "WM5102-6271-EV1-CS127 Amrut",
+	  .spi_devs = wm5102_spi_devs,
+	  .num_spi_devs = ARRAY_SIZE(wm5102_spi_devs) },
 };
 
 static __devinit int wlf_gf_module_probe(struct i2c_client *i2c,

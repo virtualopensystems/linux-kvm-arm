@@ -1,7 +1,7 @@
 /*
  * wm5100.c  --  WM5100 ALSA SoC Audio driver
  *
- * Copyright 2011 Wolfson Microelectronics plc
+ * Copyright 2011-2 Wolfson Microelectronics plc
  *
  * Author: Mark Brown <broonie@opensource.wolfsonmicro.com>
  *
@@ -848,9 +848,9 @@ SND_SOC_DAPM_SUPPLY("SYSCLK", WM5100_CLOCKING_3, WM5100_SYSCLK_ENA_SHIFT, 0,
 SND_SOC_DAPM_SUPPLY("ASYNCCLK", WM5100_CLOCKING_6, WM5100_ASYNC_CLK_ENA_SHIFT,
 		    0, NULL, 0),
 
-SND_SOC_DAPM_REGULATOR_SUPPLY("CPVDD", 20),
-SND_SOC_DAPM_REGULATOR_SUPPLY("DBVDD2", 0),
-SND_SOC_DAPM_REGULATOR_SUPPLY("DBVDD3", 0),
+SND_SOC_DAPM_REGULATOR_SUPPLY("CPVDD", 20, 0),
+SND_SOC_DAPM_REGULATOR_SUPPLY("DBVDD2", 0, 0),
+SND_SOC_DAPM_REGULATOR_SUPPLY("DBVDD3", 0, 0),
 
 SND_SOC_DAPM_SUPPLY("CP1", WM5100_HP_CHARGE_PUMP_1, WM5100_CP1_ENA_SHIFT, 0,
 		    NULL, 0),
@@ -1233,7 +1233,7 @@ static const struct snd_soc_dapm_route wm5100_dapm_routes[] = {
 	{ "PWM2", NULL, "PWM2 Driver" },
 };
 
-static const __devinitdata struct reg_default wm5100_reva_patches[] = {
+static const __devinitconst struct reg_default wm5100_reva_patches[] = {
 	{ WM5100_AUDIO_IF_1_10, 0 },
 	{ WM5100_AUDIO_IF_1_11, 1 },
 	{ WM5100_AUDIO_IF_1_12, 2 },
@@ -2378,13 +2378,6 @@ static int wm5100_remove(struct snd_soc_codec *codec)
 	return 0;
 }
 
-static int wm5100_soc_volatile(struct snd_soc_codec *codec,
-			       unsigned int reg)
-{
-	return true;
-}
-
-
 static struct snd_soc_codec_driver soc_codec_dev_wm5100 = {
 	.probe =	wm5100_probe,
 	.remove =	wm5100_remove,
@@ -2392,8 +2385,6 @@ static struct snd_soc_codec_driver soc_codec_dev_wm5100 = {
 	.set_sysclk = wm5100_set_sysclk,
 	.set_pll = wm5100_set_fll,
 	.idle_bias_off = 1,
-	.reg_cache_size = WM5100_MAX_REGISTER,
-	.volatile_register = wm5100_soc_volatile,
 
 	.seq_notifier = wm5100_seq_notifier,
 	.controls = wm5100_snd_controls,

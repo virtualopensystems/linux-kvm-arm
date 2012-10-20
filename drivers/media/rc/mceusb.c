@@ -199,6 +199,7 @@ static bool debug;
 #define VENDOR_REALTEK		0x0bda
 #define VENDOR_TIVO		0x105a
 #define VENDOR_CONEXANT		0x0572
+#define VENDOR_TWISTEDMELON	0x2596
 
 enum mceusb_model_type {
 	MCE_GEN2 = 0,		/* Most boards */
@@ -391,6 +392,12 @@ static struct usb_device_id mceusb_dev_table[] = {
 	/* Conexant Hybrid TV RDU253S Polaris */
 	{ USB_DEVICE(VENDOR_CONEXANT, 0x58a5),
 	  .driver_info = CX_HYBRID_TV },
+	/* Twisted Melon Inc. - Manta Mini Receiver */
+	{ USB_DEVICE(VENDOR_TWISTEDMELON, 0x8008) },
+	/* Twisted Melon Inc. - Manta Pico Receiver */
+	{ USB_DEVICE(VENDOR_TWISTEDMELON, 0x8016) },
+	/* Twisted Melon Inc. - Manta Transceiver */
+	{ USB_DEVICE(VENDOR_TWISTEDMELON, 0x8042) },
 	/* Terminating entry */
 	{ }
 };
@@ -410,14 +417,12 @@ struct mceusb_dev {
 	/* usb */
 	struct usb_device *usbdev;
 	struct urb *urb_in;
-	struct usb_endpoint_descriptor *usb_ep_in;
 	struct usb_endpoint_descriptor *usb_ep_out;
 
 	/* buffers and dma */
 	unsigned char *buf_in;
 	unsigned int len_in;
 	dma_addr_t dma_in;
-	dma_addr_t dma_out;
 
 	enum {
 		CMD_HEADER = 0,
@@ -622,7 +627,7 @@ static void mceusb_dev_printdata(struct mceusb_dev *ir, char *buf,
 			break;
 		case MCE_RSP_EQIRCFS:
 			period = DIV_ROUND_CLOSEST(
-					(1 << data1 * 2) * (data2 + 1), 10);
+					(1U << data1 * 2) * (data2 + 1), 10);
 			if (!period)
 				break;
 			carrier = (1000 * 1000) / period;
@@ -686,7 +691,7 @@ static void mceusb_dev_printdata(struct mceusb_dev *ir, char *buf,
 		dev_info(dev, "Raw IR data, %d pulse/space samples\n", ir->rem);
 }
 
-static void mce_async_callback(struct urb *urb, struct pt_regs *regs)
+static void mce_async_callback(struct urb *urb)
 {
 	struct mceusb_dev *ir;
 	int len;
@@ -733,7 +738,7 @@ static void mce_request_packet(struct mceusb_dev *ir, unsigned char *data,
 		pipe = usb_sndintpipe(ir->usbdev,
 				      ir->usb_ep_out->bEndpointAddress);
 		usb_fill_int_urb(async_urb, ir->usbdev, pipe,
-			async_buf, size, (usb_complete_t)mce_async_callback,
+			async_buf, size, mce_async_callback,
 			ir, ir->usb_ep_out->bInterval);
 		memcpy(async_buf, data, size);
 
@@ -786,10 +791,6 @@ static int mceusb_tx_ir(struct rc_dev *dev, unsigned *txbuf, unsigned count)
 	int i, ret = 0;
 	int cmdcount = 0;
 	unsigned char *cmdbuf; /* MCE command buffer */
-	long signal_duration = 0; /* Singnal length in us */
-	struct timeval start_time, end_time;
-
-	do_gettimeofday(&start_time);
 
 	cmdbuf = kzalloc(sizeof(unsigned) * MCE_CMDBUF_SIZE, GFP_KERNEL);
 	if (!cmdbuf)
@@ -802,7 +803,6 @@ static int mceusb_tx_ir(struct rc_dev *dev, unsigned *txbuf, unsigned count)
 
 	/* Generate mce packet data */
 	for (i = 0; (i < count) && (cmdcount < MCE_CMDBUF_SIZE); i++) {
-		signal_duration += txbuf[i];
 		txbuf[i] = txbuf[i] / MCE_TIME_UNIT;
 
 		do { /* loop to support long pulses/spaces > 127*50us=6.35ms */
@@ -844,19 +844,6 @@ static int mceusb_tx_ir(struct rc_dev *dev, unsigned *txbuf, unsigned count)
 
 	/* Transmit the command to the mce device */
 	mce_async_out(ir, cmdbuf, cmdcount);
-
-	/*
-	 * The lircd gap calculation expects the write function to
-	 * wait the time it takes for the ircommand to be sent before
-	 * it returns.
-	 */
-	do_gettimeofday(&end_time);
-	signal_duration -= (end_time.tv_usec - start_time.tv_usec) +
-			   (end_time.tv_sec - start_time.tv_sec) * 1000000;
-
-	/* delay with the closest number of ticks */
-	set_current_state(TASK_INTERRUPTIBLE);
-	schedule_timeout(usecs_to_jiffies(signal_duration));
 
 out:
 	kfree(cmdbuf);
@@ -969,6 +956,7 @@ static void mceusb_handle_command(struct mceusb_dev *ir, int index)
 static void mceusb_process_ir_data(struct mceusb_dev *ir, int buf_len)
 {
 	DEFINE_IR_RAW_EVENT(rawir);
+	bool event = false;
 	int i = 0;
 
 	/* skip meaningless 0xb1 0x60 header bytes on orig receiver */
@@ -999,7 +987,8 @@ static void mceusb_process_ir_data(struct mceusb_dev *ir, int buf_len)
 				rawir.pulse ? "pulse" : "space",
 				rawir.duration);
 
-			ir_raw_event_store_with_filter(ir->rc, &rawir);
+			if (ir_raw_event_store_with_filter(ir->rc, &rawir))
+				event = true;
 			break;
 		case CMD_DATA:
 			ir->rem--;
@@ -1027,11 +1016,13 @@ static void mceusb_process_ir_data(struct mceusb_dev *ir, int buf_len)
 		if (ir->parser_state != CMD_HEADER && !ir->rem)
 			ir->parser_state = CMD_HEADER;
 	}
-	mce_dbg(ir->dev, "processed IR data, calling ir_raw_event_handle\n");
-	ir_raw_event_handle(ir->rc);
+	if (event) {
+		mce_dbg(ir->dev, "processed IR data, calling ir_raw_event_handle\n");
+		ir_raw_event_handle(ir->rc);
+	}
 }
 
-static void mceusb_dev_recv(struct urb *urb, struct pt_regs *regs)
+static void mceusb_dev_recv(struct urb *urb)
 {
 	struct mceusb_dev *ir;
 	int buf_len;
@@ -1331,7 +1322,6 @@ static int __devinit mceusb_dev_probe(struct usb_interface *intf,
 	ir->model = model;
 
 	/* Saving usb interface data for use by the transmitter routine */
-	ir->usb_ep_in = ep_in;
 	ir->usb_ep_out = ep_out;
 
 	if (dev->descriptor.iManufacturer
@@ -1349,8 +1339,8 @@ static int __devinit mceusb_dev_probe(struct usb_interface *intf,
 		goto rc_dev_fail;
 
 	/* wire up inbound data handler */
-	usb_fill_int_urb(ir->urb_in, dev, pipe, ir->buf_in,
-		maxp, (usb_complete_t) mceusb_dev_recv, ir, ep_in->bInterval);
+	usb_fill_int_urb(ir->urb_in, dev, pipe, ir->buf_in, maxp,
+				mceusb_dev_recv, ir, ep_in->bInterval);
 	ir->urb_in->transfer_dma = ir->dma_in;
 	ir->urb_in->transfer_flags |= URB_NO_TRANSFER_DMA_MAP;
 

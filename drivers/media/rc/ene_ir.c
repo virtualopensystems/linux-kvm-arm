@@ -881,10 +881,13 @@ static int ene_set_tx_mask(struct rc_dev *rdev, u32 tx_mask)
 static int ene_set_tx_carrier(struct rc_dev *rdev, u32 carrier)
 {
 	struct ene_device *dev = rdev->priv;
-	u32 period = 2000000 / carrier;
+	u32 period;
 
 	dbg("TX: attempt to set tx carrier to %d kHz", carrier);
+	if (carrier == 0)
+		return -EINVAL;
 
+	period = 2000000 / carrier;
 	if (period && (period > ENE_CIRMOD_PRD_MAX ||
 			period < ENE_CIRMOD_PRD_MIN)) {
 
@@ -1018,6 +1021,8 @@ static int ene_probe(struct pnp_dev *pnp_dev, const struct pnp_device_id *id)
 
 	spin_lock_init(&dev->hw_lock);
 
+	dev->hw_io = pnp_port_start(pnp_dev, 0);
+
 	pnp_set_drvdata(pnp_dev, dev);
 	dev->pnp_dev = pnp_dev;
 
@@ -1072,7 +1077,6 @@ static int ene_probe(struct pnp_dev *pnp_dev, const struct pnp_device_id *id)
 
 	/* claim the resources */
 	error = -EBUSY;
-	dev->hw_io = pnp_port_start(pnp_dev, 0);
 	if (!request_region(dev->hw_io, ENE_IO_SIZE, ENE_DRIVER_NAME)) {
 		dev->hw_io = -1;
 		dev->irq = -1;

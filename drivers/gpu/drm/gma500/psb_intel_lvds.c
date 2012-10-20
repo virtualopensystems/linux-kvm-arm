@@ -375,7 +375,7 @@ int psb_intel_lvds_mode_valid(struct drm_connector *connector,
 }
 
 bool psb_intel_lvds_mode_fixup(struct drm_encoder *encoder,
-				  struct drm_display_mode *mode,
+				  const struct drm_display_mode *mode,
 				  struct drm_display_mode *adjusted_mode)
 {
 	struct drm_device *dev = encoder->dev;
@@ -630,17 +630,8 @@ int psb_intel_lvds_set_property(struct drm_connector *connector,
 							property,
 							value))
 			goto set_prop_error;
-		else {
-#ifdef CONFIG_BACKLIGHT_CLASS_DEVICE
-			struct drm_psb_private *devp =
-						encoder->dev->dev_private;
-			struct backlight_device *bd = devp->backlight_device;
-			if (bd) {
-				bd->props.brightness = value;
-				backlight_update_status(bd);
-			}
-#endif
-		}
+		else
+                        gma_backlight_set(encoder->dev, value);
 	} else if (!strcmp(property->name, "DPMS")) {
 		struct drm_encoder_helper_funcs *hfuncs
 						= encoder->helper_private;

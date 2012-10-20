@@ -18,12 +18,12 @@
 #include <linux/skbuff.h>
 #include <linux/slab.h>
 #include <linux/spinlock.h>
-#include "init.h"
-#include "irq_kern.h"
-#include "irq_user.h"
+#include <init.h>
+#include <irq_kern.h>
+#include <irq_user.h>
 #include "mconsole_kern.h"
-#include "net_kern.h"
-#include "net_user.h"
+#include <net_kern.h>
+#include <net_user.h>
 
 #define DRIVER_NAME "uml-netdev"
 
@@ -339,7 +339,7 @@ static int setup_etheraddr(char *str, unsigned char *addr, char *name)
 random:
 	printk(KERN_INFO
 	       "Choosing a random ethernet address for device %s\n", name);
-	random_ether_addr(addr);
+	eth_random_addr(addr);
 	return 1;
 }
 

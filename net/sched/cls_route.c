@@ -143,7 +143,7 @@ static int route4_classify(struct sk_buff *skb, const struct tcf_proto *tp,
 	if (head == NULL)
 		goto old_method;
 
-	iif = ((struct rtable *)dst)->rt_iif;
+	iif = inet_iif(skb);
 
 	h = route4_fastmap_hash(id, iif);
 	if (id == head->fastmap[h].id &&
@@ -427,7 +427,8 @@ errout:
 	return err;
 }
 
-static int route4_change(struct tcf_proto *tp, unsigned long base,
+static int route4_change(struct sk_buff *in_skb,
+		       struct tcf_proto *tp, unsigned long base,
 		       u32 handle,
 		       struct nlattr **tca,
 		       unsigned long *arg)

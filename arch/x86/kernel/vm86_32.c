@@ -28,6 +28,8 @@
  *
  */
 
+#define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
+
 #include <linux/capability.h>
 #include <linux/errno.h>
 #include <linux/interrupt.h>
@@ -137,14 +139,14 @@ struct pt_regs *save_v86_state(struct kernel_vm86_regs *regs)
 	local_irq_enable();
 
 	if (!current->thread.vm86_info) {
-		printk("no vm86_info: BAD\n");
+		pr_alert("no vm86_info: BAD\n");
 		do_exit(SIGSEGV);
 	}
 	set_flags(regs->pt.flags, VEFLAGS, X86_EFLAGS_VIF | current->thread.v86mask);
 	tmp = copy_vm86_regs_to_user(&current->thread.vm86_info->regs, regs);
 	tmp += put_user(current->thread.screen_bitmap, &current->thread.vm86_info->screen_bitmap);
 	if (tmp) {
-		printk("vm86: could not access userspace vm86_info\n");
+		pr_alert("could not access userspace vm86_info\n");
 		do_exit(SIGSEGV);
 	}
 
@@ -559,9 +561,9 @@ int handle_vm86_trap(struct kernel_vm86_regs *regs, long error_code, int trapno)
 		if ((trapno == 3) || (trapno == 1)) {
 			KVM86->regs32->ax = VM86_TRAP + (trapno << 8);
 			/* setting this flag forces the code in entry_32.S to
-			   call save_v86_state() and change the stack pointer
-			   to KVM86->regs32 */
-			set_thread_flag(TIF_IRET);
+			   the path where we call save_v86_state() and change
+			   the stack pointer to KVM86->regs32 */
+			set_thread_flag(TIF_NOTIFY_RESUME);
 			return 0;
 		}
 		do_int(regs, trapno, (unsigned char __user *) (regs->pt.ss << 4), SP(regs));

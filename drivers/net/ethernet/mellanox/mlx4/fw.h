@@ -78,6 +78,8 @@ struct mlx4_dev_cap {
 	u16 wavelength[MLX4_MAX_PORTS + 1];
 	u64 trans_code[MLX4_MAX_PORTS + 1];
 	u16 stat_rate_support;
+	int fs_log_max_ucast_qp_range_size;
+	int fs_max_num_qp_per_entry;
 	u64 flags;
 	u64 flags2;
 	int reserved_uars;
@@ -132,8 +134,12 @@ struct mlx4_func_cap {
 	int	max_eq;
 	int	reserved_eq;
 	int	mcg_quota;
-	u8	physical_port[MLX4_MAX_PORTS + 1];
-	u8	port_flags[MLX4_MAX_PORTS + 1];
+	u32	qp0_tunnel_qpn;
+	u32	qp0_proxy_qpn;
+	u32	qp1_tunnel_qpn;
+	u32	qp1_proxy_qpn;
+	u8	physical_port;
+	u8	port_flags;
 };
 
 struct mlx4_adapter {
@@ -165,6 +171,7 @@ struct mlx4_init_hca_param {
 	u8  log_mpt_sz;
 	u8  log_uar_sz;
 	u8  uar_page_sz; /* log pg sz in 4k chunks */
+	u8  fs_hash_enable_bits;
 };
 
 struct mlx4_init_ib_param {
@@ -189,7 +196,8 @@ struct mlx4_set_ib_param {
 };
 
 int mlx4_QUERY_DEV_CAP(struct mlx4_dev *dev, struct mlx4_dev_cap *dev_cap);
-int mlx4_QUERY_FUNC_CAP(struct mlx4_dev *dev, struct mlx4_func_cap *func_cap);
+int mlx4_QUERY_FUNC_CAP(struct mlx4_dev *dev, u32 gen_or_port,
+			struct mlx4_func_cap *func_cap);
 int mlx4_QUERY_FUNC_CAP_wrapper(struct mlx4_dev *dev, int slave,
 				struct mlx4_vhcr *vhcr,
 				struct mlx4_cmd_mailbox *inbox,

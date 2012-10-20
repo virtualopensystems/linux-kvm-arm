@@ -16,6 +16,12 @@ config CLKSRC_MMIO
 config DW_APB_TIMER
 	bool
 
+config DW_APB_TIMER_OF
+	bool
+
+config ARMADA_370_XP_TIMER
+	bool
+
 config CLKSRC_DBX500_PRCMU
 	bool "Clocksource PRCMU Timer"
 	depends on UX500_SOC_DB8500
@@ -29,3 +35,8 @@ config CLKSRC_DBX500_PRCMU_SCHED_CLOCK
 	default y
 	help
 	  Use the always on PRCMU Timer as sched_clock
+
+config CLKSRC_ARM_GENERIC
+	def_bool y if ARM64
+	help
+	  This option enables support for the ARM generic timer.

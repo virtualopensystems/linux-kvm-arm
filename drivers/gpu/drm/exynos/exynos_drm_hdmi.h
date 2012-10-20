@@ -51,7 +51,7 @@ struct exynos_hdmi_ops {
 
 	/* manager */
 	void (*mode_fixup)(void *ctx, struct drm_connector *connector,
-				struct drm_display_mode *mode,
+				const struct drm_display_mode *mode,
 				struct drm_display_mode *adjusted_mode);
 	void (*mode_set)(void *ctx, void *mode);
 	void (*get_max_resol)(void *ctx, unsigned int *width,
@@ -67,11 +67,14 @@ struct exynos_mixer_ops {
 	void (*dpms)(void *ctx, int mode);
 
 	/* overlay */
+	void (*wait_for_vblank)(void *ctx);
 	void (*win_mode_set)(void *ctx, struct exynos_drm_overlay *overlay);
 	void (*win_commit)(void *ctx, int zpos);
 	void (*win_disable)(void *ctx, int zpos);
 };
 
+void exynos_hdmi_drv_attach(struct exynos_drm_hdmi_context *ctx);
+void exynos_mixer_drv_attach(struct exynos_drm_hdmi_context *ctx);
 void exynos_hdmi_ops_register(struct exynos_hdmi_ops *ops);
 void exynos_mixer_ops_register(struct exynos_mixer_ops *ops);
 #endif

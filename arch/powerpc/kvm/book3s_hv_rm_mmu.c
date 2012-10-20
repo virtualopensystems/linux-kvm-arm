@@ -84,7 +84,7 @@ static void remove_revmap_chain(struct kvm *kvm, long pte_index,
 	if (!memslot || (memslot->flags & KVM_MEMSLOT_INVALID))
 		return;
 
-	rmap = real_vmalloc_addr(&memslot->rmap[gfn - memslot->base_gfn]);
+	rmap = real_vmalloc_addr(&memslot->arch.rmap[gfn - memslot->base_gfn]);
 	lock_rmap(rmap);
 
 	head = *rmap & KVMPPC_RMAP_INDEX;
@@ -180,7 +180,7 @@ long kvmppc_h_enter(struct kvm_vcpu *vcpu, unsigned long flags,
 	if (!slot_is_aligned(memslot, psize))
 		return H_PARAMETER;
 	slot_fn = gfn - memslot->base_gfn;
-	rmap = &memslot->rmap[slot_fn];
+	rmap = &memslot->arch.rmap[slot_fn];
 
 	if (!kvm->arch.using_mmu_notifiers) {
 		physp = kvm->arch.slot_phys[memslot->id];
@@ -197,7 +197,7 @@ long kvmppc_h_enter(struct kvm_vcpu *vcpu, unsigned long flags,
 		pa &= PAGE_MASK;
 	} else {
 		/* Translate to host virtual address */
-		hva = gfn_to_hva_memslot(memslot, gfn);
+		hva = __gfn_to_hva_memslot(memslot, gfn);
 
 		/* Look up the Linux PTE for the backing page */
 		pte_size = psize;
@@ -237,7 +237,7 @@ long kvmppc_h_enter(struct kvm_vcpu *vcpu, unsigned long flags,
 
 	/* Find and lock the HPTEG slot to use */
  do_insert:
-	if (pte_index >= HPT_NPTE)
+	if (pte_index >= kvm->arch.hpt_npte)
 		return H_PARAMETER;
 	if (likely((flags & H_EXACT) == 0)) {
 		pte_index &= ~7UL;
@@ -352,7 +352,7 @@ long kvmppc_h_remove(struct kvm_vcpu *vcpu, unsigned long flags,
 	unsigned long v, r, rb;
 	struct revmap_entry *rev;
 
-	if (pte_index >= HPT_NPTE)
+	if (pte_index >= kvm->arch.hpt_npte)
 		return H_PARAMETER;
 	hpte = (unsigned long *)(kvm->arch.hpt_virt + (pte_index << 4));
 	while (!try_lock_hpte(hpte, HPTE_V_HVLOCK))
@@ -419,7 +419,8 @@ long kvmppc_h_bulk_remove(struct kvm_vcpu *vcpu)
 				i = 4;
 				break;
 			}
-			if (req != 1 || flags == 3 || pte_index >= HPT_NPTE) {
+			if (req != 1 || flags == 3 ||
+			    pte_index >= kvm->arch.hpt_npte) {
 				/* parameter error */
 				args[j] = ((0xa0 | flags) << 56) + pte_index;
 				ret = H_PARAMETER;
@@ -521,7 +522,7 @@ long kvmppc_h_protect(struct kvm_vcpu *vcpu, unsigned long flags,
 	struct revmap_entry *rev;
 	unsigned long v, r, rb, mask, bits;
 
-	if (pte_index >= HPT_NPTE)
+	if (pte_index >= kvm->arch.hpt_npte)
 		return H_PARAMETER;
 
 	hpte = (unsigned long *)(kvm->arch.hpt_virt + (pte_index << 4));
@@ -583,7 +584,7 @@ long kvmppc_h_read(struct kvm_vcpu *vcpu, unsigned long flags,
 	int i, n = 1;
 	struct revmap_entry *rev = NULL;
 
-	if (pte_index >= HPT_NPTE)
+	if (pte_index >= kvm->arch.hpt_npte)
 		return H_PARAMETER;
 	if (flags & H_READ_4) {
 		pte_index &= ~3;
@@ -678,7 +679,7 @@ long kvmppc_hv_find_lock_hpte(struct kvm *kvm, gva_t eaddr, unsigned long slb_v,
 		somask = (1UL << 28) - 1;
 		vsid = (slb_v & ~SLB_VSID_B) >> SLB_VSID_SHIFT;
 	}
-	hash = (vsid ^ ((eaddr & somask) >> pshift)) & HPT_HASH_MASK;
+	hash = (vsid ^ ((eaddr & somask) >> pshift)) & kvm->arch.hpt_mask;
 	avpn = slb_v & ~(somask >> 16);	/* also includes B */
 	avpn |= (eaddr & somask) >> 16;
 
@@ -723,7 +724,7 @@ long kvmppc_hv_find_lock_hpte(struct kvm *kvm, gva_t eaddr, unsigned long slb_v,
 		if (val & HPTE_V_SECONDARY)
 			break;
 		val |= HPTE_V_SECONDARY;
-		hash = hash ^ HPT_HASH_MASK;
+		hash = hash ^ kvm->arch.hpt_mask;
 	}
 	return -1;
 }

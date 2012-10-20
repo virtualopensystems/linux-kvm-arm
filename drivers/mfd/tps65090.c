@@ -71,10 +71,10 @@ static const struct tps65090_irq_data tps65090_irqs[] = {
 
 static struct mfd_cell tps65090s[] = {
 	{
-		.name = "tps65910-pmic",
+		.name = "tps65090-pmic",
 	},
 	{
-		.name = "tps65910-regulator",
+		.name = "tps65090-regulator",
 	},
 };
 
@@ -236,7 +236,7 @@ static int __devinit tps65090_irq_init(struct tps65090 *tps65090, int irq,
 
 static bool is_volatile_reg(struct device *dev, unsigned int reg)
 {
-	if ((reg == TPS65090_INT_STS) || (reg == TPS65090_INT_STS))
+	if (reg == TPS65090_INT_STS)
 		return true;
 	else
 		return false;
@@ -292,7 +292,7 @@ static int __devinit tps65090_i2c_probe(struct i2c_client *client,
 	}
 
 	ret = mfd_add_devices(tps65090->dev, -1, tps65090s,
-		ARRAY_SIZE(tps65090s), NULL, 0);
+			      ARRAY_SIZE(tps65090s), NULL, 0, NULL);
 	if (ret) {
 		dev_err(&client->dev, "add mfd devices failed with err: %d\n",
 			ret);

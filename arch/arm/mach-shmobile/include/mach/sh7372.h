@@ -13,6 +13,7 @@
 
 #include <linux/sh_clk.h>
 #include <linux/pm_domain.h>
+#include <mach/pm-rmobile.h>
 
 /*
  * Pin Function Controller:
@@ -477,47 +478,17 @@ extern struct clk sh7372_fsibck_clk;
 extern struct clk sh7372_fsidiva_clk;
 extern struct clk sh7372_fsidivb_clk;
 
-struct platform_device;
-
-struct sh7372_pm_domain {
-	struct generic_pm_domain genpd;
-	struct dev_power_governor *gov;
-	int (*suspend)(void);
-	void (*resume)(void);
-	unsigned int bit_shift;
-	bool no_debug;
-};
-
-static inline struct sh7372_pm_domain *to_sh7372_pd(struct generic_pm_domain *d)
-{
-	return container_of(d, struct sh7372_pm_domain, genpd);
-}
-
-#ifdef CONFIG_PM
-extern struct sh7372_pm_domain sh7372_a4lc;
-extern struct sh7372_pm_domain sh7372_a4mp;
-extern struct sh7372_pm_domain sh7372_d4;
-extern struct sh7372_pm_domain sh7372_a4r;
-extern struct sh7372_pm_domain sh7372_a3rv;
-extern struct sh7372_pm_domain sh7372_a3ri;
-extern struct sh7372_pm_domain sh7372_a4s;
-extern struct sh7372_pm_domain sh7372_a3sp;
-extern struct sh7372_pm_domain sh7372_a3sg;
-
-extern void sh7372_init_pm_domain(struct sh7372_pm_domain *sh7372_pd);
-extern void sh7372_add_device_to_domain(struct sh7372_pm_domain *sh7372_pd,
-					struct platform_device *pdev);
-extern void sh7372_pm_add_subdomain(struct sh7372_pm_domain *sh7372_pd,
-				    struct sh7372_pm_domain *sh7372_sd);
-#else
-#define sh7372_init_pm_domain(pd) do { } while(0)
-#define sh7372_add_device_to_domain(pd, pdev) do { } while(0)
-#define sh7372_pm_add_subdomain(pd, sd) do { } while(0)
-#endif /* CONFIG_PM */
-
 extern void sh7372_intcs_suspend(void);
 extern void sh7372_intcs_resume(void);
 extern void sh7372_intca_suspend(void);
 extern void sh7372_intca_resume(void);
+
+#ifdef CONFIG_PM
+extern void __init sh7372_init_pm_domains(void);
+#else
+static inline void sh7372_init_pm_domains(void) {}
+#endif
+
+extern void __init sh7372_pm_init_late(void);
 
 #endif /* __ASM_SH7372_H__ */

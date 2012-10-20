@@ -18,12 +18,6 @@
 #include "ieee80211_i.h"
 #include "mesh.h"
 
-#ifdef CONFIG_MAC80211_VERBOSE_MPATH_DEBUG
-#define mpath_dbg(fmt, args...)	printk(KERN_DEBUG fmt, ##args)
-#else
-#define mpath_dbg(fmt, args...)	do { (void)(0); } while (0)
-#endif
-
 /* There will be initially 2^INIT_PATHS_SIZE_ORDER buckets */
 #define INIT_PATHS_SIZE_ORDER	2
 
@@ -209,23 +203,17 @@ void mesh_path_assign_nexthop(struct mesh_path *mpath, struct sta_info *sta)
 {
 	struct sk_buff *skb;
 	struct ieee80211_hdr *hdr;
-	struct sk_buff_head tmpq;
 	unsigned long flags;
 
 	rcu_assign_pointer(mpath->next_hop, sta);
 
-	__skb_queue_head_init(&tmpq);
-
 	spin_lock_irqsave(&mpath->frame_queue.lock, flags);
-
-	while ((skb = __skb_dequeue(&mpath->frame_queue)) != NULL) {
+	skb_queue_walk(&mpath->frame_queue, skb) {
 		hdr = (struct ieee80211_hdr *) skb->data;
 		memcpy(hdr->addr1, sta->sta.addr, ETH_ALEN);
 		memcpy(hdr->addr2, mpath->sdata->vif.addr, ETH_ALEN);
-		__skb_queue_tail(&tmpq, skb);
 	}
 
-	skb_queue_splice(&tmpq, &mpath->frame_queue);
 	spin_unlock_irqrestore(&mpath->frame_queue.lock, flags);
 }
 
@@ -291,41 +279,42 @@ static void mesh_path_move_to_queue(struct mesh_path *gate_mpath,
 				    struct mesh_path *from_mpath,
 				    bool copy)
 {
-	struct sk_buff *skb, *cp_skb = NULL;
-	struct sk_buff_head gateq, failq;
+	struct sk_buff *skb, *fskb, *tmp;
+	struct sk_buff_head failq;
 	unsigned long flags;
-	int num_skbs;
 
 	BUG_ON(gate_mpath == from_mpath);
 	BUG_ON(!gate_mpath->next_hop);
 
-	__skb_queue_head_init(&gateq);
 	__skb_queue_head_init(&failq);
 
 	spin_lock_irqsave(&from_mpath->frame_queue.lock, flags);
 	skb_queue_splice_init(&from_mpath->frame_queue, &failq);
 	spin_unlock_irqrestore(&from_mpath->frame_queue.lock, flags);
 
-	num_skbs = skb_queue_len(&failq);
-
-	while (num_skbs--) {
-		skb = __skb_dequeue(&failq);
-		if (copy) {
-			cp_skb = skb_copy(skb, GFP_ATOMIC);
-			if (cp_skb)
-				__skb_queue_tail(&failq, cp_skb);
+	skb_queue_walk_safe(&failq, fskb, tmp) {
+		if (skb_queue_len(&gate_mpath->frame_queue) >=
+				  MESH_FRAME_QUEUE_LEN) {
+			mpath_dbg(gate_mpath->sdata, "mpath queue full!\n");
+			break;
 		}
 
+		skb = skb_copy(fskb, GFP_ATOMIC);
+		if (WARN_ON(!skb))
+			break;
+
 		prepare_for_gate(skb, gate_mpath->dst, gate_mpath);
-		__skb_queue_tail(&gateq, skb);
+		skb_queue_tail(&gate_mpath->frame_queue, skb);
+
+		if (copy)
+			continue;
+
+		__skb_unlink(fskb, &failq);
+		kfree_skb(fskb);
 	}
 
-	spin_lock_irqsave(&gate_mpath->frame_queue.lock, flags);
-	skb_queue_splice(&gateq, &gate_mpath->frame_queue);
-	mpath_dbg("Mpath queue for gate %pM has %d frames\n",
-			gate_mpath->dst,
-			skb_queue_len(&gate_mpath->frame_queue));
-	spin_unlock_irqrestore(&gate_mpath->frame_queue.lock, flags);
+	mpath_dbg(gate_mpath->sdata, "Mpath queue for gate %pM has %d frames\n",
+		  gate_mpath->dst, skb_queue_len(&gate_mpath->frame_queue));
 
 	if (!copy)
 		return;
@@ -446,9 +435,9 @@ int mesh_path_add_gate(struct mesh_path *mpath)
 	hlist_add_head_rcu(&new_gate->list, tbl->known_gates);
 	spin_unlock_bh(&tbl->gates_lock);
 	rcu_read_unlock();
-	mpath_dbg("Mesh path (%s): Recorded new gate: %pM. %d known gates\n",
-		  mpath->sdata->name, mpath->dst,
-		  mpath->sdata->u.mesh.num_gates);
+	mpath_dbg(mpath->sdata,
+		  "Mesh path: Recorded new gate: %pM. %d known gates\n",
+		  mpath->dst, mpath->sdata->u.mesh.num_gates);
 	return 0;
 err_rcu:
 	rcu_read_unlock();
@@ -477,8 +466,8 @@ static int mesh_gate_del(struct mesh_table *tbl, struct mesh_path *mpath)
 			spin_unlock_bh(&tbl->gates_lock);
 			mpath->sdata->u.mesh.num_gates--;
 			mpath->is_gate = false;
-			mpath_dbg("Mesh path (%s): Deleted gate: %pM. "
-				  "%d known gates\n", mpath->sdata->name,
+			mpath_dbg(mpath->sdata,
+				  "Mesh path: Deleted gate: %pM. %d known gates\n",
 				  mpath->dst, mpath->sdata->u.mesh.num_gates);
 			break;
 		}
@@ -538,7 +527,7 @@ int mesh_path_add(u8 *dst, struct ieee80211_sub_if_data *sdata)
 
 	read_lock_bh(&pathtbl_resize_lock);
 	memcpy(new_mpath->dst, dst, ETH_ALEN);
-	memset(new_mpath->rann_snd_addr, 0xff, ETH_ALEN);
+	eth_broadcast_addr(new_mpath->rann_snd_addr);
 	new_mpath->is_root = false;
 	new_mpath->sdata = sdata;
 	new_mpath->flags = 0;
@@ -785,7 +774,7 @@ static void __mesh_path_del(struct mesh_table *tbl, struct mpath_node *node)
 /**
  * mesh_path_flush_by_nexthop - Deletes mesh paths if their next hop matches
  *
- * @sta - mesh peer to match
+ * @sta: mesh peer to match
  *
  * RCU notes: this function is called when a mesh plink transitions from
  * PLINK_ESTAB to any other state, since PLINK_ESTAB state is the only one that
@@ -840,7 +829,7 @@ static void table_flush_by_iface(struct mesh_table *tbl,
  *
  * This function deletes both mesh paths as well as mesh portal paths.
  *
- * @sdata - interface data to match
+ * @sdata: interface data to match
  *
  */
 void mesh_path_flush_by_iface(struct ieee80211_sub_if_data *sdata)
@@ -946,19 +935,20 @@ int mesh_path_send_to_gates(struct mesh_path *mpath)
 			continue;
 
 		if (gate->mpath->flags & MESH_PATH_ACTIVE) {
-			mpath_dbg("Forwarding to %pM\n", gate->mpath->dst);
+			mpath_dbg(sdata, "Forwarding to %pM\n", gate->mpath->dst);
 			mesh_path_move_to_queue(gate->mpath, from_mpath, copy);
 			from_mpath = gate->mpath;
 			copy = true;
 		} else {
-			mpath_dbg("Not forwarding %p\n", gate->mpath);
-			mpath_dbg("flags %x\n", gate->mpath->flags);
+			mpath_dbg(sdata,
+				  "Not forwarding %p (flags %#x)\n",
+				  gate->mpath, gate->mpath->flags);
 		}
 	}
 
 	hlist_for_each_entry_rcu(gate, n, known_gates, list)
 		if (gate->mpath->sdata == sdata) {
-			mpath_dbg("Sending to %pM\n", gate->mpath->dst);
+			mpath_dbg(sdata, "Sending to %pM\n", gate->mpath->dst);
 			mesh_path_tx_pending(gate->mpath);
 		}
 

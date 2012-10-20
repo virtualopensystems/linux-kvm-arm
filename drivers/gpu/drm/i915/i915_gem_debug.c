@@ -25,9 +25,8 @@
  *
  */
 
-#include "drmP.h"
-#include "drm.h"
-#include "i915_drm.h"
+#include <drm/drmP.h>
+#include <drm/i915_drm.h>
 #include "i915_drv.h"
 
 #if WATCH_LISTS
@@ -132,7 +131,8 @@ i915_gem_object_check_coherency(struct drm_i915_gem_object *obj, int handle)
 		 __func__, obj, obj->gtt_offset, handle,
 		 obj->size / 1024);
 
-	gtt_mapping = ioremap(dev->agp->base + obj->gtt_offset, obj->base.size);
+	gtt_mapping = ioremap(dev_priv->mm.gtt_base_addr + obj->gtt_offset,
+			      obj->base.size);
 	if (gtt_mapping == NULL) {
 		DRM_ERROR("failed to map GTT space\n");
 		return;

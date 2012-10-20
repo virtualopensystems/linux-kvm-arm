@@ -1180,16 +1180,18 @@ int mwifiex_ret_802_11_ad_hoc(struct mwifiex_private *priv,
 	struct mwifiex_adapter *adapter = priv->adapter;
 	struct host_cmd_ds_802_11_ad_hoc_result *adhoc_result;
 	struct mwifiex_bssdescriptor *bss_desc;
+	u16 reason_code;
 
 	adhoc_result = &resp->params.adhoc_result;
 
 	bss_desc = priv->attempted_bss_desc;
 
 	/* Join result code 0 --> SUCCESS */
-	if (le16_to_cpu(resp->result)) {
+	reason_code = le16_to_cpu(resp->result);
+	if (reason_code) {
 		dev_err(priv->adapter->dev, "ADHOC_RESP: failed\n");
 		if (priv->media_connected)
-			mwifiex_reset_connect_state(priv);
+			mwifiex_reset_connect_state(priv, reason_code);
 
 		memset(&priv->curr_bss_params.bss_descriptor,
 		       0x00, sizeof(struct mwifiex_bssdescriptor));
@@ -1349,22 +1351,16 @@ static int mwifiex_deauthenticate_infra(struct mwifiex_private *priv, u8 *mac)
 {
 	u8 mac_address[ETH_ALEN];
 	int ret;
-	u8 zero_mac[ETH_ALEN] = { 0, 0, 0, 0, 0, 0 };
 
-	if (mac) {
-		if (!memcmp(mac, zero_mac, sizeof(zero_mac)))
-			memcpy((u8 *) &mac_address,
-			       (u8 *) &priv->curr_bss_params.bss_descriptor.
-			       mac_address, ETH_ALEN);
-		else
-			memcpy((u8 *) &mac_address, (u8 *) mac, ETH_ALEN);
-	} else {
-		memcpy((u8 *) &mac_address, (u8 *) &priv->curr_bss_params.
-		       bss_descriptor.mac_address, ETH_ALEN);
-	}
+	if (!mac || is_zero_ether_addr(mac))
+		memcpy(mac_address,
+		       priv->curr_bss_params.bss_descriptor.mac_address,
+		       ETH_ALEN);
+	else
+		memcpy(mac_address, mac, ETH_ALEN);
 
 	ret = mwifiex_send_cmd_sync(priv, HostCmd_CMD_802_11_DEAUTHENTICATE,
-				    HostCmd_ACT_GEN_SET, 0, &mac_address);
+				    HostCmd_ACT_GEN_SET, 0, mac_address);
 
 	return ret;
 }

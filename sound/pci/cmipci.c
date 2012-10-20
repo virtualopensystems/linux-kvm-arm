@@ -504,7 +504,7 @@ struct cmipci {
 
 	spinlock_t reg_lock;
 
-#ifdef CONFIG_PM
+#ifdef CONFIG_PM_SLEEP
 	unsigned int saved_regs[0x20];
 	unsigned char saved_mixers[0x20];
 #endif
@@ -1962,6 +1962,12 @@ static int __devinit snd_cmipci_pcm_spdif_new(struct cmipci *cm, int device)
 	snd_pcm_lib_preallocate_pages_for_all(pcm, SNDRV_DMA_TYPE_DEV,
 					      snd_dma_pci_data(cm->pci), 64*1024, 128*1024);
 
+	err = snd_pcm_add_chmap_ctls(pcm, SNDRV_PCM_STREAM_PLAYBACK,
+				     snd_pcm_alt_chmaps, cm->max_channels, 0,
+				     NULL);
+	if (err < 0)
+		return err;
+
 	return 0;
 }
 
@@ -3315,7 +3321,7 @@ static void __devexit snd_cmipci_remove(struct pci_dev *pci)
 }
 
 
-#ifdef CONFIG_PM
+#ifdef CONFIG_PM_SLEEP
 /*
  * power management
  */
@@ -3338,9 +3344,10 @@ static unsigned char saved_mixers[] = {
 	SB_DSP4_INPUT_LEFT, SB_DSP4_INPUT_RIGHT,
 };
 
-static int snd_cmipci_suspend(struct pci_dev *pci, pm_message_t state)
+static int snd_cmipci_suspend(struct device *dev)
 {
-	struct snd_card *card = pci_get_drvdata(pci);
+	struct pci_dev *pci = to_pci_dev(dev);
+	struct snd_card *card = dev_get_drvdata(dev);
 	struct cmipci *cm = card->private_data;
 	int i;
 
@@ -3361,13 +3368,14 @@ static int snd_cmipci_suspend(struct pci_dev *pci, pm_message_t state)
 
 	pci_disable_device(pci);
 	pci_save_state(pci);
-	pci_set_power_state(pci, pci_choose_state(pci, state));
+	pci_set_power_state(pci, PCI_D3hot);
 	return 0;
 }
 
-static int snd_cmipci_resume(struct pci_dev *pci)
+static int snd_cmipci_resume(struct device *dev)
 {
-	struct snd_card *card = pci_get_drvdata(pci);
+	struct pci_dev *pci = to_pci_dev(dev);
+	struct snd_card *card = dev_get_drvdata(dev);
 	struct cmipci *cm = card->private_data;
 	int i;
 
@@ -3396,17 +3404,21 @@ static int snd_cmipci_resume(struct pci_dev *pci)
 	snd_power_change_state(card, SNDRV_CTL_POWER_D0);
 	return 0;
 }
-#endif /* CONFIG_PM */
+
+static SIMPLE_DEV_PM_OPS(snd_cmipci_pm, snd_cmipci_suspend, snd_cmipci_resume);
+#define SND_CMIPCI_PM_OPS	&snd_cmipci_pm
+#else
+#define SND_CMIPCI_PM_OPS	NULL
+#endif /* CONFIG_PM_SLEEP */
 
 static struct pci_driver cmipci_driver = {
 	.name = KBUILD_MODNAME,
 	.id_table = snd_cmipci_ids,
 	.probe = snd_cmipci_probe,
 	.remove = __devexit_p(snd_cmipci_remove),
-#ifdef CONFIG_PM
-	.suspend = snd_cmipci_suspend,
-	.resume = snd_cmipci_resume,
-#endif
+	.driver = {
+		.pm = SND_CMIPCI_PM_OPS,
+	},
 };
 	
 module_pci_driver(cmipci_driver);

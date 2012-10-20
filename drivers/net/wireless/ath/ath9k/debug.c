@@ -205,11 +205,10 @@ static ssize_t write_file_disable_ani(struct file *file,
 	common->disable_ani = !!disable_ani;
 
 	if (disable_ani) {
-		sc->sc_flags &= ~SC_OP_ANI_RUN;
-		del_timer_sync(&common->ani.timer);
+		clear_bit(SC_OP_ANI_RUN, &sc->sc_flags);
+		ath_stop_ani(sc);
 	} else {
-		sc->sc_flags |= SC_OP_ANI_RUN;
-		ath_start_ani(common);
+		ath_check_ani(sc);
 	}
 
 	return count;
@@ -218,6 +217,57 @@ static ssize_t write_file_disable_ani(struct file *file,
 static const struct file_operations fops_disable_ani = {
 	.read = read_file_disable_ani,
 	.write = write_file_disable_ani,
+	.open = simple_open,
+	.owner = THIS_MODULE,
+	.llseek = default_llseek,
+};
+
+static ssize_t read_file_ant_diversity(struct file *file, char __user *user_buf,
+				       size_t count, loff_t *ppos)
+{
+	struct ath_softc *sc = file->private_data;
+	struct ath_common *common = ath9k_hw_common(sc->sc_ah);
+	char buf[32];
+	unsigned int len;
+
+	len = sprintf(buf, "%d\n", common->antenna_diversity);
+	return simple_read_from_buffer(user_buf, count, ppos, buf, len);
+}
+
+static ssize_t write_file_ant_diversity(struct file *file,
+					const char __user *user_buf,
+					size_t count, loff_t *ppos)
+{
+	struct ath_softc *sc = file->private_data;
+	struct ath_common *common = ath9k_hw_common(sc->sc_ah);
+	unsigned long antenna_diversity;
+	char buf[32];
+	ssize_t len;
+
+	len = min(count, sizeof(buf) - 1);
+	if (copy_from_user(buf, user_buf, len))
+		return -EFAULT;
+
+	if (!AR_SREV_9565(sc->sc_ah))
+		goto exit;
+
+	buf[len] = '\0';
+	if (strict_strtoul(buf, 0, &antenna_diversity))
+		return -EINVAL;
+
+	common->antenna_diversity = !!antenna_diversity;
+	ath9k_ps_wakeup(sc);
+	ath_ant_comb_update(sc);
+	ath_dbg(common, CONFIG, "Antenna diversity: %d\n",
+		common->antenna_diversity);
+	ath9k_ps_restore(sc);
+exit:
+	return count;
+}
+
+static const struct file_operations fops_ant_diversity = {
+	.read = read_file_ant_diversity,
+	.write = write_file_ant_diversity,
 	.open = simple_open,
 	.owner = THIS_MODULE,
 	.llseek = default_llseek,
@@ -348,8 +398,6 @@ void ath_debug_stat_interrupt(struct ath_softc *sc, enum ath9k_int status)
 		sc->debug.stats.istats.txok++;
 	if (status & ATH9K_INT_TXURN)
 		sc->debug.stats.istats.txurn++;
-	if (status & ATH9K_INT_MIB)
-		sc->debug.stats.istats.mib++;
 	if (status & ATH9K_INT_RXPHY)
 		sc->debug.stats.istats.rxphyerr++;
 	if (status & ATH9K_INT_RXKCM)
@@ -374,6 +422,10 @@ void ath_debug_stat_interrupt(struct ath_softc *sc, enum ath9k_int status)
 		sc->debug.stats.istats.dtim++;
 	if (status & ATH9K_INT_TSFOOR)
 		sc->debug.stats.istats.tsfoor++;
+	if (status & ATH9K_INT_MCI)
+		sc->debug.stats.istats.mci++;
+	if (status & ATH9K_INT_GENTIMER)
+		sc->debug.stats.istats.gen_timer++;
 }
 
 static ssize_t read_file_interrupt(struct file *file, char __user *user_buf,
@@ -418,6 +470,8 @@ static ssize_t read_file_interrupt(struct file *file, char __user *user_buf,
 	PR_IS("DTIMSYNC", dtimsync);
 	PR_IS("DTIM", dtim);
 	PR_IS("TSFOOR", tsfoor);
+	PR_IS("MCI", mci);
+	PR_IS("GENTIMER", gen_timer);
 	PR_IS("TOTAL", total);
 
 	len += snprintf(buf + len, mxlen - len,
@@ -1318,7 +1372,7 @@ static int open_file_bb_mac_samps(struct inode *inode, struct file *file)
 	u8 chainmask = (ah->rxchainmask << 3) | ah->rxchainmask;
 	u8 nread;
 
-	if (sc->sc_flags & SC_OP_INVALID)
+	if (test_bit(SC_OP_INVALID, &sc->sc_flags))
 		return -EAGAIN;
 
 	buf = vmalloc(size);
@@ -1555,6 +1609,14 @@ int ath9k_init_debug(struct ath_hw *ah)
 			    &fops_interrupt);
 	debugfs_create_file("xmit", S_IRUSR, sc->debug.debugfs_phy, sc,
 			    &fops_xmit);
+	debugfs_create_u32("qlen_bk", S_IRUSR | S_IWUSR, sc->debug.debugfs_phy,
+			   &sc->tx.txq_max_pending[WME_AC_BK]);
+	debugfs_create_u32("qlen_be", S_IRUSR | S_IWUSR, sc->debug.debugfs_phy,
+			   &sc->tx.txq_max_pending[WME_AC_BE]);
+	debugfs_create_u32("qlen_vi", S_IRUSR | S_IWUSR, sc->debug.debugfs_phy,
+			   &sc->tx.txq_max_pending[WME_AC_VI]);
+	debugfs_create_u32("qlen_vo", S_IRUSR | S_IWUSR, sc->debug.debugfs_phy,
+			   &sc->tx.txq_max_pending[WME_AC_VO]);
 	debugfs_create_file("stations", S_IRUSR, sc->debug.debugfs_phy, sc,
 			    &fops_stations);
 	debugfs_create_file("misc", S_IRUSR, sc->debug.debugfs_phy, sc,
@@ -1569,6 +1631,8 @@ int ath9k_init_debug(struct ath_hw *ah)
 			    sc->debug.debugfs_phy, sc, &fops_tx_chainmask);
 	debugfs_create_file("disable_ani", S_IRUSR | S_IWUSR,
 			    sc->debug.debugfs_phy, sc, &fops_disable_ani);
+	debugfs_create_bool("paprd", S_IRUSR | S_IWUSR, sc->debug.debugfs_phy,
+			    &sc->sc_ah->config.enable_paprd);
 	debugfs_create_file("regidx", S_IRUSR | S_IWUSR, sc->debug.debugfs_phy,
 			    sc, &fops_regidx);
 	debugfs_create_file("regval", S_IRUSR | S_IWUSR, sc->debug.debugfs_phy,
@@ -1588,12 +1652,12 @@ int ath9k_init_debug(struct ath_hw *ah)
 	debugfs_create_file("samples", S_IRUSR, sc->debug.debugfs_phy, sc,
 			    &fops_samps);
 #endif
-
 	debugfs_create_u32("gpio_mask", S_IRUSR | S_IWUSR,
 			   sc->debug.debugfs_phy, &sc->sc_ah->gpio_mask);
-
 	debugfs_create_u32("gpio_val", S_IRUSR | S_IWUSR,
 			   sc->debug.debugfs_phy, &sc->sc_ah->gpio_val);
+	debugfs_create_file("diversity", S_IRUSR | S_IWUSR,
+			    sc->debug.debugfs_phy, sc, &fops_ant_diversity);
 
 	return 0;
 }

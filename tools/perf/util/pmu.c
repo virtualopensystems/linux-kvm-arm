@@ -9,6 +9,9 @@
 #include "util.h"
 #include "pmu.h"
 #include "parse-events.h"
+#include "cpumap.h"
+
+#define EVENT_SOURCE_DEVICE_PATH "/bus/event_source/devices/"
 
 int perf_pmu_parse(struct list_head *list, char *name);
 extern FILE *perf_pmu_in;
@@ -69,14 +72,122 @@ static int pmu_format(char *name, struct list_head *format)
 		return -1;
 
 	snprintf(path, PATH_MAX,
-		 "%s/bus/event_source/devices/%s/format", sysfs, name);
+		 "%s" EVENT_SOURCE_DEVICE_PATH "%s/format", sysfs, name);
 
 	if (stat(path, &st) < 0)
-		return -1;
+		return 0;	/* no error if format does not exist */
 
 	if (pmu_format_parse(path, format))
 		return -1;
 
+	return 0;
+}
+
+static int perf_pmu__new_alias(struct list_head *list, char *name, FILE *file)
+{
+	struct perf_pmu__alias *alias;
+	char buf[256];
+	int ret;
+
+	ret = fread(buf, 1, sizeof(buf), file);
+	if (ret == 0)
+		return -EINVAL;
+	buf[ret] = 0;
+
+	alias = malloc(sizeof(*alias));
+	if (!alias)
+		return -ENOMEM;
+
+	INIT_LIST_HEAD(&alias->terms);
+	ret = parse_events_terms(&alias->terms, buf);
+	if (ret) {
+		free(alias);
+		return ret;
+	}
+
+	alias->name = strdup(name);
+	list_add_tail(&alias->list, list);
+	return 0;
+}
+
+/*
+ * Process all the sysfs attributes located under the directory
+ * specified in 'dir' parameter.
+ */
+static int pmu_aliases_parse(char *dir, struct list_head *head)
+{
+	struct dirent *evt_ent;
+	DIR *event_dir;
+	int ret = 0;
+
+	event_dir = opendir(dir);
+	if (!event_dir)
+		return -EINVAL;
+
+	while (!ret && (evt_ent = readdir(event_dir))) {
+		char path[PATH_MAX];
+		char *name = evt_ent->d_name;
+		FILE *file;
+
+		if (!strcmp(name, ".") || !strcmp(name, ".."))
+			continue;
+
+		snprintf(path, PATH_MAX, "%s/%s", dir, name);
+
+		ret = -EINVAL;
+		file = fopen(path, "r");
+		if (!file)
+			break;
+		ret = perf_pmu__new_alias(head, name, file);
+		fclose(file);
+	}
+
+	closedir(event_dir);
+	return ret;
+}
+
+/*
+ * Reading the pmu event aliases definition, which should be located at:
+ * /sys/bus/event_source/devices/<dev>/events as sysfs group attributes.
+ */
+static int pmu_aliases(char *name, struct list_head *head)
+{
+	struct stat st;
+	char path[PATH_MAX];
+	const char *sysfs;
+
+	sysfs = sysfs_find_mountpoint();
+	if (!sysfs)
+		return -1;
+
+	snprintf(path, PATH_MAX,
+		 "%s/bus/event_source/devices/%s/events", sysfs, name);
+
+	if (stat(path, &st) < 0)
+		return -1;
+
+	if (pmu_aliases_parse(path, head))
+		return -1;
+
+	return 0;
+}
+
+static int pmu_alias_terms(struct perf_pmu__alias *alias,
+			   struct list_head *terms)
+{
+	struct parse_events__term *term, *clone;
+	LIST_HEAD(list);
+	int ret;
+
+	list_for_each_entry(term, &alias->terms, list) {
+		ret = parse_events__term_clone(&clone, term);
+		if (ret) {
+			parse_events__free_terms(&list);
+			return ret;
+		}
+		list_add_tail(&clone->list, &list);
+	}
+	list_splice(&list, terms);
 	return 0;
 }
 
@@ -98,7 +209,7 @@ static int pmu_type(char *name, __u32 *type)
 		return -1;
 
 	snprintf(path, PATH_MAX,
-		 "%s/bus/event_source/devices/%s/type", sysfs, name);
+		 "%s" EVENT_SOURCE_DEVICE_PATH "%s/type", sysfs, name);
 
 	if (stat(path, &st) < 0)
 		return -1;
@@ -114,10 +225,67 @@ static int pmu_type(char *name, __u32 *type)
 	return ret;
 }
 
+/* Add all pmus in sysfs to pmu list: */
+static void pmu_read_sysfs(void)
+{
+	char path[PATH_MAX];
+	const char *sysfs;
+	DIR *dir;
+	struct dirent *dent;
+
+	sysfs = sysfs_find_mountpoint();
+	if (!sysfs)
+		return;
+
+	snprintf(path, PATH_MAX,
+		 "%s" EVENT_SOURCE_DEVICE_PATH, sysfs);
+
+	dir = opendir(path);
+	if (!dir)
+		return;
+
+	while ((dent = readdir(dir))) {
+		if (!strcmp(dent->d_name, ".") || !strcmp(dent->d_name, ".."))
+			continue;
+		/* add to static LIST_HEAD(pmus): */
+		perf_pmu__find(dent->d_name);
+	}
+
+	closedir(dir);
+}
+
+static struct cpu_map *pmu_cpumask(char *name)
+{
+	struct stat st;
+	char path[PATH_MAX];
+	const char *sysfs;
+	FILE *file;
+	struct cpu_map *cpus;
+
+	sysfs = sysfs_find_mountpoint();
+	if (!sysfs)
+		return NULL;
+
+	snprintf(path, PATH_MAX,
+		 "%s/bus/event_source/devices/%s/cpumask", sysfs, name);
+
+	if (stat(path, &st) < 0)
+		return NULL;
+
+	file = fopen(path, "r");
+	if (!file)
+		return NULL;
+
+	cpus = cpu_map__read(file);
+	fclose(file);
+	return cpus;
+}
+
 static struct perf_pmu *pmu_lookup(char *name)
 {
 	struct perf_pmu *pmu;
 	LIST_HEAD(format);
+	LIST_HEAD(aliases);
 	__u32 type;
 
 	/*
@@ -135,10 +303,17 @@ static struct perf_pmu *pmu_lookup(char *name)
 	if (!pmu)
 		return NULL;
 
+	pmu->cpus = pmu_cpumask(name);
+
+	pmu_aliases(name, &aliases);
+
 	INIT_LIST_HEAD(&pmu->format);
+	INIT_LIST_HEAD(&pmu->aliases);
 	list_splice(&format, &pmu->format);
+	list_splice(&aliases, &pmu->aliases);
 	pmu->name = strdup(name);
 	pmu->type = type;
+	list_add_tail(&pmu->list, &pmus);
 	return pmu;
 }
 
@@ -150,6 +325,21 @@ static struct perf_pmu *pmu_find(char *name)
 		if (!strcmp(pmu->name, name))
 			return pmu;
 
+	return NULL;
+}
+
+struct perf_pmu *perf_pmu__scan(struct perf_pmu *pmu)
+{
+	/*
+	 * pmu iterator: If pmu is NULL, we start at the begin,
+	 * otherwise return the next pmu. Returns NULL on end.
+	 */
+	if (!pmu) {
+		pmu_read_sysfs();
+		pmu = list_prepare_entry(pmu, &pmus, list);
+	}
+	list_for_each_entry_continue(pmu, &pmus, list)
+		return pmu;
 	return NULL;
 }
 
@@ -277,6 +467,59 @@ int perf_pmu__config(struct perf_pmu *pmu, struct perf_event_attr *attr,
 {
 	attr->type = pmu->type;
 	return pmu_config(&pmu->format, attr, head_terms);
+}
+
+static struct perf_pmu__alias *pmu_find_alias(struct perf_pmu *pmu,
+					      struct parse_events__term *term)
+{
+	struct perf_pmu__alias *alias;
+	char *name;
+
+	if (parse_events__is_hardcoded_term(term))
+		return NULL;
+
+	if (term->type_val == PARSE_EVENTS__TERM_TYPE_NUM) {
+		if (term->val.num != 1)
+			return NULL;
+		if (pmu_find_format(&pmu->format, term->config))
+			return NULL;
+		name = term->config;
+	} else if (term->type_val == PARSE_EVENTS__TERM_TYPE_STR) {
+		if (strcasecmp(term->config, "event"))
+			return NULL;
+		name = term->val.str;
+	} else {
+		return NULL;
+	}
+
+	list_for_each_entry(alias, &pmu->aliases, list) {
+		if (!strcasecmp(alias->name, name))
+			return alias;
+	}
+	return NULL;
+}
+
+/*
+ * Find alias in the terms list and replace it with the terms
+ * defined for the alias
+ */
+int perf_pmu__check_alias(struct perf_pmu *pmu, struct list_head *head_terms)
+{
+	struct parse_events__term *term, *h;
+	struct perf_pmu__alias *alias;
+	int ret;
+
+	list_for_each_entry_safe(term, h, head_terms, list) {
+		alias = pmu_find_alias(pmu, term);
+		if (!alias)
+			continue;
+		ret = pmu_alias_terms(alias, &term->list);
+		if (ret)
+			return ret;
+		list_del(&term->list);
+		free(term);
+	}
+	return 0;
 }
 
 int perf_pmu__new_format(struct list_head *list, char *name,

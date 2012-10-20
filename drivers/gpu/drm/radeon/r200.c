@@ -25,9 +25,8 @@
  *          Alex Deucher
  *          Jerome Glisse
  */
-#include "drmP.h"
-#include "drm.h"
-#include "radeon_drm.h"
+#include <drm/drmP.h>
+#include <drm/radeon_drm.h>
 #include "radeon_reg.h"
 #include "radeon.h"
 #include "radeon_asic.h"
@@ -85,7 +84,7 @@ int r200_copy_dma(struct radeon_device *rdev,
 		  uint64_t src_offset,
 		  uint64_t dst_offset,
 		  unsigned num_gpu_pages,
-		  struct radeon_fence *fence)
+		  struct radeon_fence **fence)
 {
 	struct radeon_ring *ring = &rdev->ring[RADEON_RING_TYPE_GFX_INDEX];
 	uint32_t size;
@@ -120,7 +119,7 @@ int r200_copy_dma(struct radeon_device *rdev,
 	radeon_ring_write(ring, PACKET0(RADEON_WAIT_UNTIL, 0));
 	radeon_ring_write(ring, RADEON_WAIT_DMA_GUI_IDLE);
 	if (fence) {
-		r = radeon_fence_emit(rdev, fence);
+		r = radeon_fence_emit(rdev, fence, RADEON_RING_TYPE_GFX_INDEX);
 	}
 	radeon_ring_unlock_commit(rdev, ring);
 	return r;

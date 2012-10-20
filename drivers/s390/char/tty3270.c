@@ -1,11 +1,10 @@
 /*
- *  drivers/s390/char/tty3270.c
  *    IBM/3270 Driver - tty functions.
  *
  *  Author(s):
  *    Original 3270 Code for 2.4 written by Richard Hitt (UTS Global)
  *    Rewritten for 2.5 by Martin Schwidefsky <schwidefsky@de.ibm.com>
- *	-- Copyright (C) 2003 IBM Deutschland Entwicklung GmbH, IBM Corporation
+ *	-- Copyright IBM Corp. 2003
  */
 
 #include <linux/module.h>
@@ -843,17 +842,14 @@ static struct raw3270_fn tty3270_fn = {
 };
 
 /*
- * This routine is called whenever a 3270 tty is opened.
+ * This routine is called whenever a 3270 tty is opened first time.
  */
-static int
-tty3270_open(struct tty_struct *tty, struct file * filp)
+static int tty3270_install(struct tty_driver *driver, struct tty_struct *tty)
 {
 	struct raw3270_view *view;
 	struct tty3270 *tp;
 	int i, rc;
 
-	if (tty->count > 1)
-		return 0;
 	/* Check if the tty3270 is already there. */
 	view = raw3270_find_view(&tty3270_fn,
 				  tty->index + RAW3270_FIRSTMINOR);
@@ -866,7 +862,7 @@ tty3270_open(struct tty_struct *tty, struct file * filp)
 		/* why to reassign? */
 		tty_port_tty_set(&tp->port, tty);
 		tp->inattr = TF_INPUT;
-		return 0;
+		return tty_port_install(&tp->port, driver, tty);
 	}
 	if (tty3270_max_index < tty->index + 1)
 		tty3270_max_index = tty->index + 1;
@@ -896,7 +892,6 @@ tty3270_open(struct tty_struct *tty, struct file * filp)
 
 	tty_port_tty_set(&tp->port, tty);
 	tty->low_latency = 0;
-	tty->driver_data = tp;
 	tty->winsize.ws_row = tp->view.rows - 2;
 	tty->winsize.ws_col = tp->view.cols;
 
@@ -916,6 +911,15 @@ tty3270_open(struct tty_struct *tty, struct file * filp)
 	kbd_ascebc(tp->kbd, tp->view.ascebc);
 
 	raw3270_activate_view(&tp->view);
+
+	rc = tty_port_install(&tp->port, driver, tty);
+	if (rc) {
+		raw3270_put_view(&tp->view);
+		return rc;
+	}
+
+	tty->driver_data = tp;
+
 	return 0;
 }
 
@@ -933,8 +937,15 @@ tty3270_close(struct tty_struct *tty, struct file * filp)
 	if (tp) {
 		tty->driver_data = NULL;
 		tty_port_tty_set(&tp->port, NULL);
-		raw3270_put_view(&tp->view);
 	}
+}
+
+static void tty3270_cleanup(struct tty_struct *tty)
+{
+	struct tty3270 *tp = tty->driver_data;
+
+	if (tp)
+		raw3270_put_view(&tp->view);
 }
 
 /*
@@ -1738,7 +1749,8 @@ static long tty3270_compat_ioctl(struct tty_struct *tty,
 #endif
 
 static const struct tty_operations tty3270_ops = {
-	.open = tty3270_open,
+	.install = tty3270_install,
+	.cleanup = tty3270_cleanup,
 	.close = tty3270_close,
 	.write = tty3270_write,
 	.put_char = tty3270_put_char,
@@ -1782,7 +1794,7 @@ static int __init tty3270_init(void)
 	driver->type = TTY_DRIVER_TYPE_SYSTEM;
 	driver->subtype = SYSTEM_TYPE_TTY;
 	driver->init_termios = tty_std_termios;
-	driver->flags = TTY_DRIVER_RESET_TERMIOS | TTY_DRIVER_DYNAMIC_DEV;
+	driver->flags = TTY_DRIVER_RESET_TERMIOS;
 	tty_set_operations(driver, &tty3270_ops);
 	ret = tty_register_driver(driver);
 	if (ret) {
@@ -1801,6 +1813,7 @@ tty3270_exit(void)
 	driver = tty3270_driver;
 	tty3270_driver = NULL;
 	tty_unregister_driver(driver);
+	put_tty_driver(driver);
 	tty3270_del_views();
 }
 

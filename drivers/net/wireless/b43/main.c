@@ -533,11 +533,11 @@ u64 b43_hf_read(struct b43_wldev *dev)
 {
 	u64 ret;
 
-	ret = b43_shm_read16(dev, B43_SHM_SHARED, B43_SHM_SH_HOSTFHI);
+	ret = b43_shm_read16(dev, B43_SHM_SHARED, B43_SHM_SH_HOSTF3);
 	ret <<= 16;
-	ret |= b43_shm_read16(dev, B43_SHM_SHARED, B43_SHM_SH_HOSTFMI);
+	ret |= b43_shm_read16(dev, B43_SHM_SHARED, B43_SHM_SH_HOSTF2);
 	ret <<= 16;
-	ret |= b43_shm_read16(dev, B43_SHM_SHARED, B43_SHM_SH_HOSTFLO);
+	ret |= b43_shm_read16(dev, B43_SHM_SHARED, B43_SHM_SH_HOSTF1);
 
 	return ret;
 }
@@ -550,9 +550,9 @@ void b43_hf_write(struct b43_wldev *dev, u64 value)
 	lo = (value & 0x00000000FFFFULL);
 	mi = (value & 0x0000FFFF0000ULL) >> 16;
 	hi = (value & 0xFFFF00000000ULL) >> 32;
-	b43_shm_write16(dev, B43_SHM_SHARED, B43_SHM_SH_HOSTFLO, lo);
-	b43_shm_write16(dev, B43_SHM_SHARED, B43_SHM_SH_HOSTFMI, mi);
-	b43_shm_write16(dev, B43_SHM_SHARED, B43_SHM_SH_HOSTFHI, hi);
+	b43_shm_write16(dev, B43_SHM_SHARED, B43_SHM_SH_HOSTF1, lo);
+	b43_shm_write16(dev, B43_SHM_SHARED, B43_SHM_SH_HOSTF2, mi);
+	b43_shm_write16(dev, B43_SHM_SHARED, B43_SHM_SH_HOSTF3, hi);
 }
 
 /* Read the firmware capabilities bitmask (Opensource firmware only) */
@@ -2359,6 +2359,8 @@ static int b43_try_request_fw(struct b43_request_fw_context *ctx)
 	if (err)
 		goto err_load;
 
+	fw->opensource = (ctx->req_type == B43_FWTYPE_OPENSOURCE);
+
 	return 0;
 
 err_no_ucode:
@@ -2434,6 +2436,10 @@ static void b43_request_firmware(struct work_struct *work)
 	goto out;
 
 start_ieee80211:
+	wl->hw->queues = B43_QOS_QUEUE_NUM;
+	if (!modparam_qos || dev->fw.opensource)
+		wl->hw->queues = 1;
+
 	err = ieee80211_register_hw(wl->hw);
 	if (err)
 		goto err_one_core_detach;
@@ -2537,11 +2543,9 @@ static int b43_upload_microcode(struct b43_wldev *dev)
 		dev->fw.hdr_format = B43_FW_HDR_410;
 	else
 		dev->fw.hdr_format = B43_FW_HDR_351;
-	dev->fw.opensource = (fwdate == 0xFFFF);
+	WARN_ON(dev->fw.opensource != (fwdate == 0xFFFF));
 
-	/* Default to use-all-queues. */
-	dev->wl->hw->queues = dev->wl->mac80211_initially_registered_queues;
-	dev->qos_enabled = !!modparam_qos;
+	dev->qos_enabled = dev->wl->hw->queues > 1;
 	/* Default to firmware/hardware crypto acceleration. */
 	dev->hwcrypto_enabled = true;
 
@@ -2559,14 +2563,8 @@ static int b43_upload_microcode(struct b43_wldev *dev)
 			/* Disable hardware crypto and fall back to software crypto. */
 			dev->hwcrypto_enabled = false;
 		}
-		if (!(fwcapa & B43_FWCAPA_QOS)) {
-			b43info(dev->wl, "QoS not supported by firmware\n");
-			/* Disable QoS. Tweak hw->queues to 1. It will be restored before
-			 * ieee80211_unregister to make sure the networking core can
-			 * properly free possible resources. */
-			dev->wl->hw->queues = 1;
-			dev->qos_enabled = false;
-		}
+		/* adding QoS support should use an offline discovery mechanism */
+		WARN(fwcapa & B43_FWCAPA_QOS, "QoS in OpenFW not supported\n");
 	} else {
 		b43info(dev->wl, "Loading firmware version %u.%u "
 			"(20%.2i-%.2i-%.2i %.2i:%.2i:%.2i)\n",
@@ -2721,32 +2719,37 @@ static int b43_gpio_init(struct b43_wldev *dev)
 	if (dev->dev->chip_id == 0x4301) {
 		mask |= 0x0060;
 		set |= 0x0060;
+	} else if (dev->dev->chip_id == 0x5354) {
+		/* Don't allow overtaking buttons GPIOs */
+		set &= 0x2; /* 0x2 is LED GPIO on BCM5354 */
 	}
-	if (dev->dev->chip_id == 0x5354)
-		set &= 0xff02;
+
 	if (0 /* FIXME: conditional unknown */ ) {
 		b43_write16(dev, B43_MMIO_GPIO_MASK,
 			    b43_read16(dev, B43_MMIO_GPIO_MASK)
 			    | 0x0100);
-		mask |= 0x0180;
-		set |= 0x0180;
+		/* BT Coexistance Input */
+		mask |= 0x0080;
+		set |= 0x0080;
+		/* BT Coexistance Out */
+		mask |= 0x0100;
+		set |= 0x0100;
 	}
 	if (dev->dev->bus_sprom->boardflags_lo & B43_BFL_PACTRL) {
+		/* PA is controlled by gpio 9, let ucode handle it */
 		b43_write16(dev, B43_MMIO_GPIO_MASK,
 			    b43_read16(dev, B43_MMIO_GPIO_MASK)
 			    | 0x0200);
 		mask |= 0x0200;
 		set |= 0x0200;
 	}
-	if (dev->dev->core_rev >= 2)
-		mask |= 0x0010;	/* FIXME: This is redundant. */
 
 	switch (dev->dev->bus_type) {
 #ifdef CONFIG_B43_BCMA
 	case B43_BUS_BCMA:
 		bcma_cc_write32(&dev->dev->bdev->bus->drv_cc, BCMA_CC_GPIOCTL,
 				(bcma_cc_read32(&dev->dev->bdev->bus->drv_cc,
-					BCMA_CC_GPIOCTL) & mask) | set);
+					BCMA_CC_GPIOCTL) & ~mask) | set);
 		break;
 #endif
 #ifdef CONFIG_B43_SSB
@@ -2755,7 +2758,7 @@ static int b43_gpio_init(struct b43_wldev *dev)
 		if (gpiodev)
 			ssb_write32(gpiodev, B43_GPIO_CONTROL,
 				    (ssb_read32(gpiodev, B43_GPIO_CONTROL)
-				    & mask) | set);
+				    & ~mask) | set);
 		break;
 #endif
 	}
@@ -3409,7 +3412,8 @@ static void b43_tx_work(struct work_struct *work)
 }
 
 static void b43_op_tx(struct ieee80211_hw *hw,
-		     struct sk_buff *skb)
+		      struct ieee80211_tx_control *control,
+		      struct sk_buff *skb)
 {
 	struct b43_wl *wl = hw_to_b43_wl(hw);
 
@@ -4279,6 +4283,35 @@ out:
 	return err;
 }
 
+static char *b43_phy_name(struct b43_wldev *dev, u8 phy_type)
+{
+	switch (phy_type) {
+	case B43_PHYTYPE_A:
+		return "A";
+	case B43_PHYTYPE_B:
+		return "B";
+	case B43_PHYTYPE_G:
+		return "G";
+	case B43_PHYTYPE_N:
+		return "N";
+	case B43_PHYTYPE_LP:
+		return "LP";
+	case B43_PHYTYPE_SSLPN:
+		return "SSLPN";
+	case B43_PHYTYPE_HT:
+		return "HT";
+	case B43_PHYTYPE_LCN:
+		return "LCN";
+	case B43_PHYTYPE_LCNXN:
+		return "LCNXN";
+	case B43_PHYTYPE_LCN40:
+		return "LCN40";
+	case B43_PHYTYPE_AC:
+		return "AC";
+	}
+	return "UNKNOWN";
+}
+
 /* Get PHY and RADIO versioning numbers */
 static int b43_phy_versioning(struct b43_wldev *dev)
 {
@@ -4339,13 +4372,13 @@ static int b43_phy_versioning(struct b43_wldev *dev)
 		unsupported = 1;
 	}
 	if (unsupported) {
-		b43err(dev->wl, "FOUND UNSUPPORTED PHY "
-		       "(Analog %u, Type %u, Revision %u)\n",
-		       analog_type, phy_type, phy_rev);
+		b43err(dev->wl, "FOUND UNSUPPORTED PHY (Analog %u, Type %d (%s), Revision %u)\n",
+		       analog_type, phy_type, b43_phy_name(dev, phy_type),
+		       phy_rev);
 		return -EOPNOTSUPP;
 	}
-	b43dbg(dev->wl, "Found PHY: Analog %u, Type %u, Revision %u\n",
-	       analog_type, phy_type, phy_rev);
+	b43info(dev->wl, "Found PHY: Analog %u, Type %d (%s), Revision %u\n",
+		analog_type, phy_type, b43_phy_name(dev, phy_type), phy_rev);
 
 	/* Get RADIO versioning */
 	if (dev->dev->core_rev >= 24) {
@@ -5298,8 +5331,6 @@ static struct b43_wl *b43_wireless_init(struct b43_bus_dev *dev)
 
 	hw->wiphy->flags |= WIPHY_FLAG_IBSS_RSN;
 
-	hw->queues = modparam_qos ? B43_QOS_QUEUE_NUM : 1;
-	wl->mac80211_initially_registered_queues = hw->queues;
 	wl->hw_registred = false;
 	hw->max_rates = 2;
 	SET_IEEE80211_DEV(hw, dev->dev);
@@ -5374,10 +5405,6 @@ static void b43_bcma_remove(struct bcma_device *core)
 
 	B43_WARN_ON(!wl);
 	if (wl->current_dev == wldev && wl->hw_registred) {
-		/* Restore the queues count before unregistering, because firmware detect
-		 * might have modified it. Restoring is important, so the networking
-		 * stack can properly free resources. */
-		wl->hw->queues = wl->mac80211_initially_registered_queues;
 		b43_leds_stop(wldev);
 		ieee80211_unregister_hw(wl->hw);
 	}
@@ -5452,10 +5479,6 @@ static void b43_ssb_remove(struct ssb_device *sdev)
 
 	B43_WARN_ON(!wl);
 	if (wl->current_dev == wldev && wl->hw_registred) {
-		/* Restore the queues count before unregistering, because firmware detect
-		 * might have modified it. Restoring is important, so the networking
-		 * stack can properly free resources. */
-		wl->hw->queues = wl->mac80211_initially_registered_queues;
 		b43_leds_stop(wldev);
 		ieee80211_unregister_hw(wl->hw);
 	}

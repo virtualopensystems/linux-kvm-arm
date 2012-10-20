@@ -33,7 +33,6 @@
 
 #include <mach/iomap.h>
 #include <mach/irqs.h>
-#include <mach/suspend.h>
 
 #include "board.h"
 #include "clock.h"
@@ -189,7 +188,7 @@ static void __init tegra_init_timer(void)
 			" Assuming 12Mhz input clock.\n");
 		rate = 12000000;
 	} else {
-		clk_enable(clk);
+		clk_prepare_enable(clk);
 		rate = clk_get_rate(clk);
 	}
 
@@ -201,7 +200,7 @@ static void __init tegra_init_timer(void)
 	if (IS_ERR(clk))
 		pr_warn("Unable to get rtc-tegra clock\n");
 	else
-		clk_enable(clk);
+		clk_prepare_enable(clk);
 
 	switch (rate) {
 	case 12000000:

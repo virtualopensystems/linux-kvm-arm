@@ -19,8 +19,8 @@
 #include <linux/mv643xx_eth.h>
 #include <linux/mv643xx_i2c.h>
 #include <net/dsa.h>
-#include <plat/mv_xor.h>
-#include <plat/ehci-orion.h>
+#include <linux/platform_data/dma-mv_xor.h>
+#include <linux/platform_data/usb-ehci-orion.h>
 #include <mach/bridge-regs.h>
 
 /* Create a clkdev entry for a given device/clk */
@@ -47,6 +47,7 @@ void __init orion_clkdev_init(struct clk *tclk)
 	orion_clkdev_add(NULL, MV643XX_ETH_NAME ".2", tclk);
 	orion_clkdev_add(NULL, MV643XX_ETH_NAME ".3", tclk);
 	orion_clkdev_add(NULL, "orion_wdt", tclk);
+	orion_clkdev_add(NULL, MV64XXX_I2C_CTLR_NAME ".0", tclk);
 }
 
 /* Fill in the resources structure and link it into the platform
@@ -85,13 +86,13 @@ static void __init uart_complete(
 	struct platform_device *orion_uart,
 	struct plat_serial8250_port *data,
 	struct resource *resources,
-	unsigned int membase,
+	void __iomem *membase,
 	resource_size_t mapbase,
 	unsigned int irq,
 	struct clk *clk)
 {
 	data->mapbase = mapbase;
-	data->membase = (void __iomem *)membase;
+	data->membase = membase;
 	data->irq = irq;
 	data->uartclk = uart_get_clk_rate(clk);
 	orion_uart->dev.platform_data = data;
@@ -119,7 +120,7 @@ static struct platform_device orion_uart0 = {
 	.id			= PLAT8250_DEV_PLATFORM,
 };
 
-void __init orion_uart0_init(unsigned int membase,
+void __init orion_uart0_init(void __iomem *membase,
 			     resource_size_t mapbase,
 			     unsigned int irq,
 			     struct clk *clk)
@@ -147,7 +148,7 @@ static struct platform_device orion_uart1 = {
 	.id			= PLAT8250_DEV_PLATFORM1,
 };
 
-void __init orion_uart1_init(unsigned int membase,
+void __init orion_uart1_init(void __iomem *membase,
 			     resource_size_t mapbase,
 			     unsigned int irq,
 			     struct clk *clk)
@@ -175,7 +176,7 @@ static struct platform_device orion_uart2 = {
 	.id			= PLAT8250_DEV_PLATFORM2,
 };
 
-void __init orion_uart2_init(unsigned int membase,
+void __init orion_uart2_init(void __iomem *membase,
 			     resource_size_t mapbase,
 			     unsigned int irq,
 			     struct clk *clk)
@@ -203,7 +204,7 @@ static struct platform_device orion_uart3 = {
 	.id			= 3,
 };
 
-void __init orion_uart3_init(unsigned int membase,
+void __init orion_uart3_init(void __iomem *membase,
 			     resource_size_t mapbase,
 			     unsigned int irq,
 			     struct clk *clk)
@@ -290,10 +291,12 @@ static struct platform_device orion_ge00 = {
 void __init orion_ge00_init(struct mv643xx_eth_platform_data *eth_data,
 			    unsigned long mapbase,
 			    unsigned long irq,
-			    unsigned long irq_err)
+			    unsigned long irq_err,
+			    unsigned int tx_csum_limit)
 {
 	fill_resources(&orion_ge00_shared, orion_ge00_shared_resources,
 		       mapbase + 0x2000, SZ_16K - 1, irq_err);
+	orion_ge00_shared_data.tx_csum_limit = tx_csum_limit;
 	ge_complete(&orion_ge00_shared_data,
 		    orion_ge00_resources, irq, &orion_ge00_shared,
 		    eth_data, &orion_ge00);
@@ -342,10 +345,12 @@ static struct platform_device orion_ge01 = {
 void __init orion_ge01_init(struct mv643xx_eth_platform_data *eth_data,
 			    unsigned long mapbase,
 			    unsigned long irq,
-			    unsigned long irq_err)
+			    unsigned long irq_err,
+			    unsigned int tx_csum_limit)
 {
 	fill_resources(&orion_ge01_shared, orion_ge01_shared_resources,
 		       mapbase + 0x2000, SZ_16K - 1, irq_err);
+	orion_ge01_shared_data.tx_csum_limit = tx_csum_limit;
 	ge_complete(&orion_ge01_shared_data,
 		    orion_ge01_resources, irq, &orion_ge01_shared,
 		    eth_data, &orion_ge01);

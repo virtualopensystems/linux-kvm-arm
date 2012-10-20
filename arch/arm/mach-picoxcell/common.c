@@ -14,19 +14,21 @@
 #include <linux/of_address.h>
 #include <linux/of_irq.h>
 #include <linux/of_platform.h>
+#include <linux/dw_apb_timer.h>
 
 #include <asm/mach/arch.h>
 #include <asm/hardware/vic.h>
 #include <asm/mach/map.h>
 
-#include <mach/map.h>
-#include <mach/picoxcell_soc.h>
-
 #include "common.h"
 
-#define WDT_CTRL_REG_EN_MASK	(1 << 0)
-#define WDT_CTRL_REG_OFFS	(0x00)
-#define WDT_TIMEOUT_REG_OFFS	(0x04)
+#define PHYS_TO_IO(x)			(((x) & 0x00ffffff) | 0xfe000000)
+#define PICOXCELL_PERIPH_BASE		0x80000000
+#define PICOXCELL_PERIPH_LENGTH		SZ_4M
+
+#define WDT_CTRL_REG_EN_MASK		(1 << 0)
+#define WDT_CTRL_REG_OFFS		(0x00)
+#define WDT_TIMEOUT_REG_OFFS		(0x04)
 static void __iomem *wdt_regs;
 
 /*
@@ -97,7 +99,7 @@ DT_MACHINE_START(PICOXCELL, "Picochip picoXcell")
 	.nr_irqs	= NR_IRQS_LEGACY,
 	.init_irq	= picoxcell_init_irq,
 	.handle_irq	= vic_handle_irq,
-	.timer		= &picoxcell_timer,
+	.timer		= &dw_apb_timer,
 	.init_machine	= picoxcell_init_machine,
 	.dt_compat	= picoxcell_dt_match,
 	.restart	= picoxcell_wdt_restart,

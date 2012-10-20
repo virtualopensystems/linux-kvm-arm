@@ -1586,9 +1586,9 @@ il_fill_probe_req(struct il_priv *il, struct ieee80211_mgmt *frame,
 		return 0;
 
 	frame->frame_control = cpu_to_le16(IEEE80211_STYPE_PROBE_REQ);
-	memcpy(frame->da, il_bcast_addr, ETH_ALEN);
+	eth_broadcast_addr(frame->da);
 	memcpy(frame->sa, ta, ETH_ALEN);
-	memcpy(frame->bssid, il_bcast_addr, ETH_ALEN);
+	eth_broadcast_addr(frame->bssid);
 	frame->seq_ctrl = 0;
 
 	len += 24;
@@ -4717,10 +4717,11 @@ il_check_stuck_queue(struct il_priv *il, int cnt)
 	struct il_tx_queue *txq = &il->txq[cnt];
 	struct il_queue *q = &txq->q;
 	unsigned long timeout;
+	unsigned long now = jiffies;
 	int ret;
 
 	if (q->read_ptr == q->write_ptr) {
-		txq->time_stamp = jiffies;
+		txq->time_stamp = now;
 		return 0;
 	}
 
@@ -4728,9 +4729,9 @@ il_check_stuck_queue(struct il_priv *il, int cnt)
 	    txq->time_stamp +
 	    msecs_to_jiffies(il->cfg->wd_timeout);
 
-	if (time_after(jiffies, timeout)) {
+	if (time_after(now, timeout)) {
 		IL_ERR("Queue %d stuck for %u ms.\n", q->id,
-		       il->cfg->wd_timeout);
+		       jiffies_to_msecs(now - txq->time_stamp));
 		ret = il_force_reset(il, false);
 		return (ret == -EAGAIN) ? 0 : 1;
 	}
@@ -4859,7 +4860,7 @@ EXPORT_SYMBOL(il_add_beacon_time);
 
 #ifdef CONFIG_PM
 
-int
+static int
 il_pci_suspend(struct device *device)
 {
 	struct pci_dev *pdev = to_pci_dev(device);
@@ -4876,9 +4877,8 @@ il_pci_suspend(struct device *device)
 
 	return 0;
 }
-EXPORT_SYMBOL(il_pci_suspend);
 
-int
+static int
 il_pci_resume(struct device *device)
 {
 	struct pci_dev *pdev = to_pci_dev(device);
@@ -4905,16 +4905,8 @@ il_pci_resume(struct device *device)
 
 	return 0;
 }
-EXPORT_SYMBOL(il_pci_resume);
 
-const struct dev_pm_ops il_pm_ops = {
-	.suspend = il_pci_suspend,
-	.resume = il_pci_resume,
-	.freeze = il_pci_suspend,
-	.thaw = il_pci_resume,
-	.poweroff = il_pci_suspend,
-	.restore = il_pci_resume,
-};
+SIMPLE_DEV_PM_OPS(il_pm_ops, il_pci_suspend, il_pci_resume);
 EXPORT_SYMBOL(il_pm_ops);
 
 #endif /* CONFIG_PM */
@@ -5358,7 +5350,7 @@ il_mac_bss_info_changed(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 	if (changes & BSS_CHANGED_ASSOC) {
 		D_MAC80211("ASSOC %d\n", bss_conf->assoc);
 		if (bss_conf->assoc) {
-			il->timestamp = bss_conf->last_tsf;
+			il->timestamp = bss_conf->sync_tsf;
 
 			if (!il_is_rfkill(il))
 				il->ops->post_associate(il);

@@ -35,6 +35,7 @@
 #include <asm/setup.h>
 #include <asm/mach-types.h>
 
+#include <video/samsung_fimd.h>
 #include <mach/map.h>
 #include <mach/regs-clock.h>
 
@@ -43,13 +44,12 @@
 #include <plat/devs.h>
 #include <plat/cpu.h>
 #include <plat/fb.h>
-#include <plat/iic.h>
+#include <linux/platform_data/i2c-s3c2410.h>
 #include <plat/keypad.h>
 #include <plat/sdhci.h>
 #include <plat/clock.h>
 #include <plat/s5p-time.h>
 #include <plat/mfc.h>
-#include <plat/regs-fb-v4.h>
 #include <plat/camport.h>
 
 #include <media/v4l2-mediabus.h>
@@ -859,12 +859,19 @@ static struct s5p_platform_fimc goni_fimc_md_platdata __initdata = {
 	.num_clients	= ARRAY_SIZE(goni_camera_sensors),
 };
 
+/* Audio device */
+static struct platform_device goni_device_audio = {
+	.name = "smdk-audio",
+	.id = -1,
+};
+
 static struct platform_device *goni_devices[] __initdata = {
 	&s3c_device_fb,
 	&s5p_device_onenand,
 	&goni_spi_gpio,
 	&goni_i2c_gpio_pmic,
 	&goni_i2c_gpio5,
+	&goni_device_audio,
 	&mmc2_fixed_voltage,
 	&goni_device_gpiokeys,
 	&s5p_device_mfc,
@@ -901,7 +908,7 @@ static void __init goni_sound_init(void)
 static void __init goni_map_io(void)
 {
 	s5pv210_init_io(NULL, 0);
-	s3c24xx_init_clocks(24000000);
+	s3c24xx_init_clocks(clk_xusbxti.rate);
 	s3c24xx_init_uarts(goni_uartcfgs, ARRAY_SIZE(goni_uartcfgs));
 	s5p_set_timer_source(S5P_PWM3, S5P_PWM4);
 }
@@ -958,8 +965,6 @@ static void __init goni_machine_init(void)
 
 	/* KEYPAD */
 	samsung_keypad_set_platdata(&keypad_data);
-
-	clk_xusbxti.rate = 24000000;
 
 	platform_add_devices(goni_devices, ARRAY_SIZE(goni_devices));
 }

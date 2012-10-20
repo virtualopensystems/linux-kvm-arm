@@ -63,8 +63,8 @@ struct hpfs_sb_info {
 	unsigned sb_dmap;		/* sector number of dnode bit map */
 	unsigned sb_n_free;		/* free blocks for statfs, or -1 */
 	unsigned sb_n_free_dnodes;	/* free dnodes for statfs, or -1 */
-	uid_t sb_uid;			/* uid from mount options */
-	gid_t sb_gid;			/* gid from mount options */
+	kuid_t sb_uid;			/* uid from mount options */
+	kgid_t sb_gid;			/* gid from mount options */
 	umode_t sb_mode;		/* mode from mount options */
 	unsigned sb_eas : 2;		/* eas: 0-ignore, 1-ro, 2-rw */
 	unsigned sb_err : 2;		/* on errs: 0-cont, 1-ro, 2-panic */
@@ -220,7 +220,7 @@ extern const struct dentry_operations hpfs_dentry_operations;
 
 /* dir.c */
 
-struct dentry *hpfs_lookup(struct inode *, struct dentry *, struct nameidata *);
+struct dentry *hpfs_lookup(struct inode *, struct dentry *, unsigned int);
 extern const struct file_operations hpfs_dir_ops;
 
 /* dnode.c */

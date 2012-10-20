@@ -75,9 +75,10 @@ folder:
 
 There is a special folder for debugging information:
 
-#  ls /sys/kernel/debug/batman_adv/bat0/
-# bla_claim_table    log                socket             transtable_local
-# gateways           originators        transtable_global  vis_data
+# ls /sys/kernel/debug/batman_adv/bat0/
+# bla_backbone_table  log                 transtable_global
+# bla_claim_table     originators         transtable_local
+# gateways            socket              vis_data
 
 Some of the files contain all sort of status information  regard-
 ing  the  mesh  network.  For  example, you can view the table of
@@ -210,6 +211,11 @@ The debug output can be changed at runtime  using  the  file
 # echo 6 > /sys/class/net/bat0/mesh/log_level
 
 will enable debug messages for when routes change.
+
+Counters for different types of packets entering and leaving the
+batman-adv module are available through ethtool:
+
+# ethtool --statistics bat0
 
 
 BATCTL

@@ -53,7 +53,7 @@ static ssize_t led_brightness_store(struct device *dev,
 
 	if (state == LED_OFF)
 		led_trigger_remove(led_cdev);
-	led_set_brightness(led_cdev, state);
+	__led_set_brightness(led_cdev, state);
 
 	return size;
 }
@@ -82,7 +82,12 @@ static void led_timer_function(unsigned long data)
 	unsigned long delay;
 
 	if (!led_cdev->blink_delay_on || !led_cdev->blink_delay_off) {
-		led_set_brightness(led_cdev, LED_OFF);
+		__led_set_brightness(led_cdev, LED_OFF);
+		return;
+	}
+
+	if (led_cdev->flags & LED_BLINK_ONESHOT_STOP) {
+		led_cdev->flags &= ~LED_BLINK_ONESHOT_STOP;
 		return;
 	}
 
@@ -100,9 +105,33 @@ static void led_timer_function(unsigned long data)
 		delay = led_cdev->blink_delay_off;
 	}
 
-	led_set_brightness(led_cdev, brightness);
+	__led_set_brightness(led_cdev, brightness);
+
+	/* Return in next iteration if led is in one-shot mode and we are in
+	 * the final blink state so that the led is toggled each delay_on +
+	 * delay_off milliseconds in worst case.
+	 */
+	if (led_cdev->flags & LED_BLINK_ONESHOT) {
+		if (led_cdev->flags & LED_BLINK_INVERT) {
+			if (brightness)
+				led_cdev->flags |= LED_BLINK_ONESHOT_STOP;
+		} else {
+			if (!brightness)
+				led_cdev->flags |= LED_BLINK_ONESHOT_STOP;
+		}
+	}
 
 	mod_timer(&led_cdev->blink_timer, jiffies + msecs_to_jiffies(delay));
+}
+
+static void set_brightness_delayed(struct work_struct *ws)
+{
+	struct led_classdev *led_cdev =
+		container_of(ws, struct led_classdev, set_brightness_work);
+
+	led_stop_software_blink(led_cdev);
+
+	__led_set_brightness(led_cdev, led_cdev->delayed_set_value);
 }
 
 /**
@@ -172,6 +201,8 @@ int led_classdev_register(struct device *parent, struct led_classdev *led_cdev)
 
 	led_update_brightness(led_cdev);
 
+	INIT_WORK(&led_cdev->set_brightness_work, set_brightness_delayed);
+
 	init_timer(&led_cdev->blink_timer);
 	led_cdev->blink_timer.function = led_timer_function;
 	led_cdev->blink_timer.data = (unsigned long)led_cdev;
@@ -202,8 +233,11 @@ void led_classdev_unregister(struct led_classdev *led_cdev)
 	up_write(&led_cdev->trigger_lock);
 #endif
 
+	cancel_work_sync(&led_cdev->set_brightness_work);
+
 	/* Stop blinking */
-	led_brightness_set(led_cdev, LED_OFF);
+	led_stop_software_blink(led_cdev);
+	led_set_brightness(led_cdev, LED_OFF);
 
 	device_unregister(led_cdev->dev);
 

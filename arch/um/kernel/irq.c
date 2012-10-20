@@ -5,17 +5,17 @@
  *	Copyright (C) 1992, 1998 Linus Torvalds, Ingo Molnar
  */
 
-#include "linux/cpumask.h"
-#include "linux/hardirq.h"
-#include "linux/interrupt.h"
-#include "linux/kernel_stat.h"
-#include "linux/module.h"
-#include "linux/sched.h"
-#include "linux/seq_file.h"
-#include "linux/slab.h"
-#include "as-layout.h"
-#include "kern_util.h"
-#include "os.h"
+#include <linux/cpumask.h>
+#include <linux/hardirq.h>
+#include <linux/interrupt.h>
+#include <linux/kernel_stat.h>
+#include <linux/module.h>
+#include <linux/sched.h>
+#include <linux/seq_file.h>
+#include <linux/slab.h>
+#include <as-layout.h>
+#include <kern_util.h>
+#include <os.h>
 
 /*
  * This list is accessed under irq_lock, except in sigio_handler,
@@ -30,7 +30,7 @@ static struct irq_fd **last_irq_ptr = &active_fds;
 
 extern void free_irqs(void);
 
-void sigio_handler(int sig, struct uml_pt_regs *regs)
+void sigio_handler(int sig, struct siginfo *unused_si, struct uml_pt_regs *regs)
 {
 	struct irq_fd *irq_fd;
 	int n;

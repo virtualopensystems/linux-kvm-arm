@@ -20,6 +20,8 @@
 #ifndef __LOCAL_HCI_H
 #define __LOCAL_HCI_H
 
+#include <net/nfc/hci.h>
+
 struct gate_pipe_map {
 	u8 gate;
 	u8 pipe;
@@ -35,14 +37,6 @@ struct hcp_packet {
 	struct hcp_message message;
 } __packed;
 
-/*
- * HCI command execution completion callback.
- * result will be one of the HCI response codes.
- * skb contains the response data and must be disposed.
- */
-typedef void (*hci_cmd_cb_t) (struct nfc_hci_dev *hdev, u8 result,
-			      struct sk_buff *skb, void *cb_data);
-
 struct hcp_exec_waiter {
 	wait_queue_head_t *wq;
 	bool exec_complete;
@@ -54,7 +48,7 @@ struct hci_msg {
 	struct list_head msg_l;
 	struct sk_buff_head msg_frags;
 	bool wait_response;
-	hci_cmd_cb_t cb;
+	data_exchange_cb_t cb;
 	void *cb_context;
 	unsigned long completion_delay;
 };
@@ -82,7 +76,7 @@ struct hci_create_pipe_resp {
 int nfc_hci_hcp_message_tx(struct nfc_hci_dev *hdev, u8 pipe,
 			   u8 type, u8 instruction,
 			   const u8 *payload, size_t payload_len,
-			   hci_cmd_cb_t cb, void *cb_data,
+			   data_exchange_cb_t cb, void *cb_context,
 			   unsigned long completion_delay);
 
 u8 nfc_hci_pipe2gate(struct nfc_hci_dev *hdev, u8 pipe);
@@ -130,10 +124,5 @@ void nfc_hci_hcp_message_rx(struct nfc_hci_dev *hdev, u8 pipe, u8 type,
 #define NFC_HCI_ANY_E_TIMEOUT			0x09
 #define NFC_HCI_ANY_E_REG_ACCESS_DENIED		0x0a
 #define NFC_HCI_ANY_E_PIPE_ACCESS_DENIED	0x0b
-
-/* Pipes */
-#define NFC_HCI_INVALID_PIPE	0x80
-#define NFC_HCI_LINK_MGMT_PIPE	0x00
-#define NFC_HCI_ADMIN_PIPE	0x01
 
 #endif /* __LOCAL_HCI_H */

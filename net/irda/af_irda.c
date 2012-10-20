@@ -468,7 +468,7 @@ static int irda_open_tsap(struct irda_sock *self, __u8 tsap_sel, char *name)
 	notify_t notify;
 
 	if (self->tsap) {
-		IRDA_WARNING("%s: busy!\n", __func__);
+		IRDA_DEBUG(0, "%s: busy!\n", __func__);
 		return -EBUSY;
 	}
 
@@ -955,7 +955,7 @@ out:
  * The main difference with a "standard" connect is that with IrDA we need
  * to resolve the service name into a TSAP selector (in TCP, port number
  * doesn't have to be resolved).
- * Because of this service name resoltion, we can offer "auto-connect",
+ * Because of this service name resolution, we can offer "auto-connect",
  * where we connect to a service without specifying a destination address.
  *
  * Note : by consulting "errno", the user space caller may learn the cause

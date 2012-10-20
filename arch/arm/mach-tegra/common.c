@@ -31,8 +31,11 @@
 
 #include "board.h"
 #include "clock.h"
+#include "common.h"
 #include "fuse.h"
 #include "pmc.h"
+#include "apbio.h"
+#include "sleep.h"
 
 /*
  * Storage for debug-macro.S's state.
@@ -127,28 +130,31 @@ static void __init tegra_init_cache(u32 tag_latency, u32 data_latency)
 #ifdef CONFIG_ARCH_TEGRA_2x_SOC
 void __init tegra20_init_early(void)
 {
+	tegra_apb_io_init();
 	tegra_init_fuse();
 	tegra2_init_clocks();
 	tegra_clk_init_from_table(tegra20_clk_init_table);
 	tegra_init_cache(0x331, 0x441);
 	tegra_pmc_init();
 	tegra_powergate_init();
+	tegra20_hotplug_init();
 }
 #endif
 #ifdef CONFIG_ARCH_TEGRA_3x_SOC
 void __init tegra30_init_early(void)
 {
+	tegra_apb_io_init();
 	tegra_init_fuse();
 	tegra30_init_clocks();
 	tegra_clk_init_from_table(tegra30_clk_init_table);
 	tegra_init_cache(0x441, 0x551);
 	tegra_pmc_init();
 	tegra_powergate_init();
+	tegra30_hotplug_init();
 }
 #endif
 
 void __init tegra_init_late(void)
 {
-	tegra_clk_debugfs_init();
 	tegra_powergate_debugfs_init();
 }

@@ -28,7 +28,6 @@
 
 #include <linux/module.h>
 #include <linux/moduleparam.h>
-#include <generated/utsrelease.h>
 #include <linux/utsname.h>
 #include <linux/init.h>
 #include <linux/slab.h>
@@ -183,6 +182,13 @@ int ft_queue_data_in(struct se_cmd *se_cmd)
 	return ft_queue_status(se_cmd);
 }
 
+static void ft_execute_work(struct work_struct *work)
+{
+	struct ft_cmd *cmd = container_of(work, struct ft_cmd, work);
+
+	target_execute_cmd(&cmd->se_cmd);
+}
+
 /*
  * Receive write data frame.
  */
@@ -307,8 +313,10 @@ void ft_recv_write_data(struct ft_cmd *cmd, struct fc_frame *fp)
 		cmd->write_data_len += tlen;
 	}
 last_frame:
-	if (cmd->write_data_len == se_cmd->data_length)
-		transport_generic_handle_data(se_cmd);
+	if (cmd->write_data_len == se_cmd->data_length) {
+		INIT_WORK(&cmd->work, ft_execute_work);
+		queue_work(cmd->sess->tport->tpg->workqueue, &cmd->work);
+	}
 drop:
 	fc_frame_free(fp);
 }
@@ -319,11 +327,12 @@ drop:
  */
 void ft_invl_hw_context(struct ft_cmd *cmd)
 {
-	struct fc_seq *seq = cmd->seq;
+	struct fc_seq *seq;
 	struct fc_exch *ep = NULL;
 	struct fc_lport *lport = NULL;
 
 	BUG_ON(!cmd);
+	seq = cmd->seq;
 
 	/* Cleanup the DDP context in HW if DDP was setup */
 	if (cmd->was_ddp_setup && seq) {

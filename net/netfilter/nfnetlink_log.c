@@ -55,7 +55,8 @@ struct nfulnl_instance {
 	unsigned int qlen;		/* number of nlmsgs in skb */
 	struct sk_buff *skb;		/* pre-allocatd skb */
 	struct timer_list timer;
-	int peer_pid;			/* PID of the peer process */
+	struct user_namespace *peer_user_ns;	/* User namespace of the peer process */
+	int peer_portid;			/* PORTID of the peer process */
 
 	/* configurable parameters */
 	unsigned int flushtimeout;	/* timeout until queue flush */
@@ -132,7 +133,7 @@ instance_put(struct nfulnl_instance *inst)
 static void nfulnl_timer(unsigned long data);
 
 static struct nfulnl_instance *
-instance_create(u_int16_t group_num, int pid)
+instance_create(u_int16_t group_num, int portid, struct user_namespace *user_ns)
 {
 	struct nfulnl_instance *inst;
 	int err;
@@ -162,7 +163,8 @@ instance_create(u_int16_t group_num, int pid)
 
 	setup_timer(&inst->timer, nfulnl_timer, (unsigned long)inst);
 
-	inst->peer_pid = pid;
+	inst->peer_user_ns = user_ns;
+	inst->peer_portid = portid;
 	inst->group_num = group_num;
 
 	inst->qthreshold 	= NFULNL_QTHRESH_DEFAULT;
@@ -326,18 +328,20 @@ __nfulnl_send(struct nfulnl_instance *inst)
 {
 	int status = -1;
 
-	if (inst->qlen > 1)
-		NLMSG_PUT(inst->skb, 0, 0,
-			  NLMSG_DONE,
-			  sizeof(struct nfgenmsg));
-
-	status = nfnetlink_unicast(inst->skb, &init_net, inst->peer_pid,
+	if (inst->qlen > 1) {
+		struct nlmsghdr *nlh = nlmsg_put(inst->skb, 0, 0,
+						 NLMSG_DONE,
+						 sizeof(struct nfgenmsg),
+						 0);
+		if (!nlh)
+			goto out;
+	}
+	status = nfnetlink_unicast(inst->skb, &init_net, inst->peer_portid,
 				   MSG_DONTWAIT);
 
 	inst->qlen = 0;
 	inst->skb = NULL;
-
-nlmsg_failure:
+out:
 	return status;
 }
 
@@ -379,11 +383,14 @@ __build_packet_message(struct nfulnl_instance *inst,
 	struct nlmsghdr *nlh;
 	struct nfgenmsg *nfmsg;
 	sk_buff_data_t old_tail = inst->skb->tail;
+	struct sock *sk;
 
-	nlh = NLMSG_PUT(inst->skb, 0, 0,
+	nlh = nlmsg_put(inst->skb, 0, 0,
 			NFNL_SUBSYS_ULOG << 8 | NFULNL_MSG_PACKET,
-			sizeof(struct nfgenmsg));
-	nfmsg = NLMSG_DATA(nlh);
+			sizeof(struct nfgenmsg), 0);
+	if (!nlh)
+		return -1;
+	nfmsg = nlmsg_data(nlh);
 	nfmsg->nfgen_family = pf;
 	nfmsg->version = NFNETLINK_V0;
 	nfmsg->res_id = htons(inst->group_num);
@@ -476,7 +483,7 @@ __build_packet_message(struct nfulnl_instance *inst,
 	}
 
 	if (indev && skb_mac_header_was_set(skb)) {
-		if (nla_put_be32(inst->skb, NFULA_HWTYPE, htons(skb->dev->type)) ||
+		if (nla_put_be16(inst->skb, NFULA_HWTYPE, htons(skb->dev->type)) ||
 		    nla_put_be16(inst->skb, NFULA_HWLEN,
 				 htons(skb->dev->hard_header_len)) ||
 		    nla_put(inst->skb, NFULA_HWHEADER, skb->dev->hard_header_len,
@@ -495,18 +502,21 @@ __build_packet_message(struct nfulnl_instance *inst,
 	}
 
 	/* UID */
-	if (skb->sk) {
-		read_lock_bh(&skb->sk->sk_callback_lock);
-		if (skb->sk->sk_socket && skb->sk->sk_socket->file) {
-			struct file *file = skb->sk->sk_socket->file;
-			__be32 uid = htonl(file->f_cred->fsuid);
-			__be32 gid = htonl(file->f_cred->fsgid);
-			read_unlock_bh(&skb->sk->sk_callback_lock);
+	sk = skb->sk;
+	if (sk && sk->sk_state != TCP_TIME_WAIT) {
+		read_lock_bh(&sk->sk_callback_lock);
+		if (sk->sk_socket && sk->sk_socket->file) {
+			struct file *file = sk->sk_socket->file;
+			const struct cred *cred = file->f_cred;
+			struct user_namespace *user_ns = inst->peer_user_ns;
+			__be32 uid = htonl(from_kuid_munged(user_ns, cred->fsuid));
+			__be32 gid = htonl(from_kgid_munged(user_ns, cred->fsgid));
+			read_unlock_bh(&sk->sk_callback_lock);
 			if (nla_put_be32(inst->skb, NFULA_UID, uid) ||
 			    nla_put_be32(inst->skb, NFULA_GID, gid))
 				goto nla_put_failure;
 		} else
-			read_unlock_bh(&skb->sk->sk_callback_lock);
+			read_unlock_bh(&sk->sk_callback_lock);
 	}
 
 	/* local sequence number */
@@ -526,7 +536,7 @@ __build_packet_message(struct nfulnl_instance *inst,
 
 		if (skb_tailroom(inst->skb) < nla_total_size(data_len)) {
 			printk(KERN_WARNING "nfnetlink_log: no tailroom!\n");
-			goto nlmsg_failure;
+			return -1;
 		}
 
 		nla = (struct nlattr *)skb_put(inst->skb, nla_total_size(data_len));
@@ -540,7 +550,6 @@ __build_packet_message(struct nfulnl_instance *inst,
 	nlh->nlmsg_len = inst->skb->tail - old_tail;
 	return 0;
 
-nlmsg_failure:
 nla_put_failure:
 	PRINTR(KERN_ERR "nfnetlink_log: error creating log nlmsg\n");
 	return -1;
@@ -695,7 +704,7 @@ nfulnl_rcv_nl_event(struct notifier_block *this,
 	if (event == NETLINK_URELEASE && n->protocol == NETLINK_NETFILTER) {
 		int i;
 
-		/* destroy all instances for this pid */
+		/* destroy all instances for this portid */
 		spin_lock_bh(&instances_lock);
 		for  (i = 0; i < INSTANCE_BUCKETS; i++) {
 			struct hlist_node *tmp, *t2;
@@ -704,7 +713,7 @@ nfulnl_rcv_nl_event(struct notifier_block *this,
 
 			hlist_for_each_entry_safe(inst, tmp, t2, head, hlist) {
 				if ((net_eq(n->net, &init_net)) &&
-				    (n->pid == inst->peer_pid))
+				    (n->portid == inst->peer_portid))
 					__instance_destroy(inst);
 			}
 		}
@@ -745,7 +754,7 @@ nfulnl_recv_config(struct sock *ctnl, struct sk_buff *skb,
 		   const struct nlmsghdr *nlh,
 		   const struct nlattr * const nfula[])
 {
-	struct nfgenmsg *nfmsg = NLMSG_DATA(nlh);
+	struct nfgenmsg *nfmsg = nlmsg_data(nlh);
 	u_int16_t group_num = ntohs(nfmsg->res_id);
 	struct nfulnl_instance *inst;
 	struct nfulnl_msg_config_cmd *cmd = NULL;
@@ -766,7 +775,7 @@ nfulnl_recv_config(struct sock *ctnl, struct sk_buff *skb,
 	}
 
 	inst = instance_lookup_get(group_num);
-	if (inst && inst->peer_pid != NETLINK_CB(skb).pid) {
+	if (inst && inst->peer_portid != NETLINK_CB(skb).portid) {
 		ret = -EPERM;
 		goto out_put;
 	}
@@ -780,7 +789,8 @@ nfulnl_recv_config(struct sock *ctnl, struct sk_buff *skb,
 			}
 
 			inst = instance_create(group_num,
-					       NETLINK_CB(skb).pid);
+					       NETLINK_CB(skb).portid,
+					       sk_user_ns(NETLINK_CB(skb).ssk));
 			if (IS_ERR(inst)) {
 				ret = PTR_ERR(inst);
 				goto out;
@@ -938,7 +948,7 @@ static int seq_show(struct seq_file *s, void *v)
 
 	return seq_printf(s, "%5d %6d %5d %1d %5d %6d %2d\n",
 			  inst->group_num,
-			  inst->peer_pid, inst->qlen,
+			  inst->peer_portid, inst->qlen,
 			  inst->copy_mode, inst->copy_range,
 			  inst->flushtimeout, atomic_read(&inst->use));
 }
@@ -993,8 +1003,10 @@ static int __init nfnetlink_log_init(void)
 
 #ifdef CONFIG_PROC_FS
 	if (!proc_create("nfnetlink_log", 0440,
-			 proc_net_netfilter, &nful_file_ops))
+			 proc_net_netfilter, &nful_file_ops)) {
+		status = -ENOMEM;
 		goto cleanup_logger;
+	}
 #endif
 	return status;
 

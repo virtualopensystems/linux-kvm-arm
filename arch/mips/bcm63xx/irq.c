@@ -27,6 +27,17 @@ static void __internal_irq_unmask_32(unsigned int irq) __maybe_unused;
 static void __internal_irq_unmask_64(unsigned int irq) __maybe_unused;
 
 #ifndef BCMCPU_RUNTIME_DETECT
+#ifdef CONFIG_BCM63XX_CPU_6328
+#define irq_stat_reg		PERF_IRQSTAT_6328_REG
+#define irq_mask_reg		PERF_IRQMASK_6328_REG
+#define irq_bits		64
+#define is_ext_irq_cascaded	1
+#define ext_irq_start		(BCM_6328_EXT_IRQ0 - IRQ_INTERNAL_BASE)
+#define ext_irq_end		(BCM_6328_EXT_IRQ3 - IRQ_INTERNAL_BASE)
+#define ext_irq_count		4
+#define ext_irq_cfg_reg1	PERF_EXTIRQ_CFG_REG_6328
+#define ext_irq_cfg_reg2	0
+#endif
 #ifdef CONFIG_BCM63XX_CPU_6338
 #define irq_stat_reg		PERF_IRQSTAT_6338_REG
 #define irq_mask_reg		PERF_IRQMASK_6338_REG
@@ -45,8 +56,8 @@ static void __internal_irq_unmask_64(unsigned int irq) __maybe_unused;
 #define is_ext_irq_cascaded	0
 #define ext_irq_start		0
 #define ext_irq_end		0
-#define ext_irq_count		0
-#define ext_irq_cfg_reg1	0
+#define ext_irq_count		4
+#define ext_irq_cfg_reg1	PERF_EXTIRQ_CFG_REG_6345
 #define ext_irq_cfg_reg2	0
 #endif
 #ifdef CONFIG_BCM63XX_CPU_6348
@@ -118,15 +129,29 @@ static void bcm63xx_init_irq(void)
 	irq_mask_addr = bcm63xx_regset_address(RSET_PERF);
 
 	switch (bcm63xx_get_cpu_id()) {
+	case BCM6328_CPU_ID:
+		irq_stat_addr += PERF_IRQSTAT_6328_REG;
+		irq_mask_addr += PERF_IRQMASK_6328_REG;
+		irq_bits = 64;
+		ext_irq_count = 4;
+		is_ext_irq_cascaded = 1;
+		ext_irq_start = BCM_6328_EXT_IRQ0 - IRQ_INTERNAL_BASE;
+		ext_irq_end = BCM_6328_EXT_IRQ3 - IRQ_INTERNAL_BASE;
+		ext_irq_cfg_reg1 = PERF_EXTIRQ_CFG_REG_6328;
+		break;
 	case BCM6338_CPU_ID:
 		irq_stat_addr += PERF_IRQSTAT_6338_REG;
 		irq_mask_addr += PERF_IRQMASK_6338_REG;
 		irq_bits = 32;
+		ext_irq_count = 4;
+		ext_irq_cfg_reg1 = PERF_EXTIRQ_CFG_REG_6338;
 		break;
 	case BCM6345_CPU_ID:
 		irq_stat_addr += PERF_IRQSTAT_6345_REG;
 		irq_mask_addr += PERF_IRQMASK_6345_REG;
 		irq_bits = 32;
+		ext_irq_count = 4;
+		ext_irq_cfg_reg1 = PERF_EXTIRQ_CFG_REG_6345;
 		break;
 	case BCM6348_CPU_ID:
 		irq_stat_addr += PERF_IRQSTAT_6348_REG;
@@ -413,7 +438,8 @@ static int bcm63xx_external_irq_set_type(struct irq_data *d,
 	reg = bcm_perf_readl(regaddr);
 	irq %= 4;
 
-	if (BCMCPU_IS_6348()) {
+	switch (bcm63xx_get_cpu_id()) {
+	case BCM6348_CPU_ID:
 		if (levelsense)
 			reg |= EXTIRQ_CFG_LEVELSENSE_6348(irq);
 		else
@@ -426,9 +452,13 @@ static int bcm63xx_external_irq_set_type(struct irq_data *d,
 			reg |= EXTIRQ_CFG_BOTHEDGE_6348(irq);
 		else
 			reg &= ~EXTIRQ_CFG_BOTHEDGE_6348(irq);
-	}
+		break;
 
-	if (BCMCPU_IS_6338() || BCMCPU_IS_6358() || BCMCPU_IS_6368()) {
+	case BCM6328_CPU_ID:
+	case BCM6338_CPU_ID:
+	case BCM6345_CPU_ID:
+	case BCM6358_CPU_ID:
+	case BCM6368_CPU_ID:
 		if (levelsense)
 			reg |= EXTIRQ_CFG_LEVELSENSE(irq);
 		else
@@ -441,6 +471,9 @@ static int bcm63xx_external_irq_set_type(struct irq_data *d,
 			reg |= EXTIRQ_CFG_BOTHEDGE(irq);
 		else
 			reg &= ~EXTIRQ_CFG_BOTHEDGE(irq);
+		break;
+	default:
+		BUG();
 	}
 
 	bcm_perf_writel(reg, regaddr);

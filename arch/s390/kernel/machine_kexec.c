@@ -1,7 +1,5 @@
 /*
- * arch/s390/kernel/machine_kexec.c
- *
- * Copyright IBM Corp. 2005,2011
+ * Copyright IBM Corp. 2005, 2011
  *
  * Author(s): Rolf Adelsberger,
  *	      Heiko Carstens <heiko.carstens@de.ibm.com>
@@ -23,6 +21,7 @@
 #include <asm/reset.h>
 #include <asm/ipl.h>
 #include <asm/diag.h>
+#include <asm/elf.h>
 #include <asm/asm-offsets.h>
 #include <asm/os_info.h>
 
@@ -32,8 +31,6 @@ extern const unsigned char relocate_kernel[];
 extern const unsigned long long relocate_kernel_len;
 
 #ifdef CONFIG_CRASH_DUMP
-
-void *fill_cpu_elf_notes(void *ptr, struct save_area *sa);
 
 /*
  * Create ELF notes for one CPU
@@ -161,7 +158,7 @@ int machine_kexec_prepare(struct kimage *image)
 
 	/* Can't replace kernel image since it is read-only. */
 	if (ipl_flags & IPL_NSS_VALID)
-		return -ENOSYS;
+		return -EOPNOTSUPP;
 
 	if (image->type == KEXEC_TYPE_CRASH)
 		return machine_kexec_prepare_kdump();
@@ -190,6 +187,10 @@ void arch_crash_save_vmcoreinfo(void)
 }
 
 void machine_shutdown(void)
+{
+}
+
+void machine_crash_shutdown(struct pt_regs *regs)
 {
 }
 

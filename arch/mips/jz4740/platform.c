@@ -157,9 +157,27 @@ static struct resource jz4740_nand_resources[] = {
 		.flags	= IORESOURCE_MEM,
 	},
 	{
-		.name	= "bank",
+		.name	= "bank1",
 		.start	= 0x18000000,
 		.end	= 0x180C0000 - 1,
+		.flags = IORESOURCE_MEM,
+	},
+	{
+		.name	= "bank2",
+		.start	= 0x14000000,
+		.end	= 0x140C0000 - 1,
+		.flags = IORESOURCE_MEM,
+	},
+	{
+		.name	= "bank3",
+		.start	= 0x0C000000,
+		.end	= 0x0C0C0000 - 1,
+		.flags = IORESOURCE_MEM,
+	},
+	{
+		.name	= "bank4",
+		.start	= 0x08000000,
+		.end	= 0x080C0000 - 1,
 		.flags = IORESOURCE_MEM,
 	},
 };
@@ -304,4 +322,10 @@ struct platform_device jz4740_wdt_device = {
 	.id            = -1,
 	.num_resources = ARRAY_SIZE(jz4740_wdt_resources),
 	.resource      = jz4740_wdt_resources,
+};
+
+/* PWM */
+struct platform_device jz4740_pwm_device = {
+	.name = "jz4740-pwm",
+	.id   = -1,
 };

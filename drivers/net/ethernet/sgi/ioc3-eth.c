@@ -583,7 +583,7 @@ static inline void ioc3_rx(struct net_device *dev)
 	unsigned long *rxr;
 	u32 w0, err;
 
-	rxr = (unsigned long *) ip->rxr;		/* Ring base */
+	rxr = ip->rxr;		/* Ring base */
 	rx_entry = ip->rx_ci;				/* RX consume index */
 	n_entry = ip->rx_pi;
 
@@ -903,7 +903,7 @@ static void ioc3_alloc_rings(struct net_device *dev)
 	if (ip->rxr == NULL) {
 		/* Allocate and initialize rx ring.  4kb = 512 entries  */
 		ip->rxr = (unsigned long *) get_zeroed_page(GFP_ATOMIC);
-		rxr = (unsigned long *) ip->rxr;
+		rxr = ip->rxr;
 		if (!rxr)
 			printk("ioc3_alloc_rings(): get_zeroed_page() failed!\n");
 
@@ -1147,15 +1147,17 @@ static void __devinit ioc3_8250_register(struct ioc3_uartregs __iomem *uart)
 {
 #define COSMISC_CONSTANT 6
 
-	struct uart_port port = {
-		.irq		= 0,
-		.flags		= UPF_SKIP_TEST | UPF_BOOT_AUTOCONF,
-		.iotype		= UPIO_MEM,
-		.regshift	= 0,
-		.uartclk	= (22000000 << 1) / COSMISC_CONSTANT,
+	struct uart_8250_port port = {
+	        .port = {
+			.irq		= 0,
+			.flags		= UPF_SKIP_TEST | UPF_BOOT_AUTOCONF,
+			.iotype		= UPIO_MEM,
+			.regshift	= 0,
+			.uartclk	= (22000000 << 1) / COSMISC_CONSTANT,
 
-		.membase	= (unsigned char __iomem *) uart,
-		.mapbase	= (unsigned long) uart,
+			.membase	= (unsigned char __iomem *) uart,
+			.mapbase	= (unsigned long) uart,
+                }
 	};
 	unsigned char lcr;
 
@@ -1164,7 +1166,7 @@ static void __devinit ioc3_8250_register(struct ioc3_uartregs __iomem *uart)
 	uart->iu_scr = COSMISC_CONSTANT,
 	uart->iu_lcr = lcr;
 	uart->iu_lcr;
-	serial8250_register_port(&port);
+	serial8250_register_8250_port(&port);
 }
 
 static void __devinit ioc3_serial_probe(struct pci_dev *pdev, struct ioc3 *ioc3)

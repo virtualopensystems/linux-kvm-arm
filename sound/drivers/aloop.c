@@ -120,6 +120,7 @@ struct loopback_pcm {
 	unsigned int last_drift;
 	unsigned long last_jiffies;
 	struct timer_list timer;
+	spinlock_t timer_lock;
 };
 
 static struct platform_device *devices[SNDRV_CARDS];
@@ -170,6 +171,7 @@ static void loopback_timer_start(struct loopback_pcm *dpcm)
 	unsigned long tick;
 	unsigned int rate_shift = get_rate_shift(dpcm);
 
+	spin_lock(&dpcm->timer_lock);
 	if (rate_shift != dpcm->pcm_rate_shift) {
 		dpcm->pcm_rate_shift = rate_shift;
 		dpcm->period_size_frac = frac_pos(dpcm, dpcm->pcm_period_size);
@@ -182,12 +184,15 @@ static void loopback_timer_start(struct loopback_pcm *dpcm)
 	tick = (tick + dpcm->pcm_bps - 1) / dpcm->pcm_bps;
 	dpcm->timer.expires = jiffies + tick;
 	add_timer(&dpcm->timer);
+	spin_unlock(&dpcm->timer_lock);
 }
 
 static inline void loopback_timer_stop(struct loopback_pcm *dpcm)
 {
+	spin_lock(&dpcm->timer_lock);
 	del_timer(&dpcm->timer);
 	dpcm->timer.expires = 0;
+	spin_unlock(&dpcm->timer_lock);
 }
 
 #define CABLE_VALID_PLAYBACK	(1 << SNDRV_PCM_STREAM_PLAYBACK)
@@ -667,6 +672,7 @@ static int loopback_open(struct snd_pcm_substream *substream)
 	dpcm->substream = substream;
 	setup_timer(&dpcm->timer, loopback_timer_function,
 		    (unsigned long)dpcm);
+	spin_lock_init(&dpcm->timer_lock);
 
 	cable = loopback->cables[substream->number][dev];
 	if (!cable) {
@@ -1176,11 +1182,10 @@ static int __devexit loopback_remove(struct platform_device *devptr)
 	return 0;
 }
 
-#ifdef CONFIG_PM
-static int loopback_suspend(struct platform_device *pdev,
-				pm_message_t state)
+#ifdef CONFIG_PM_SLEEP
+static int loopback_suspend(struct device *pdev)
 {
-	struct snd_card *card = platform_get_drvdata(pdev);
+	struct snd_card *card = dev_get_drvdata(pdev);
 	struct loopback *loopback = card->private_data;
 
 	snd_power_change_state(card, SNDRV_CTL_POWER_D3hot);
@@ -1190,13 +1195,18 @@ static int loopback_suspend(struct platform_device *pdev,
 	return 0;
 }
 	
-static int loopback_resume(struct platform_device *pdev)
+static int loopback_resume(struct device *pdev)
 {
-	struct snd_card *card = platform_get_drvdata(pdev);
+	struct snd_card *card = dev_get_drvdata(pdev);
 
 	snd_power_change_state(card, SNDRV_CTL_POWER_D0);
 	return 0;
 }
+
+static SIMPLE_DEV_PM_OPS(loopback_pm, loopback_suspend, loopback_resume);
+#define LOOPBACK_PM_OPS	&loopback_pm
+#else
+#define LOOPBACK_PM_OPS	NULL
 #endif
 
 #define SND_LOOPBACK_DRIVER	"snd_aloop"
@@ -1204,12 +1214,10 @@ static int loopback_resume(struct platform_device *pdev)
 static struct platform_driver loopback_driver = {
 	.probe		= loopback_probe,
 	.remove		= __devexit_p(loopback_remove),
-#ifdef CONFIG_PM
-	.suspend	= loopback_suspend,
-	.resume		= loopback_resume,
-#endif
 	.driver		= {
-		.name	= SND_LOOPBACK_DRIVER
+		.name	= SND_LOOPBACK_DRIVER,
+		.owner	= THIS_MODULE,
+		.pm	= LOOPBACK_PM_OPS,
 	},
 };
 

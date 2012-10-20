@@ -19,6 +19,7 @@
  ******************************************************************************/
 
 #include <asm/unaligned.h>
+#include <scsi/scsi_device.h>
 #include <scsi/iscsi_proto.h>
 #include <target/target_core_base.h>
 #include <target/target_core_fabric.h>
@@ -49,21 +50,20 @@ u8 iscsit_tmr_abort_task(
 	if (!ref_cmd) {
 		pr_err("Unable to locate RefTaskTag: 0x%08x on CID:"
 			" %hu.\n", hdr->rtt, conn->cid);
-		return ((hdr->refcmdsn >= conn->sess->exp_cmd_sn) &&
-			(hdr->refcmdsn <= conn->sess->max_cmd_sn)) ?
+		return (be32_to_cpu(hdr->refcmdsn) >= conn->sess->exp_cmd_sn &&
+			be32_to_cpu(hdr->refcmdsn) <= conn->sess->max_cmd_sn) ?
 			ISCSI_TMF_RSP_COMPLETE : ISCSI_TMF_RSP_NO_TASK;
 	}
-	if (ref_cmd->cmd_sn != hdr->refcmdsn) {
+	if (ref_cmd->cmd_sn != be32_to_cpu(hdr->refcmdsn)) {
 		pr_err("RefCmdSN 0x%08x does not equal"
 			" task's CmdSN 0x%08x. Rejecting ABORT_TASK.\n",
 			hdr->refcmdsn, ref_cmd->cmd_sn);
 		return ISCSI_TMF_RSP_REJECTED;
 	}
 
-	se_tmr->ref_task_tag		= hdr->rtt;
-	se_tmr->ref_cmd			= &ref_cmd->se_cmd;
-	tmr_req->ref_cmd_sn		= hdr->refcmdsn;
-	tmr_req->exp_data_sn		= hdr->exp_datasn;
+	se_tmr->ref_task_tag		= (__force u32)hdr->rtt;
+	tmr_req->ref_cmd		= ref_cmd;
+	tmr_req->exp_data_sn		= be32_to_cpu(hdr->exp_datasn);
 
 	return ISCSI_TMF_RSP_COMPLETE;
 }
@@ -121,7 +121,7 @@ u8 iscsit_tmr_task_reassign(
 	struct iscsi_tmr_req *tmr_req = cmd->tmr_req;
 	struct se_tmr_req *se_tmr = cmd->se_cmd.se_tmr_req;
 	struct iscsi_tm *hdr = (struct iscsi_tm *) buf;
-	int ret;
+	int ret, ref_lun;
 
 	pr_debug("Got TASK_REASSIGN TMR ITT: 0x%08x,"
 		" RefTaskTag: 0x%08x, ExpDataSN: 0x%08x, CID: %hu\n",
@@ -145,7 +145,7 @@ u8 iscsit_tmr_task_reassign(
 	}
 	/*
 	 * Temporary check to prevent connection recovery for
-	 * connections with a differing MaxRecvDataSegmentLength.
+	 * connections with a differing Max*DataSegmentLength.
 	 */
 	if (cr->maxrecvdatasegmentlength !=
 	    conn->conn_ops->MaxRecvDataSegmentLength) {
@@ -154,12 +154,25 @@ u8 iscsit_tmr_task_reassign(
 			" TMR TASK_REASSIGN.\n");
 		return ISCSI_TMF_RSP_REJECTED;
 	}
+	if (cr->maxxmitdatasegmentlength !=
+	    conn->conn_ops->MaxXmitDataSegmentLength) {
+		pr_err("Unable to perform connection recovery for"
+			" differing MaxXmitDataSegmentLength, rejecting"
+			" TMR TASK_REASSIGN.\n");
+		return ISCSI_TMF_RSP_REJECTED;
+	}
 
-	se_tmr->ref_task_tag		= hdr->rtt;
-	se_tmr->ref_cmd			= &ref_cmd->se_cmd;
-	se_tmr->ref_task_lun		= get_unaligned_le64(&hdr->lun);
-	tmr_req->ref_cmd_sn		= hdr->refcmdsn;
-	tmr_req->exp_data_sn		= hdr->exp_datasn;
+	ref_lun = scsilun_to_int(&hdr->lun);
+	if (ref_lun != ref_cmd->se_cmd.orig_fe_lun) {
+		pr_err("Unable to perform connection recovery for"
+			" differing ref_lun: %d ref_cmd orig_fe_lun: %u\n",
+			ref_lun, ref_cmd->se_cmd.orig_fe_lun);
+		return ISCSI_TMF_RSP_REJECTED;
+	}
+
+	se_tmr->ref_task_tag		= (__force u32)hdr->rtt;
+	tmr_req->ref_cmd		= ref_cmd;
+	tmr_req->exp_data_sn		= be32_to_cpu(hdr->exp_datasn);
 	tmr_req->conn_recovery		= cr;
 	tmr_req->task_reassign		= 1;
 	/*
@@ -191,9 +204,7 @@ static int iscsit_task_reassign_complete_nop_out(
 	struct iscsi_tmr_req *tmr_req,
 	struct iscsi_conn *conn)
 {
-	struct se_tmr_req *se_tmr = tmr_req->se_tmr_req;
-	struct se_cmd *se_cmd = se_tmr->ref_cmd;
-	struct iscsi_cmd *cmd = container_of(se_cmd, struct iscsi_cmd, se_cmd);
+	struct iscsi_cmd *cmd = tmr_req->ref_cmd;
 	struct iscsi_conn_recovery *cr;
 
 	if (!cmd->cr) {
@@ -251,7 +262,8 @@ static int iscsit_task_reassign_complete_write(
 			pr_debug("WRITE ITT: 0x%08x: t_state: %d"
 				" never sent to transport\n",
 				cmd->init_task_tag, cmd->se_cmd.t_state);
-			return transport_generic_handle_data(se_cmd);
+			target_execute_cmd(se_cmd);
+			return 0;
 		}
 
 		cmd->i_state = ISTATE_SEND_STATUS;
@@ -360,9 +372,7 @@ static int iscsit_task_reassign_complete_scsi_cmnd(
 	struct iscsi_tmr_req *tmr_req,
 	struct iscsi_conn *conn)
 {
-	struct se_tmr_req *se_tmr = tmr_req->se_tmr_req;
-	struct se_cmd *se_cmd = se_tmr->ref_cmd;
-	struct iscsi_cmd *cmd = container_of(se_cmd, struct iscsi_cmd, se_cmd);
+	struct iscsi_cmd *cmd = tmr_req->ref_cmd;
 	struct iscsi_conn_recovery *cr;
 
 	if (!cmd->cr) {
@@ -385,7 +395,7 @@ static int iscsit_task_reassign_complete_scsi_cmnd(
 	list_add_tail(&cmd->i_conn_node, &conn->conn_cmd_list);
 	spin_unlock_bh(&conn->cmd_lock);
 
-	if (se_cmd->se_cmd_flags & SCF_SENT_CHECK_CONDITION) {
+	if (cmd->se_cmd.se_cmd_flags & SCF_SENT_CHECK_CONDITION) {
 		cmd->i_state = ISTATE_SEND_STATUS;
 		iscsit_add_cmd_to_response_queue(cmd, conn, cmd->i_state);
 		return 0;
@@ -411,17 +421,14 @@ static int iscsit_task_reassign_complete(
 	struct iscsi_tmr_req *tmr_req,
 	struct iscsi_conn *conn)
 {
-	struct se_tmr_req *se_tmr = tmr_req->se_tmr_req;
-	struct se_cmd *se_cmd;
 	struct iscsi_cmd *cmd;
 	int ret = 0;
 
-	if (!se_tmr->ref_cmd) {
+	if (!tmr_req->ref_cmd) {
 		pr_err("TMR Request is missing a RefCmd struct iscsi_cmd.\n");
 		return -1;
 	}
-	se_cmd = se_tmr->ref_cmd;
-	cmd = container_of(se_cmd, struct iscsi_cmd, se_cmd);
+	cmd = tmr_req->ref_cmd;
 
 	cmd->conn = conn;
 
@@ -453,7 +460,7 @@ static int iscsit_task_reassign_complete(
  *	Right now the only one that its really needed for is
  *	connection recovery releated TASK_REASSIGN.
  */
-extern int iscsit_tmr_post_handler(struct iscsi_cmd *cmd, struct iscsi_conn *conn)
+int iscsit_tmr_post_handler(struct iscsi_cmd *cmd, struct iscsi_conn *conn)
 {
 	struct iscsi_tmr_req *tmr_req = cmd->tmr_req;
 	struct se_tmr_req *se_tmr = cmd->se_cmd.se_tmr_req;
@@ -468,7 +475,7 @@ extern int iscsit_tmr_post_handler(struct iscsi_cmd *cmd, struct iscsi_conn *con
 /*
  *	Nothing to do here, but leave it for good measure. :-)
  */
-int iscsit_task_reassign_prepare_read(
+static int iscsit_task_reassign_prepare_read(
 	struct iscsi_tmr_req *tmr_req,
 	struct iscsi_conn *conn)
 {
@@ -543,13 +550,11 @@ static void iscsit_task_reassign_prepare_unsolicited_dataout(
 	}
 }
 
-int iscsit_task_reassign_prepare_write(
+static int iscsit_task_reassign_prepare_write(
 	struct iscsi_tmr_req *tmr_req,
 	struct iscsi_conn *conn)
 {
-	struct se_tmr_req *se_tmr = tmr_req->se_tmr_req;
-	struct se_cmd *se_cmd = se_tmr->ref_cmd;
-	struct iscsi_cmd *cmd = container_of(se_cmd, struct iscsi_cmd, se_cmd);
+	struct iscsi_cmd *cmd = tmr_req->ref_cmd;
 	struct iscsi_pdu *pdu = NULL;
 	struct iscsi_r2t *r2t = NULL, *r2t_tmp;
 	int first_incomplete_r2t = 1, i = 0;
@@ -782,14 +787,12 @@ int iscsit_check_task_reassign_expdatasn(
 	struct iscsi_tmr_req *tmr_req,
 	struct iscsi_conn *conn)
 {
-	struct se_tmr_req *se_tmr = tmr_req->se_tmr_req;
-	struct se_cmd *se_cmd = se_tmr->ref_cmd;
-	struct iscsi_cmd *ref_cmd = container_of(se_cmd, struct iscsi_cmd, se_cmd);
+	struct iscsi_cmd *ref_cmd = tmr_req->ref_cmd;
 
 	if (ref_cmd->iscsi_opcode != ISCSI_OP_SCSI_CMD)
 		return 0;
 
-	if (se_cmd->se_cmd_flags & SCF_SENT_CHECK_CONDITION)
+	if (ref_cmd->se_cmd.se_cmd_flags & SCF_SENT_CHECK_CONDITION)
 		return 0;
 
 	if (ref_cmd->data_direction == DMA_NONE)

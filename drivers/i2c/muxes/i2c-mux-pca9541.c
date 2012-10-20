@@ -354,7 +354,7 @@ static int pca9541_probe(struct i2c_client *client,
 	if (pdata)
 		force = pdata->modes[0].adap_id;
 	data->mux_adap = i2c_add_mux_adapter(adap, &client->dev, client,
-					     force, 0,
+					     force, 0, 0,
 					     pca9541_select_chan,
 					     pca9541_release_chan);
 
@@ -396,6 +396,6 @@ static struct i2c_driver pca9541_driver = {
 
 module_i2c_driver(pca9541_driver);
 
-MODULE_AUTHOR("Guenter Roeck <guenter.roeck@ericsson.com>");
+MODULE_AUTHOR("Guenter Roeck <linux@roeck-us.net>");
 MODULE_DESCRIPTION("PCA9541 I2C master selector driver");
 MODULE_LICENSE("GPL v2");

@@ -24,10 +24,15 @@
 #include <linux/gpio.h>
 #include <linux/mmc/card.h>
 #include <linux/mmc/host.h>
+#include <linux/mmc/slot-gpio.h>
 #include <linux/platform_data/pxa_sdhci.h>
 #include <linux/slab.h>
 #include <linux/delay.h>
 #include <linux/module.h>
+#include <linux/of.h>
+#include <linux/of_device.h>
+#include <linux/of_gpio.h>
+
 #include "sdhci.h"
 #include "sdhci-pltfm.h"
 
@@ -164,6 +169,51 @@ static struct sdhci_ops pxav3_sdhci_ops = {
 	.platform_send_init_74_clocks = pxav3_gen_init_74_clocks,
 };
 
+#ifdef CONFIG_OF
+static const struct of_device_id sdhci_pxav3_of_match[] = {
+	{
+		.compatible = "mrvl,pxav3-mmc",
+	},
+	{},
+};
+MODULE_DEVICE_TABLE(of, sdhci_pxav3_of_match);
+
+static struct sdhci_pxa_platdata *pxav3_get_mmc_pdata(struct device *dev)
+{
+	struct sdhci_pxa_platdata *pdata;
+	struct device_node *np = dev->of_node;
+	u32 bus_width;
+	u32 clk_delay_cycles;
+	enum of_gpio_flags gpio_flags;
+
+	pdata = devm_kzalloc(dev, sizeof(*pdata), GFP_KERNEL);
+	if (!pdata)
+		return NULL;
+
+	if (of_find_property(np, "non-removable", NULL))
+		pdata->flags |= PXA_FLAG_CARD_PERMANENT;
+
+	of_property_read_u32(np, "bus-width", &bus_width);
+	if (bus_width == 8)
+		pdata->flags |= PXA_FLAG_SD_8_BIT_CAPABLE_SLOT;
+
+	of_property_read_u32(np, "mrvl,clk-delay-cycles", &clk_delay_cycles);
+	if (clk_delay_cycles > 0)
+		pdata->clk_delay_cycles = clk_delay_cycles;
+
+	pdata->ext_cd_gpio = of_get_named_gpio_flags(np, "cd-gpios", 0, &gpio_flags);
+	if (gpio_flags != OF_GPIO_ACTIVE_LOW)
+		pdata->host_caps2 |= MMC_CAP2_CD_ACTIVE_HIGH;
+
+	return pdata;
+}
+#else
+static inline struct sdhci_pxa_platdata *pxav3_get_mmc_pdata(struct device *dev)
+{
+	return NULL;
+}
+#endif
+
 static int __devinit sdhci_pxav3_probe(struct platform_device *pdev)
 {
 	struct sdhci_pltfm_host *pltfm_host;
@@ -171,6 +221,8 @@ static int __devinit sdhci_pxav3_probe(struct platform_device *pdev)
 	struct device *dev = &pdev->dev;
 	struct sdhci_host *host = NULL;
 	struct sdhci_pxa *pxa = NULL;
+	const struct of_device_id *match;
+
 	int ret;
 	struct clk *clk;
 
@@ -186,14 +238,14 @@ static int __devinit sdhci_pxav3_probe(struct platform_device *pdev)
 	pltfm_host = sdhci_priv(host);
 	pltfm_host->priv = pxa;
 
-	clk = clk_get(dev, "PXA-SDHCLK");
+	clk = clk_get(dev, NULL);
 	if (IS_ERR(clk)) {
 		dev_err(dev, "failed to get io clock\n");
 		ret = PTR_ERR(clk);
 		goto err_clk_get;
 	}
 	pltfm_host->clk = clk;
-	clk_enable(clk);
+	clk_prepare_enable(clk);
 
 	host->quirks = SDHCI_QUIRK_BROKEN_TIMEOUT_VAL
 		| SDHCI_QUIRK_NO_ENDATTR_IN_NOPDESC
@@ -201,6 +253,10 @@ static int __devinit sdhci_pxav3_probe(struct platform_device *pdev)
 
 	/* enable 1/8V DDR capable */
 	host->mmc->caps |= MMC_CAP_1_8V_DDR;
+
+	match = of_match_device(of_match_ptr(sdhci_pxav3_of_match), &pdev->dev);
+	if (match)
+		pdata = pxav3_get_mmc_pdata(dev);
 
 	if (pdata) {
 		if (pdata->flags & PXA_FLAG_CARD_PERMANENT) {
@@ -217,11 +273,24 @@ static int __devinit sdhci_pxav3_probe(struct platform_device *pdev)
 			host->quirks |= pdata->quirks;
 		if (pdata->host_caps)
 			host->mmc->caps |= pdata->host_caps;
+		if (pdata->host_caps2)
+			host->mmc->caps2 |= pdata->host_caps2;
 		if (pdata->pm_caps)
 			host->mmc->pm_caps |= pdata->pm_caps;
+
+		if (gpio_is_valid(pdata->ext_cd_gpio)) {
+			ret = mmc_gpio_request_cd(host->mmc, pdata->ext_cd_gpio);
+			if (ret) {
+				dev_err(mmc_dev(host->mmc),
+					"failed to allocate card detect gpio\n");
+				goto err_cd_req;
+			}
+		}
 	}
 
 	host->ops = &pxav3_sdhci_ops;
+
+	sdhci_get_of_property(pdev);
 
 	ret = sdhci_add_host(host);
 	if (ret) {
@@ -234,8 +303,10 @@ static int __devinit sdhci_pxav3_probe(struct platform_device *pdev)
 	return 0;
 
 err_add_host:
-	clk_disable(clk);
+	clk_disable_unprepare(clk);
 	clk_put(clk);
+	mmc_gpio_free_cd(host->mmc);
+err_cd_req:
 err_clk_get:
 	sdhci_pltfm_free(pdev);
 	kfree(pxa);
@@ -247,11 +318,16 @@ static int __devexit sdhci_pxav3_remove(struct platform_device *pdev)
 	struct sdhci_host *host = platform_get_drvdata(pdev);
 	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
 	struct sdhci_pxa *pxa = pltfm_host->priv;
+	struct sdhci_pxa_platdata *pdata = pdev->dev.platform_data;
 
 	sdhci_remove_host(host, 1);
 
-	clk_disable(pltfm_host->clk);
+	clk_disable_unprepare(pltfm_host->clk);
 	clk_put(pltfm_host->clk);
+
+	if (gpio_is_valid(pdata->ext_cd_gpio))
+		mmc_gpio_free_cd(host->mmc);
+
 	sdhci_pltfm_free(pdev);
 	kfree(pxa);
 
@@ -263,6 +339,9 @@ static int __devexit sdhci_pxav3_remove(struct platform_device *pdev)
 static struct platform_driver sdhci_pxav3_driver = {
 	.driver		= {
 		.name	= "sdhci-pxav3",
+#ifdef CONFIG_OF
+		.of_match_table = sdhci_pxav3_of_match,
+#endif
 		.owner	= THIS_MODULE,
 		.pm	= SDHCI_PLTFM_PMOPS,
 	},

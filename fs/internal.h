@@ -42,6 +42,11 @@ static inline int __sync_blockdev(struct block_device *bdev, int wait)
 extern void __init chrdev_init(void);
 
 /*
+ * namei.c
+ */
+extern int __inode_permission(struct inode *, int);
+
+/*
  * namespace.c
  */
 extern int copy_mount_options(const void __user *, unsigned long *);
@@ -50,14 +55,16 @@ extern int copy_mount_string(const void __user *, char **);
 extern struct vfsmount *lookup_mnt(struct path *);
 extern int finish_automount(struct vfsmount *, struct path *);
 
-extern void mnt_make_longterm(struct vfsmount *);
-extern void mnt_make_shortterm(struct vfsmount *);
 extern int sb_prepare_remount_readonly(struct super_block *);
 
 extern void __init mnt_init(void);
 
 extern struct lglock vfsmount_lock;
 
+extern int __mnt_want_write(struct vfsmount *);
+extern int __mnt_want_write_file(struct file *);
+extern void __mnt_drop_write(struct vfsmount *);
+extern void __mnt_drop_write_file(struct file *);
 
 /*
  * fs_struct.c
@@ -84,17 +91,14 @@ extern struct super_block *user_get_super(dev_t);
 /*
  * open.c
  */
-struct nameidata;
-extern struct file *nameidata_to_filp(struct nameidata *);
-extern void release_open_intent(struct nameidata *);
 struct open_flags {
 	int open_flag;
 	umode_t mode;
 	int acc_mode;
 	int intent;
 };
-extern struct file *do_filp_open(int dfd, const char *pathname,
-		const struct open_flags *op, int lookup_flags);
+extern struct file *do_filp_open(int dfd, struct filename *pathname,
+		const struct open_flags *op, int flags);
 extern struct file *do_file_open_root(struct dentry *, struct vfsmount *,
 		const char *, const struct open_flags *, int lookup_flags);
 

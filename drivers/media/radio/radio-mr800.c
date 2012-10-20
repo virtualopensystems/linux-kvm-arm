@@ -295,7 +295,8 @@ static int vidioc_g_tuner(struct file *file, void *priv,
 	v->type = V4L2_TUNER_RADIO;
 	v->rangelow = FREQ_MIN * FREQ_MUL;
 	v->rangehigh = FREQ_MAX * FREQ_MUL;
-	v->capability = V4L2_TUNER_CAP_LOW | V4L2_TUNER_CAP_STEREO;
+	v->capability = V4L2_TUNER_CAP_LOW | V4L2_TUNER_CAP_STEREO |
+		V4L2_TUNER_CAP_HWSEEK_WRAP;
 	v->rxsubchans = is_stereo ? V4L2_TUNER_SUB_STEREO : V4L2_TUNER_SUB_MONO;
 	v->audmode = radio->stereo ?
 		V4L2_TUNER_MODE_STEREO : V4L2_TUNER_MODE_MONO;
@@ -347,7 +348,7 @@ static int vidioc_g_frequency(struct file *file, void *priv,
 }
 
 static int vidioc_s_hw_freq_seek(struct file *file, void *priv,
-		struct v4l2_hw_freq_seek *seek)
+		const struct v4l2_hw_freq_seek *seek)
 {
 	static u8 buf[8] = {
 		0x3d, 0x32, 0x0f, 0x08, 0x3d, 0x32, 0x0f, 0x08
@@ -358,6 +359,9 @@ static int vidioc_s_hw_freq_seek(struct file *file, void *priv,
 
 	if (seek->tuner != 0 || !seek->wrap_around)
 		return -EINVAL;
+
+	if (file->f_flags & O_NONBLOCK)
+		return -EWOULDBLOCK;
 
 	retval = amradio_send_cmd(radio,
 			AMRADIO_SET_SEARCH_LVL, 0, buf, 8, false);
@@ -372,7 +376,7 @@ static int vidioc_s_hw_freq_seek(struct file *file, void *priv,
 	timeout = jiffies + msecs_to_jiffies(30000);
 	for (;;) {
 		if (time_after(jiffies, timeout)) {
-			retval = -EAGAIN;
+			retval = -ENODATA;
 			break;
 		}
 		if (schedule_timeout_interruptible(msecs_to_jiffies(10))) {

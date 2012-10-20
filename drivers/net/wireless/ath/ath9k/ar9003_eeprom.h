@@ -231,7 +231,8 @@ struct ar9300_modal_eep_header {
 	__le32 papdRateMaskHt20;
 	__le32 papdRateMaskHt40;
 	__le16 switchcomspdt;
-	u8 futureModal[8];
+	u8 xlna_bias_strength;
+	u8 futureModal[7];
 } __packed;
 
 struct ar9300_cal_data_per_freq_op_loop {
@@ -266,7 +267,8 @@ struct cal_ctl_data_5g {
 
 struct ar9300_BaseExtension_1 {
 	u8 ant_div_control;
-	u8 future[11];
+	u8 future[3];
+	u8 tempslopextension[8];
 	int8_t quick_drop_low;
 	int8_t quick_drop_high;
 } __packed;

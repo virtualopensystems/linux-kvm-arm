@@ -11,9 +11,6 @@
 #include <linux/kernel.h>
 #include <linux/string.h>
 #include <linux/platform_device.h>
-#include <linux/mtd/mtd.h>
-#include <linux/mtd/partitions.h>
-#include <linux/mtd/physmap.h>
 #include <linux/ssb/ssb.h>
 #include <asm/addrspace.h>
 #include <bcm63xx_board.h>
@@ -24,7 +21,10 @@
 #include <bcm63xx_dev_pci.h>
 #include <bcm63xx_dev_enet.h>
 #include <bcm63xx_dev_dsp.h>
+#include <bcm63xx_dev_flash.h>
 #include <bcm63xx_dev_pcmcia.h>
+#include <bcm63xx_dev_spi.h>
+#include <bcm63xx_dev_usb_usbd.h>
 #include <board_bcm963xx.h>
 
 #define PFX	"board_bcm963xx: "
@@ -32,6 +32,54 @@
 static struct bcm963xx_nvram nvram;
 static unsigned int mac_addr_used;
 static struct board_info board;
+
+/*
+ * known 6328 boards
+ */
+#ifdef CONFIG_BCM63XX_CPU_6328
+static struct board_info __initdata board_96328avng = {
+	.name				= "96328avng",
+	.expected_cpu_id		= 0x6328,
+
+	.has_uart0			= 1,
+	.has_pci			= 1,
+	.has_usbd			= 0,
+
+	.usbd = {
+		.use_fullspeed		= 0,
+		.port_no		= 0,
+	},
+
+	.leds = {
+		{
+			.name		= "96328avng::ppp-fail",
+			.gpio		= 2,
+			.active_low	= 1,
+		},
+		{
+			.name		= "96328avng::power",
+			.gpio		= 4,
+			.active_low	= 1,
+			.default_trigger = "default-on",
+		},
+		{
+			.name		= "96328avng::power-fail",
+			.gpio		= 8,
+			.active_low	= 1,
+		},
+		{
+			.name		= "96328avng::wps",
+			.gpio		= 9,
+			.active_low	= 1,
+		},
+		{
+			.name		= "96328avng::ppp",
+			.gpio		= 11,
+			.active_low	= 1,
+		},
+	},
+};
+#endif
 
 /*
  * known 6338 boards
@@ -591,7 +639,10 @@ static struct board_info __initdata board_DWVS0 = {
 /*
  * all boards
  */
-static const struct board_info __initdata *bcm963xx_boards[] = {
+static const struct board_info __initconst *bcm963xx_boards[] = {
+#ifdef CONFIG_BCM63XX_CPU_6328
+	&board_96328avng,
+#endif
 #ifdef CONFIG_BCM63XX_CPU_6338
 	&board_96338gw,
 	&board_96338w,
@@ -669,7 +720,7 @@ const char *board_get_name(void)
  */
 static int board_get_mac_address(u8 *mac)
 {
-	u8 *p;
+	u8 *oui;
 	int count;
 
 	if (mac_addr_used >= nvram.mac_addr_count) {
@@ -678,21 +729,23 @@ static int board_get_mac_address(u8 *mac)
 	}
 
 	memcpy(mac, nvram.mac_addr_base, ETH_ALEN);
-	p = mac + ETH_ALEN - 1;
+	oui = mac + ETH_ALEN/2 - 1;
 	count = mac_addr_used;
 
 	while (count--) {
+		u8 *p = mac + ETH_ALEN - 1;
+
 		do {
 			(*p)++;
 			if (*p != 0)
 				break;
 			p--;
-		} while (p != mac);
-	}
+		} while (p != oui);
 
-	if (p == mac) {
-		printk(KERN_ERR PFX "unable to fetch mac address\n");
-		return -ENODEV;
+		if (p == oui) {
+			printk(KERN_ERR PFX "unable to fetch mac address\n");
+			return -ENODEV;
+		}
 	}
 
 	mac_addr_used++;
@@ -709,9 +762,15 @@ void __init board_prom_init(void)
 	char cfe_version[32];
 	u32 val;
 
-	/* read base address of boot chip select (0) */
-	val = bcm_mpi_readl(MPI_CSBASE_REG(0));
-	val &= MPI_CSBASE_BASE_MASK;
+	/* read base address of boot chip select (0)
+	 * 6328 does not have MPI but boots from a fixed address
+	 */
+	if (BCMCPU_IS_6328())
+		val = 0x18000000;
+	else {
+		val = bcm_mpi_readl(MPI_CSBASE_REG(0));
+		val &= MPI_CSBASE_BASE_MASK;
+	}
 	boot_addr = (u8 *)KSEG1ADDR(val);
 
 	/* dump cfe version */
@@ -808,40 +867,6 @@ void __init board_setup(void)
 		panic("unexpected CPU for bcm963xx board");
 }
 
-static struct mtd_partition mtd_partitions[] = {
-	{
-		.name		= "cfe",
-		.offset		= 0x0,
-		.size		= 0x40000,
-	}
-};
-
-static const char *bcm63xx_part_types[] = { "bcm63xxpart", NULL };
-
-static struct physmap_flash_data flash_data = {
-	.width			= 2,
-	.nr_parts		= ARRAY_SIZE(mtd_partitions),
-	.parts			= mtd_partitions,
-	.part_probe_types	= bcm63xx_part_types,
-};
-
-static struct resource mtd_resources[] = {
-	{
-		.start		= 0,	/* filled at runtime */
-		.end		= 0,	/* filled at runtime */
-		.flags		= IORESOURCE_MEM,
-	}
-};
-
-static struct platform_device mtd_dev = {
-	.name			= "physmap-flash",
-	.resource		= mtd_resources,
-	.num_resources		= ARRAY_SIZE(mtd_resources),
-	.dev			= {
-		.platform_data	= &flash_data,
-	},
-};
-
 static struct gpio_led_platform_data bcm63xx_led_data;
 
 static struct platform_device bcm63xx_gpio_leds = {
@@ -855,8 +880,6 @@ static struct platform_device bcm63xx_gpio_leds = {
  */
 int __init board_register_devices(void)
 {
-	u32 val;
-
 	if (board.has_uart0)
 		bcm63xx_uart_register(0);
 
@@ -874,6 +897,9 @@ int __init board_register_devices(void)
 	    !board_get_mac_address(board.enet1.mac_addr))
 		bcm63xx_enet_register(1, &board.enet1);
 
+	if (board.has_usbd)
+		bcm63xx_usbd_register(&board.usbd);
+
 	if (board.has_dsp)
 		bcm63xx_dsp_register(&board.dsp);
 
@@ -890,14 +916,9 @@ int __init board_register_devices(void)
 	}
 #endif
 
-	/* read base address of boot chip select (0) */
-	val = bcm_mpi_readl(MPI_CSBASE_REG(0));
-	val &= MPI_CSBASE_BASE_MASK;
+	bcm63xx_spi_register();
 
-	mtd_resources[0].start = val;
-	mtd_resources[0].end = 0x1FFFFFFF;
-
-	platform_device_register(&mtd_dev);
+	bcm63xx_flash_register();
 
 	bcm63xx_led_data.num_leds = ARRAY_SIZE(board.leds);
 	bcm63xx_led_data.leds = board.leds;

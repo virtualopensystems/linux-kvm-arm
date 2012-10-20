@@ -291,67 +291,81 @@ static inline size_t dn_fib_nlmsg_size(struct dn_fib_info *fi)
 	return payload;
 }
 
-static int dn_fib_dump_info(struct sk_buff *skb, u32 pid, u32 seq, int event,
+static int dn_fib_dump_info(struct sk_buff *skb, u32 portid, u32 seq, int event,
 			u32 tb_id, u8 type, u8 scope, void *dst, int dst_len,
 			struct dn_fib_info *fi, unsigned int flags)
 {
 	struct rtmsg *rtm;
 	struct nlmsghdr *nlh;
-	unsigned char *b = skb_tail_pointer(skb);
 
-	nlh = NLMSG_NEW(skb, pid, seq, event, sizeof(*rtm), flags);
-	rtm = NLMSG_DATA(nlh);
+	nlh = nlmsg_put(skb, portid, seq, event, sizeof(*rtm), flags);
+	if (!nlh)
+		return -EMSGSIZE;
+
+	rtm = nlmsg_data(nlh);
 	rtm->rtm_family = AF_DECnet;
 	rtm->rtm_dst_len = dst_len;
 	rtm->rtm_src_len = 0;
 	rtm->rtm_tos = 0;
 	rtm->rtm_table = tb_id;
-	RTA_PUT_U32(skb, RTA_TABLE, tb_id);
 	rtm->rtm_flags = fi->fib_flags;
 	rtm->rtm_scope = scope;
 	rtm->rtm_type  = type;
-	if (rtm->rtm_dst_len)
-		RTA_PUT(skb, RTA_DST, 2, dst);
 	rtm->rtm_protocol = fi->fib_protocol;
-	if (fi->fib_priority)
-		RTA_PUT(skb, RTA_PRIORITY, 4, &fi->fib_priority);
+
+	if (nla_put_u32(skb, RTA_TABLE, tb_id) < 0)
+		goto errout;
+
+	if (rtm->rtm_dst_len &&
+	    nla_put(skb, RTA_DST, 2, dst) < 0)
+		goto errout;
+
+	if (fi->fib_priority &&
+	    nla_put_u32(skb, RTA_PRIORITY, fi->fib_priority) < 0)
+		goto errout;
+
 	if (rtnetlink_put_metrics(skb, fi->fib_metrics) < 0)
-		goto rtattr_failure;
+		goto errout;
+
 	if (fi->fib_nhs == 1) {
-		if (fi->fib_nh->nh_gw)
-			RTA_PUT(skb, RTA_GATEWAY, 2, &fi->fib_nh->nh_gw);
-		if (fi->fib_nh->nh_oif)
-			RTA_PUT(skb, RTA_OIF, sizeof(int), &fi->fib_nh->nh_oif);
+		if (fi->fib_nh->nh_gw &&
+		    nla_put_le16(skb, RTA_GATEWAY, fi->fib_nh->nh_gw) < 0)
+			goto errout;
+
+		if (fi->fib_nh->nh_oif &&
+		    nla_put_u32(skb, RTA_OIF, fi->fib_nh->nh_oif) < 0)
+			goto errout;
 	}
+
 	if (fi->fib_nhs > 1) {
 		struct rtnexthop *nhp;
-		struct rtattr *mp_head;
-		if (skb_tailroom(skb) <= RTA_SPACE(0))
-			goto rtattr_failure;
-		mp_head = (struct rtattr *)skb_put(skb, RTA_SPACE(0));
+		struct nlattr *mp_head;
+
+		if (!(mp_head = nla_nest_start(skb, RTA_MULTIPATH)))
+			goto errout;
 
 		for_nexthops(fi) {
-			if (skb_tailroom(skb) < RTA_ALIGN(RTA_ALIGN(sizeof(*nhp)) + 4))
-				goto rtattr_failure;
-			nhp = (struct rtnexthop *)skb_put(skb, RTA_ALIGN(sizeof(*nhp)));
+			if (!(nhp = nla_reserve_nohdr(skb, sizeof(*nhp))))
+				goto errout;
+
 			nhp->rtnh_flags = nh->nh_flags & 0xFF;
 			nhp->rtnh_hops = nh->nh_weight - 1;
 			nhp->rtnh_ifindex = nh->nh_oif;
-			if (nh->nh_gw)
-				RTA_PUT(skb, RTA_GATEWAY, 2, &nh->nh_gw);
+
+			if (nh->nh_gw &&
+			    nla_put_le16(skb, RTA_GATEWAY, nh->nh_gw) < 0)
+				goto errout;
+
 			nhp->rtnh_len = skb_tail_pointer(skb) - (unsigned char *)nhp;
 		} endfor_nexthops(fi);
-		mp_head->rta_type = RTA_MULTIPATH;
-		mp_head->rta_len = skb_tail_pointer(skb) - (u8 *)mp_head;
+
+		nla_nest_end(skb, mp_head);
 	}
 
-	nlh->nlmsg_len = skb_tail_pointer(skb) - b;
-	return skb->len;
+	return nlmsg_end(skb, nlh);
 
-
-nlmsg_failure:
-rtattr_failure:
-	nlmsg_trim(skb, b);
+errout:
+	nlmsg_cancel(skb, nlh);
 	return -EMSGSIZE;
 }
 
@@ -360,14 +374,14 @@ static void dn_rtmsg_fib(int event, struct dn_fib_node *f, int z, u32 tb_id,
 			struct nlmsghdr *nlh, struct netlink_skb_parms *req)
 {
 	struct sk_buff *skb;
-	u32 pid = req ? req->pid : 0;
+	u32 portid = req ? req->portid : 0;
 	int err = -ENOBUFS;
 
 	skb = nlmsg_new(dn_fib_nlmsg_size(DN_FIB_INFO(f)), GFP_KERNEL);
 	if (skb == NULL)
 		goto errout;
 
-	err = dn_fib_dump_info(skb, pid, nlh->nlmsg_seq, event, tb_id,
+	err = dn_fib_dump_info(skb, portid, nlh->nlmsg_seq, event, tb_id,
 			       f->fn_type, f->fn_scope, &f->fn_key, z,
 			       DN_FIB_INFO(f), 0);
 	if (err < 0) {
@@ -376,7 +390,7 @@ static void dn_rtmsg_fib(int event, struct dn_fib_node *f, int z, u32 tb_id,
 		kfree_skb(skb);
 		goto errout;
 	}
-	rtnl_notify(skb, &init_net, pid, RTNLGRP_DECnet_ROUTE, nlh, GFP_KERNEL);
+	rtnl_notify(skb, &init_net, portid, RTNLGRP_DECnet_ROUTE, nlh, GFP_KERNEL);
 	return;
 errout:
 	if (err < 0)
@@ -397,7 +411,7 @@ static __inline__ int dn_hash_dump_bucket(struct sk_buff *skb,
 			continue;
 		if (f->fn_state & DN_S_ZOMBIE)
 			continue;
-		if (dn_fib_dump_info(skb, NETLINK_CB(cb->skb).pid,
+		if (dn_fib_dump_info(skb, NETLINK_CB(cb->skb).portid,
 				cb->nlh->nlmsg_seq,
 				RTM_NEWROUTE,
 				tb->n,
@@ -476,7 +490,7 @@ int dn_fib_dump(struct sk_buff *skb, struct netlink_callback *cb)
 		return 0;
 
 	if (NLMSG_PAYLOAD(cb->nlh, 0) >= sizeof(struct rtmsg) &&
-		((struct rtmsg *)NLMSG_DATA(cb->nlh))->rtm_flags&RTM_F_CLONED)
+		((struct rtmsg *)nlmsg_data(cb->nlh))->rtm_flags&RTM_F_CLONED)
 			return dn_cache_dump(skb, cb);
 
 	s_h = cb->args[0];

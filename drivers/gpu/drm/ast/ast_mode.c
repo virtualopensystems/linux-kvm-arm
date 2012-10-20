@@ -28,9 +28,9 @@
  * Authors: Dave Airlie <airlied@redhat.com>
  */
 #include <linux/export.h>
-#include "drmP.h"
-#include "drm_crtc.h"
-#include "drm_crtc_helper.h"
+#include <drm/drmP.h>
+#include <drm/drm_crtc.h>
+#include <drm/drm_crtc_helper.h>
 #include "ast_drv.h"
 
 #include "ast_tables.h"
@@ -460,8 +460,8 @@ static void ast_crtc_dpms(struct drm_crtc *crtc, int mode)
 }
 
 static bool ast_crtc_mode_fixup(struct drm_crtc *crtc,
-				  struct drm_display_mode *mode,
-				  struct drm_display_mode *adjusted_mode)
+				const struct drm_display_mode *mode,
+				struct drm_display_mode *adjusted_mode)
 {
 	return true;
 }
@@ -582,7 +582,6 @@ static const struct drm_crtc_helper_funcs ast_crtc_helper_funcs = {
 	.mode_set_base = ast_crtc_mode_set_base,
 	.disable = ast_crtc_disable,
 	.load_lut = ast_crtc_load_lut,
-	.disable = ast_crtc_disable,
 	.prepare = ast_crtc_prepare,
 	.commit = ast_crtc_commit,
 
@@ -680,7 +679,7 @@ static void ast_encoder_dpms(struct drm_encoder *encoder, int mode)
 }
 
 static bool ast_mode_fixup(struct drm_encoder *encoder,
-			   struct drm_display_mode *mode,
+			   const struct drm_display_mode *mode,
 			   struct drm_display_mode *adjusted_mode)
 {
 	return true;
@@ -737,6 +736,7 @@ static int ast_get_modes(struct drm_connector *connector)
 	if (edid) {
 		drm_mode_connector_update_edid_property(&ast_connector->base, edid);
 		ret = drm_add_edid_modes(connector, edid);
+		kfree(edid);
 		return ret;
 	} else
 		drm_mode_connector_update_edid_property(&ast_connector->base, NULL);
@@ -841,7 +841,7 @@ int ast_cursor_init(struct drm_device *dev)
 
 	ast->cursor_cache = obj;
 	ast->cursor_cache_gpu_addr = gpu_addr;
-	DRM_ERROR("pinned cursor cache at %llx\n", ast->cursor_cache_gpu_addr);
+	DRM_DEBUG_KMS("pinned cursor cache at %llx\n", ast->cursor_cache_gpu_addr);
 	return 0;
 fail:
 	return ret;

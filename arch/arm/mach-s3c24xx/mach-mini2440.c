@@ -39,14 +39,14 @@
 
 #include <plat/regs-serial.h>
 #include <mach/regs-gpio.h>
-#include <mach/leds-gpio.h>
+#include <linux/platform_data/leds-s3c24xx.h>
 #include <mach/regs-mem.h>
 #include <mach/regs-lcd.h>
 #include <mach/irqs.h>
-#include <plat/nand.h>
-#include <plat/iic.h>
-#include <plat/mci.h>
-#include <plat/udc.h>
+#include <linux/platform_data/mtd-nand-s3c2410.h>
+#include <linux/platform_data/i2c-s3c2410.h>
+#include <linux/platform_data/mmc-s3cmci.h>
+#include <linux/platform_data/usb-s3c2410_udc.h>
 
 #include <linux/mtd/mtd.h>
 #include <linux/mtd/nand.h>
@@ -634,13 +634,13 @@ static void __init mini2440_init(void)
 	s3c_gpio_cfgpin(S3C2410_GPC(0), S3C2410_GPC0_LEND);
 
 	/* Turn the backlight early on */
-	WARN_ON(gpio_request(S3C2410_GPG(4), "backlight"));
-	gpio_direction_output(S3C2410_GPG(4), 1);
+	WARN_ON(gpio_request_one(S3C2410_GPG(4), GPIOF_OUT_INIT_HIGH, NULL));
+	gpio_free(S3C2410_GPG(4));
 
 	/* remove pullup on optional PWM backlight -- unused on 3.5 and 7"s */
+	gpio_request_one(S3C2410_GPB(1), GPIOF_IN, NULL);
 	s3c_gpio_setpull(S3C2410_GPB(1), S3C_GPIO_PULL_UP);
-	s3c2410_gpio_setpin(S3C2410_GPB(1), 0);
-	s3c_gpio_cfgpin(S3C2410_GPB(1), S3C2410_GPIO_INPUT);
+	gpio_free(S3C2410_GPB(1));
 
 	/* mark the key as input, without pullups (there is one on the board) */
 	for (i = 0; i < ARRAY_SIZE(mini2440_buttons); i++) {

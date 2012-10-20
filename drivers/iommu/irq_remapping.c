@@ -1,6 +1,11 @@
 #include <linux/kernel.h>
 #include <linux/string.h>
+#include <linux/cpumask.h>
 #include <linux/errno.h>
+#include <linux/msi.h>
+
+#include <asm/hw_irq.h>
+#include <asm/irq_remapping.h>
 
 #include "irq_remapping.h"
 
@@ -46,6 +51,11 @@ early_param("intremap", setup_irqremap);
 void __init setup_irq_remapping_ops(void)
 {
 	remap_ops = &intel_irq_remap_ops;
+
+#ifdef CONFIG_AMD_IOMMU
+	if (amd_iommu_irq_ops.prepare() == 0)
+		remap_ops = &amd_iommu_irq_ops;
+#endif
 }
 
 int irq_remapping_supported(void)
@@ -111,16 +121,15 @@ int setup_ioapic_remapped_entry(int irq,
 					     vector, attr);
 }
 
-#ifdef CONFIG_SMP
 int set_remapped_irq_affinity(struct irq_data *data, const struct cpumask *mask,
 			      bool force)
 {
-	if (!remap_ops || !remap_ops->set_affinity)
+	if (!config_enabled(CONFIG_SMP) || !remap_ops ||
+	    !remap_ops->set_affinity)
 		return 0;
 
 	return remap_ops->set_affinity(data, mask, force);
 }
-#endif
 
 void free_remapped_irq(int irq)
 {

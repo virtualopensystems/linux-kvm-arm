@@ -30,12 +30,11 @@
 #ifndef RADEON_MODE_H
 #define RADEON_MODE_H
 
-#include <drm_crtc.h>
-#include <drm_mode.h>
-#include <drm_edid.h>
-#include <drm_dp_helper.h>
-#include <drm_fixed.h>
-#include <drm_crtc_helper.h>
+#include <drm/drm_crtc.h>
+#include <drm/drm_edid.h>
+#include <drm/drm_dp_helper.h>
+#include <drm/drm_fixed.h>
+#include <drm/drm_crtc_helper.h>
 #include <linux/i2c.h>
 #include <linux/i2c-algo-bit.h>
 
@@ -252,7 +251,22 @@ struct radeon_mode_info {
 
 	/* pointer to fbdev info structure */
 	struct radeon_fbdev *rfbdev;
+	/* firmware flags */
+	u16 firmware_flags;
+	/* pointer to backlight encoder */
+	struct radeon_encoder *bl_encoder;
 };
+
+#define RADEON_MAX_BL_LEVEL 0xFF
+
+#if defined(CONFIG_BACKLIGHT_CLASS_DEVICE) || defined(CONFIG_BACKLIGHT_CLASS_DEVICE_MODULE)
+
+struct radeon_backlight_privdata {
+	struct radeon_encoder *encoder;
+	uint8_t negative;
+};
+
+#endif
 
 #define MAX_H_CODE_TIMING_LEN 32
 #define MAX_V_CODE_TIMING_LEN 32
@@ -269,12 +283,25 @@ struct radeon_tv_regs {
 	uint16_t v_code_timing[MAX_V_CODE_TIMING_LEN];
 };
 
+struct radeon_atom_ss {
+	uint16_t percentage;
+	uint8_t type;
+	uint16_t step;
+	uint8_t delay;
+	uint8_t range;
+	uint8_t refdiv;
+	/* asic_ss */
+	uint16_t rate;
+	uint16_t amount;
+};
+
 struct radeon_crtc {
 	struct drm_crtc base;
 	int crtc_id;
 	u16 lut_r[256], lut_g[256], lut_b[256];
 	bool enabled;
 	bool can_tile;
+	bool in_mode_set;
 	uint32_t crtc_offset;
 	struct drm_gem_object *cursor_bo;
 	uint64_t cursor_addr;
@@ -292,6 +319,16 @@ struct radeon_crtc {
 	/* page flipping */
 	struct radeon_unpin_work *unpin_work;
 	int deferred_flip_completion;
+	/* pll sharing */
+	struct radeon_atom_ss ss;
+	bool ss_enabled;
+	u32 adjusted_clock;
+	int bpc;
+	u32 pll_reference_div;
+	u32 pll_post_div;
+	u32 pll_flags;
+	struct drm_encoder *encoder;
+	struct drm_connector *connector;
 };
 
 struct radeon_encoder_primary_dac {
@@ -345,18 +382,6 @@ struct radeon_encoder_ext_tmds {
 };
 
 /* spread spectrum */
-struct radeon_atom_ss {
-	uint16_t percentage;
-	uint8_t type;
-	uint16_t step;
-	uint8_t delay;
-	uint8_t range;
-	uint8_t refdiv;
-	/* asic_ss */
-	uint16_t rate;
-	uint16_t amount;
-};
-
 struct radeon_encoder_atom_dig {
 	bool linkb;
 	/* atom dig */
@@ -488,7 +513,7 @@ extern void radeon_connector_hotplug(struct drm_connector *connector);
 extern int radeon_dp_mode_valid_helper(struct drm_connector *connector,
 				       struct drm_display_mode *mode);
 extern void radeon_dp_set_link_config(struct drm_connector *connector,
-				      struct drm_display_mode *mode);
+				      const struct drm_display_mode *mode);
 extern void radeon_dp_link_train(struct drm_encoder *encoder,
 				 struct drm_connector *connector);
 extern bool radeon_dp_needs_link_train(struct radeon_connector *radeon_connector);
@@ -678,7 +703,7 @@ void radeon_enc_destroy(struct drm_encoder *encoder);
 void radeon_copy_fb(struct drm_device *dev, struct drm_gem_object *dst_obj);
 void radeon_combios_asic_init(struct drm_device *dev);
 bool radeon_crtc_scaling_mode_fixup(struct drm_crtc *crtc,
-					struct drm_display_mode *mode,
+					const struct drm_display_mode *mode,
 					struct drm_display_mode *adjusted_mode);
 void radeon_panel_mode_fixup(struct drm_encoder *encoder,
 			     struct drm_display_mode *adjusted_mode);

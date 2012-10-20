@@ -35,6 +35,7 @@ struct hv_netvsc_packet;
 /* Represent the xfer page packet which contains 1 or more netvsc packet */
 struct xferpage_packet {
 	struct list_head list_ent;
+	u32 status;
 
 	/* # of netvsc packets this xfer packet contains */
 	u32 count;
@@ -47,6 +48,7 @@ struct xferpage_packet {
 struct hv_netvsc_packet {
 	/* Bookkeeping stuff */
 	struct list_head list_ent;
+	u32 status;
 
 	struct hv_device *device;
 	bool is_data_pkt;
@@ -131,6 +133,7 @@ int rndis_filter_send(struct hv_device *dev,
 			struct hv_netvsc_packet *pkt);
 
 int rndis_filter_set_packet_filter(struct rndis_device *dev, u32 new_filter);
+int rndis_filter_set_device_mac(struct hv_device *hdev, char *mac);
 
 
 #define NVSP_INVALID_PROTOCOL_VERSION	((u32)0xFFFFFFFF)
@@ -463,8 +466,6 @@ struct nvsp_message {
 #define NETVSC_RECEIVE_BUFFER_SIZE		(1024*1024*2)	/* 2MB */
 
 #define NETVSC_RECEIVE_BUFFER_ID		0xcafe
-
-#define NETVSC_RECEIVE_SG_COUNT			1
 
 /* Preallocated receive packets */
 #define NETVSC_RECEIVE_PACKETLIST_COUNT		256

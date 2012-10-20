@@ -29,12 +29,11 @@
  * OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#include "drmP.h"
-#include "drm.h"
-#include "radeon_drm.h"
+#include <drm/drmP.h>
+#include <drm/radeon_drm.h>
 #include "radeon_drv.h"
 
-#include "drm_pciids.h"
+#include <drm/drm_pciids.h>
 #include <linux/console.h>
 #include <linux/module.h>
 
@@ -59,9 +58,16 @@
  *   2.15.0 - add max_pipes query
  *   2.16.0 - fix evergreen 2D tiled surface calculation
  *   2.17.0 - add STRMOUT_BASE_UPDATE for r7xx
+ *   2.18.0 - r600-eg: allow "invalid" DB formats
+ *   2.19.0 - r600-eg: MSAA textures
+ *   2.20.0 - r600-si: RADEON_INFO_TIMESTAMP query
+ *   2.21.0 - r600-r700: FMASK and CMASK
+ *   2.22.0 - r600 only: RESOLVE_BOX allowed
+ *   2.23.0 - allow STRMOUT_BASE_UPDATE on RS780 and RS880
+ *   2.24.0 - eg only: allow MIP_ADDRESS=0 for MSAA textures
  */
 #define KMS_DRIVER_MAJOR	2
-#define KMS_DRIVER_MINOR	17
+#define KMS_DRIVER_MINOR	24
 #define KMS_DRIVER_PATCHLEVEL	0
 int radeon_driver_load_kms(struct drm_device *dev, unsigned long flags);
 int radeon_driver_unload_kms(struct drm_device *dev);
@@ -133,7 +139,7 @@ int radeon_tv = 1;
 int radeon_audio = 0;
 int radeon_disp_priority = 0;
 int radeon_hw_i2c = 0;
-int radeon_pcie_gen2 = 0;
+int radeon_pcie_gen2 = -1;
 int radeon_msi = -1;
 int radeon_lockup_timeout = 10000;
 
@@ -179,7 +185,7 @@ module_param_named(disp_priority, radeon_disp_priority, int, 0444);
 MODULE_PARM_DESC(hw_i2c, "hw i2c engine enable (0 = disable)");
 module_param_named(hw_i2c, radeon_hw_i2c, int, 0444);
 
-MODULE_PARM_DESC(pcie_gen2, "PCIE Gen2 mode (1 = enable)");
+MODULE_PARM_DESC(pcie_gen2, "PCIE Gen2 mode (-1 = auto, 0 = disable, 1 = enable)");
 module_param_named(pcie_gen2, radeon_pcie_gen2, int, 0444);
 
 MODULE_PARM_DESC(msi, "MSI support (1 = enable, 0 = disable, -1 = auto)");
@@ -262,7 +268,6 @@ static struct drm_driver driver_old = {
 	.irq_postinstall = radeon_driver_irq_postinstall,
 	.irq_uninstall = radeon_driver_irq_uninstall,
 	.irq_handler = radeon_driver_irq_handler,
-	.reclaim_buffers = drm_core_reclaim_buffers,
 	.ioctls = radeon_ioctls,
 	.dma_ioctl = radeon_cp_buffers,
 	.fops = &radeon_driver_old_fops,
@@ -365,7 +370,6 @@ static struct drm_driver kms_driver = {
 	.irq_postinstall = radeon_driver_irq_postinstall_kms,
 	.irq_uninstall = radeon_driver_irq_uninstall_kms,
 	.irq_handler = radeon_driver_irq_handler_kms,
-	.reclaim_buffers = drm_core_reclaim_buffers,
 	.ioctls = radeon_ioctls_kms,
 	.gem_init_object = radeon_gem_object_init,
 	.gem_free_object = radeon_gem_object_free,

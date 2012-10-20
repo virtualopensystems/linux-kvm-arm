@@ -336,8 +336,8 @@ static void arcfb_lcd_update_horiz(struct arcfb_par *par, unsigned int left,
 }
 
 /*
- * here we start the process of spliting out the fb update into
- * individual blocks of pixels. we end up spliting into 64x64 blocks
+ * here we start the process of splitting out the fb update into
+ * individual blocks of pixels. we end up splitting into 64x64 blocks
  * and finally down to 64x8 pages.
  */
 static void arcfb_lcd_update(struct arcfb_par *par, unsigned int dx,
@@ -552,6 +552,7 @@ static int __devinit arcfb_probe(struct platform_device *dev)
 				"arcfb", info)) {
 			printk(KERN_INFO
 				"arcfb: Failed req IRQ %d\n", par->irq);
+			retval = -EBUSY;
 			goto err1;
 		}
 	}

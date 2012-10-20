@@ -10,7 +10,7 @@
  * option) any later version.
  *
  */
-#include "drmP.h"
+#include <drm/drmP.h>
 
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -18,8 +18,8 @@
 
 #include <drm/exynos_drm.h>
 
-#include "drm_edid.h"
-#include "drm_crtc_helper.h"
+#include <drm/drm_edid.h>
+#include <drm/drm_crtc_helper.h>
 
 #include "exynos_drm_drv.h"
 #include "exynos_drm_crtc.h"
@@ -56,6 +56,7 @@ struct vidi_context {
 	unsigned int			connected;
 	bool				vblank_on;
 	bool				suspended;
+	bool				direct_vblank;
 	struct work_struct		work;
 	struct mutex			lock;
 };
@@ -85,8 +86,6 @@ static const char fake_edid_info[] = {
 	0x00, 0x00, 0x00, 0x06
 };
 
-static void vidi_fake_vblank_handler(struct work_struct *work);
-
 static bool vidi_display_is_connected(struct device *dev)
 {
 	struct vidi_context *ctx = get_vidi_context(dev);
@@ -104,7 +103,6 @@ static int vidi_get_edid(struct device *dev, struct drm_connector *connector,
 				u8 *edid, int len)
 {
 	struct vidi_context *ctx = get_vidi_context(dev);
-	struct edid *raw_edid;
 
 	DRM_DEBUG_KMS("%s\n", __FILE__);
 
@@ -116,18 +114,6 @@ static int vidi_get_edid(struct device *dev, struct drm_connector *connector,
 		DRM_DEBUG_KMS("raw_edid is null.\n");
 		return -EFAULT;
 	}
-
-	raw_edid = kzalloc(len, GFP_KERNEL);
-	if (!raw_edid) {
-		DRM_DEBUG_KMS("failed to allocate raw_edid.\n");
-		return -ENOMEM;
-	}
-
-	memcpy(raw_edid, ctx->raw_edid, min((1 + ctx->raw_edid->extensions)
-						* EDID_LENGTH, len));
-
-	/* attach the edid data to connector. */
-	connector->display_info.raw_edid = (char *)raw_edid;
 
 	memcpy(edid, ctx->raw_edid, min((1 + ctx->raw_edid->extensions)
 					* EDID_LENGTH, len));
@@ -238,6 +224,15 @@ static int vidi_enable_vblank(struct device *dev)
 
 	if (!test_and_set_bit(0, &ctx->irq_flags))
 		ctx->vblank_on = true;
+
+	ctx->direct_vblank = true;
+
+	/*
+	 * in case of page flip request, vidi_finish_pageflip function
+	 * will not be called because direct_vblank is true and then
+	 * that function will be called by overlay_ops->commit callback
+	 */
+	schedule_work(&ctx->work);
 
 	return 0;
 }
@@ -440,7 +435,17 @@ static void vidi_fake_vblank_handler(struct work_struct *work)
 	/* refresh rate is about 50Hz. */
 	usleep_range(16000, 20000);
 
-	drm_handle_vblank(subdrv->drm_dev, manager->pipe);
+	mutex_lock(&ctx->lock);
+
+	if (ctx->direct_vblank) {
+		drm_handle_vblank(subdrv->drm_dev, manager->pipe);
+		ctx->direct_vblank = false;
+		mutex_unlock(&ctx->lock);
+		return;
+	}
+
+	mutex_unlock(&ctx->lock);
+
 	vidi_finish_pageflip(subdrv->drm_dev, manager->pipe);
 }
 
@@ -468,7 +473,7 @@ static int vidi_subdrv_probe(struct drm_device *drm_dev, struct device *dev)
 	return 0;
 }
 
-static void vidi_subdrv_remove(struct drm_device *drm_dev)
+static void vidi_subdrv_remove(struct drm_device *drm_dev, struct device *dev)
 {
 	DRM_DEBUG_KMS("%s\n", __FILE__);
 
@@ -531,6 +536,16 @@ static int vidi_store_connection(struct device *dev,
 	if (ctx->connected > 1)
 		return -EINVAL;
 
+	/* use fake edid data for test. */
+	if (!ctx->raw_edid)
+		ctx->raw_edid = (struct edid *)fake_edid_info;
+
+	/* if raw_edid isn't same as fake data then it can't be tested. */
+	if (ctx->raw_edid != (struct edid *)fake_edid_info) {
+		DRM_DEBUG_KMS("edid data is not fake data.\n");
+		return -EINVAL;
+	}
+
 	DRM_DEBUG_KMS("requested connection.\n");
 
 	drm_helper_hpd_irq_event(ctx->subdrv.drm_dev);
@@ -549,16 +564,13 @@ int vidi_connection_ioctl(struct drm_device *drm_dev, void *data,
 	struct exynos_drm_manager *manager;
 	struct exynos_drm_display_ops *display_ops;
 	struct drm_exynos_vidi_connection *vidi = data;
+	struct edid *raw_edid;
+	int edid_len;
 
 	DRM_DEBUG_KMS("%s\n", __FILE__);
 
 	if (!vidi) {
 		DRM_DEBUG_KMS("user data for vidi is null.\n");
-		return -EINVAL;
-	}
-
-	if (!vidi->edid) {
-		DRM_DEBUG_KMS("edid data is null.\n");
 		return -EINVAL;
 	}
 
@@ -588,8 +600,30 @@ int vidi_connection_ioctl(struct drm_device *drm_dev, void *data,
 		return -EINVAL;
 	}
 
-	if (vidi->connection)
-		ctx->raw_edid = (struct edid *)vidi->edid;
+	if (vidi->connection) {
+		if (!vidi->edid) {
+			DRM_DEBUG_KMS("edid data is null.\n");
+			return -EINVAL;
+		}
+		raw_edid = (struct edid *)(uint32_t)vidi->edid;
+		edid_len = (1 + raw_edid->extensions) * EDID_LENGTH;
+		ctx->raw_edid = kzalloc(edid_len, GFP_KERNEL);
+		if (!ctx->raw_edid) {
+			DRM_DEBUG_KMS("failed to allocate raw_edid.\n");
+			return -ENOMEM;
+		}
+		memcpy(ctx->raw_edid, raw_edid, edid_len);
+	} else {
+		/*
+		 * with connection = 0, free raw_edid
+		 * only if raw edid data isn't same as fake data.
+		 */
+		if (ctx->raw_edid && ctx->raw_edid !=
+				(struct edid *)fake_edid_info) {
+			kfree(ctx->raw_edid);
+			ctx->raw_edid = NULL;
+		}
+	}
 
 	ctx->connected = vidi->connection;
 	drm_helper_hpd_irq_event(ctx->subdrv.drm_dev);
@@ -606,16 +640,13 @@ static int __devinit vidi_probe(struct platform_device *pdev)
 
 	DRM_DEBUG_KMS("%s\n", __FILE__);
 
-	ctx = kzalloc(sizeof(*ctx), GFP_KERNEL);
+	ctx = devm_kzalloc(&pdev->dev, sizeof(*ctx), GFP_KERNEL);
 	if (!ctx)
 		return -ENOMEM;
 
 	ctx->default_win = 0;
 
 	INIT_WORK(&ctx->work, vidi_fake_vblank_handler);
-
-	/* for test */
-	ctx->raw_edid = (struct edid *)fake_edid_info;
 
 	subdrv = &ctx->subdrv;
 	subdrv->dev = dev;
@@ -644,7 +675,10 @@ static int __devexit vidi_remove(struct platform_device *pdev)
 
 	exynos_drm_subdrv_unregister(&ctx->subdrv);
 
-	kfree(ctx);
+	if (ctx->raw_edid != (struct edid *)fake_edid_info) {
+		kfree(ctx->raw_edid);
+		ctx->raw_edid = NULL;
+	}
 
 	return 0;
 }

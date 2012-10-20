@@ -1,7 +1,7 @@
 /*
  * ALSA SoC WM9090 driver
  *
- * Copyright 2009, 2010 Wolfson Microelectronics
+ * Copyright 2009-12 Wolfson Microelectronics
  *
  * Author: Mark Brown <broonie@opensource.wolfsonmicro.com>
  *
@@ -695,17 +695,7 @@ static struct i2c_driver wm9090_i2c_driver = {
 	.id_table = wm9090_id,
 };
 
-static int __init wm9090_init(void)
-{
-	return i2c_add_driver(&wm9090_i2c_driver);
-}
-module_init(wm9090_init);
-
-static void __exit wm9090_exit(void)
-{
-	i2c_del_driver(&wm9090_i2c_driver);
-}
-module_exit(wm9090_exit);
+module_i2c_driver(wm9090_i2c_driver);
 
 MODULE_AUTHOR("Mark Brown <broonie@opensource.wolfsonmicro.com>");
 MODULE_DESCRIPTION("WM9090 ASoC driver");

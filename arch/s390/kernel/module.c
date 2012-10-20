@@ -1,9 +1,8 @@
 /*
- *  arch/s390/kernel/module.c - Kernel module help for s390.
+ *  Kernel module help for s390.
  *
  *  S390 version
- *    Copyright (C) 2002, 2003 IBM Deutschland Entwicklung GmbH,
- *			       IBM Corporation
+ *    Copyright IBM Corp. 2002, 2003
  *    Author(s): Arnd Bergmann (arndb@de.ibm.com)
  *		 Martin Schwidefsky (schwidefsky@de.ibm.com)
  *
@@ -44,6 +43,17 @@
 #else /* CONFIG_64BIT */
 #define PLT_ENTRY_SIZE 20
 #endif /* CONFIG_64BIT */
+
+#ifdef CONFIG_64BIT
+void *module_alloc(unsigned long size)
+{
+	if (PAGE_ALIGN(size) > MODULES_LEN)
+		return NULL;
+	return __vmalloc_node_range(size, 1, MODULES_VADDR, MODULES_END,
+				    GFP_KERNEL, PAGE_KERNEL, -1,
+				    __builtin_return_address(0));
+}
+#endif
 
 /* Free memory returned from module_alloc */
 void module_free(struct module *mod, void *module_region)

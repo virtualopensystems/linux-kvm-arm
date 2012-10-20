@@ -289,6 +289,7 @@ struct ar9170 {
 		unsigned int mem_block_size;
 		unsigned int rx_size;
 		unsigned int tx_seq_table;
+		bool ba_filter;
 	} fw;
 
 	/* interface configuration combinations */
@@ -302,6 +303,7 @@ struct ar9170 {
 	unsigned long queue_stop_timeout[__AR9170_NUM_TXQ];
 	unsigned long max_queue_stop_timeout[__AR9170_NUM_TXQ];
 	bool needs_full_reset;
+	bool force_usb_reset;
 	atomic_t pending_restarts;
 
 	/* interface mode settings */
@@ -424,6 +426,11 @@ struct ar9170 {
 	bool rx_has_plcp;
 	struct sk_buff *rx_failover;
 	int rx_failover_missing;
+	u32 ampdu_ref;
+
+	/* FIFO for collecting outstanding BlockAckRequest */
+	struct list_head bar_list[__AR9170_NUM_TXQ];
+	spinlock_t bar_list_lock[__AR9170_NUM_TXQ];
 
 #ifdef CONFIG_CARL9170_WPC
 	struct {
@@ -466,6 +473,12 @@ struct ar9170 {
 enum carl9170_ps_off_override_reasons {
 	PS_OFF_VIF	= BIT(0),
 	PS_OFF_BCN	= BIT(1),
+};
+
+struct carl9170_bar_list_entry {
+	struct list_head list;
+	struct rcu_head head;
+	struct sk_buff *skb;
 };
 
 struct carl9170_ba_stats {
@@ -566,7 +579,9 @@ void carl9170_rx(struct ar9170 *ar, void *buf, unsigned int len);
 void carl9170_handle_command_response(struct ar9170 *ar, void *buf, u32 len);
 
 /* TX */
-void carl9170_op_tx(struct ieee80211_hw *hw, struct sk_buff *skb);
+void carl9170_op_tx(struct ieee80211_hw *hw,
+		    struct ieee80211_tx_control *control,
+		    struct sk_buff *skb);
 void carl9170_tx_janitor(struct work_struct *work);
 void carl9170_tx_process_status(struct ar9170 *ar,
 				const struct carl9170_rsp *cmd);

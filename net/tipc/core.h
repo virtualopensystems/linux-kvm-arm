@@ -37,6 +37,8 @@
 #ifndef _TIPC_CORE_H
 #define _TIPC_CORE_H
 
+#define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
+
 #include <linux/tipc.h>
 #include <linux/tipc_config.h>
 #include <linux/types.h>
@@ -58,68 +60,13 @@
 
 #define TIPC_MOD_VER "2.0.0"
 
+#define ULTRA_STRING_MAX_LEN	32768
+#define TIPC_MAX_SUBSCRIPTIONS	65535
+#define TIPC_MAX_PUBLICATIONS	65535
+
 struct tipc_msg;	/* msg.h */
-struct print_buf;	/* log.h */
 
-/*
- * TIPC system monitoring code
- */
-
-/*
- * TIPC's print buffer subsystem supports the following print buffers:
- *
- * TIPC_NULL : null buffer (i.e. print nowhere)
- * TIPC_CONS : system console
- * TIPC_LOG  : TIPC log buffer
- * &buf	     : user-defined buffer (struct print_buf *)
- *
- * Note: TIPC_LOG is configured to echo its output to the system console;
- *       user-defined buffers can be configured to do the same thing.
- */
-extern struct print_buf *const TIPC_NULL;
-extern struct print_buf *const TIPC_CONS;
-extern struct print_buf *const TIPC_LOG;
-
-void tipc_printf(struct print_buf *, const char *fmt, ...);
-
-/*
- * TIPC_OUTPUT is the destination print buffer for system messages.
- */
-#ifndef TIPC_OUTPUT
-#define TIPC_OUTPUT TIPC_LOG
-#endif
-
-#define err(fmt, arg...)  tipc_printf(TIPC_OUTPUT, \
-				      KERN_ERR "TIPC: " fmt, ## arg)
-#define warn(fmt, arg...) tipc_printf(TIPC_OUTPUT, \
-				      KERN_WARNING "TIPC: " fmt, ## arg)
-#define info(fmt, arg...) tipc_printf(TIPC_OUTPUT, \
-				      KERN_NOTICE "TIPC: " fmt, ## arg)
-
-#ifdef CONFIG_TIPC_DEBUG
-
-/*
- * DBG_OUTPUT is the destination print buffer for debug messages.
- */
-#ifndef DBG_OUTPUT
-#define DBG_OUTPUT TIPC_LOG
-#endif
-
-#define dbg(fmt, arg...)  tipc_printf(DBG_OUTPUT, KERN_DEBUG fmt, ## arg);
-
-#define msg_dbg(msg, txt) tipc_msg_dbg(DBG_OUTPUT, msg, txt);
-
-void tipc_msg_dbg(struct print_buf *, struct tipc_msg *, const char *);
-
-#else
-
-#define dbg(fmt, arg...)	do {} while (0)
-#define msg_dbg(msg, txt)	do {} while (0)
-
-#define tipc_msg_dbg(buf, msg, txt) do {} while (0)
-
-#endif
-
+int tipc_snprintf(char *buf, int len, const char *fmt, ...);
 
 /*
  * TIPC-specific error codes
@@ -129,19 +76,15 @@ void tipc_msg_dbg(struct print_buf *, struct tipc_msg *, const char *);
 /*
  * Global configuration variables
  */
-extern u32 tipc_own_addr;
-extern int tipc_max_ports;
-extern int tipc_max_subscriptions;
-extern int tipc_max_publications;
-extern int tipc_net_id;
-extern int tipc_remote_management;
+extern u32 tipc_own_addr __read_mostly;
+extern int tipc_max_ports __read_mostly;
+extern int tipc_net_id __read_mostly;
+extern int tipc_remote_management __read_mostly;
 
 /*
  * Other global variables
  */
-extern int tipc_random;
-extern const char tipc_alphabet[];
-
+extern int tipc_random __read_mostly;
 
 /*
  * Routines available to privileged subsystems

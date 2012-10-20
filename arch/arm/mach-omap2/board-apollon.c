@@ -29,14 +29,11 @@
 #include <linux/smc91x.h>
 #include <linux/gpio.h>
 
-#include <mach/hardware.h>
 #include <asm/mach-types.h>
 #include <asm/mach/arch.h>
 #include <asm/mach/flash.h>
 
 #include <plat/led.h>
-#include <plat/usb.h>
-#include <plat/board.h>
 #include "common.h"
 #include <plat/gpmc.h>
 
@@ -205,7 +202,7 @@ static inline void __init apollon_init_smc91x(void)
 		return;
 	}
 
-	clk_enable(gpmc_fck);
+	clk_prepare_enable(gpmc_fck);
 	rate = clk_get_rate(gpmc_fck);
 
 	eth_cs = APOLLON_ETH_CS;
@@ -249,16 +246,9 @@ static inline void __init apollon_init_smc91x(void)
 		gpmc_cs_free(APOLLON_ETH_CS);
 	}
 out:
-	clk_disable(gpmc_fck);
+	clk_disable_unprepare(gpmc_fck);
 	clk_put(gpmc_fck);
 }
-
-static struct omap_usb_config apollon_usb_config __initdata = {
-	.register_dev	= 1,
-	.hmc_mode	= 0x14,	/* 0:dev 1:host1 2:disable */
-
-	.pins[0]	= 6,
-};
 
 static struct panel_generic_dpi_data apollon_panel_data = {
 	.name			= "apollon",
@@ -297,15 +287,6 @@ static void __init apollon_led_init(void)
 	gpio_request_array(apollon_gpio_leds, ARRAY_SIZE(apollon_gpio_leds));
 }
 
-static void __init apollon_usb_init(void)
-{
-	/* USB device */
-	/* DEVICE_SUSPEND */
-	omap_mux_init_signal("mcbsp2_clkx.gpio_12", 0);
-	gpio_request_one(12, GPIOF_OUT_INIT_LOW, "USB suspend");
-	omap2_usbfs_init(&apollon_usb_config);
-}
-
 #ifdef CONFIG_OMAP_MUX
 static struct omap_board_mux board_mux[] __initdata = {
 	{ .reg_offset = OMAP_MUX_TERMINATOR },
@@ -321,7 +302,6 @@ static void __init omap_apollon_init(void)
 	apollon_init_smc91x();
 	apollon_led_init();
 	apollon_flash_init();
-	apollon_usb_init();
 
 	/* REVISIT: where's the correct place */
 	omap_mux_init_signal("sys_nirq", OMAP_PULL_ENA | OMAP_PULL_UP);
@@ -329,7 +309,7 @@ static void __init omap_apollon_init(void)
 	/* LCD PWR_EN */
 	omap_mux_init_signal("mcbsp2_dr.gpio_11", OMAP_PULL_ENA | OMAP_PULL_UP);
 
-	/* Use Interal loop-back in MMC/SDIO Module Input Clock selection */
+	/* Use Internal loop-back in MMC/SDIO Module Input Clock selection */
 	v = omap_ctrl_readl(OMAP2_CONTROL_DEVCONF0);
 	v |= (1 << 24);
 	omap_ctrl_writel(v, OMAP2_CONTROL_DEVCONF0);

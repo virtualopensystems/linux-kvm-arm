@@ -72,7 +72,6 @@ static int mwifiex_register(void *card, struct mwifiex_if_ops *if_ops,
 			goto error;
 
 		adapter->priv[i]->adapter = adapter;
-		adapter->priv[i]->bss_priority = i;
 		adapter->priv_num++;
 	}
 	mwifiex_init_lock_list(adapter);
@@ -190,7 +189,8 @@ process_start:
 			    adapter->tx_lock_flag)
 				break;
 
-			if (adapter->scan_processing || adapter->data_sent ||
+			if ((adapter->scan_processing &&
+			     !adapter->scan_delay_cnt) || adapter->data_sent ||
 			    mwifiex_wmm_lists_empty(adapter)) {
 				if (adapter->cmd_sent || adapter->curr_cmd ||
 				    (!is_command_pending(adapter)))
@@ -244,8 +244,8 @@ process_start:
 			}
 		}
 
-		if (!adapter->scan_processing && !adapter->data_sent &&
-		    !mwifiex_wmm_lists_empty(adapter)) {
+		if ((!adapter->scan_processing || adapter->scan_delay_cnt) &&
+		    !adapter->data_sent && !mwifiex_wmm_lists_empty(adapter)) {
 			mwifiex_wmm_process_tx(adapter);
 			if (adapter->hs_activated) {
 				adapter->is_hs_configured = false;
@@ -369,6 +369,13 @@ static void mwifiex_fw_dpc(const struct firmware *firmware, void *context)
 		dev_err(adapter->dev, "cannot create default AP interface\n");
 		goto err_add_intf;
 	}
+
+	/* Create P2P interface by default */
+	if (!mwifiex_add_virtual_intf(adapter->wiphy, "p2p%d",
+				      NL80211_IFTYPE_P2P_CLIENT, NULL, NULL)) {
+		dev_err(adapter->dev, "cannot create default P2P interface\n");
+		goto err_add_intf;
+	}
 	rtnl_unlock();
 
 	mwifiex_drv_get_driver_version(adapter, fmt, sizeof(fmt) - 1);
@@ -376,7 +383,7 @@ static void mwifiex_fw_dpc(const struct firmware *firmware, void *context)
 	goto done;
 
 err_add_intf:
-	mwifiex_del_virtual_intf(adapter->wiphy, priv->netdev);
+	mwifiex_del_virtual_intf(adapter->wiphy, priv->wdev);
 	rtnl_unlock();
 err_init_fw:
 	pr_debug("info: %s: unregister device\n", __func__);
@@ -469,6 +476,27 @@ mwifiex_close(struct net_device *dev)
 }
 
 /*
+ * Add buffer into wmm tx queue and queue work to transmit it.
+ */
+int mwifiex_queue_tx_pkt(struct mwifiex_private *priv, struct sk_buff *skb)
+{
+	mwifiex_wmm_add_buf_txqueue(priv, skb);
+	atomic_inc(&priv->adapter->tx_pending);
+
+	if (priv->adapter->scan_delay_cnt)
+		atomic_set(&priv->adapter->is_tx_received, true);
+
+	if (atomic_read(&priv->adapter->tx_pending) >= MAX_TX_PENDING) {
+		mwifiex_set_trans_start(priv->netdev);
+		mwifiex_stop_net_dev_queue(priv->netdev, priv->adapter);
+	}
+
+	queue_work(priv->adapter->workqueue, &priv->adapter->main_work);
+
+	return 0;
+}
+
+/*
  * CFG802.11 network device handler for data transmission.
  */
 static int
@@ -516,15 +544,7 @@ mwifiex_hard_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	tx_info->bss_type = priv->bss_type;
 	mwifiex_fill_buffer(skb);
 
-	mwifiex_wmm_add_buf_txqueue(priv, skb);
-	atomic_inc(&priv->adapter->tx_pending);
-
-	if (atomic_read(&priv->adapter->tx_pending) >= MAX_TX_PENDING) {
-		mwifiex_set_trans_start(dev);
-		mwifiex_stop_net_dev_queue(priv->netdev, priv->adapter);
-	}
-
-	queue_work(priv->adapter->workqueue, &priv->adapter->main_work);
+	mwifiex_queue_tx_pkt(priv, skb);
 
 	return 0;
 }
@@ -843,7 +863,7 @@ int mwifiex_remove_card(struct mwifiex_adapter *adapter, struct semaphore *sem)
 
 		rtnl_lock();
 		if (priv->wdev && priv->netdev)
-			mwifiex_del_virtual_intf(adapter->wiphy, priv->netdev);
+			mwifiex_del_virtual_intf(adapter->wiphy, priv->wdev);
 		rtnl_unlock();
 	}
 

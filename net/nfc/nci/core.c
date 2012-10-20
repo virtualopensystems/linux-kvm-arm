@@ -27,6 +27,7 @@
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": %s: " fmt, __func__
 
+#include <linux/module.h>
 #include <linux/types.h>
 #include <linux/workqueue.h>
 #include <linux/completion.h>
@@ -175,6 +176,27 @@ static void nci_init_complete_req(struct nci_dev *ndev, unsigned long opt)
 		     (1 + ((*num) * sizeof(struct disc_map_config))), &cmd);
 }
 
+struct nci_set_config_param {
+	__u8	id;
+	size_t	len;
+	__u8	*val;
+};
+
+static void nci_set_config_req(struct nci_dev *ndev, unsigned long opt)
+{
+	struct nci_set_config_param *param = (struct nci_set_config_param *)opt;
+	struct nci_core_set_config_cmd cmd;
+
+	BUG_ON(param->len > NCI_MAX_PARAM_LEN);
+
+	cmd.num_params = 1;
+	cmd.param.id = param->id;
+	cmd.param.len = param->len;
+	memcpy(cmd.param.val, param->val, param->len);
+
+	nci_send_cmd(ndev, NCI_OP_CORE_SET_CONFIG_CMD, (3 + param->len), &cmd);
+}
+
 static void nci_rf_discover_req(struct nci_dev *ndev, unsigned long opt)
 {
 	struct nci_rf_disc_cmd cmd;
@@ -194,7 +216,7 @@ static void nci_rf_discover_req(struct nci_dev *ndev, unsigned long opt)
 	}
 
 	if ((cmd.num_disc_configs < NCI_MAX_NUM_RF_CONFIGS) &&
-	    (protocols & NFC_PROTO_ISO14443_MASK)) {
+	    (protocols & NFC_PROTO_ISO14443_B_MASK)) {
 		cmd.disc_configs[cmd.num_disc_configs].rf_tech_and_mode =
 			NCI_NFC_B_PASSIVE_POLL_MODE;
 		cmd.disc_configs[cmd.num_disc_configs].frequency = 1;
@@ -387,7 +409,34 @@ static int nci_dev_down(struct nfc_dev *nfc_dev)
 	return nci_close_device(ndev);
 }
 
-static int nci_start_poll(struct nfc_dev *nfc_dev, __u32 protocols)
+static int nci_set_local_general_bytes(struct nfc_dev *nfc_dev)
+{
+	struct nci_dev *ndev = nfc_get_drvdata(nfc_dev);
+	struct nci_set_config_param param;
+	__u8 local_gb[NFC_MAX_GT_LEN];
+	int i, rc = 0;
+
+	param.val = nfc_get_local_general_bytes(nfc_dev, &param.len);
+	if ((param.val == NULL) || (param.len == 0))
+		return rc;
+
+	if (param.len > NCI_MAX_PARAM_LEN)
+		return -EINVAL;
+
+	for (i = 0; i < param.len; i++)
+		local_gb[param.len-1-i] = param.val[i];
+
+	param.id = NCI_PN_ATR_REQ_GEN_BYTES;
+	param.val = local_gb;
+
+	rc = nci_request(ndev, nci_set_config_req, (unsigned long)&param,
+			 msecs_to_jiffies(NCI_SET_CONFIG_TIMEOUT));
+
+	return rc;
+}
+
+static int nci_start_poll(struct nfc_dev *nfc_dev,
+			  __u32 im_protocols, __u32 tm_protocols)
 {
 	struct nci_dev *ndev = nfc_get_drvdata(nfc_dev);
 	int rc;
@@ -413,11 +462,19 @@ static int nci_start_poll(struct nfc_dev *nfc_dev, __u32 protocols)
 			return -EBUSY;
 	}
 
-	rc = nci_request(ndev, nci_rf_discover_req, protocols,
+	if (im_protocols & NFC_PROTO_NFC_DEP_MASK) {
+		rc = nci_set_local_general_bytes(nfc_dev);
+		if (rc) {
+			pr_err("failed to set local general bytes\n");
+			return rc;
+		}
+	}
+
+	rc = nci_request(ndev, nci_rf_discover_req, im_protocols,
 			 msecs_to_jiffies(NCI_RF_DISC_TIMEOUT));
 
 	if (!rc)
-		ndev->poll_prots = protocols;
+		ndev->poll_prots = im_protocols;
 
 	return rc;
 }
@@ -485,7 +542,8 @@ static int nci_activate_target(struct nfc_dev *nfc_dev,
 			param.rf_protocol = NCI_RF_PROTOCOL_T2T;
 		else if (protocol == NFC_PROTO_FELICA)
 			param.rf_protocol = NCI_RF_PROTOCOL_T3T;
-		else if (protocol == NFC_PROTO_ISO14443)
+		else if (protocol == NFC_PROTO_ISO14443 ||
+			 protocol == NFC_PROTO_ISO14443_B)
 			param.rf_protocol = NCI_RF_PROTOCOL_ISO_DEP;
 		else
 			param.rf_protocol = NCI_RF_PROTOCOL_NFC_DEP;
@@ -506,7 +564,7 @@ static void nci_deactivate_target(struct nfc_dev *nfc_dev,
 {
 	struct nci_dev *ndev = nfc_get_drvdata(nfc_dev);
 
-	pr_debug("target_idx %d\n", target->idx);
+	pr_debug("entry\n");
 
 	if (!ndev->target_active_prot) {
 		pr_err("unable to deactivate target, no active target\n");
@@ -521,9 +579,41 @@ static void nci_deactivate_target(struct nfc_dev *nfc_dev,
 	}
 }
 
-static int nci_data_exchange(struct nfc_dev *nfc_dev, struct nfc_target *target,
-			     struct sk_buff *skb,
-			     data_exchange_cb_t cb, void *cb_context)
+
+static int nci_dep_link_up(struct nfc_dev *nfc_dev, struct nfc_target *target,
+			   __u8 comm_mode, __u8 *gb, size_t gb_len)
+{
+	struct nci_dev *ndev = nfc_get_drvdata(nfc_dev);
+	int rc;
+
+	pr_debug("target_idx %d, comm_mode %d\n", target->idx, comm_mode);
+
+	rc = nci_activate_target(nfc_dev, target, NFC_PROTO_NFC_DEP);
+	if (rc)
+		return rc;
+
+	rc = nfc_set_remote_general_bytes(nfc_dev, ndev->remote_gb,
+					  ndev->remote_gb_len);
+	if (!rc)
+		rc = nfc_dep_link_is_up(nfc_dev, target->idx, NFC_COMM_PASSIVE,
+					NFC_RF_INITIATOR);
+
+	return rc;
+}
+
+static int nci_dep_link_down(struct nfc_dev *nfc_dev)
+{
+	pr_debug("entry\n");
+
+	nci_deactivate_target(nfc_dev, NULL);
+
+	return 0;
+}
+
+
+static int nci_transceive(struct nfc_dev *nfc_dev, struct nfc_target *target,
+			  struct sk_buff *skb,
+			  data_exchange_cb_t cb, void *cb_context)
 {
 	struct nci_dev *ndev = nfc_get_drvdata(nfc_dev);
 	int rc;
@@ -554,9 +644,11 @@ static struct nfc_ops nci_nfc_ops = {
 	.dev_down = nci_dev_down,
 	.start_poll = nci_start_poll,
 	.stop_poll = nci_stop_poll,
+	.dep_link_up = nci_dep_link_up,
+	.dep_link_down = nci_dep_link_down,
 	.activate_target = nci_activate_target,
 	.deactivate_target = nci_deactivate_target,
-	.data_exchange = nci_data_exchange,
+	.im_transceive = nci_transceive,
 };
 
 /* ---- Interface to NCI drivers ---- */
@@ -878,3 +970,5 @@ static void nci_cmd_work(struct work_struct *work)
 			  jiffies + msecs_to_jiffies(NCI_CMD_TIMEOUT));
 	}
 }
+
+MODULE_LICENSE("GPL");

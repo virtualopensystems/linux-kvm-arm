@@ -23,8 +23,8 @@
  *
  * Authors: Christian König
  */
-#include "drmP.h"
-#include "radeon_drm.h"
+#include <drm/drmP.h>
+#include <drm/radeon_drm.h>
 #include "radeon.h"
 #include "radeon_asic.h"
 #include "r600d.h"
@@ -53,7 +53,7 @@ enum r600_hdmi_iec_status_bits {
 	AUDIO_STATUS_LEVEL        = 0x80
 };
 
-struct radeon_hdmi_acr r600_hdmi_predefined_acr[] = {
+static const struct radeon_hdmi_acr r600_hdmi_predefined_acr[] = {
     /*	     32kHz	  44.1kHz	48kHz    */
     /* Clock      N     CTS      N     CTS      N     CTS */
     {  25174,  4576,  28125,  7007,  31250,  6864,  28125 }, /*  25,20/1.001 MHz */
@@ -519,8 +519,7 @@ void r600_hdmi_enable(struct drm_encoder *encoder)
 
 	if (rdev->irq.installed) {
 		/* if irq is available use it */
-		rdev->irq.afmt[dig->afmt->id] = true;
-		radeon_irq_set(rdev);
+		radeon_irq_kms_enable_afmt(rdev, dig->afmt->id);
 	}
 
 	dig->afmt->enabled = true;
@@ -556,8 +555,7 @@ void r600_hdmi_disable(struct drm_encoder *encoder)
 		  offset, radeon_encoder->encoder_id);
 
 	/* disable irq */
-	rdev->irq.afmt[dig->afmt->id] = false;
-	radeon_irq_set(rdev);
+	radeon_irq_kms_disable_afmt(rdev, dig->afmt->id);
 
 	/* Older chipsets not handled by AtomBIOS */
 	if (rdev->family >= CHIP_R600 && !ASIC_IS_DCE3(rdev)) {

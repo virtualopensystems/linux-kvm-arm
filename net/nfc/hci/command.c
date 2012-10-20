@@ -28,26 +28,33 @@
 
 #include "hci.h"
 
-static int nfc_hci_result_to_errno(u8 result)
+static int nfc_hci_execute_cmd_async(struct nfc_hci_dev *hdev, u8 pipe, u8 cmd,
+			       const u8 *param, size_t param_len,
+			       data_exchange_cb_t cb, void *cb_context)
 {
-	switch (result) {
-	case NFC_HCI_ANY_OK:
-		return 0;
-	case NFC_HCI_ANY_E_TIMEOUT:
-		return -ETIMEDOUT;
-	default:
-		return -1;
-	}
+	pr_debug("exec cmd async through pipe=%d, cmd=%d, plen=%zd\n", pipe,
+		 cmd, param_len);
+
+	/* TODO: Define hci cmd execution delay. Should it be the same
+	 * for all commands?
+	 */
+	return nfc_hci_hcp_message_tx(hdev, pipe, NFC_HCI_HCP_COMMAND, cmd,
+				      param, param_len, cb, cb_context, 3000);
 }
 
-static void nfc_hci_execute_cb(struct nfc_hci_dev *hdev, u8 result,
-			       struct sk_buff *skb, void *cb_data)
+/*
+ * HCI command execution completion callback.
+ * err will be a standard linux error (may be converted from HCI response)
+ * skb contains the response data and must be disposed, or may be NULL if
+ * an error occured
+ */
+static void nfc_hci_execute_cb(void *context, struct sk_buff *skb, int err)
 {
-	struct hcp_exec_waiter *hcp_ew = (struct hcp_exec_waiter *)cb_data;
+	struct hcp_exec_waiter *hcp_ew = (struct hcp_exec_waiter *)context;
 
-	pr_debug("HCI Cmd completed with HCI result=%d\n", result);
+	pr_debug("HCI Cmd completed with result=%d\n", err);
 
-	hcp_ew->exec_result = nfc_hci_result_to_errno(result);
+	hcp_ew->exec_result = err;
 	if (hcp_ew->exec_result == 0)
 		hcp_ew->result_skb = skb;
 	else
@@ -67,7 +74,8 @@ static int nfc_hci_execute_cmd(struct nfc_hci_dev *hdev, u8 pipe, u8 cmd,
 	hcp_ew.exec_complete = false;
 	hcp_ew.result_skb = NULL;
 
-	pr_debug("through pipe=%d, cmd=%d, plen=%zd\n", pipe, cmd, param_len);
+	pr_debug("exec cmd sync through pipe=%d, cmd=%d, plen=%zd\n", pipe,
+		 cmd, param_len);
 
 	/* TODO: Define hci cmd execution delay. Should it be the same
 	 * for all commands?
@@ -144,6 +152,23 @@ int nfc_hci_send_cmd(struct nfc_hci_dev *hdev, u8 gate, u8 cmd,
 	return nfc_hci_execute_cmd(hdev, pipe, cmd, param, param_len, skb);
 }
 EXPORT_SYMBOL(nfc_hci_send_cmd);
+
+int nfc_hci_send_cmd_async(struct nfc_hci_dev *hdev, u8 gate, u8 cmd,
+			   const u8 *param, size_t param_len,
+			   data_exchange_cb_t cb, void *cb_context)
+{
+	u8 pipe;
+
+	pr_debug("\n");
+
+	pipe = hdev->gate2pipe[gate];
+	if (pipe == NFC_HCI_INVALID_PIPE)
+		return -EADDRNOTAVAIL;
+
+	return nfc_hci_execute_cmd_async(hdev, pipe, cmd, param, param_len,
+					 cb, cb_context);
+}
+EXPORT_SYMBOL(nfc_hci_send_cmd_async);
 
 int nfc_hci_set_param(struct nfc_hci_dev *hdev, u8 gate, u8 idx,
 		      const u8 *param, size_t param_len)
@@ -311,9 +336,9 @@ int nfc_hci_disconnect_all_gates(struct nfc_hci_dev *hdev)
 }
 EXPORT_SYMBOL(nfc_hci_disconnect_all_gates);
 
-int nfc_hci_connect_gate(struct nfc_hci_dev *hdev, u8 dest_host, u8 dest_gate)
+int nfc_hci_connect_gate(struct nfc_hci_dev *hdev, u8 dest_host, u8 dest_gate,
+			 u8 pipe)
 {
-	u8 pipe = NFC_HCI_INVALID_PIPE;
 	bool pipe_created = false;
 	int r;
 
@@ -321,6 +346,9 @@ int nfc_hci_connect_gate(struct nfc_hci_dev *hdev, u8 dest_host, u8 dest_gate)
 
 	if (hdev->gate2pipe[dest_gate] != NFC_HCI_INVALID_PIPE)
 		return -EADDRINUSE;
+
+	if (pipe != NFC_HCI_INVALID_PIPE)
+		goto pipe_is_open;
 
 	switch (dest_gate) {
 	case NFC_HCI_LINK_MGMT_GATE:
@@ -347,6 +375,7 @@ int nfc_hci_connect_gate(struct nfc_hci_dev *hdev, u8 dest_host, u8 dest_gate)
 		return r;
 	}
 
+pipe_is_open:
 	hdev->gate2pipe[dest_gate] = pipe;
 
 	return 0;

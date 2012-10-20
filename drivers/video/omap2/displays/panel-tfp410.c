@@ -39,6 +39,12 @@ static const struct omap_video_timings tfp410_default_timings = {
 	.vfp		= 3,
 	.vsw		= 4,
 	.vbp		= 7,
+
+	.vsync_level	= OMAPDSS_SIG_ACTIVE_HIGH,
+	.hsync_level	= OMAPDSS_SIG_ACTIVE_HIGH,
+	.data_pclk_edge	= OMAPDSS_DRIVE_SIG_RISING_EDGE,
+	.de_level	= OMAPDSS_SIG_ACTIVE_HIGH,
+	.sync_pclk_edge	= OMAPDSS_DRIVE_SIG_OPPOSITE_EDGES,
 };
 
 struct panel_drv_data {
@@ -58,6 +64,9 @@ static int tfp410_power_on(struct omap_dss_device *dssdev)
 
 	if (dssdev->state == OMAP_DSS_DISPLAY_ACTIVE)
 		return 0;
+
+	omapdss_dpi_set_timings(dssdev, &dssdev->panel.timings);
+	omapdss_dpi_set_data_lines(dssdev, dssdev->phy.dpi.data_lines);
 
 	r = omapdss_dpi_display_enable(dssdev);
 	if (r)
@@ -95,7 +104,6 @@ static int tfp410_probe(struct omap_dss_device *dssdev)
 		return -ENOMEM;
 
 	dssdev->panel.timings = tfp410_default_timings;
-	dssdev->panel.config = OMAP_DSS_LCD_TFT;
 
 	ddata->dssdev = dssdev;
 	mutex_init(&ddata->lock);
@@ -111,8 +119,8 @@ static int tfp410_probe(struct omap_dss_device *dssdev)
 	}
 
 	if (gpio_is_valid(ddata->pd_gpio)) {
-		r = gpio_request_one(ddata->pd_gpio, GPIOF_OUT_INIT_LOW,
-				"tfp410 pd");
+		r = devm_gpio_request_one(&dssdev->dev, ddata->pd_gpio,
+				GPIOF_OUT_INIT_LOW, "tfp410 pd");
 		if (r) {
 			dev_err(&dssdev->dev, "Failed to request PD GPIO %d\n",
 					ddata->pd_gpio);
@@ -127,8 +135,7 @@ static int tfp410_probe(struct omap_dss_device *dssdev)
 		if (!adapter) {
 			dev_err(&dssdev->dev, "Failed to get I2C adapter, bus %d\n",
 					i2c_bus_num);
-			r = -EINVAL;
-			goto err_i2c;
+			return -EINVAL;
 		}
 
 		ddata->i2c_adapter = adapter;
@@ -137,10 +144,6 @@ static int tfp410_probe(struct omap_dss_device *dssdev)
 	dev_set_drvdata(&dssdev->dev, ddata);
 
 	return 0;
-err_i2c:
-	if (gpio_is_valid(ddata->pd_gpio))
-		gpio_free(ddata->pd_gpio);
-	return r;
 }
 
 static void __exit tfp410_remove(struct omap_dss_device *dssdev)
@@ -151,9 +154,6 @@ static void __exit tfp410_remove(struct omap_dss_device *dssdev)
 
 	if (ddata->i2c_adapter)
 		i2c_put_adapter(ddata->i2c_adapter);
-
-	if (gpio_is_valid(ddata->pd_gpio))
-		gpio_free(ddata->pd_gpio);
 
 	dev_set_drvdata(&dssdev->dev, NULL);
 
@@ -226,7 +226,8 @@ static void tfp410_set_timings(struct omap_dss_device *dssdev,
 	struct panel_drv_data *ddata = dev_get_drvdata(&dssdev->dev);
 
 	mutex_lock(&ddata->lock);
-	dpi_set_timings(dssdev, timings);
+	omapdss_dpi_set_timings(dssdev, timings);
+	dssdev->panel.timings = *timings;
 	mutex_unlock(&ddata->lock);
 }
 

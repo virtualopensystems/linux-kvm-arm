@@ -54,6 +54,22 @@ int wl1271_init_templates_config(struct wl1271 *wl)
 	if (ret < 0)
 		return ret;
 
+	if (wl->quirks & WLCORE_QUIRK_DUAL_PROBE_TMPL) {
+		ret = wl1271_cmd_template_set(wl, WL12XX_INVALID_ROLE_ID,
+					      CMD_TEMPL_APP_PROBE_REQ_2_4, NULL,
+					      WL1271_CMD_TEMPL_MAX_SIZE,
+					      0, WL1271_RATE_AUTOMATIC);
+		if (ret < 0)
+			return ret;
+
+		ret = wl1271_cmd_template_set(wl, WL12XX_INVALID_ROLE_ID,
+					      CMD_TEMPL_APP_PROBE_REQ_5, NULL,
+					      WL1271_CMD_TEMPL_MAX_SIZE,
+					      0, WL1271_RATE_AUTOMATIC);
+		if (ret < 0)
+			return ret;
+	}
+
 	ret = wl1271_cmd_template_set(wl, WL12XX_INVALID_ROLE_ID,
 				      CMD_TEMPL_NULL_DATA, NULL,
 				      sizeof(struct wl12xx_null_data_template),
@@ -125,7 +141,7 @@ int wl1271_init_templates_config(struct wl1271 *wl)
 	if (ret < 0)
 		return ret;
 
-	for (i = 0; i < CMD_TEMPL_KLV_IDX_MAX; i++) {
+	for (i = 0; i < WLCORE_MAX_KLV_TEMPLATES; i++) {
 		ret = wl1271_cmd_template_set(wl, WL12XX_INVALID_ROLE_ID,
 					      CMD_TEMPL_KLV, NULL,
 					      sizeof(struct ieee80211_qos_hdr),
@@ -355,15 +371,7 @@ static int wl1271_sta_hw_init_post_mem(struct wl1271 *wl,
 				       struct ieee80211_vif *vif)
 {
 	struct wl12xx_vif *wlvif = wl12xx_vif_to_data(vif);
-	int ret, i;
-
-	/* disable all keep-alive templates */
-	for (i = 0; i < CMD_TEMPL_KLV_IDX_MAX; i++) {
-		ret = wl1271_acx_keep_alive_config(wl, wlvif, i,
-						   ACX_KEEP_ALIVE_TPL_INVALID);
-		if (ret < 0)
-			return ret;
-	}
+	int ret;
 
 	/* disable the keep-alive feature */
 	ret = wl1271_acx_keep_alive_mode(wl, wlvif, false);
@@ -460,6 +468,9 @@ int wl1271_init_ap_rates(struct wl1271 *wl, struct wl12xx_vif *wlvif)
 	/* unconditionally enable HT rates */
 	supported_rates |= CONF_TX_MCS_RATES;
 
+	/* get extra MIMO or wide-chan rates where the HW supports it */
+	supported_rates |= wlcore_hw_ap_get_mimo_wide_rate_mask(wl, wlvif);
+
 	/* configure unicast TX rate classes */
 	for (i = 0; i < wl->conf.tx.ac_conf_count; i++) {
 		rc.enabled_rates = supported_rates;
@@ -551,29 +562,28 @@ int wl1271_init_vif_specific(struct wl1271 *wl, struct ieee80211_vif *vif)
 	bool is_ap = (wlvif->bss_type == BSS_TYPE_AP_BSS);
 	int ret, i;
 
-	/*
-	 * consider all existing roles before configuring psm.
-	 * TODO: reconfigure on interface removal.
-	 */
-	if (!wl->ap_count) {
-		if (is_ap) {
-			/* Configure for power always on */
+	/* consider all existing roles before configuring psm. */
+
+	if (wl->ap_count == 0 && is_ap) { /* first AP */
+		/* Configure for power always on */
+		ret = wl1271_acx_sleep_auth(wl, WL1271_PSM_CAM);
+		if (ret < 0)
+			return ret;
+	/* first STA, no APs */
+	} else if (wl->sta_count == 0 && wl->ap_count == 0 && !is_ap) {
+		u8 sta_auth = wl->conf.conn.sta_sleep_auth;
+		/* Configure for power according to debugfs */
+		if (sta_auth != WL1271_PSM_ILLEGAL)
+			ret = wl1271_acx_sleep_auth(wl, sta_auth);
+		/* Configure for power always on */
+		else if (wl->quirks & WLCORE_QUIRK_NO_ELP)
 			ret = wl1271_acx_sleep_auth(wl, WL1271_PSM_CAM);
-			if (ret < 0)
-				return ret;
-		} else if (!wl->sta_count) {
-			if (wl->quirks & WLCORE_QUIRK_NO_ELP) {
-				/* Configure for power always on */
-				ret = wl1271_acx_sleep_auth(wl, WL1271_PSM_CAM);
-				if (ret < 0)
-					return ret;
-			} else {
-				/* Configure for ELP power saving */
-				ret = wl1271_acx_sleep_auth(wl, WL1271_PSM_ELP);
-				if (ret < 0)
-					return ret;
-			}
-		}
+		/* Configure for ELP power saving */
+		else
+			ret = wl1271_acx_sleep_auth(wl, WL1271_PSM_ELP);
+
+		if (ret < 0)
+			return ret;
 	}
 
 	/* Mode specific init */

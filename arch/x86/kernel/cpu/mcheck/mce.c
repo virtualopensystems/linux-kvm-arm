@@ -7,6 +7,9 @@
  * Copyright 2008 Intel Corporation
  * Author: Andi Kleen
  */
+
+#define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
+
 #include <linux/thread_info.h>
 #include <linux/capability.h>
 #include <linux/miscdevice.h>
@@ -57,8 +60,6 @@ static DEFINE_MUTEX(mce_chrdev_read_mutex);
 
 int mce_disabled __read_mostly;
 
-#define MISC_MCELOG_MINOR	227
-
 #define SPINUNIT 100	/* 100ns */
 
 atomic_t mce_entry;
@@ -82,6 +83,7 @@ static int			mce_dont_log_ce		__read_mostly;
 int				mce_cmci_disabled	__read_mostly;
 int				mce_ignore_ce		__read_mostly;
 int				mce_ser			__read_mostly;
+int				mce_bios_cmci_threshold	__read_mostly;
 
 struct mce_bank                *mce_banks		__read_mostly;
 
@@ -101,6 +103,8 @@ DEFINE_PER_CPU(mce_banks_t, mce_poll_banks) = {
 };
 
 static DEFINE_PER_CPU(struct work_struct, mce_work);
+
+static void (*quirk_no_way_out)(int bank, struct mce *m, struct pt_regs *regs);
 
 /*
  * CPU/chipset specific EDAC code can register a notifier call here to print
@@ -210,7 +214,7 @@ static void drain_mcelog_buffer(void)
 				cpu_relax();
 
 				if (!m->finished && retries >= 4) {
-					pr_err("MCE: skipping error being logged currently!\n");
+					pr_err("skipping error being logged currently!\n");
 					break;
 				}
 			}
@@ -649,14 +653,18 @@ EXPORT_SYMBOL_GPL(machine_check_poll);
  * Do a quick check if any of the events requires a panic.
  * This decides if we keep the events around or clear them.
  */
-static int mce_no_way_out(struct mce *m, char **msg, unsigned long *validp)
+static int mce_no_way_out(struct mce *m, char **msg, unsigned long *validp,
+			  struct pt_regs *regs)
 {
 	int i, ret = 0;
 
 	for (i = 0; i < banks; i++) {
 		m->status = mce_rdmsrl(MSR_IA32_MCx_STATUS(i));
-		if (m->status & MCI_STATUS_VAL)
+		if (m->status & MCI_STATUS_VAL) {
 			__set_bit(i, validp);
+			if (quirk_no_way_out)
+				quirk_no_way_out(i, m, regs);
+		}
 		if (mce_severity(m, tolerant, msg) >= MCE_PANIC_SEVERITY)
 			ret = 1;
 	}
@@ -1039,7 +1047,7 @@ void do_machine_check(struct pt_regs *regs, long error_code)
 	*final = m;
 
 	memset(valid_banks, 0, sizeof(valid_banks));
-	no_way_out = mce_no_way_out(&m, &msg, valid_banks);
+	no_way_out = mce_no_way_out(&m, &msg, valid_banks, regs);
 
 	barrier();
 
@@ -1167,8 +1175,9 @@ int memory_failure(unsigned long pfn, int vector, int flags)
 {
 	/* mce_severity() should not hand us an ACTION_REQUIRED error */
 	BUG_ON(flags & MF_ACTION_REQUIRED);
-	printk(KERN_ERR "Uncorrected memory error in page 0x%lx ignored\n"
-		"Rebuild kernel with CONFIG_MEMORY_FAILURE=y for smarter handling\n", pfn);
+	pr_err("Uncorrected memory error in page 0x%lx ignored\n"
+	       "Rebuild kernel with CONFIG_MEMORY_FAILURE=y for smarter handling\n",
+	       pfn);
 
 	return 0;
 }
@@ -1186,6 +1195,7 @@ void mce_notify_process(void)
 {
 	unsigned long pfn;
 	struct mce_info *mi = mce_find_info();
+	int flags = MF_ACTION_REQUIRED;
 
 	if (!mi)
 		mce_panic("Lost physical address for unconsumed uncorrectable error", NULL, NULL);
@@ -1200,8 +1210,9 @@ void mce_notify_process(void)
 	 * doomed. We still need to mark the page as poisoned and alert any
 	 * other users of the page.
 	 */
-	if (memory_failure(pfn, MCE_VECTOR, MF_ACTION_REQUIRED) < 0 ||
-			   mi->restartable == 0) {
+	if (!mi->restartable)
+		flags |= MF_MUST_KILL;
+	if (memory_failure(pfn, MCE_VECTOR, flags) < 0) {
 		pr_err("Memory error not recovered");
 		force_sig(SIGBUS, current);
 	}
@@ -1256,6 +1267,14 @@ static unsigned long check_interval = 5 * 60; /* 5 minutes */
 static DEFINE_PER_CPU(unsigned long, mce_next_interval); /* in jiffies */
 static DEFINE_PER_CPU(struct timer_list, mce_timer);
 
+static unsigned long mce_adjust_timer_default(unsigned long interval)
+{
+	return interval;
+}
+
+static unsigned long (*mce_adjust_timer)(unsigned long interval) =
+	mce_adjust_timer_default;
+
 static void mce_timer_fn(unsigned long data)
 {
 	struct timer_list *t = &__get_cpu_var(mce_timer);
@@ -1266,6 +1285,7 @@ static void mce_timer_fn(unsigned long data)
 	if (mce_available(__this_cpu_ptr(&cpu_info))) {
 		machine_check_poll(MCP_TIMESTAMP,
 				&__get_cpu_var(mce_poll_banks));
+		mce_intel_cmci_poll();
 	}
 
 	/*
@@ -1273,14 +1293,38 @@ static void mce_timer_fn(unsigned long data)
 	 * polling interval, otherwise increase the polling interval.
 	 */
 	iv = __this_cpu_read(mce_next_interval);
-	if (mce_notify_irq())
+	if (mce_notify_irq()) {
 		iv = max(iv / 2, (unsigned long) HZ/100);
-	else
+	} else {
 		iv = min(iv * 2, round_jiffies_relative(check_interval * HZ));
+		iv = mce_adjust_timer(iv);
+	}
 	__this_cpu_write(mce_next_interval, iv);
+	/* Might have become 0 after CMCI storm subsided */
+	if (iv) {
+		t->expires = jiffies + iv;
+		add_timer_on(t, smp_processor_id());
+	}
+}
 
-	t->expires = jiffies + iv;
-	add_timer_on(t, smp_processor_id());
+/*
+ * Ensure that the timer is firing in @interval from now.
+ */
+void mce_timer_kick(unsigned long interval)
+{
+	struct timer_list *t = &__get_cpu_var(mce_timer);
+	unsigned long when = jiffies + interval;
+	unsigned long iv = __this_cpu_read(mce_next_interval);
+
+	if (timer_pending(t)) {
+		if (time_before(when, t->expires))
+			mod_timer_pinned(t, when);
+	} else {
+		t->expires = round_jiffies(when);
+		add_timer_on(t, smp_processor_id());
+	}
+	if (interval < iv)
+		__this_cpu_write(mce_next_interval, interval);
 }
 
 /* Must not be called in IRQ context where del_timer_sync() can deadlock */
@@ -1358,11 +1402,10 @@ static int __cpuinit __mcheck_cpu_cap_init(void)
 
 	b = cap & MCG_BANKCNT_MASK;
 	if (!banks)
-		printk(KERN_INFO "mce: CPU supports %d MCE banks\n", b);
+		pr_info("CPU supports %d MCE banks\n", b);
 
 	if (b > MAX_NR_BANKS) {
-		printk(KERN_WARNING
-		       "MCE: Using only %u machine check banks out of %u\n",
+		pr_warn("Using only %u machine check banks out of %u\n",
 			MAX_NR_BANKS, b);
 		b = MAX_NR_BANKS;
 	}
@@ -1415,11 +1458,39 @@ static void __mcheck_cpu_init_generic(void)
 	}
 }
 
+/*
+ * During IFU recovery Sandy Bridge -EP4S processors set the RIPV and
+ * EIPV bits in MCG_STATUS to zero on the affected logical processor (SDM
+ * Vol 3B Table 15-20). But this confuses both the code that determines
+ * whether the machine check occurred in kernel or user mode, and also
+ * the severity assessment code. Pretend that EIPV was set, and take the
+ * ip/cs values from the pt_regs that mce_gather_info() ignored earlier.
+ */
+static void quirk_sandybridge_ifu(int bank, struct mce *m, struct pt_regs *regs)
+{
+	if (bank != 0)
+		return;
+	if ((m->mcgstatus & (MCG_STATUS_EIPV|MCG_STATUS_RIPV)) != 0)
+		return;
+	if ((m->status & (MCI_STATUS_OVER|MCI_STATUS_UC|
+		          MCI_STATUS_EN|MCI_STATUS_MISCV|MCI_STATUS_ADDRV|
+			  MCI_STATUS_PCC|MCI_STATUS_S|MCI_STATUS_AR|
+			  MCACOD)) !=
+			 (MCI_STATUS_UC|MCI_STATUS_EN|
+			  MCI_STATUS_MISCV|MCI_STATUS_ADDRV|MCI_STATUS_S|
+			  MCI_STATUS_AR|MCACOD_INSTR))
+		return;
+
+	m->mcgstatus |= MCG_STATUS_EIPV;
+	m->ip = regs->ip;
+	m->cs = regs->cs;
+}
+
 /* Add per CPU specific workarounds here */
 static int __cpuinit __mcheck_cpu_apply_quirks(struct cpuinfo_x86 *c)
 {
 	if (c->x86_vendor == X86_VENDOR_UNKNOWN) {
-		pr_info("MCE: unknown CPU type - not enabling MCE support.\n");
+		pr_info("unknown CPU type - not enabling MCE support\n");
 		return -EOPNOTSUPP;
 	}
 
@@ -1512,6 +1583,9 @@ static int __cpuinit __mcheck_cpu_apply_quirks(struct cpuinfo_x86 *c)
 		 */
 		if (c->x86 == 6 && c->x86_model <= 13 && mce_bootlog < 0)
 			mce_bootlog = 0;
+
+		if (c->x86 == 6 && c->x86_model == 45)
+			quirk_no_way_out = quirk_sandybridge_ifu;
 	}
 	if (monarch_timeout < 0)
 		monarch_timeout = 0;
@@ -1545,6 +1619,7 @@ static void __mcheck_cpu_init_vendor(struct cpuinfo_x86 *c)
 	switch (c->x86_vendor) {
 	case X86_VENDOR_INTEL:
 		mce_intel_feature_init(c);
+		mce_adjust_timer = mce_intel_adjust_timer;
 		break;
 	case X86_VENDOR_AMD:
 		mce_amd_feature_init(c);
@@ -1554,27 +1629,32 @@ static void __mcheck_cpu_init_vendor(struct cpuinfo_x86 *c)
 	}
 }
 
+static void mce_start_timer(unsigned int cpu, struct timer_list *t)
+{
+	unsigned long iv = mce_adjust_timer(check_interval * HZ);
+
+	__this_cpu_write(mce_next_interval, iv);
+
+	if (mce_ignore_ce || !iv)
+		return;
+
+	t->expires = round_jiffies(jiffies + iv);
+	add_timer_on(t, smp_processor_id());
+}
+
 static void __mcheck_cpu_init_timer(void)
 {
 	struct timer_list *t = &__get_cpu_var(mce_timer);
-	unsigned long iv = check_interval * HZ;
+	unsigned int cpu = smp_processor_id();
 
-	setup_timer(t, mce_timer_fn, smp_processor_id());
-
-	if (mce_ignore_ce)
-		return;
-
-	__this_cpu_write(mce_next_interval, iv);
-	if (!iv)
-		return;
-	t->expires = round_jiffies(jiffies + iv);
-	add_timer_on(t, smp_processor_id());
+	setup_timer(t, mce_timer_fn, cpu);
+	mce_start_timer(cpu, t);
 }
 
 /* Handle unconfigured int18 (should never happen) */
 static void unexpected_machine_check(struct pt_regs *regs, long error_code)
 {
-	printk(KERN_ERR "CPU#%d: Unexpected int18 (Machine Check).\n",
+	pr_err("CPU#%d: Unexpected int18 (Machine Check)\n",
 	       smp_processor_id());
 }
 
@@ -1867,6 +1947,7 @@ static struct miscdevice mce_chrdev_device = {
  *	check, or 0 to not wait
  * mce=bootlog Log MCEs from before booting. Disabled by default on AMD.
  * mce=nobootlog Don't log MCEs from before booting.
+ * mce=bios_cmci_threshold Don't program the CMCI threshold
  */
 static int __init mcheck_enable(char *str)
 {
@@ -1886,6 +1967,8 @@ static int __init mcheck_enable(char *str)
 		mce_ignore_ce = 1;
 	else if (!strcmp(str, "bootlog") || !strcmp(str, "nobootlog"))
 		mce_bootlog = (str[0] == 'b');
+	else if (!strcmp(str, "bios_cmci_threshold"))
+		mce_bios_cmci_threshold = 1;
 	else if (isdigit(str[0])) {
 		get_option(&str, &tolerant);
 		if (*str == ',') {
@@ -1893,8 +1976,7 @@ static int __init mcheck_enable(char *str)
 			get_option(&str, &monarch_timeout);
 		}
 	} else {
-		printk(KERN_INFO "mce argument %s ignored. Please use /sys\n",
-		       str);
+		pr_info("mce argument %s ignored. Please use /sys\n", str);
 		return 0;
 	}
 	return 1;
@@ -2127,6 +2209,11 @@ static struct dev_ext_attribute dev_attr_cmci_disabled = {
 	&mce_cmci_disabled
 };
 
+static struct dev_ext_attribute dev_attr_bios_cmci_threshold = {
+	__ATTR(bios_cmci_threshold, 0444, device_show_int, NULL),
+	&mce_bios_cmci_threshold
+};
+
 static struct device_attribute *mce_device_attrs[] = {
 	&dev_attr_tolerant.attr,
 	&dev_attr_check_interval.attr,
@@ -2135,6 +2222,7 @@ static struct device_attribute *mce_device_attrs[] = {
 	&dev_attr_dont_log_ce.attr,
 	&dev_attr_ignore_ce.attr,
 	&dev_attr_cmci_disabled.attr,
+	&dev_attr_bios_cmci_threshold.attr,
 	NULL
 };
 
@@ -2255,38 +2343,33 @@ mce_cpu_callback(struct notifier_block *nfb, unsigned long action, void *hcpu)
 	unsigned int cpu = (unsigned long)hcpu;
 	struct timer_list *t = &per_cpu(mce_timer, cpu);
 
-	switch (action) {
+	switch (action & ~CPU_TASKS_FROZEN) {
 	case CPU_ONLINE:
-	case CPU_ONLINE_FROZEN:
 		mce_device_create(cpu);
 		if (threshold_cpu_callback)
 			threshold_cpu_callback(action, cpu);
 		break;
 	case CPU_DEAD:
-	case CPU_DEAD_FROZEN:
 		if (threshold_cpu_callback)
 			threshold_cpu_callback(action, cpu);
 		mce_device_remove(cpu);
+		mce_intel_hcpu_update(cpu);
 		break;
 	case CPU_DOWN_PREPARE:
-	case CPU_DOWN_PREPARE_FROZEN:
-		del_timer_sync(t);
 		smp_call_function_single(cpu, mce_disable_cpu, &action, 1);
+		del_timer_sync(t);
 		break;
 	case CPU_DOWN_FAILED:
-	case CPU_DOWN_FAILED_FROZEN:
-		if (!mce_ignore_ce && check_interval) {
-			t->expires = round_jiffies(jiffies +
-					per_cpu(mce_next_interval, cpu));
-			add_timer_on(t, cpu);
-		}
 		smp_call_function_single(cpu, mce_reenable_cpu, &action, 1);
-		break;
-	case CPU_POST_DEAD:
-		/* intentionally ignoring frozen here */
-		cmci_rediscover(cpu);
+		mce_start_timer(cpu, t);
 		break;
 	}
+
+	if (action == CPU_POST_DEAD) {
+		/* intentionally ignoring frozen here */
+		cmci_rediscover(cpu);
+	}
+
 	return NOTIFY_OK;
 }
 
@@ -2342,7 +2425,7 @@ static __init int mcheck_init_device(void)
 
 	return err;
 }
-device_initcall(mcheck_init_device);
+device_initcall_sync(mcheck_init_device);
 
 /*
  * Old style boot options parsing. Only for compatibility.

@@ -706,6 +706,32 @@ static void __init vdso_setup_syscall_map(void)
 	}
 }
 
+#ifdef CONFIG_PPC64
+int __cpuinit vdso_getcpu_init(void)
+{
+	unsigned long cpu, node, val;
+
+	/*
+	 * SPRG3 contains the CPU in the bottom 16 bits and the NUMA node in
+	 * the next 16 bits. The VDSO uses this to implement getcpu().
+	 */
+	cpu = get_cpu();
+	WARN_ON_ONCE(cpu > 0xffff);
+
+	node = cpu_to_node(cpu);
+	WARN_ON_ONCE(node > 0xffff);
+
+	val = (cpu & 0xfff) | ((node & 0xffff) << 16);
+	mtspr(SPRN_SPRG3, val);
+	get_paca()->sprg3 = val;
+
+	put_cpu();
+
+	return 0;
+}
+/* We need to call this before SMP init */
+early_initcall(vdso_getcpu_init);
+#endif
 
 static int __init vdso_init(void)
 {

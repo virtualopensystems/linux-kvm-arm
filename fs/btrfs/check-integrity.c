@@ -37,8 +37,9 @@
  *        the file system was mounted, (i.e., they have been
  *        referenced by the super block) or they have been
  *        written since then and the write completion callback
- *        was called and a FLUSH request to the device where
- *        these blocks are located was received and completed.
+ *        was called and no write error was indicated and a
+ *        FLUSH request to the device where these blocks are
+ *        located was received and completed.
  *    2b. All referenced blocks need to have a generation
  *        number which is equal to the parent's number.
  *
@@ -1032,6 +1033,7 @@ continue_with_current_leaf_stack_frame:
 			struct btrfs_disk_key *disk_key;
 			u8 type;
 			u32 item_offset;
+			u32 item_size;
 
 			if (disk_item_offset + sizeof(struct btrfs_item) >
 			    sf->block_ctx->len) {
@@ -1047,6 +1049,7 @@ leaf_item_out_of_bounce_error:
 						     disk_item_offset,
 						     sizeof(struct btrfs_item));
 			item_offset = le32_to_cpu(disk_item.offset);
+			item_size = le32_to_cpu(disk_item.size);
 			disk_key = &disk_item.key;
 			type = disk_key->type;
 
@@ -1057,14 +1060,13 @@ leaf_item_out_of_bounce_error:
 
 				root_item_offset = item_offset +
 					offsetof(struct btrfs_leaf, items);
-				if (root_item_offset +
-				    sizeof(struct btrfs_root_item) >
+				if (root_item_offset + item_size >
 				    sf->block_ctx->len)
 					goto leaf_item_out_of_bounce_error;
 				btrfsic_read_from_block_data(
 					sf->block_ctx, &root_item,
 					root_item_offset,
-					sizeof(struct btrfs_root_item));
+					item_size);
 				next_bytenr = le64_to_cpu(root_item.bytenr);
 
 				sf->error =
@@ -2593,6 +2595,17 @@ static int btrfsic_check_all_ref_blocks(struct btrfsic_state *state,
 			printk(KERN_INFO "btrfs: attempt to write superblock"
 			       " which references block %c @%llu (%s/%llu/%d)"
 			       " which is not yet iodone!\n",
+			       btrfsic_get_block_type(state, l->block_ref_to),
+			       (unsigned long long)
+			       l->block_ref_to->logical_bytenr,
+			       l->block_ref_to->dev_state->name,
+			       (unsigned long long)l->block_ref_to->dev_bytenr,
+			       l->block_ref_to->mirror_num);
+			ret = -1;
+		} else if (l->block_ref_to->iodone_w_error) {
+			printk(KERN_INFO "btrfs: attempt to write superblock"
+			       " which references block %c @%llu (%s/%llu/%d)"
+			       " which has write error!\n",
 			       btrfsic_get_block_type(state, l->block_ref_to),
 			       (unsigned long long)
 			       l->block_ref_to->logical_bytenr,

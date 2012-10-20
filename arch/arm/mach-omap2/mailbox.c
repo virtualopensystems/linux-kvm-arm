@@ -16,8 +16,10 @@
 #include <linux/platform_device.h>
 #include <linux/io.h>
 #include <linux/pm_runtime.h>
+
 #include <plat/mailbox.h>
-#include <mach/irqs.h>
+
+#include "soc.h"
 
 #define MAILBOX_REVISION		0x000
 #define MAILBOX_MESSAGE(m)		(0x040 + 4 * (m))
@@ -82,8 +84,6 @@ static int omap2_mbox_startup(struct omap_mbox *mbox)
 
 	l = mbox_read_reg(MAILBOX_REVISION);
 	pr_debug("omap mailbox rev %d.%d\n", (l & 0xf0) >> 4, (l & 0x0f));
-
-	omap2_mbox_enable_irq(mbox, IRQ_RX);
 
 	return 0;
 }

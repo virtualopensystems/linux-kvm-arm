@@ -117,10 +117,10 @@ void release_thread(struct task_struct *dead_task)
 {
 	if (dead_task->mm) {
 		if (dead_task->mm->context.size) {
-			printk("WARNING: dead process %8s still has LDT? <%p/%d>\n",
-					dead_task->comm,
-					dead_task->mm->context.ldt,
-					dead_task->mm->context.size);
+			pr_warn("WARNING: dead process %8s still has LDT? <%p/%d>\n",
+				dead_task->comm,
+				dead_task->mm->context.ldt,
+				dead_task->mm->context.size);
 			BUG();
 		}
 	}
@@ -146,29 +146,18 @@ static inline u32 read_32bit_tls(struct task_struct *t, int tls)
 }
 
 int copy_thread(unsigned long clone_flags, unsigned long sp,
-		unsigned long unused,
+		unsigned long arg,
 	struct task_struct *p, struct pt_regs *regs)
 {
 	int err;
 	struct pt_regs *childregs;
 	struct task_struct *me = current;
 
-	childregs = ((struct pt_regs *)
-			(THREAD_SIZE + task_stack_page(p))) - 1;
-	*childregs = *regs;
-
-	childregs->ax = 0;
-	if (user_mode(regs))
-		childregs->sp = sp;
-	else
-		childregs->sp = (unsigned long)childregs;
-
+	p->thread.sp0 = (unsigned long)task_stack_page(p) + THREAD_SIZE;
+	childregs = task_pt_regs(p);
 	p->thread.sp = (unsigned long) childregs;
-	p->thread.sp0 = (unsigned long) (childregs+1);
 	p->thread.usersp = me->thread.usersp;
-
 	set_tsk_thread_flag(p, TIF_FORK);
-
 	p->fpu_counter = 0;
 	p->thread.io_bitmap_ptr = NULL;
 
@@ -178,6 +167,24 @@ int copy_thread(unsigned long clone_flags, unsigned long sp,
 	p->thread.fs = p->thread.fsindex ? 0 : me->thread.fs;
 	savesegment(es, p->thread.es);
 	savesegment(ds, p->thread.ds);
+	memset(p->thread.ptrace_bps, 0, sizeof(p->thread.ptrace_bps));
+
+	if (unlikely(!regs)) {
+		/* kernel thread */
+		memset(childregs, 0, sizeof(struct pt_regs));
+		childregs->sp = (unsigned long)childregs;
+		childregs->ss = __KERNEL_DS;
+		childregs->bx = sp; /* function */
+		childregs->bp = arg;
+		childregs->orig_ax = -1;
+		childregs->cs = __KERNEL_CS | get_kernel_rpl();
+		childregs->flags = X86_EFLAGS_IF | X86_EFLAGS_BIT1;
+		return 0;
+	}
+	*childregs = *regs;
+
+	childregs->ax = 0;
+	childregs->sp = sp;
 
 	err = -ENOMEM;
 	memset(p->thread.ptrace_bps, 0, sizeof(p->thread.ptrace_bps));
@@ -232,10 +239,6 @@ start_thread_common(struct pt_regs *regs, unsigned long new_ip,
 	regs->cs		= _cs;
 	regs->ss		= _ss;
 	regs->flags		= X86_EFLAGS_IF;
-	/*
-	 * Free the old FP and other extended state
-	 */
-	free_thread_xstate(current);
 }
 
 void
@@ -466,7 +469,7 @@ long do_arch_prctl(struct task_struct *task, int code, unsigned long addr)
 			task->thread.gs = addr;
 			if (doit) {
 				load_gs_index(0);
-				ret = checking_wrmsrl(MSR_KERNEL_GS_BASE, addr);
+				ret = wrmsrl_safe(MSR_KERNEL_GS_BASE, addr);
 			}
 		}
 		put_cpu();
@@ -494,7 +497,7 @@ long do_arch_prctl(struct task_struct *task, int code, unsigned long addr)
 				/* set the selector to 0 to not confuse
 				   __switch_to */
 				loadsegment(fs, 0);
-				ret = checking_wrmsrl(MSR_FS_BASE, addr);
+				ret = wrmsrl_safe(MSR_FS_BASE, addr);
 			}
 		}
 		put_cpu();

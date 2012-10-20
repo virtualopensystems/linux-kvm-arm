@@ -270,6 +270,7 @@
 #include <linux/slab.h>
 
 #include <net/icmp.h>
+#include <net/inet_common.h>
 #include <net/tcp.h>
 #include <net/xfrm.h>
 #include <net/ip.h>
@@ -376,6 +377,7 @@ void tcp_init_sock(struct sock *sk)
 	skb_queue_head_init(&tp->out_of_order_queue);
 	tcp_init_xmit_timers(sk);
 	tcp_prequeue_init(tp);
+	INIT_LIST_HEAD(&tp->tsq_node);
 
 	icsk->icsk_rto = TCP_TIMEOUT_INIT;
 	tp->mdev = TCP_TIMEOUT_INIT;
@@ -484,8 +486,9 @@ unsigned int tcp_poll(struct file *file, struct socket *sock, poll_table *wait)
 	if (sk->sk_shutdown & RCV_SHUTDOWN)
 		mask |= POLLIN | POLLRDNORM | POLLRDHUP;
 
-	/* Connected? */
-	if ((1 << sk->sk_state) & ~(TCPF_SYN_SENT | TCPF_SYN_RECV)) {
+	/* Connected or passive Fast Open socket? */
+	if (sk->sk_state != TCP_SYN_SENT &&
+	    (sk->sk_state != TCP_SYN_RECV || tp->fastopen_rsk != NULL)) {
 		int target = sock_rcvlowat(sk, 0, INT_MAX);
 
 		if (tp->urg_seq == tp->copied_seq &&
@@ -796,6 +799,10 @@ static unsigned int tcp_xmit_size_goal(struct sock *sk, u32 mss_now,
 				  inet_csk(sk)->icsk_ext_hdr_len -
 				  tp->tcp_header_len);
 
+		/* TSQ : try to have two TSO segments in flight */
+		xmit_size_goal = min_t(u32, xmit_size_goal,
+				       sysctl_tcp_limit_output_bytes >> 1);
+
 		xmit_size_goal = tcp_bound_to_half_wnd(tp, xmit_size_goal);
 
 		/* We try hard to avoid divides here */
@@ -805,7 +812,9 @@ static unsigned int tcp_xmit_size_goal(struct sock *sk, u32 mss_now,
 			   old_size_goal + mss_now > xmit_size_goal)) {
 			xmit_size_goal = old_size_goal;
 		} else {
-			tp->xmit_size_goal_segs = xmit_size_goal / mss_now;
+			tp->xmit_size_goal_segs =
+				min_t(u16, xmit_size_goal / mss_now,
+				      sk->sk_gso_max_segs);
 			xmit_size_goal = tp->xmit_size_goal_segs * mss_now;
 		}
 	}
@@ -832,10 +841,15 @@ static ssize_t do_tcp_sendpages(struct sock *sk, struct page **pages, int poffse
 	ssize_t copied;
 	long timeo = sock_sndtimeo(sk, flags & MSG_DONTWAIT);
 
-	/* Wait for a connection to finish. */
-	if ((1 << sk->sk_state) & ~(TCPF_ESTABLISHED | TCPF_CLOSE_WAIT))
+	/* Wait for a connection to finish. One exception is TCP Fast Open
+	 * (passive side) where data is allowed to be sent before a connection
+	 * is fully established.
+	 */
+	if (((1 << sk->sk_state) & ~(TCPF_ESTABLISHED | TCPF_CLOSE_WAIT)) &&
+	    !tcp_passive_fastopen(sk)) {
 		if ((err = sk_stream_wait_connect(sk, &timeo)) != 0)
 			goto out_err;
+	}
 
 	clear_bit(SOCK_ASYNC_NOSPACE, &sk->sk_socket->flags);
 
@@ -977,26 +991,72 @@ static inline int select_size(const struct sock *sk, bool sg)
 	return tmp;
 }
 
+void tcp_free_fastopen_req(struct tcp_sock *tp)
+{
+	if (tp->fastopen_req != NULL) {
+		kfree(tp->fastopen_req);
+		tp->fastopen_req = NULL;
+	}
+}
+
+static int tcp_sendmsg_fastopen(struct sock *sk, struct msghdr *msg, int *size)
+{
+	struct tcp_sock *tp = tcp_sk(sk);
+	int err, flags;
+
+	if (!(sysctl_tcp_fastopen & TFO_CLIENT_ENABLE))
+		return -EOPNOTSUPP;
+	if (tp->fastopen_req != NULL)
+		return -EALREADY; /* Another Fast Open is in progress */
+
+	tp->fastopen_req = kzalloc(sizeof(struct tcp_fastopen_request),
+				   sk->sk_allocation);
+	if (unlikely(tp->fastopen_req == NULL))
+		return -ENOBUFS;
+	tp->fastopen_req->data = msg;
+
+	flags = (msg->msg_flags & MSG_DONTWAIT) ? O_NONBLOCK : 0;
+	err = __inet_stream_connect(sk->sk_socket, msg->msg_name,
+				    msg->msg_namelen, flags);
+	*size = tp->fastopen_req->copied;
+	tcp_free_fastopen_req(tp);
+	return err;
+}
+
 int tcp_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 		size_t size)
 {
 	struct iovec *iov;
 	struct tcp_sock *tp = tcp_sk(sk);
 	struct sk_buff *skb;
-	int iovlen, flags, err, copied;
-	int mss_now = 0, size_goal;
+	int iovlen, flags, err, copied = 0;
+	int mss_now = 0, size_goal, copied_syn = 0, offset = 0;
 	bool sg;
 	long timeo;
 
 	lock_sock(sk);
 
 	flags = msg->msg_flags;
+	if (flags & MSG_FASTOPEN) {
+		err = tcp_sendmsg_fastopen(sk, msg, &copied_syn);
+		if (err == -EINPROGRESS && copied_syn > 0)
+			goto out;
+		else if (err)
+			goto out_err;
+		offset = copied_syn;
+	}
+
 	timeo = sock_sndtimeo(sk, flags & MSG_DONTWAIT);
 
-	/* Wait for a connection to finish. */
-	if ((1 << sk->sk_state) & ~(TCPF_ESTABLISHED | TCPF_CLOSE_WAIT))
+	/* Wait for a connection to finish. One exception is TCP Fast Open
+	 * (passive side) where data is allowed to be sent before a connection
+	 * is fully established.
+	 */
+	if (((1 << sk->sk_state) & ~(TCPF_ESTABLISHED | TCPF_CLOSE_WAIT)) &&
+	    !tcp_passive_fastopen(sk)) {
 		if ((err = sk_stream_wait_connect(sk, &timeo)) != 0)
-			goto out_err;
+			goto do_error;
+	}
 
 	if (unlikely(tp->repair)) {
 		if (tp->repair_queue == TCP_RECV_QUEUE) {
@@ -1032,6 +1092,15 @@ int tcp_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 		unsigned char __user *from = iov->iov_base;
 
 		iov++;
+		if (unlikely(offset > 0)) {  /* Skip bytes copied in SYN */
+			if (offset >= seglen) {
+				offset -= seglen;
+				continue;
+			}
+			seglen -= offset;
+			from += offset;
+			offset = 0;
+		}
 
 		while (seglen > 0) {
 			int copy = 0;
@@ -1081,78 +1150,43 @@ new_segment:
 				if (err)
 					goto do_fault;
 			} else {
-				bool merge = false;
+				bool merge = true;
 				int i = skb_shinfo(skb)->nr_frags;
-				struct page *page = sk->sk_sndmsg_page;
-				int off;
+				struct page_frag *pfrag = sk_page_frag(sk);
 
-				if (page && page_count(page) == 1)
-					sk->sk_sndmsg_off = 0;
+				if (!sk_page_frag_refill(sk, pfrag))
+					goto wait_for_memory;
 
-				off = sk->sk_sndmsg_off;
-
-				if (skb_can_coalesce(skb, i, page, off) &&
-				    off != PAGE_SIZE) {
-					/* We can extend the last page
-					 * fragment. */
-					merge = true;
-				} else if (i == MAX_SKB_FRAGS || !sg) {
-					/* Need to add new fragment and cannot
-					 * do this because interface is non-SG,
-					 * or because all the page slots are
-					 * busy. */
-					tcp_mark_push(tp, skb);
-					goto new_segment;
-				} else if (page) {
-					if (off == PAGE_SIZE) {
-						put_page(page);
-						sk->sk_sndmsg_page = page = NULL;
-						off = 0;
+				if (!skb_can_coalesce(skb, i, pfrag->page,
+						      pfrag->offset)) {
+					if (i == MAX_SKB_FRAGS || !sg) {
+						tcp_mark_push(tp, skb);
+						goto new_segment;
 					}
-				} else
-					off = 0;
+					merge = false;
+				}
 
-				if (copy > PAGE_SIZE - off)
-					copy = PAGE_SIZE - off;
+				copy = min_t(int, copy, pfrag->size - pfrag->offset);
 
 				if (!sk_wmem_schedule(sk, copy))
 					goto wait_for_memory;
 
-				if (!page) {
-					/* Allocate new cache page. */
-					if (!(page = sk_stream_alloc_page(sk)))
-						goto wait_for_memory;
-				}
-
-				/* Time to copy data. We are close to
-				 * the end! */
 				err = skb_copy_to_page_nocache(sk, from, skb,
-							       page, off, copy);
-				if (err) {
-					/* If this page was new, give it to the
-					 * socket so it does not get leaked.
-					 */
-					if (!sk->sk_sndmsg_page) {
-						sk->sk_sndmsg_page = page;
-						sk->sk_sndmsg_off = 0;
-					}
+							       pfrag->page,
+							       pfrag->offset,
+							       copy);
+				if (err)
 					goto do_error;
-				}
 
 				/* Update the skb. */
 				if (merge) {
 					skb_frag_size_add(&skb_shinfo(skb)->frags[i - 1], copy);
 				} else {
-					skb_fill_page_desc(skb, i, page, off, copy);
-					if (sk->sk_sndmsg_page) {
-						get_page(page);
-					} else if (off + copy < PAGE_SIZE) {
-						get_page(page);
-						sk->sk_sndmsg_page = page;
-					}
+					skb_fill_page_desc(skb, i, pfrag->page,
+							   pfrag->offset, copy);
+					get_page(pfrag->page);
 				}
-
-				sk->sk_sndmsg_off = off + copy;
+				pfrag->offset += copy;
 			}
 
 			if (!copied)
@@ -1194,7 +1228,7 @@ out:
 	if (copied && likely(!tp->repair))
 		tcp_push(sk, flags, mss_now, tp->nonagle);
 	release_sock(sk);
-	return copied;
+	return copied + copied_syn;
 
 do_fault:
 	if (!skb->len) {
@@ -1207,7 +1241,7 @@ do_fault:
 	}
 
 do_error:
-	if (copied)
+	if (copied + copied_syn)
 		goto out;
 out_err:
 	err = sk_stream_error(sk, flags, err);
@@ -1704,8 +1738,14 @@ int tcp_recvmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 		}
 
 #ifdef CONFIG_NET_DMA
-		if (tp->ucopy.dma_chan)
-			dma_async_memcpy_issue_pending(tp->ucopy.dma_chan);
+		if (tp->ucopy.dma_chan) {
+			if (tp->rcv_wnd == 0 &&
+			    !skb_queue_empty(&sk->sk_async_wait_queue)) {
+				tcp_service_net_dma(sk, true);
+				tcp_cleanup_rbuf(sk, copied);
+			} else
+				dma_async_memcpy_issue_pending(tp->ucopy.dma_chan);
+		}
 #endif
 		if (copied >= target) {
 			/* Do not sleep, just process backlog. */
@@ -2086,6 +2126,10 @@ void tcp_close(struct sock *sk, long timeout)
 		 * they look as CLOSING or LAST_ACK for Linux)
 		 * Probably, I missed some more holelets.
 		 * 						--ANK
+		 * XXX (TFO) - To start off we don't support SYN+ACK+FIN
+		 * in a single packet! (May consider it later but will
+		 * probably need API support or TCP_CORK SYN-ACK until
+		 * data is written and socket is closed.)
 		 */
 		tcp_send_fin(sk);
 	}
@@ -2157,8 +2201,16 @@ adjudge_to_death:
 		}
 	}
 
-	if (sk->sk_state == TCP_CLOSE)
+	if (sk->sk_state == TCP_CLOSE) {
+		struct request_sock *req = tcp_sk(sk)->fastopen_rsk;
+		/* We could get here with a non-NULL req if the socket is
+		 * aborted (e.g., closed with unread data) before 3WHS
+		 * finishes.
+		 */
+		if (req != NULL)
+			reqsk_fastopen_remove(sk, req, false);
 		inet_csk_destroy_sock(sk);
+	}
 	/* Otherwise, socket is reprieved until protocol close. */
 
 out:
@@ -2244,6 +2296,13 @@ int tcp_disconnect(struct sock *sk, int flags)
 }
 EXPORT_SYMBOL(tcp_disconnect);
 
+void tcp_sock_destruct(struct sock *sk)
+{
+	inet_sock_destruct(sk);
+
+	kfree(inet_csk(sk)->icsk_accept_queue.fastopenq);
+}
+
 static inline bool tcp_can_repair_sock(const struct sock *sk)
 {
 	return capable(CAP_NET_ADMIN) &&
@@ -2267,10 +2326,17 @@ static int tcp_repair_options_est(struct tcp_sock *tp,
 			tp->rx_opt.mss_clamp = opt.opt_val;
 			break;
 		case TCPOPT_WINDOW:
-			if (opt.opt_val > 14)
-				return -EFBIG;
+			{
+				u16 snd_wscale = opt.opt_val & 0xFFFF;
+				u16 rcv_wscale = opt.opt_val >> 16;
 
-			tp->rx_opt.snd_wscale = opt.opt_val;
+				if (snd_wscale > 14 || rcv_wscale > 14)
+					return -EFBIG;
+
+				tp->rx_opt.snd_wscale = snd_wscale;
+				tp->rx_opt.rcv_wscale = rcv_wscale;
+				tp->rx_opt.wscale_ok = 1;
+			}
 			break;
 		case TCPOPT_SACK_PERM:
 			if (opt.opt_val != 0)
@@ -2625,7 +2691,18 @@ static int do_tcp_setsockopt(struct sock *sk, int level,
 		/* Cap the max timeout in ms TCP will retry/retrans
 		 * before giving up and aborting (ETIMEDOUT) a connection.
 		 */
-		icsk->icsk_user_timeout = msecs_to_jiffies(val);
+		if (val < 0)
+			err = -EINVAL;
+		else
+			icsk->icsk_user_timeout = msecs_to_jiffies(val);
+		break;
+
+	case TCP_FASTOPEN:
+		if (val >= 0 && ((1 << sk->sk_state) & (TCPF_CLOSE |
+		    TCPF_LISTEN)))
+			err = fastopen_init_queue(sk, val);
+		else
+			err = -EINVAL;
 		break;
 	default:
 		err = -ENOPROTOOPT;
@@ -3310,8 +3387,7 @@ EXPORT_SYMBOL(tcp_md5_hash_key);
 
 #endif
 
-/**
- * Each Responder maintains up to two secret values concurrently for
+/* Each Responder maintains up to two secret values concurrently for
  * efficient secret rollover.  Each secret value has 4 states:
  *
  * Generating.  (tcp_secret_generating != tcp_secret_primary)
@@ -3441,11 +3517,15 @@ EXPORT_SYMBOL(tcp_cookie_generator);
 
 void tcp_done(struct sock *sk)
 {
+	struct request_sock *req = tcp_sk(sk)->fastopen_rsk;
+
 	if (sk->sk_state == TCP_SYN_SENT || sk->sk_state == TCP_SYN_RECV)
 		TCP_INC_STATS_BH(sock_net(sk), TCP_MIB_ATTEMPTFAILS);
 
 	tcp_set_state(sk, TCP_CLOSE);
 	tcp_clear_xmit_timers(sk);
+	if (req != NULL)
+		reqsk_fastopen_remove(sk, req, false);
 
 	sk->sk_shutdown = SHUTDOWN_MASK;
 
@@ -3563,6 +3643,8 @@ void __init tcp_init(void)
 	pr_info("Hash tables configured (established %u bind %u)\n",
 		tcp_hashinfo.ehash_mask + 1, tcp_hashinfo.bhash_size);
 
+	tcp_metrics_init();
+
 	tcp_register_congestion_control(&tcp_reno);
 
 	memset(&tcp_secret_one.secrets[0], 0, sizeof(tcp_secret_one.secrets));
@@ -3573,4 +3655,5 @@ void __init tcp_init(void)
 	tcp_secret_primary = &tcp_secret_one;
 	tcp_secret_retiring = &tcp_secret_two;
 	tcp_secret_secondary = &tcp_secret_two;
+	tcp_tasklet_init();
 }

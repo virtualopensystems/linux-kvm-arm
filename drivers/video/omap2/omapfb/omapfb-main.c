@@ -31,6 +31,7 @@
 #include <linux/omapfb.h>
 
 #include <video/omapdss.h>
+#include <plat/cpu.h>
 #include <plat/vram.h>
 #include <plat/vrfb.h>
 
@@ -733,6 +734,12 @@ int check_fb_var(struct fb_info *fbi, struct fb_var_screeninfo *var)
 		var->lower_margin = timings.vfp;
 		var->hsync_len = timings.hsw;
 		var->vsync_len = timings.vsw;
+		var->sync |= timings.hsync_level == OMAPDSS_SIG_ACTIVE_HIGH ?
+				FB_SYNC_HOR_HIGH_ACT : 0;
+		var->sync |= timings.vsync_level == OMAPDSS_SIG_ACTIVE_HIGH ?
+				FB_SYNC_VERT_HIGH_ACT : 0;
+		var->vmode = timings.interlace ?
+				FB_VMODE_INTERLACED : FB_VMODE_NONINTERLACED;
 	} else {
 		var->pixclock = 0;
 		var->left_margin = 0;
@@ -741,11 +748,9 @@ int check_fb_var(struct fb_info *fbi, struct fb_var_screeninfo *var)
 		var->lower_margin = 0;
 		var->hsync_len = 0;
 		var->vsync_len = 0;
+		var->sync = 0;
+		var->vmode = FB_VMODE_NONINTERLACED;
 	}
-
-	/* TODO: get these from panel->config */
-	var->vmode              = FB_VMODE_NONINTERLACED;
-	var->sync               = 0;
 
 	return 0;
 }
@@ -1123,7 +1128,7 @@ static int omapfb_mmap(struct fb_info *fbi, struct vm_area_struct *vma)
 	DBG("user mmap region start %lx, len %d, off %lx\n", start, len, off);
 
 	vma->vm_pgoff = off >> PAGE_SHIFT;
-	vma->vm_flags |= VM_IO | VM_RESERVED;
+	/* VM_IO | VM_DONTEXPAND | VM_DONTDUMP are set by remap_pfn_range() */
 	vma->vm_page_prot = pgprot_writecombine(vma->vm_page_prot);
 	vma->vm_ops = &mmap_user_ops;
 	vma->vm_private_data = rg;
@@ -1188,7 +1193,7 @@ static int _setcolreg(struct fb_info *fbi, u_int regno, u_int red, u_int green,
 			break;
 
 		if (regno < 16) {
-			u16 pal;
+			u32 pal;
 			pal = ((red >> (16 - var->red.length)) <<
 					var->red.offset) |
 				((green >> (16 - var->green.length)) <<
@@ -1588,6 +1593,20 @@ static int omapfb_allocate_all_fbs(struct omapfb2_device *fbdev)
 	return 0;
 }
 
+static void omapfb_clear_fb(struct fb_info *fbi)
+{
+	const struct fb_fillrect rect = {
+		.dx = 0,
+		.dy = 0,
+		.width = fbi->var.xres_virtual,
+		.height = fbi->var.yres_virtual,
+		.color = 0,
+		.rop = ROP_COPY,
+	};
+
+	cfb_fillrect(fbi, &rect);
+}
+
 int omapfb_realloc_fbmem(struct fb_info *fbi, unsigned long size, int type)
 {
 	struct omapfb_info *ofbi = FB2OFB(fbi);
@@ -1656,6 +1675,8 @@ int omapfb_realloc_fbmem(struct fb_info *fbi, unsigned long size, int type)
 		if (r)
 			goto err;
 	}
+
+	omapfb_clear_fb(fbi);
 
 	return 0;
 err:
@@ -1941,6 +1962,16 @@ static int omapfb_create_framebuffers(struct omapfb2_device *fbdev)
 		}
 	}
 
+	for (i = 0; i < fbdev->num_fbs; i++) {
+		struct fb_info *fbi = fbdev->fbs[i];
+		struct omapfb_info *ofbi = FB2OFB(fbi);
+
+		if (ofbi->region->size == 0)
+			continue;
+
+		omapfb_clear_fb(fbi);
+	}
+
 	DBG("fb_infos initialized\n");
 
 	for (i = 0; i < fbdev->num_fbs; i++) {
@@ -1993,6 +2024,7 @@ static int omapfb_create_framebuffers(struct omapfb2_device *fbdev)
 }
 
 static int omapfb_mode_to_timings(const char *mode_str,
+		struct omap_dss_device *display,
 		struct omap_video_timings *timings, u8 *bpp)
 {
 	struct fb_info *fbi;
@@ -2046,6 +2078,14 @@ static int omapfb_mode_to_timings(const char *mode_str,
 		goto err;
 	}
 
+	if (display->driver->get_timings) {
+		display->driver->get_timings(display, timings);
+	} else {
+		timings->data_pclk_edge = OMAPDSS_DRIVE_SIG_RISING_EDGE;
+		timings->de_level = OMAPDSS_SIG_ACTIVE_HIGH;
+		timings->sync_pclk_edge = OMAPDSS_DRIVE_SIG_OPPOSITE_EDGES;
+	}
+
 	timings->pixel_clock = PICOS2KHZ(var->pixclock);
 	timings->hbp = var->left_margin;
 	timings->hfp = var->right_margin;
@@ -2055,6 +2095,13 @@ static int omapfb_mode_to_timings(const char *mode_str,
 	timings->vsw = var->vsync_len;
 	timings->x_res = var->xres;
 	timings->y_res = var->yres;
+	timings->hsync_level = var->sync & FB_SYNC_HOR_HIGH_ACT ?
+				OMAPDSS_SIG_ACTIVE_HIGH :
+				OMAPDSS_SIG_ACTIVE_LOW;
+	timings->vsync_level = var->sync & FB_SYNC_VERT_HIGH_ACT ?
+				OMAPDSS_SIG_ACTIVE_HIGH :
+				OMAPDSS_SIG_ACTIVE_LOW;
+	timings->interlace = var->vmode & FB_VMODE_INTERLACED;
 
 	switch (var->bits_per_pixel) {
 	case 16:
@@ -2085,7 +2132,7 @@ static int omapfb_set_def_mode(struct omapfb2_device *fbdev,
 	struct omap_video_timings timings, temp_timings;
 	struct omapfb_display_data *d;
 
-	r = omapfb_mode_to_timings(mode_str, &timings, &bpp);
+	r = omapfb_mode_to_timings(mode_str, display, &timings, &bpp);
 	if (r)
 		return r;
 
@@ -2178,8 +2225,17 @@ static int omapfb_parse_def_modes(struct omapfb2_device *fbdev)
 }
 
 static void fb_videomode_to_omap_timings(struct fb_videomode *m,
+		struct omap_dss_device *display,
 		struct omap_video_timings *t)
 {
+	if (display->driver->get_timings) {
+		display->driver->get_timings(display, t);
+	} else {
+		t->data_pclk_edge = OMAPDSS_DRIVE_SIG_RISING_EDGE;
+		t->de_level = OMAPDSS_SIG_ACTIVE_HIGH;
+		t->sync_pclk_edge = OMAPDSS_DRIVE_SIG_OPPOSITE_EDGES;
+	}
+
 	t->x_res = m->xres;
 	t->y_res = m->yres;
 	t->pixel_clock = PICOS2KHZ(m->pixclock);
@@ -2189,6 +2245,13 @@ static void fb_videomode_to_omap_timings(struct fb_videomode *m,
 	t->vsw = m->vsync_len;
 	t->vfp = m->lower_margin;
 	t->vbp = m->upper_margin;
+	t->hsync_level = m->sync & FB_SYNC_HOR_HIGH_ACT ?
+				OMAPDSS_SIG_ACTIVE_HIGH :
+				OMAPDSS_SIG_ACTIVE_LOW;
+	t->vsync_level = m->sync & FB_SYNC_VERT_HIGH_ACT ?
+				OMAPDSS_SIG_ACTIVE_HIGH :
+				OMAPDSS_SIG_ACTIVE_LOW;
+	t->interlace = m->vmode & FB_VMODE_INTERLACED;
 }
 
 static int omapfb_find_best_mode(struct omap_dss_device *display,
@@ -2231,7 +2294,7 @@ static int omapfb_find_best_mode(struct omap_dss_device *display,
 		if (m->xres == 2880 || m->xres == 1440)
 			continue;
 
-		fb_videomode_to_omap_timings(m, &t);
+		fb_videomode_to_omap_timings(m, display, &t);
 
 		r = display->driver->check_timings(display, &t);
 		if (r == 0 && best_xres < m->xres) {
@@ -2245,7 +2308,8 @@ static int omapfb_find_best_mode(struct omap_dss_device *display,
 		goto err2;
 	}
 
-	fb_videomode_to_omap_timings(&specs->modedb[best_idx], timings);
+	fb_videomode_to_omap_timings(&specs->modedb[best_idx], display,
+		timings);
 
 	r = 0;
 
@@ -2316,6 +2380,7 @@ static int __init omapfb_probe(struct platform_device *pdev)
 	struct omap_overlay *ovl;
 	struct omap_dss_device *def_display;
 	struct omap_dss_device *dssdev;
+	struct omap_dss_device *ovl_device;
 
 	DBG("omapfb_probe\n");
 
@@ -2389,8 +2454,9 @@ static int __init omapfb_probe(struct platform_device *pdev)
 	/* gfx overlay should be the default one. find a display
 	 * connected to that, and use it as default display */
 	ovl = omap_dss_get_overlay(0);
-	if (ovl->manager && ovl->manager->device) {
-		def_display = ovl->manager->device;
+	ovl_device = ovl->get_device(ovl);
+	if (ovl_device) {
+		def_display = ovl_device;
 	} else {
 		dev_warn(&pdev->dev, "cannot find default display\n");
 		def_display = NULL;

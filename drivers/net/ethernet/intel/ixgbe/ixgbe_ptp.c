@@ -26,6 +26,7 @@
 *******************************************************************************/
 #include "ixgbe.h"
 #include <linux/export.h>
+#include <linux/ptp_classify.h>
 
 /*
  * The 82599 and the X540 do not have true 64bit nanosecond scale
@@ -100,9 +101,90 @@
 #define NSECS_PER_SEC 1000000000ULL
 #endif
 
+static struct sock_filter ptp_filter[] = {
+	PTP_FILTER
+};
+
+/**
+ * ixgbe_ptp_setup_sdp
+ * @hw: the hardware private structure
+ *
+ * this function enables or disables the clock out feature on SDP0 for
+ * the X540 device. It will create a 1second periodic output that can
+ * be used as the PPS (via an interrupt).
+ *
+ * It calculates when the systime will be on an exact second, and then
+ * aligns the start of the PPS signal to that value. The shift is
+ * necessary because it can change based on the link speed.
+ */
+static void ixgbe_ptp_setup_sdp(struct ixgbe_adapter *adapter)
+{
+	struct ixgbe_hw *hw = &adapter->hw;
+	int shift = adapter->cc.shift;
+	u32 esdp, tsauxc, clktiml, clktimh, trgttiml, trgttimh, rem;
+	u64 ns = 0, clock_edge = 0;
+
+	if ((adapter->flags2 & IXGBE_FLAG2_PTP_PPS_ENABLED) &&
+	    (hw->mac.type == ixgbe_mac_X540)) {
+
+		/* disable the pin first */
+		IXGBE_WRITE_REG(hw, IXGBE_TSAUXC, 0x0);
+		IXGBE_WRITE_FLUSH(hw);
+
+		esdp = IXGBE_READ_REG(hw, IXGBE_ESDP);
+
+		/*
+		 * enable the SDP0 pin as output, and connected to the
+		 * native function for Timesync (ClockOut)
+		 */
+		esdp |= (IXGBE_ESDP_SDP0_DIR |
+			 IXGBE_ESDP_SDP0_NATIVE);
+
+		/*
+		 * enable the Clock Out feature on SDP0, and allow
+		 * interrupts to occur when the pin changes
+		 */
+		tsauxc = (IXGBE_TSAUXC_EN_CLK |
+			  IXGBE_TSAUXC_SYNCLK |
+			  IXGBE_TSAUXC_SDP0_INT);
+
+		/* clock period (or pulse length) */
+		clktiml = (u32)(NSECS_PER_SEC << shift);
+		clktimh = (u32)((NSECS_PER_SEC << shift) >> 32);
+
+		/*
+		 * Account for the cyclecounter wrap-around value by
+		 * using the converted ns value of the current time to
+		 * check for when the next aligned second would occur.
+		 */
+		clock_edge |= (u64)IXGBE_READ_REG(hw, IXGBE_SYSTIML);
+		clock_edge |= (u64)IXGBE_READ_REG(hw, IXGBE_SYSTIMH) << 32;
+		ns = timecounter_cyc2time(&adapter->tc, clock_edge);
+
+		div_u64_rem(ns, NSECS_PER_SEC, &rem);
+		clock_edge += ((NSECS_PER_SEC - (u64)rem) << shift);
+
+		/* specify the initial clock start time */
+		trgttiml = (u32)clock_edge;
+		trgttimh = (u32)(clock_edge >> 32);
+
+		IXGBE_WRITE_REG(hw, IXGBE_CLKTIML, clktiml);
+		IXGBE_WRITE_REG(hw, IXGBE_CLKTIMH, clktimh);
+		IXGBE_WRITE_REG(hw, IXGBE_TRGTTIML0, trgttiml);
+		IXGBE_WRITE_REG(hw, IXGBE_TRGTTIMH0, trgttimh);
+
+		IXGBE_WRITE_REG(hw, IXGBE_ESDP, esdp);
+		IXGBE_WRITE_REG(hw, IXGBE_TSAUXC, tsauxc);
+	} else {
+		IXGBE_WRITE_REG(hw, IXGBE_TSAUXC, 0x0);
+	}
+
+	IXGBE_WRITE_FLUSH(hw);
+}
+
 /**
  * ixgbe_ptp_read - read raw cycle counter (to be used by time counter)
- * @cc - the cyclecounter structure
+ * @cc: the cyclecounter structure
  *
  * this function reads the cyclecounter registers and is called by the
  * cyclecounter structure used to construct a ns counter from the
@@ -123,8 +205,8 @@ static cycle_t ixgbe_ptp_read(const struct cyclecounter *cc)
 
 /**
  * ixgbe_ptp_adjfreq
- * @ptp - the ptp clock structure
- * @ppb - parts per billion adjustment from base
+ * @ptp: the ptp clock structure
+ * @ppb: parts per billion adjustment from base
  *
  * adjust the frequency of the ptp cycle counter by the
  * indicated ppb from the base frequency.
@@ -170,8 +252,8 @@ static int ixgbe_ptp_adjfreq(struct ptp_clock_info *ptp, s32 ppb)
 
 /**
  * ixgbe_ptp_adjtime
- * @ptp - the ptp clock structure
- * @delta - offset to adjust the cycle counter by
+ * @ptp: the ptp clock structure
+ * @delta: offset to adjust the cycle counter by
  *
  * adjust the timer by resetting the timecounter structure.
  */
@@ -193,13 +275,16 @@ static int ixgbe_ptp_adjtime(struct ptp_clock_info *ptp, s64 delta)
 			 now);
 
 	spin_unlock_irqrestore(&adapter->tmreg_lock, flags);
+
+	ixgbe_ptp_setup_sdp(adapter);
+
 	return 0;
 }
 
 /**
  * ixgbe_ptp_gettime
- * @ptp - the ptp clock structure
- * @ts - timespec structure to hold the current time value
+ * @ptp: the ptp clock structure
+ * @ts: timespec structure to hold the current time value
  *
  * read the timecounter and return the correct value on ns,
  * after converting it into a struct timespec.
@@ -224,8 +309,8 @@ static int ixgbe_ptp_gettime(struct ptp_clock_info *ptp, struct timespec *ts)
 
 /**
  * ixgbe_ptp_settime
- * @ptp - the ptp clock structure
- * @ts - the timespec containing the new time for the cycle counter
+ * @ptp: the ptp clock structure
+ * @ts: the timespec containing the new time for the cycle counter
  *
  * reset the timecounter to use a new base value instead of the kernel
  * wall timer value.
@@ -246,14 +331,15 @@ static int ixgbe_ptp_settime(struct ptp_clock_info *ptp,
 	timecounter_init(&adapter->tc, &adapter->cc, ns);
 	spin_unlock_irqrestore(&adapter->tmreg_lock, flags);
 
+	ixgbe_ptp_setup_sdp(adapter);
 	return 0;
 }
 
 /**
  * ixgbe_ptp_enable
- * @ptp - the ptp clock structure
- * @rq - the requested feature to change
- * @on - whether to enable or disable the feature
+ * @ptp: the ptp clock structure
+ * @rq: the requested feature to change
+ * @on: whether to enable or disable the feature
  *
  * enable (or disable) ancillary features of the phc subsystem.
  * our driver only supports the PPS feature on the X540
@@ -276,8 +362,9 @@ static int ixgbe_ptp_enable(struct ptp_clock_info *ptp,
 			if (on)
 				adapter->flags2 |= IXGBE_FLAG2_PTP_PPS_ENABLED;
 			else
-				adapter->flags2 &=
-					~IXGBE_FLAG2_PTP_PPS_ENABLED;
+				adapter->flags2 &= ~IXGBE_FLAG2_PTP_PPS_ENABLED;
+
+			ixgbe_ptp_setup_sdp(adapter);
 			return 0;
 		default:
 			break;
@@ -289,8 +376,8 @@ static int ixgbe_ptp_enable(struct ptp_clock_info *ptp,
 
 /**
  * ixgbe_ptp_check_pps_event
- * @adapter - the private adapter structure
- * @eicr - the interrupt cause register value
+ * @adapter: the private adapter structure
+ * @eicr: the interrupt cause register value
  *
  * This function is called by the interrupt routine when checking for
  * interrupts. It will check and handle a pps event.
@@ -300,108 +387,15 @@ void ixgbe_ptp_check_pps_event(struct ixgbe_adapter *adapter, u32 eicr)
 	struct ixgbe_hw *hw = &adapter->hw;
 	struct ptp_clock_event event;
 
-	event.type = PTP_CLOCK_PPS;
-
-	/* Make sure ptp clock is valid, and PPS event enabled */
-	if (!adapter->ptp_clock ||
-	    !(adapter->flags2 & IXGBE_FLAG2_PTP_PPS_ENABLED))
-		return;
-
 	switch (hw->mac.type) {
 	case ixgbe_mac_X540:
-		if (eicr & IXGBE_EICR_TIMESYNC)
-			ptp_clock_event(adapter->ptp_clock, &event);
+		ptp_clock_event(adapter->ptp_clock, &event);
 		break;
 	default:
 		break;
 	}
 }
 
-/**
- * ixgbe_ptp_enable_sdp
- * @hw - the hardware private structure
- * @shift - the clock shift for calculating nanoseconds
- *
- * this function enables the clock out feature on the sdp0 for the
- * X540 device. It will create a 1second periodic output that can be
- * used as the PPS (via an interrupt).
- *
- * It calculates when the systime will be on an exact second, and then
- * aligns the start of the PPS signal to that value. The shift is
- * necessary because it can change based on the link speed.
- */
-static void ixgbe_ptp_enable_sdp(struct ixgbe_hw *hw, int shift)
-{
-	u32 esdp, tsauxc, clktiml, clktimh, trgttiml, trgttimh;
-	u64 clock_edge = 0;
-	u32 rem;
-
-	switch (hw->mac.type) {
-	case ixgbe_mac_X540:
-		esdp = IXGBE_READ_REG(hw, IXGBE_ESDP);
-
-		/*
-		 * enable the SDP0 pin as output, and connected to the native
-		 * function for Timesync (ClockOut)
-		 */
-		esdp |= (IXGBE_ESDP_SDP0_DIR |
-			 IXGBE_ESDP_SDP0_NATIVE);
-
-		/*
-		 * enable the Clock Out feature on SDP0, and allow interrupts
-		 * to occur when the pin changes
-		 */
-		tsauxc = (IXGBE_TSAUXC_EN_CLK |
-			  IXGBE_TSAUXC_SYNCLK |
-			  IXGBE_TSAUXC_SDP0_INT);
-
-		/* clock period (or pulse length) */
-		clktiml = (u32)(NSECS_PER_SEC << shift);
-		clktimh = (u32)((NSECS_PER_SEC << shift) >> 32);
-
-		clock_edge |= (u64)IXGBE_READ_REG(hw, IXGBE_SYSTIML);
-		clock_edge |= (u64)IXGBE_READ_REG(hw, IXGBE_SYSTIMH) << 32;
-
-		/*
-		 * account for the fact that we can't do u64 division
-		 * with remainder, by converting the clock values into
-		 * nanoseconds first
-		 */
-		clock_edge >>= shift;
-		div_u64_rem(clock_edge, NSECS_PER_SEC, &rem);
-		clock_edge += (NSECS_PER_SEC - rem);
-		clock_edge <<= shift;
-
-		/* specify the initial clock start time */
-		trgttiml = (u32)clock_edge;
-		trgttimh = (u32)(clock_edge >> 32);
-
-		IXGBE_WRITE_REG(hw, IXGBE_CLKTIML, clktiml);
-		IXGBE_WRITE_REG(hw, IXGBE_CLKTIMH, clktimh);
-		IXGBE_WRITE_REG(hw, IXGBE_TRGTTIML0, trgttiml);
-		IXGBE_WRITE_REG(hw, IXGBE_TRGTTIMH0, trgttimh);
-
-		IXGBE_WRITE_REG(hw, IXGBE_ESDP, esdp);
-		IXGBE_WRITE_REG(hw, IXGBE_TSAUXC, tsauxc);
-
-		IXGBE_WRITE_REG(hw, IXGBE_EIMS, IXGBE_EICR_TIMESYNC);
-		break;
-	default:
-		break;
-	}
-}
-
-/**
- * ixgbe_ptp_disable_sdp
- * @hw - the private hardware structure
- *
- * this function disables the auxiliary SDP clock out feature
- */
-static void ixgbe_ptp_disable_sdp(struct ixgbe_hw *hw)
-{
-	IXGBE_WRITE_REG(hw, IXGBE_EIMC, IXGBE_EICR_TIMESYNC);
-	IXGBE_WRITE_REG(hw, IXGBE_TSAUXC, 0);
-}
 
 /**
  * ixgbe_ptp_overflow_check - delayed work to detect SYSTIME overflow
@@ -421,6 +415,68 @@ void ixgbe_ptp_overflow_check(struct ixgbe_adapter *adapter)
 	    (elapsed_jiffies >= IXGBE_OVERFLOW_PERIOD)) {
 		ixgbe_ptp_gettime(&adapter->ptp_caps, &ts);
 		adapter->last_overflow_check = jiffies;
+	}
+}
+
+/**
+ * ixgbe_ptp_match - determine if this skb matches a ptp packet
+ * @skb: pointer to the skb
+ * @hwtstamp: pointer to the hwtstamp_config to check
+ *
+ * Determine whether the skb should have been timestamped, assuming the
+ * hwtstamp was set via the hwtstamp ioctl. Returns non-zero when the packet
+ * should have a timestamp waiting in the registers, and 0 otherwise.
+ *
+ * V1 packets have to check the version type to determine whether they are
+ * correct. However, we can't directly access the data because it might be
+ * fragmented in the SKB, in paged memory. In order to work around this, we
+ * use skb_copy_bits which will properly copy the data whether it is in the
+ * paged memory fragments or not. We have to copy the IP header as well as the
+ * message type.
+ */
+static int ixgbe_ptp_match(struct sk_buff *skb, int rx_filter)
+{
+	struct iphdr iph;
+	u8 msgtype;
+	unsigned int type, offset;
+
+	if (rx_filter == HWTSTAMP_FILTER_NONE)
+		return 0;
+
+	type = sk_run_filter(skb, ptp_filter);
+
+	if (likely(rx_filter == HWTSTAMP_FILTER_PTP_V2_EVENT))
+		return type & PTP_CLASS_V2;
+
+	/* For the remaining cases actually check message type */
+	switch (type) {
+	case PTP_CLASS_V1_IPV4:
+		skb_copy_bits(skb, OFF_IHL, &iph, sizeof(iph));
+		offset = ETH_HLEN + (iph.ihl << 2) + UDP_HLEN + OFF_PTP_CONTROL;
+		break;
+	case PTP_CLASS_V1_IPV6:
+		offset = OFF_PTP6 + OFF_PTP_CONTROL;
+		break;
+	default:
+		/* other cases invalid or handled above */
+		return 0;
+	}
+
+	/* Make sure our buffer is long enough */
+	if (skb->len < offset)
+		return 0;
+
+	skb_copy_bits(skb, offset, &msgtype, sizeof(msgtype));
+
+	switch (rx_filter) {
+	case HWTSTAMP_FILTER_PTP_V1_L4_SYNC:
+		return (msgtype == IXGBE_RXMTRL_V1_SYNC_MSG);
+		break;
+	case HWTSTAMP_FILTER_PTP_V1_L4_DELAY_REQ:
+		return (msgtype == IXGBE_RXMTRL_V1_DELAY_REQ_MSG);
+		break;
+	default:
+		return 0;
 	}
 }
 
@@ -473,6 +529,7 @@ void ixgbe_ptp_tx_hwtstamp(struct ixgbe_q_vector *q_vector,
 /**
  * ixgbe_ptp_rx_hwtstamp - utility function which checks for RX time stamp
  * @q_vector: structure containing interrupt and ring information
+ * @rx_desc: the rx descriptor
  * @skb: particular skb to send timestamp with
  *
  * if the timestamp is valid, we convert it into the timecounter ns
@@ -480,6 +537,7 @@ void ixgbe_ptp_tx_hwtstamp(struct ixgbe_q_vector *q_vector,
  * is passed up the network stack
  */
 void ixgbe_ptp_rx_hwtstamp(struct ixgbe_q_vector *q_vector,
+			   union ixgbe_adv_rx_desc *rx_desc,
 			   struct sk_buff *skb)
 {
 	struct ixgbe_adapter *adapter;
@@ -497,21 +555,33 @@ void ixgbe_ptp_rx_hwtstamp(struct ixgbe_q_vector *q_vector,
 	hw = &adapter->hw;
 
 	tsyncrxctl = IXGBE_READ_REG(hw, IXGBE_TSYNCRXCTL);
+
+	/* Check if we have a valid timestamp and make sure the skb should
+	 * have been timestamped */
+	if (likely(!(tsyncrxctl & IXGBE_TSYNCRXCTL_VALID) ||
+		   !ixgbe_ptp_match(skb, adapter->rx_hwtstamp_filter)))
+		return;
+
+	/*
+	 * Always read the registers, in order to clear a possible fault
+	 * because of stagnant RX timestamp values for a packet that never
+	 * reached the queue.
+	 */
 	regval |= (u64)IXGBE_READ_REG(hw, IXGBE_RXSTMPL);
 	regval |= (u64)IXGBE_READ_REG(hw, IXGBE_RXSTMPH) << 32;
 
 	/*
-	 * If this bit is set, then the RX registers contain the time stamp. No
-	 * other packet will be time stamped until we read these registers, so
-	 * read the registers to make them available again. Because only one
-	 * packet can be time stamped at a time, we know that the register
-	 * values must belong to this one here and therefore we don't need to
-	 * compare any of the additional attributes stored for it.
+	 * If the timestamp bit is set in the packet's descriptor, we know the
+	 * timestamp belongs to this packet. No other packet can be
+	 * timestamped until the registers for timestamping have been read.
+	 * Therefor only one packet with this bit can be in the queue at a
+	 * time, and the rx timestamp values that were in the registers belong
+	 * to this packet.
 	 *
 	 * If nothing went wrong, then it should have a skb_shared_tx that we
 	 * can turn into a skb_shared_hwtstamps.
 	 */
-	if (!(tsyncrxctl & IXGBE_TSYNCRXCTL_VALID))
+	if (unlikely(!ixgbe_test_staterr(rx_desc, IXGBE_RXDADV_STAT_TS)))
 		return;
 
 	spin_lock_irqsave(&adapter->tmreg_lock, flags);
@@ -539,6 +609,11 @@ void ixgbe_ptp_rx_hwtstamp(struct ixgbe_q_vector *q_vector,
  * type has to be specified. Matching the kind of event packet is
  * not supported, with the exception of "all V2 events regardless of
  * level 2 or 4".
+ *
+ * Since hardware always timestamps Path delay packets when timestamping V2
+ * packets, regardless of the type specified in the register, only use V2
+ * Event mode. This more accurately tells the user what the hardware is going
+ * to do anyways.
  */
 int ixgbe_ptp_hwtstamp_ioctl(struct ixgbe_adapter *adapter,
 			     struct ifreq *ifr, int cmd)
@@ -582,41 +657,30 @@ int ixgbe_ptp_hwtstamp_ioctl(struct ixgbe_adapter *adapter,
 		tsync_rx_mtrl = IXGBE_RXMTRL_V1_DELAY_REQ_MSG;
 		is_l4 = true;
 		break;
+	case HWTSTAMP_FILTER_PTP_V2_EVENT:
+	case HWTSTAMP_FILTER_PTP_V2_L2_EVENT:
+	case HWTSTAMP_FILTER_PTP_V2_L4_EVENT:
 	case HWTSTAMP_FILTER_PTP_V2_SYNC:
 	case HWTSTAMP_FILTER_PTP_V2_L2_SYNC:
 	case HWTSTAMP_FILTER_PTP_V2_L4_SYNC:
-		tsync_rx_ctl |= IXGBE_TSYNCRXCTL_TYPE_L2_L4_V2;
-		tsync_rx_mtrl = IXGBE_RXMTRL_V2_SYNC_MSG;
-		is_l2 = true;
-		is_l4 = true;
-		config.rx_filter = HWTSTAMP_FILTER_SOME;
-		break;
 	case HWTSTAMP_FILTER_PTP_V2_DELAY_REQ:
 	case HWTSTAMP_FILTER_PTP_V2_L2_DELAY_REQ:
 	case HWTSTAMP_FILTER_PTP_V2_L4_DELAY_REQ:
-		tsync_rx_ctl |= IXGBE_TSYNCRXCTL_TYPE_L2_L4_V2;
-		tsync_rx_mtrl = IXGBE_RXMTRL_V2_DELAY_REQ_MSG;
-		is_l2 = true;
-		is_l4 = true;
-		config.rx_filter = HWTSTAMP_FILTER_SOME;
-		break;
-	case HWTSTAMP_FILTER_PTP_V2_L4_EVENT:
-	case HWTSTAMP_FILTER_PTP_V2_L2_EVENT:
-	case HWTSTAMP_FILTER_PTP_V2_EVENT:
 		tsync_rx_ctl |= IXGBE_TSYNCRXCTL_TYPE_EVENT_V2;
-		config.rx_filter = HWTSTAMP_FILTER_PTP_V2_EVENT;
 		is_l2 = true;
 		is_l4 = true;
+		config.rx_filter = HWTSTAMP_FILTER_PTP_V2_EVENT;
 		break;
 	case HWTSTAMP_FILTER_PTP_V1_L4_EVENT:
 	case HWTSTAMP_FILTER_ALL:
 	default:
 		/*
-		 * register RXMTRL must be set, therefore it is not
-		 * possible to time stamp both V1 Sync and Delay_Req messages
-		 * and hardware does not support timestamping all packets
-		 * => return error
+		 * register RXMTRL must be set in order to do V1 packets,
+		 * therefore it is not possible to time stamp both V1 Sync and
+		 * Delay_Req messages and hardware does not support
+		 * timestamping all packets => return error
 		 */
+		config.rx_filter = HWTSTAMP_FILTER_NONE;
 		return -ERANGE;
 	}
 
@@ -625,6 +689,9 @@ int ixgbe_ptp_hwtstamp_ioctl(struct ixgbe_adapter *adapter,
 			return -ERANGE;
 		return 0;
 	}
+
+	/* Store filter value for later use */
+	adapter->rx_hwtstamp_filter = config.rx_filter;
 
 	/* define ethertype filter for timestamped packets */
 	if (is_l2)
@@ -690,7 +757,7 @@ int ixgbe_ptp_hwtstamp_ioctl(struct ixgbe_adapter *adapter,
 
 /**
  * ixgbe_ptp_start_cyclecounter - create the cycle counter from hw
- * @adapter - pointer to the adapter structure
+ * @adapter: pointer to the adapter structure
  *
  * this function initializes the timecounter and cyclecounter
  * structures for use in generated a ns counter from the arbitrary
@@ -742,9 +809,6 @@ void ixgbe_ptp_start_cyclecounter(struct ixgbe_adapter *adapter)
 	/* Bail if the cycle speed didn't change and TIMINCA is non-zero */
 	if (adapter->cycle_speed == cycle_speed && timinca)
 		return;
-
-	/* disable the SDP clock out */
-	ixgbe_ptp_disable_sdp(hw);
 
 	/**
 	 * Scale the NIC cycle counter by a large factor so that
@@ -798,10 +862,6 @@ void ixgbe_ptp_start_cyclecounter(struct ixgbe_adapter *adapter)
 	IXGBE_WRITE_REG(hw, IXGBE_SYSTIMH, 0x00000000);
 	IXGBE_WRITE_FLUSH(hw);
 
-	/* now that the shift has been calculated and the systime
-	 * registers reset, (re-)enable the Clock out feature*/
-	ixgbe_ptp_enable_sdp(hw, shift);
-
 	/* store the new cycle speed */
 	adapter->cycle_speed = cycle_speed;
 
@@ -822,11 +882,17 @@ void ixgbe_ptp_start_cyclecounter(struct ixgbe_adapter *adapter)
 			 ktime_to_ns(ktime_get_real()));
 
 	spin_unlock_irqrestore(&adapter->tmreg_lock, flags);
+
+	/*
+	 * Now that the shift has been calculated and the systime
+	 * registers reset, (re-)enable the Clock out feature
+	 */
+	ixgbe_ptp_setup_sdp(adapter);
 }
 
 /**
  * ixgbe_ptp_init
- * @adapter - the ixgbe private adapter structure
+ * @adapter: the ixgbe private adapter structure
  *
  * This function performs the required steps for enabling ptp
  * support. If ptp support has already been loaded it simply calls the
@@ -870,6 +936,10 @@ void ixgbe_ptp_init(struct ixgbe_adapter *adapter)
 		return;
 	}
 
+	/* initialize the ptp filter */
+	if (ptp_filter_init(ptp_filter, ARRAY_SIZE(ptp_filter)))
+		e_dev_warn("ptp_filter_init failed\n");
+
 	spin_lock_init(&adapter->tmreg_lock);
 
 	ixgbe_ptp_start_cyclecounter(adapter);
@@ -877,7 +947,8 @@ void ixgbe_ptp_init(struct ixgbe_adapter *adapter)
 	/* (Re)start the overflow check */
 	adapter->flags2 |= IXGBE_FLAG2_OVERFLOW_CHECK_ENABLED;
 
-	adapter->ptp_clock = ptp_clock_register(&adapter->ptp_caps);
+	adapter->ptp_clock = ptp_clock_register(&adapter->ptp_caps,
+						&adapter->pdev->dev);
 	if (IS_ERR(adapter->ptp_clock)) {
 		adapter->ptp_clock = NULL;
 		e_dev_err("ptp_clock_register failed\n");
@@ -895,10 +966,11 @@ void ixgbe_ptp_init(struct ixgbe_adapter *adapter)
  */
 void ixgbe_ptp_stop(struct ixgbe_adapter *adapter)
 {
-	ixgbe_ptp_disable_sdp(&adapter->hw);
-
 	/* stop the overflow check task */
-	adapter->flags2 &= ~IXGBE_FLAG2_OVERFLOW_CHECK_ENABLED;
+	adapter->flags2 &= ~(IXGBE_FLAG2_OVERFLOW_CHECK_ENABLED |
+			     IXGBE_FLAG2_PTP_PPS_ENABLED);
+
+	ixgbe_ptp_setup_sdp(adapter);
 
 	if (adapter->ptp_clock) {
 		ptp_clock_unregister(adapter->ptp_clock);

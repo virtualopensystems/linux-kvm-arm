@@ -26,6 +26,7 @@
 #include <linux/err.h>
 #include <linux/mutex.h>
 #include <linux/device.h>
+#include <linux/jiffies.h>
 
 #define	DRIVER_NAME "tmp102"
 
@@ -159,17 +160,16 @@ static int __devinit tmp102_probe(struct i2c_client *client,
 		return -ENODEV;
 	}
 
-	tmp102 = kzalloc(sizeof(*tmp102), GFP_KERNEL);
-	if (!tmp102) {
-		dev_dbg(&client->dev, "kzalloc failed\n");
+	tmp102 = devm_kzalloc(&client->dev, sizeof(*tmp102), GFP_KERNEL);
+	if (!tmp102)
 		return -ENOMEM;
-	}
+
 	i2c_set_clientdata(client, tmp102);
 
 	status = i2c_smbus_read_word_swapped(client, TMP102_CONF_REG);
 	if (status < 0) {
 		dev_err(&client->dev, "error reading config register\n");
-		goto fail_free;
+		return status;
 	}
 	tmp102->config_orig = status;
 	status = i2c_smbus_write_word_swapped(client, TMP102_CONF_REG,
@@ -213,9 +213,6 @@ fail_remove_sysfs:
 fail_restore_config:
 	i2c_smbus_write_word_swapped(client, TMP102_CONF_REG,
 				     tmp102->config_orig);
-fail_free:
-	kfree(tmp102);
-
 	return status;
 }
 
@@ -235,8 +232,6 @@ static int __devexit tmp102_remove(struct i2c_client *client)
 			i2c_smbus_write_word_swapped(client, TMP102_CONF_REG,
 						     config | TMP102_CONF_SD);
 	}
-
-	kfree(tmp102);
 
 	return 0;
 }

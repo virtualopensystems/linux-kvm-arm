@@ -64,19 +64,15 @@ int twl6040_reg_read(struct twl6040 *twl6040, unsigned int reg)
 	int ret;
 	unsigned int val;
 
-	mutex_lock(&twl6040->io_mutex);
 	/* Vibra control registers from cache */
 	if (unlikely(reg == TWL6040_REG_VIBCTLL ||
 		     reg == TWL6040_REG_VIBCTLR)) {
 		val = twl6040->vibra_ctrl_cache[VIBRACTRL_MEMBER(reg)];
 	} else {
 		ret = regmap_read(twl6040->regmap, reg, &val);
-		if (ret < 0) {
-			mutex_unlock(&twl6040->io_mutex);
+		if (ret < 0)
 			return ret;
-		}
 	}
-	mutex_unlock(&twl6040->io_mutex);
 
 	return val;
 }
@@ -86,12 +82,10 @@ int twl6040_reg_write(struct twl6040 *twl6040, unsigned int reg, u8 val)
 {
 	int ret;
 
-	mutex_lock(&twl6040->io_mutex);
 	ret = regmap_write(twl6040->regmap, reg, val);
 	/* Cache the vibra control registers */
 	if (reg == TWL6040_REG_VIBCTLL || reg == TWL6040_REG_VIBCTLR)
 		twl6040->vibra_ctrl_cache[VIBRACTRL_MEMBER(reg)] = val;
-	mutex_unlock(&twl6040->io_mutex);
 
 	return ret;
 }
@@ -99,23 +93,13 @@ EXPORT_SYMBOL(twl6040_reg_write);
 
 int twl6040_set_bits(struct twl6040 *twl6040, unsigned int reg, u8 mask)
 {
-	int ret;
-
-	mutex_lock(&twl6040->io_mutex);
-	ret = regmap_update_bits(twl6040->regmap, reg, mask, mask);
-	mutex_unlock(&twl6040->io_mutex);
-	return ret;
+	return regmap_update_bits(twl6040->regmap, reg, mask, mask);
 }
 EXPORT_SYMBOL(twl6040_set_bits);
 
 int twl6040_clear_bits(struct twl6040 *twl6040, unsigned int reg, u8 mask)
 {
-	int ret;
-
-	mutex_lock(&twl6040->io_mutex);
-	ret = regmap_update_bits(twl6040->regmap, reg, mask, 0);
-	mutex_unlock(&twl6040->io_mutex);
-	return ret;
+	return regmap_update_bits(twl6040->regmap, reg, mask, 0);
 }
 EXPORT_SYMBOL(twl6040_clear_bits);
 
@@ -573,7 +557,6 @@ static int __devinit twl6040_probe(struct i2c_client *client,
 	twl6040->irq = client->irq;
 
 	mutex_init(&twl6040->mutex);
-	mutex_init(&twl6040->io_mutex);
 	init_completion(&twl6040->ready);
 
 	twl6040->rev = twl6040_reg_read(twl6040, TWL6040_REG_ASICREV);
@@ -601,7 +584,7 @@ static int __devinit twl6040_probe(struct i2c_client *client,
 		goto irq_init_err;
 
 	ret = request_threaded_irq(twl6040->irq_base + TWL6040_IRQ_READY,
-				   NULL, twl6040_naudint_handler, 0,
+				   NULL, twl6040_naudint_handler, IRQF_ONESHOT,
 				   "twl6040_irq_ready", twl6040);
 	if (ret) {
 		dev_err(twl6040->dev, "READY IRQ request failed: %d\n",
@@ -648,8 +631,23 @@ static int __devinit twl6040_probe(struct i2c_client *client,
 		children++;
 	}
 
+	/*
+	 * Enable the GPO driver in the following cases:
+	 * DT booted kernel or legacy boot with valid gpo platform_data
+	 */
+	if (!pdata || (pdata && pdata->gpo)) {
+		cell = &twl6040->cells[children];
+		cell->name = "twl6040-gpo";
+
+		if (pdata) {
+			cell->platform_data = pdata->gpo;
+			cell->pdata_size = sizeof(*pdata->gpo);
+		}
+		children++;
+	}
+
 	ret = mfd_add_devices(&client->dev, -1, twl6040->cells, children,
-			      NULL, 0);
+			      NULL, 0, NULL);
 	if (ret)
 		goto mfd_err;
 
@@ -696,6 +694,7 @@ static int __devexit twl6040_remove(struct i2c_client *client)
 
 static const struct i2c_device_id twl6040_i2c_id[] = {
 	{ "twl6040", 0, },
+	{ "twl6041", 0, },
 	{ },
 };
 MODULE_DEVICE_TABLE(i2c, twl6040_i2c_id);

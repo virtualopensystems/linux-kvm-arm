@@ -36,6 +36,9 @@
 #define ATH_BT_CNT_THRESHOLD	       3
 #define ATH_BT_CNT_SCAN_THRESHOLD      15
 
+#define ATH_BTCOEX_RX_WAIT_TIME       100
+#define ATH_BTCOEX_STOMP_FTP_THRESH   5
+
 #define AR9300_NUM_BT_WEIGHTS   4
 #define AR9300_NUM_WLAN_WEIGHTS 4
 /* Defines the BT AR_BT_COEX_WGHT used */
@@ -80,6 +83,7 @@ struct ath9k_hw_mci {
 	u8 bt_ver_major;
 	u8 bt_ver_minor;
 	u8 bt_state;
+	u8 stomp_ftp;
 };
 
 struct ath_btcoex_hw {
@@ -103,7 +107,8 @@ void ath9k_hw_btcoex_init_mci(struct ath_hw *ah);
 void ath9k_hw_init_btcoex_hw(struct ath_hw *ah, int qnum);
 void ath9k_hw_btcoex_set_weight(struct ath_hw *ah,
 				u32 bt_weight,
-				u32 wlan_weight);
+				u32 wlan_weight,
+				enum ath_stomp_type stomp_type);
 void ath9k_hw_btcoex_disable(struct ath_hw *ah);
 void ath9k_hw_btcoex_bt_stomp(struct ath_hw *ah,
 			      enum ath_stomp_type stomp_type);

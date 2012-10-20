@@ -152,7 +152,7 @@ static inline void fw_card_put(struct fw_card *card)
 struct fw_attribute_group {
 	struct attribute_group *groups[2];
 	struct attribute_group group;
-	struct attribute *attrs[12];
+	struct attribute *attrs[13];
 };
 
 enum fw_device_state {
@@ -265,8 +265,16 @@ typedef void (*fw_transaction_callback_t)(struct fw_card *card, int rcode,
 					  void *data, size_t length,
 					  void *callback_data);
 /*
- * Important note:  Except for the FCP registers, the callback must guarantee
- * that either fw_send_response() or kfree() is called on the @request.
+ * This callback handles an inbound request subaction.  It is called in
+ * RCU read-side context, therefore must not sleep.
+ *
+ * The callback should not initiate outbound request subactions directly.
+ * Otherwise there is a danger of recursion of inbound and outbound
+ * transactions from and to the local node.
+ *
+ * The callback is responsible that either fw_send_response() or kfree()
+ * is called on the @request, except for FCP registers for which the core
+ * takes care of that.
  */
 typedef void (*fw_address_callback_t)(struct fw_card *card,
 				      struct fw_request *request,
@@ -321,7 +329,7 @@ struct fw_transaction {
 
 struct fw_address_handler {
 	u64 offset;
-	size_t length;
+	u64 length;
 	fw_address_callback_t address_callback;
 	void *callback_data;
 	struct list_head link;

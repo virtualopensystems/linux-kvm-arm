@@ -49,21 +49,6 @@ struct tipc_bearer tipc_bearers[MAX_BEARERS];
 static void bearer_disable(struct tipc_bearer *b_ptr);
 
 /**
- * media_name_valid - validate media name
- *
- * Returns 1 if media name is valid, otherwise 0.
- */
-static int media_name_valid(const char *name)
-{
-	u32 len;
-
-	len = strlen(name);
-	if ((len + 1) > TIPC_MAX_MEDIA_NAME)
-		return 0;
-	return strspn(name, tipc_alphabet) == len;
-}
-
-/**
  * tipc_media_find - locates specified media object by name
  */
 struct tipc_media *tipc_media_find(const char *name)
@@ -102,7 +87,7 @@ int tipc_register_media(struct tipc_media *m_ptr)
 
 	write_lock_bh(&tipc_net_lock);
 
-	if (!media_name_valid(m_ptr->name))
+	if ((strlen(m_ptr->name) + 1) > TIPC_MAX_MEDIA_NAME)
 		goto exit;
 	if ((m_ptr->bcast_addr.media_id != m_ptr->type_id) ||
 	    !m_ptr->bcast_addr.broadcast)
@@ -123,28 +108,30 @@ int tipc_register_media(struct tipc_media *m_ptr)
 exit:
 	write_unlock_bh(&tipc_net_lock);
 	if (res)
-		warn("Media <%s> registration error\n", m_ptr->name);
+		pr_warn("Media <%s> registration error\n", m_ptr->name);
 	return res;
 }
 
 /**
  * tipc_media_addr_printf - record media address in print buffer
  */
-void tipc_media_addr_printf(struct print_buf *pb, struct tipc_media_addr *a)
+void tipc_media_addr_printf(char *buf, int len, struct tipc_media_addr *a)
 {
 	char addr_str[MAX_ADDR_STR];
 	struct tipc_media *m_ptr;
+	int ret;
 
 	m_ptr = media_find_id(a->media_id);
 
 	if (m_ptr && !m_ptr->addr2str(a, addr_str, sizeof(addr_str)))
-		tipc_printf(pb, "%s(%s)", m_ptr->name, addr_str);
+		ret = tipc_snprintf(buf, len, "%s(%s)", m_ptr->name, addr_str);
 	else {
 		u32 i;
 
-		tipc_printf(pb, "UNKNOWN(%u)", a->media_id);
+		ret = tipc_snprintf(buf, len, "UNKNOWN(%u)", a->media_id);
 		for (i = 0; i < sizeof(a->value); i++)
-			tipc_printf(pb, "-%02x", a->value[i]);
+			ret += tipc_snprintf(buf - ret, len + ret,
+					    "-%02x", a->value[i]);
 	}
 }
 
@@ -172,8 +159,8 @@ struct sk_buff *tipc_media_get_names(void)
 
 /**
  * bearer_name_validate - validate & (optionally) deconstruct bearer name
- * @name - ptr to bearer name string
- * @name_parts - ptr to area for bearer name components (or NULL if not needed)
+ * @name: ptr to bearer name string
+ * @name_parts: ptr to area for bearer name components (or NULL if not needed)
  *
  * Returns 1 if bearer name is valid, otherwise 0.
  */
@@ -204,9 +191,7 @@ static int bearer_name_validate(const char *name,
 
 	/* validate component parts of bearer name */
 	if ((media_len <= 1) || (media_len > TIPC_MAX_MEDIA_NAME) ||
-	    (if_len <= 1) || (if_len > TIPC_MAX_IF_NAME) ||
-	    (strspn(media_name, tipc_alphabet) != (media_len - 1)) ||
-	    (strspn(if_name, tipc_alphabet) != (if_len - 1)))
+	    (if_len <= 1) || (if_len > TIPC_MAX_IF_NAME))
 		return 0;
 
 	/* return bearer name components, if necessary */
@@ -418,12 +403,12 @@ int tipc_enable_bearer(const char *name, u32 disc_domain, u32 priority)
 	int res = -EINVAL;
 
 	if (!tipc_own_addr) {
-		warn("Bearer <%s> rejected, not supported in standalone mode\n",
-		     name);
+		pr_warn("Bearer <%s> rejected, not supported in standalone mode\n",
+			name);
 		return -ENOPROTOOPT;
 	}
 	if (!bearer_name_validate(name, &b_names)) {
-		warn("Bearer <%s> rejected, illegal name\n", name);
+		pr_warn("Bearer <%s> rejected, illegal name\n", name);
 		return -EINVAL;
 	}
 	if (tipc_addr_domain_valid(disc_domain) &&
@@ -435,12 +420,13 @@ int tipc_enable_bearer(const char *name, u32 disc_domain, u32 priority)
 			res = 0;   /* accept specified node in own cluster */
 	}
 	if (res) {
-		warn("Bearer <%s> rejected, illegal discovery domain\n", name);
+		pr_warn("Bearer <%s> rejected, illegal discovery domain\n",
+			name);
 		return -EINVAL;
 	}
 	if ((priority > TIPC_MAX_LINK_PRI) &&
 	    (priority != TIPC_MEDIA_LINK_PRI)) {
-		warn("Bearer <%s> rejected, illegal priority\n", name);
+		pr_warn("Bearer <%s> rejected, illegal priority\n", name);
 		return -EINVAL;
 	}
 
@@ -448,8 +434,8 @@ int tipc_enable_bearer(const char *name, u32 disc_domain, u32 priority)
 
 	m_ptr = tipc_media_find(b_names.media_name);
 	if (!m_ptr) {
-		warn("Bearer <%s> rejected, media <%s> not registered\n", name,
-		     b_names.media_name);
+		pr_warn("Bearer <%s> rejected, media <%s> not registered\n",
+			name, b_names.media_name);
 		goto exit;
 	}
 
@@ -465,24 +451,25 @@ restart:
 			continue;
 		}
 		if (!strcmp(name, tipc_bearers[i].name)) {
-			warn("Bearer <%s> rejected, already enabled\n", name);
+			pr_warn("Bearer <%s> rejected, already enabled\n",
+				name);
 			goto exit;
 		}
 		if ((tipc_bearers[i].priority == priority) &&
 		    (++with_this_prio > 2)) {
 			if (priority-- == 0) {
-				warn("Bearer <%s> rejected, duplicate priority\n",
-				     name);
+				pr_warn("Bearer <%s> rejected, duplicate priority\n",
+					name);
 				goto exit;
 			}
-			warn("Bearer <%s> priority adjustment required %u->%u\n",
-			     name, priority + 1, priority);
+			pr_warn("Bearer <%s> priority adjustment required %u->%u\n",
+				name, priority + 1, priority);
 			goto restart;
 		}
 	}
 	if (bearer_id >= MAX_BEARERS) {
-		warn("Bearer <%s> rejected, bearer limit reached (%u)\n",
-		     name, MAX_BEARERS);
+		pr_warn("Bearer <%s> rejected, bearer limit reached (%u)\n",
+			name, MAX_BEARERS);
 		goto exit;
 	}
 
@@ -490,7 +477,8 @@ restart:
 	strcpy(b_ptr->name, name);
 	res = m_ptr->enable_bearer(b_ptr);
 	if (res) {
-		warn("Bearer <%s> rejected, enable failure (%d)\n", name, -res);
+		pr_warn("Bearer <%s> rejected, enable failure (%d)\n",
+			name, -res);
 		goto exit;
 	}
 
@@ -508,20 +496,20 @@ restart:
 	res = tipc_disc_create(b_ptr, &m_ptr->bcast_addr, disc_domain);
 	if (res) {
 		bearer_disable(b_ptr);
-		warn("Bearer <%s> rejected, discovery object creation failed\n",
-		     name);
+		pr_warn("Bearer <%s> rejected, discovery object creation failed\n",
+			name);
 		goto exit;
 	}
-	info("Enabled bearer <%s>, discovery domain %s, priority %u\n",
-	     name, tipc_addr_string_fill(addr_string, disc_domain), priority);
+	pr_info("Enabled bearer <%s>, discovery domain %s, priority %u\n",
+		name,
+		tipc_addr_string_fill(addr_string, disc_domain), priority);
 exit:
 	write_unlock_bh(&tipc_net_lock);
 	return res;
 }
 
 /**
- * tipc_block_bearer(): Block the bearer with the given name,
- *                      and reset all its links
+ * tipc_block_bearer - Block the bearer with the given name, and reset all its links
  */
 int tipc_block_bearer(const char *name)
 {
@@ -532,12 +520,12 @@ int tipc_block_bearer(const char *name)
 	read_lock_bh(&tipc_net_lock);
 	b_ptr = tipc_bearer_find(name);
 	if (!b_ptr) {
-		warn("Attempt to block unknown bearer <%s>\n", name);
+		pr_warn("Attempt to block unknown bearer <%s>\n", name);
 		read_unlock_bh(&tipc_net_lock);
 		return -EINVAL;
 	}
 
-	info("Blocking bearer <%s>\n", name);
+	pr_info("Blocking bearer <%s>\n", name);
 	spin_lock_bh(&b_ptr->lock);
 	b_ptr->blocked = 1;
 	list_splice_init(&b_ptr->cong_links, &b_ptr->links);
@@ -563,7 +551,7 @@ static void bearer_disable(struct tipc_bearer *b_ptr)
 	struct tipc_link *l_ptr;
 	struct tipc_link *temp_l_ptr;
 
-	info("Disabling bearer <%s>\n", b_ptr->name);
+	pr_info("Disabling bearer <%s>\n", b_ptr->name);
 	spin_lock_bh(&b_ptr->lock);
 	b_ptr->blocked = 1;
 	b_ptr->media->disable_bearer(b_ptr);
@@ -585,7 +573,7 @@ int tipc_disable_bearer(const char *name)
 	write_lock_bh(&tipc_net_lock);
 	b_ptr = tipc_bearer_find(name);
 	if (b_ptr == NULL) {
-		warn("Attempt to disable unknown bearer <%s>\n", name);
+		pr_warn("Attempt to disable unknown bearer <%s>\n", name);
 		res = -EINVAL;
 	} else {
 		bearer_disable(b_ptr);

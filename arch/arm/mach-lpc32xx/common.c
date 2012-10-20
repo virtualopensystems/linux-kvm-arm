@@ -26,6 +26,7 @@
 #include <linux/io.h>
 
 #include <asm/mach/map.h>
+#include <asm/system_info.h>
 
 #include <mach/hardware.h>
 #include <mach/platform.h>
@@ -176,25 +177,25 @@ u32 clk_get_pclk_div(void)
 
 static struct map_desc lpc32xx_io_desc[] __initdata = {
 	{
-		.virtual	= IO_ADDRESS(LPC32XX_AHB0_START),
+		.virtual	= (unsigned long)IO_ADDRESS(LPC32XX_AHB0_START),
 		.pfn		= __phys_to_pfn(LPC32XX_AHB0_START),
 		.length		= LPC32XX_AHB0_SIZE,
 		.type		= MT_DEVICE
 	},
 	{
-		.virtual	= IO_ADDRESS(LPC32XX_AHB1_START),
+		.virtual	= (unsigned long)IO_ADDRESS(LPC32XX_AHB1_START),
 		.pfn		= __phys_to_pfn(LPC32XX_AHB1_START),
 		.length		= LPC32XX_AHB1_SIZE,
 		.type		= MT_DEVICE
 	},
 	{
-		.virtual	= IO_ADDRESS(LPC32XX_FABAPB_START),
+		.virtual	= (unsigned long)IO_ADDRESS(LPC32XX_FABAPB_START),
 		.pfn		= __phys_to_pfn(LPC32XX_FABAPB_START),
 		.length		= LPC32XX_FABAPB_SIZE,
 		.type		= MT_DEVICE
 	},
 	{
-		.virtual	= IO_ADDRESS(LPC32XX_IRAM_BASE),
+		.virtual	= (unsigned long)IO_ADDRESS(LPC32XX_IRAM_BASE),
 		.pfn		= __phys_to_pfn(LPC32XX_IRAM_BASE),
 		.length		= (LPC32XX_IRAM_BANK_SIZE * 2),
 		.type		= MT_DEVICE
@@ -224,7 +225,7 @@ void lpc23xx_restart(char mode, const char *cmd)
 		;
 }
 
-static int __init lpc32xx_display_uid(void)
+static int __init lpc32xx_check_uid(void)
 {
 	u32 uid[4];
 
@@ -233,6 +234,11 @@ static int __init lpc32xx_display_uid(void)
 	printk(KERN_INFO "LPC32XX unique ID: %08x%08x%08x%08x\n",
 		uid[3], uid[2], uid[1], uid[0]);
 
+	if (!system_serial_low && !system_serial_high) {
+		system_serial_low = uid[0];
+		system_serial_high = uid[1];
+	}
+
 	return 1;
 }
-arch_initcall(lpc32xx_display_uid);
+arch_initcall(lpc32xx_check_uid);

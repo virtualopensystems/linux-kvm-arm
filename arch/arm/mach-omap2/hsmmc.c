@@ -15,9 +15,10 @@
 #include <linux/delay.h>
 #include <linux/gpio.h>
 #include <mach/hardware.h>
+#include <linux/platform_data/gpio-omap.h>
+
 #include <plat/mmc.h>
 #include <plat/omap-pm.h>
-#include <plat/mux.h>
 #include <plat/omap_device.h>
 
 #include "mux.h"
@@ -315,7 +316,6 @@ static int __init omap_hsmmc_pdata_init(struct omap2_hsmmc_info *c,
 	mmc->slots[0].caps = c->caps;
 	mmc->slots[0].pm_caps = c->pm_caps;
 	mmc->slots[0].internal_clock = !c->ext_clock;
-	mmc->dma_mask = 0xffffffff;
 	mmc->max_freq = c->max_freq;
 	if (cpu_is_omap44xx())
 		mmc->reg_offset = OMAP4_MMC_REG_OFFSET;
@@ -523,7 +523,7 @@ static void __init omap_hsmmc_init_one(struct omap2_hsmmc_info *hsmmcinfo,
 	dev_set_name(&pdev->dev, "%s.%d", pdev->name, pdev->id);
 
 	od = omap_device_alloc(pdev, ohs, 1, NULL, 0);
-	if (!od) {
+	if (IS_ERR(od)) {
 		pr_err("Could not allocate od for %s\n", name);
 		goto put_pdev;
 	}

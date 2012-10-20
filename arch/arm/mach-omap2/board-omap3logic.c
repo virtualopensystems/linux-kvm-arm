@@ -30,23 +30,20 @@
 #include <linux/i2c/twl.h>
 #include <linux/mmc/host.h>
 
-#include <mach/hardware.h>
 #include <asm/mach-types.h>
 #include <asm/mach/arch.h>
 #include <asm/mach/map.h>
 
+#include "gpmc-smsc911x.h"
+#include <plat/gpmc.h>
+#include <plat/sdrc.h>
+#include <plat/usb.h>
+
+#include "common.h"
 #include "mux.h"
 #include "hsmmc.h"
 #include "control.h"
 #include "common-board-devices.h"
-
-#include <plat/mux.h>
-#include <plat/board.h>
-#include "common.h"
-#include <plat/gpmc-smsc911x.h>
-#include <plat/gpmc.h>
-#include <plat/sdrc.h>
-#include <plat/usb.h>
 
 #define OMAP3LOGIC_SMSC911X_CS			1
 
@@ -78,9 +75,6 @@ static struct regulator_init_data omap3logic_vmmc1 = {
 };
 
 static struct twl4030_gpio_platform_data omap3logic_gpio_data = {
-	.gpio_base	= OMAP_MAX_GPIO_LINES,
-	.irq_base	= TWL4030_GPIO_IRQ_BASE,
-	.irq_end	= TWL4030_GPIO_IRQ_END,
 	.use_leds	= true,
 	.pullups	= BIT(1),
 	.pulldowns	= BIT(2)  | BIT(6)  | BIT(7)  | BIT(8)
@@ -93,9 +87,6 @@ static struct twl4030_usb_data omap3logic_usb_data = {
 
 
 static struct twl4030_platform_data omap3logic_twldata = {
-	.irq_base	= TWL4030_IRQ_BASE,
-	.irq_end	= TWL4030_IRQ_END,
-
 	/* platform_data for children goes here */
 	.gpio		= &omap3logic_gpio_data,
 	.vmmc1		= &omap3logic_vmmc1,

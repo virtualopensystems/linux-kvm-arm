@@ -49,11 +49,13 @@ void nfs_pgheader_init(struct nfs_pageio_descriptor *desc,
 	hdr->io_start = req_offset(hdr->req);
 	hdr->good_bytes = desc->pg_count;
 	hdr->dreq = desc->pg_dreq;
+	hdr->layout_private = desc->pg_layout_private;
 	hdr->release = release;
 	hdr->completion_ops = desc->pg_completion_ops;
 	if (hdr->completion_ops->init_hdr)
 		hdr->completion_ops->init_hdr(hdr);
 }
+EXPORT_SYMBOL_GPL(nfs_pgheader_init);
 
 void nfs_set_pgio_error(struct nfs_pgio_header *hdr, int error, loff_t pos)
 {
@@ -70,7 +72,7 @@ void nfs_set_pgio_error(struct nfs_pgio_header *hdr, int error, loff_t pos)
 static inline struct nfs_page *
 nfs_page_alloc(void)
 {
-	struct nfs_page	*p = kmem_cache_zalloc(nfs_page_cachep, GFP_KERNEL);
+	struct nfs_page	*p = kmem_cache_zalloc(nfs_page_cachep, GFP_NOIO);
 	if (p)
 		INIT_LIST_HEAD(&p->wb_list);
 	return p;
@@ -100,6 +102,7 @@ nfs_create_request(struct nfs_open_context *ctx, struct inode *inode,
 		   unsigned int offset, unsigned int count)
 {
 	struct nfs_page		*req;
+	struct nfs_lock_context *l_ctx;
 
 	/* try to allocate the request struct */
 	req = nfs_page_alloc();
@@ -107,17 +110,18 @@ nfs_create_request(struct nfs_open_context *ctx, struct inode *inode,
 		return ERR_PTR(-ENOMEM);
 
 	/* get lock context early so we can deal with alloc failures */
-	req->wb_lock_context = nfs_get_lock_context(ctx);
-	if (req->wb_lock_context == NULL) {
+	l_ctx = nfs_get_lock_context(ctx);
+	if (IS_ERR(l_ctx)) {
 		nfs_page_free(req);
-		return ERR_PTR(-ENOMEM);
+		return ERR_CAST(l_ctx);
 	}
+	req->wb_lock_context = l_ctx;
 
 	/* Initialize the request struct. Initially, we assume a
 	 * long write-back delay. This will be adjusted in
 	 * update_nfs_request below if the region is not locked. */
 	req->wb_page    = page;
-	req->wb_index	= page->index;
+	req->wb_index	= page_file_index(page);
 	page_cache_get(page);
 	req->wb_offset  = offset;
 	req->wb_pgbase	= offset;
@@ -267,7 +271,9 @@ void nfs_pageio_init(struct nfs_pageio_descriptor *desc,
 	desc->pg_error = 0;
 	desc->pg_lseg = NULL;
 	desc->pg_dreq = NULL;
+	desc->pg_layout_private = NULL;
 }
+EXPORT_SYMBOL_GPL(nfs_pageio_init);
 
 /**
  * nfs_can_coalesce_requests - test two requests for compatibility
@@ -286,7 +292,9 @@ static bool nfs_can_coalesce_requests(struct nfs_page *prev,
 {
 	if (req->wb_context->cred != prev->wb_context->cred)
 		return false;
-	if (req->wb_lock_context->lockowner != prev->wb_lock_context->lockowner)
+	if (req->wb_lock_context->lockowner.l_owner != prev->wb_lock_context->lockowner.l_owner)
+		return false;
+	if (req->wb_lock_context->lockowner.l_pid != prev->wb_lock_context->lockowner.l_pid)
 		return false;
 	if (req->wb_context->state != prev->wb_context->state)
 		return false;
@@ -409,6 +417,7 @@ int nfs_pageio_add_request(struct nfs_pageio_descriptor *desc,
 	} while (ret);
 	return ret;
 }
+EXPORT_SYMBOL_GPL(nfs_pageio_add_request);
 
 /**
  * nfs_pageio_complete - Complete I/O on an nfs_pageio_descriptor
@@ -424,6 +433,7 @@ void nfs_pageio_complete(struct nfs_pageio_descriptor *desc)
 			break;
 	}
 }
+EXPORT_SYMBOL_GPL(nfs_pageio_complete);
 
 /**
  * nfs_pageio_cond_complete - Conditional I/O completion

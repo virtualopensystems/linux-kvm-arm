@@ -62,7 +62,7 @@
  * printf() format helpers
  */
 
-/* Split 64-bit integer into two 32-bit values. Use with %8.8_x%8.8_x */
+/* Split 64-bit integer into two 32-bit values. Use with %8.8X%8.8X */
 
 #define ACPI_FORMAT_UINT64(i)           ACPI_HIDWORD(i), ACPI_LODWORD(i)
 
@@ -277,14 +277,37 @@
 
 /* Bitfields within ACPI registers */
 
-#define ACPI_REGISTER_PREPARE_BITS(val, pos, mask)      ((val << pos) & mask)
-#define ACPI_REGISTER_INSERT_VALUE(reg, pos, mask, val)  reg = (reg & (~(mask))) | ACPI_REGISTER_PREPARE_BITS(val, pos, mask)
+#define ACPI_REGISTER_PREPARE_BITS(val, pos, mask) \
+	((val << pos) & mask)
 
-#define ACPI_INSERT_BITS(target, mask, source)          target = ((target & (~(mask))) | (source & mask))
+#define ACPI_REGISTER_INSERT_VALUE(reg, pos, mask, val) \
+	reg = (reg & (~(mask))) | ACPI_REGISTER_PREPARE_BITS(val, pos, mask)
+
+#define ACPI_INSERT_BITS(target, mask, source) \
+	target = ((target & (~(mask))) | (source & mask))
+
+/* Generic bitfield macros and masks */
+
+#define ACPI_GET_BITS(source_ptr, position, mask) \
+	((*source_ptr >> position) & mask)
+
+#define ACPI_SET_BITS(target_ptr, position, mask, value) \
+	(*target_ptr |= ((value & mask) << position))
+
+#define ACPI_1BIT_MASK      0x00000001
+#define ACPI_2BIT_MASK      0x00000003
+#define ACPI_3BIT_MASK      0x00000007
+#define ACPI_4BIT_MASK      0x0000000F
+#define ACPI_5BIT_MASK      0x0000001F
+#define ACPI_6BIT_MASK      0x0000003F
+#define ACPI_7BIT_MASK      0x0000007F
+#define ACPI_8BIT_MASK      0x000000FF
+#define ACPI_16BIT_MASK     0x0000FFFF
+#define ACPI_24BIT_MASK     0x00FFFFFF
 
 /*
- * A struct acpi_namespace_node can appear in some contexts
- * where a pointer to a union acpi_operand_object can also
+ * An object of type struct acpi_namespace_node can appear in some contexts
+ * where a pointer to an object of type union acpi_operand_object can also
  * appear. This macro is used to distinguish them.
  *
  * The "Descriptor" field is the first field in both structures.

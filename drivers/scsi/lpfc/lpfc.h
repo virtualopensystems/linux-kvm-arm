@@ -27,6 +27,8 @@
 
 struct lpfc_sli2_slim;
 
+#define ELX_MODEL_NAME_SIZE	80
+
 #define LPFC_PCI_DEV_LP		0x1
 #define LPFC_PCI_DEV_OC		0x2
 
@@ -73,6 +75,8 @@ struct lpfc_sli2_slim;
 #define LPFC_HB_MBOX_INTERVAL   5	/* Heart beat interval in seconds. */
 #define LPFC_HB_MBOX_TIMEOUT    30	/* Heart beat timeout  in seconds. */
 
+#define LPFC_LOOK_AHEAD_OFF	0	/* Look ahead logic is turned off */
+
 /* Error Attention event polling interval */
 #define LPFC_ERATT_POLL_INTERVAL	5 /* EATT poll interval in seconds */
 
@@ -95,6 +99,10 @@ struct lpfc_sli2_slim;
 
 /* queue dump line buffer size */
 #define LPFC_LBUF_SZ		128
+
+/* mailbox system shutdown options */
+#define LPFC_MBX_NO_WAIT	0
+#define LPFC_MBX_WAIT		1
 
 enum lpfc_polling_flags {
 	ENABLE_FCP_RING_POLLING = 0x1,
@@ -680,6 +688,7 @@ struct lpfc_hba {
 #define LPFC_FCF_FOV 1		/* Fast fcf failover */
 #define LPFC_FCF_PRIORITY 2	/* Priority fcf failover */
 	uint32_t cfg_fcf_failover_policy;
+	uint32_t cfg_fcp_io_sched;
 	uint32_t cfg_cr_delay;
 	uint32_t cfg_cr_count;
 	uint32_t cfg_multi_ring_support;
@@ -691,6 +700,7 @@ struct lpfc_hba {
 	uint32_t cfg_fcp_imax;
 	uint32_t cfg_fcp_wq_count;
 	uint32_t cfg_fcp_eq_count;
+	uint32_t cfg_fcp_io_channel;
 	uint32_t cfg_sg_seg_cnt;
 	uint32_t cfg_prot_sg_seg_cnt;
 	uint32_t cfg_sg_dma_buf_size;
@@ -728,7 +738,7 @@ struct lpfc_hba {
 	uint32_t hbq_count;	        /* Count of configured HBQs */
 	struct hbq_s hbqs[LPFC_MAX_HBQS]; /* local copy of hbq indicies  */
 
-	uint32_t fcp_qidx;		/* next work queue to post work to */
+	atomic_t fcp_qidx;		/* next work queue to post work to */
 
 	unsigned long pci_bar0_map;     /* Physical address for PCI BAR0 */
 	unsigned long pci_bar1_map;     /* Physical address for PCI BAR1 */

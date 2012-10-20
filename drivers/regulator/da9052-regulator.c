@@ -133,8 +133,8 @@ static int da9052_dcdc_set_current_limit(struct regulator_dev *rdev, int min_uA,
 	    max_uA < da9052_current_limits[row][DA9052_MIN_UA])
 		return -EINVAL;
 
-	for (i = 0; i < DA9052_CURRENT_RANGE; i++) {
-		if (min_uA <= da9052_current_limits[row][i]) {
+	for (i = DA9052_CURRENT_RANGE - 1; i >= 0; i--) {
+		if (da9052_current_limits[row][i] <= max_uA) {
 			reg_val = i;
 			break;
 		}
@@ -405,12 +405,12 @@ static int __devinit da9052_regulator_probe(struct platform_device *pdev)
 		if (!nproot)
 			return -ENODEV;
 
-		for (np = of_get_next_child(nproot, NULL); np;
-		     np = of_get_next_child(nproot, np)) {
+		for_each_child_of_node(nproot, np) {
 			if (!of_node_cmp(np->name,
 					 regulator->info->reg_desc.name)) {
 				config.init_data = of_get_regulator_init_data(
 					&pdev->dev, np);
+				config.of_node = np;
 				break;
 			}
 		}

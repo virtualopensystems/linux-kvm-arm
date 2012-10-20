@@ -2701,6 +2701,20 @@ static void eeprom_parse_mac(struct ipw_priv *priv, u8 * mac)
 	memcpy(mac, &priv->eeprom[EEPROM_MAC_ADDRESS], 6);
 }
 
+static void ipw_read_eeprom(struct ipw_priv *priv)
+{
+	int i;
+	__le16 *eeprom = (__le16 *) priv->eeprom;
+
+	IPW_DEBUG_TRACE(">>\n");
+
+	/* read entire contents of eeprom into private buffer */
+	for (i = 0; i < 128; i++)
+		eeprom[i] = cpu_to_le16(eeprom_read_u16(priv, (u8) i));
+
+	IPW_DEBUG_TRACE("<<\n");
+}
+
 /*
  * Either the device driver (i.e. the host) or the firmware can
  * load eeprom data into the designated region in SRAM.  If neither
@@ -2712,13 +2726,8 @@ static void eeprom_parse_mac(struct ipw_priv *priv, u8 * mac)
 static void ipw_eeprom_init_sram(struct ipw_priv *priv)
 {
 	int i;
-	__le16 *eeprom = (__le16 *) priv->eeprom;
 
 	IPW_DEBUG_TRACE(">>\n");
-
-	/* read entire contents of eeprom into private buffer */
-	for (i = 0; i < 128; i++)
-		eeprom[i] = cpu_to_le16(eeprom_read_u16(priv, (u8) i));
 
 	/*
 	   If the data looks correct, then copy it to our private
@@ -3643,8 +3652,10 @@ static int ipw_load(struct ipw_priv *priv)
 	/* ack fw init done interrupt */
 	ipw_write32(priv, IPW_INTA_RW, IPW_INTA_BIT_FW_INITIALIZATION_DONE);
 
-	/* read eeprom data and initialize the eeprom region of sram */
+	/* read eeprom data */
 	priv->eeprom_delay = 1;
+	ipw_read_eeprom(priv);
+	/* initialize the eeprom region of sram */
 	ipw_eeprom_init_sram(priv);
 
 	/* enable interrupts */
@@ -7069,9 +7080,7 @@ static int ipw_qos_activate(struct ipw_priv *priv,
 	}
 
 	IPW_DEBUG_QOS("QoS sending IPW_CMD_QOS_PARAMETERS\n");
-	err = ipw_send_qos_params_command(priv,
-					  (struct libipw_qos_parameters *)
-					  &(qos_parameters[0]));
+	err = ipw_send_qos_params_command(priv, &qos_parameters[0]);
 	if (err)
 		IPW_DEBUG_QOS("QoS IPW_CMD_QOS_PARAMETERS failed\n");
 
@@ -9028,18 +9037,11 @@ static int ipw_wx_set_wap(struct net_device *dev,
 {
 	struct ipw_priv *priv = libipw_priv(dev);
 
-	static const unsigned char any[] = {
-		0xff, 0xff, 0xff, 0xff, 0xff, 0xff
-	};
-	static const unsigned char off[] = {
-		0x00, 0x00, 0x00, 0x00, 0x00, 0x00
-	};
-
 	if (wrqu->ap_addr.sa_family != ARPHRD_ETHER)
 		return -EINVAL;
 	mutex_lock(&priv->mutex);
-	if (!memcmp(any, wrqu->ap_addr.sa_data, ETH_ALEN) ||
-	    !memcmp(off, wrqu->ap_addr.sa_data, ETH_ALEN)) {
+	if (is_broadcast_ether_addr(wrqu->ap_addr.sa_data) ||
+	    is_zero_ether_addr(wrqu->ap_addr.sa_data)) {
 		/* we disable mandatory BSSID association */
 		IPW_DEBUG_WX("Setting AP BSSID to ANY\n");
 		priv->config &= ~CFG_STATIC_BSSID;

@@ -30,6 +30,7 @@ struct pci_controller {
 	int first_busno;
 	int last_busno;
 	int self_busno;
+	struct resource busn;
 
 	void __iomem *io_base_virt;
 #ifdef CONFIG_PPC64
@@ -181,14 +182,25 @@ static inline int pci_device_from_OF_node(struct device_node *np,
 #if defined(CONFIG_EEH)
 static inline struct eeh_dev *of_node_to_eeh_dev(struct device_node *dn)
 {
+	/*
+	 * For those OF nodes whose parent isn't PCI bridge, they
+	 * don't have PCI_DN actually. So we have to skip them for
+	 * any EEH operations.
+	 */
+	if (!dn || !PCI_DN(dn))
+		return NULL;
+
 	return PCI_DN(dn)->edev;
 }
+#else
+#define of_node_to_eeh_dev(x) (NULL)
 #endif
 
 /** Find the bus corresponding to the indicated device node */
 extern struct pci_bus *pcibios_find_pci_bus(struct device_node *dn);
 
 /** Remove all of the PCI devices under this bus */
+extern void __pcibios_remove_pci_devices(struct pci_bus *bus, int purge_pe);
 extern void pcibios_remove_pci_devices(struct pci_bus *bus);
 
 /** Discover new pci devices under this bus, and add them */

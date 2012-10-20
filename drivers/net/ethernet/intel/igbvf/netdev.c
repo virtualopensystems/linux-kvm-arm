@@ -766,6 +766,7 @@ static void igbvf_set_itr(struct igbvf_adapter *adapter)
 /**
  * igbvf_clean_tx_irq - Reclaim resources after transmit completes
  * @adapter: board private structure
+ *
  * returns true if ring is completely cleaned
  **/
 static bool igbvf_clean_tx_irq(struct igbvf_ring *tx_ring)
@@ -2832,7 +2833,7 @@ static void __devexit igbvf_remove(struct pci_dev *pdev)
 }
 
 /* PCI Error Recovery (ERS) */
-static struct pci_error_handlers igbvf_err_handler = {
+static const struct pci_error_handlers igbvf_err_handler = {
 	.error_detected = igbvf_io_error_detected,
 	.slot_reset = igbvf_io_slot_reset,
 	.resume = igbvf_io_resume,

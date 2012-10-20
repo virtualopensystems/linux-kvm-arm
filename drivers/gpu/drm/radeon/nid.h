@@ -236,6 +236,10 @@
 #define	CP_SEM_WAIT_TIMER				0x85BC
 #define	CP_SEM_INCOMPLETE_TIMER_CNTL			0x85C8
 #define	CP_COHER_CNTL2					0x85E8
+#define	CP_STALLED_STAT1			0x8674
+#define	CP_STALLED_STAT2			0x8678
+#define	CP_BUSY_STAT				0x867C
+#define	CP_STAT						0x8680
 #define CP_ME_CNTL					0x86D8
 #define		CP_ME_HALT					(1 << 28)
 #define		CP_PFP_HALT					(1 << 26)
@@ -581,6 +585,7 @@
 #define	PACKET3_SET_CONTEXT_REG_INDIRECT		0x73
 #define	PACKET3_SET_RESOURCE_INDIRECT			0x74
 #define	PACKET3_SET_APPEND_CNT			        0x75
+#define	PACKET3_ME_WRITE				0x7A
 
 #endif
 

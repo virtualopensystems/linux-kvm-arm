@@ -5,38 +5,11 @@
  *
  *  OS-specific nfs filesystem definitions and declarations
  */
-
 #ifndef _LINUX_NFS_FS_H
 #define _LINUX_NFS_FS_H
 
-#include <linux/magic.h>
+#include <uapi/linux/nfs_fs.h>
 
-/* Default timeout values */
-#define NFS_DEF_UDP_TIMEO	(11)
-#define NFS_DEF_UDP_RETRANS	(3)
-#define NFS_DEF_TCP_TIMEO	(600)
-#define NFS_DEF_TCP_RETRANS	(2)
-
-#define NFS_MAX_UDP_TIMEOUT	(60*HZ)
-#define NFS_MAX_TCP_TIMEOUT	(600*HZ)
-
-#define NFS_DEF_ACREGMIN	(3)
-#define NFS_DEF_ACREGMAX	(60)
-#define NFS_DEF_ACDIRMIN	(30)
-#define NFS_DEF_ACDIRMAX	(60)
-
-/*
- * When flushing a cluster of dirty pages, there can be different
- * strategies:
- */
-#define FLUSH_SYNC		1	/* file being synced, or contention */
-#define FLUSH_STABLE		4	/* commit to stable storage */
-#define FLUSH_LOWPRI		8	/* low priority background flush */
-#define FLUSH_HIGHPRI		16	/* high priority memory reclaim flush */
-#define FLUSH_COND_STABLE	32	/* conditional stable write - only stable
-					 * if everything fits in one RPC */
-
-#ifdef __KERNEL__
 
 /*
  * Enable dprintk() debugging support for nfs client.
@@ -81,12 +54,16 @@ struct nfs_access_entry {
 	int			mask;
 };
 
+struct nfs_lockowner {
+	fl_owner_t l_owner;
+	pid_t l_pid;
+};
+
 struct nfs_lock_context {
 	atomic_t count;
 	struct list_head list;
 	struct nfs_open_context *open_context;
-	fl_owner_t lockowner;
-	pid_t pid;
+	struct nfs_lockowner lockowner;
 };
 
 struct nfs4_state;
@@ -99,6 +76,7 @@ struct nfs_open_context {
 
 	unsigned long flags;
 #define NFS_CONTEXT_ERROR_WRITE		(0)
+#define NFS_CONTEXT_RESEND_WRITES	(1)
 	int error;
 
 	struct list_head list;
@@ -191,7 +169,7 @@ struct nfs_inode {
 	struct hlist_head	silly_list;
 	wait_queue_head_t	waitqueue;
 
-#ifdef CONFIG_NFS_V4
+#if IS_ENABLED(CONFIG_NFS_V4)
 	struct nfs4_cached_acl	*nfs4_acl;
         /* NFSv4 state */
 	struct list_head	open_states;
@@ -263,11 +241,6 @@ static inline struct rpc_clnt *NFS_CLIENT(const struct inode *inode)
 static inline const struct nfs_rpc_ops *NFS_PROTO(const struct inode *inode)
 {
 	return NFS_SERVER(inode)->nfs_client->rpc_ops;
-}
-
-static inline __be32 *NFS_COOKIEVERF(const struct inode *inode)
-{
-	return NFS_I(inode)->cookieverf;
 }
 
 static inline unsigned NFS_MINATTRTIMEO(const struct inode *inode)
@@ -360,6 +333,8 @@ extern int nfs_refresh_inode(struct inode *, struct nfs_fattr *);
 extern int nfs_post_op_update_inode(struct inode *inode, struct nfs_fattr *fattr);
 extern int nfs_post_op_update_inode_force_wcc(struct inode *inode, struct nfs_fattr *fattr);
 extern int nfs_getattr(struct vfsmount *, struct dentry *, struct kstat *);
+extern void nfs_access_add_cache(struct inode *, struct nfs_access_entry *);
+extern void nfs_access_set_mask(struct nfs_access_entry *, u32);
 extern int nfs_permission(struct inode *, int);
 extern int nfs_open(struct inode *, struct file *);
 extern int nfs_release(struct inode *, struct file *);
@@ -427,12 +402,8 @@ extern __be32 root_nfs_parse_addr(char *name); /*__init*/
 /*
  * linux/fs/nfs/file.c
  */
-extern const struct inode_operations nfs_file_inode_operations;
-#ifdef CONFIG_NFS_V3
-extern const struct inode_operations nfs3_file_inode_operations;
-#endif /* CONFIG_NFS_V3 */
 extern const struct file_operations nfs_file_operations;
-#ifdef CONFIG_NFS_V4
+#if IS_ENABLED(CONFIG_NFS_V4)
 extern const struct file_operations nfs4_file_operations;
 #endif /* CONFIG_NFS_V4 */
 extern const struct address_space_operations nfs_file_aops;
@@ -477,18 +448,14 @@ extern ssize_t nfs_direct_IO(int, struct kiocb *, const struct iovec *, loff_t,
 			unsigned long);
 extern ssize_t nfs_file_direct_read(struct kiocb *iocb,
 			const struct iovec *iov, unsigned long nr_segs,
-			loff_t pos);
+			loff_t pos, bool uio);
 extern ssize_t nfs_file_direct_write(struct kiocb *iocb,
 			const struct iovec *iov, unsigned long nr_segs,
-			loff_t pos);
+			loff_t pos, bool uio);
 
 /*
  * linux/fs/nfs/dir.c
  */
-extern const struct inode_operations nfs_dir_inode_operations;
-#ifdef CONFIG_NFS_V3
-extern const struct inode_operations nfs3_dir_inode_operations;
-#endif /* CONFIG_NFS_V3 */
 extern const struct file_operations nfs_dir_operations;
 extern const struct dentry_operations nfs_dentry_operations;
 
@@ -546,7 +513,7 @@ extern void nfs_writeback_done(struct rpc_task *, struct nfs_write_data *);
 extern int nfs_wb_all(struct inode *inode);
 extern int nfs_wb_page(struct inode *inode, struct page* page);
 extern int nfs_wb_page_cancel(struct inode *inode, struct page* page);
-#if defined(CONFIG_NFS_V3) || defined(CONFIG_NFS_V4)
+#if IS_ENABLED(CONFIG_NFS_V3) || IS_ENABLED(CONFIG_NFS_V4)
 extern int  nfs_commit_inode(struct inode *, int);
 extern struct nfs_commit_data *nfs_commitdata_alloc(void);
 extern void nfs_commit_free(struct nfs_commit_data *data);
@@ -619,29 +586,6 @@ nfs_fileid_to_ino_t(u64 fileid)
 
 #define NFS_JUKEBOX_RETRY_TIME (5 * HZ)
 
-#endif /* __KERNEL__ */
-
-/*
- * NFS debug flags
- */
-#define NFSDBG_VFS		0x0001
-#define NFSDBG_DIRCACHE		0x0002
-#define NFSDBG_LOOKUPCACHE	0x0004
-#define NFSDBG_PAGECACHE	0x0008
-#define NFSDBG_PROC		0x0010
-#define NFSDBG_XDR		0x0020
-#define NFSDBG_FILE		0x0040
-#define NFSDBG_ROOT		0x0080
-#define NFSDBG_CALLBACK		0x0100
-#define NFSDBG_CLIENT		0x0200
-#define NFSDBG_MOUNT		0x0400
-#define NFSDBG_FSCACHE		0x0800
-#define NFSDBG_PNFS		0x1000
-#define NFSDBG_PNFS_LD		0x2000
-#define NFSDBG_STATE		0x4000
-#define NFSDBG_ALL		0xFFFF
-
-#ifdef __KERNEL__
 
 # undef ifdebug
 # ifdef NFS_DEBUG
@@ -651,6 +595,4 @@ nfs_fileid_to_ino_t(u64 fileid)
 #  define ifdebug(fac)		if (0)
 #  define NFS_IFDEBUG(x)
 # endif
-#endif /* __KERNEL */
-
 #endif

@@ -52,8 +52,7 @@ struct key_user {
 	atomic_t		usage;		/* for accessing qnkeys & qnbytes */
 	atomic_t		nkeys;		/* number of keys */
 	atomic_t		nikeys;		/* number of instantiated keys */
-	uid_t			uid;
-	struct user_namespace	*user_ns;
+	kuid_t			uid;
 	int			qnkeys;		/* number of keys allocated to this user */
 	int			qnbytes;	/* number of bytes allocated to this user */
 };
@@ -62,8 +61,7 @@ extern struct rb_root	key_user_tree;
 extern spinlock_t	key_user_lock;
 extern struct key_user	root_key_user;
 
-extern struct key_user *key_user_lookup(uid_t uid,
-					struct user_namespace *user_ns);
+extern struct key_user *key_user_lookup(kuid_t uid);
 extern void key_user_put(struct key_user *user);
 
 /*
@@ -149,7 +147,7 @@ extern key_ref_t lookup_user_key(key_serial_t id, unsigned long flags,
 #define KEY_LOOKUP_FOR_UNLINK	0x04
 
 extern long join_session_keyring(const char *name);
-extern void key_change_session_keyring(struct task_work *twork);
+extern void key_change_session_keyring(struct callback_head *twork);
 
 extern struct work_struct key_gc_work;
 extern unsigned key_gc_delay;
@@ -242,7 +240,7 @@ extern long keyctl_instantiate_key_iov(key_serial_t,
 extern long keyctl_invalidate_key(key_serial_t);
 
 extern long keyctl_instantiate_key_common(key_serial_t,
-					  const struct iovec __user *,
+					  const struct iovec *,
 					  unsigned, size_t, key_serial_t);
 
 /*

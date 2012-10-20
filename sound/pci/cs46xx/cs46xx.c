@@ -30,7 +30,7 @@
 #include <linux/init.h>
 #include <linux/module.h>
 #include <sound/core.h>
-#include <sound/cs46xx.h>
+#include "cs46xx.h"
 #include <sound/initval.h>
 
 MODULE_AUTHOR("Jaroslav Kysela <perex@perex.cz>");
@@ -166,9 +166,10 @@ static struct pci_driver cs46xx_driver = {
 	.id_table = snd_cs46xx_ids,
 	.probe = snd_card_cs46xx_probe,
 	.remove = __devexit_p(snd_card_cs46xx_remove),
-#ifdef CONFIG_PM
-	.suspend = snd_cs46xx_suspend,
-	.resume = snd_cs46xx_resume,
+#ifdef CONFIG_PM_SLEEP
+	.driver = {
+		.pm = &snd_cs46xx_pm,
+	},
 #endif
 };
 

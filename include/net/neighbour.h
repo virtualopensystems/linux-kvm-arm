@@ -202,9 +202,16 @@ extern struct neighbour *	neigh_lookup(struct neigh_table *tbl,
 extern struct neighbour *	neigh_lookup_nodev(struct neigh_table *tbl,
 						   struct net *net,
 						   const void *pkey);
-extern struct neighbour *	neigh_create(struct neigh_table *tbl,
+extern struct neighbour *	__neigh_create(struct neigh_table *tbl,
+					       const void *pkey,
+					       struct net_device *dev,
+					       bool want_ref);
+static inline struct neighbour *neigh_create(struct neigh_table *tbl,
 					     const void *pkey,
-					     struct net_device *dev);
+					     struct net_device *dev)
+{
+	return __neigh_create(tbl, pkey, dev, true);
+}
 extern void			neigh_destroy(struct neighbour *neigh);
 extern int			__neigh_event_send(struct neighbour *neigh, struct sk_buff *skb);
 extern int			neigh_update(struct neighbour *neigh, const u8 *lladdr, u8 new, 
@@ -302,12 +309,6 @@ static inline struct neighbour * neigh_clone(struct neighbour *neigh)
 
 #define neigh_hold(n)	atomic_inc(&(n)->refcnt)
 
-static inline void neigh_confirm(struct neighbour *neigh)
-{
-	if (neigh)
-		neigh->confirmed = jiffies;
-}
-
 static inline int neigh_event_send(struct neighbour *neigh, struct sk_buff *skb)
 {
 	unsigned long now = jiffies;
@@ -333,31 +334,26 @@ static inline int neigh_hh_bridge(struct hh_cache *hh, struct sk_buff *skb)
 }
 #endif
 
-static inline int neigh_hh_output(struct hh_cache *hh, struct sk_buff *skb)
+static inline int neigh_hh_output(const struct hh_cache *hh, struct sk_buff *skb)
 {
 	unsigned int seq;
 	int hh_len;
 
 	do {
-		int hh_alen;
-
 		seq = read_seqbegin(&hh->hh_lock);
 		hh_len = hh->hh_len;
-		hh_alen = HH_DATA_ALIGN(hh_len);
-		memcpy(skb->data - hh_alen, hh->hh_data, hh_alen);
+		if (likely(hh_len <= HH_DATA_MOD)) {
+			/* this is inlined by gcc */
+			memcpy(skb->data - HH_DATA_MOD, hh->hh_data, HH_DATA_MOD);
+		} else {
+			int hh_alen = HH_DATA_ALIGN(hh_len);
+
+			memcpy(skb->data - hh_alen, hh->hh_data, hh_alen);
+		}
 	} while (read_seqretry(&hh->hh_lock, seq));
 
 	skb_push(skb, hh_len);
 	return dev_queue_xmit(skb);
-}
-
-static inline int neigh_output(struct neighbour *n, struct sk_buff *skb)
-{
-	struct hh_cache *hh = &n->hh;
-	if ((n->nud_state & NUD_CONNECTED) && hh->hh_len)
-		return neigh_hh_output(hh, skb);
-	else
-		return n->output(n, skb);
 }
 
 static inline struct neighbour *

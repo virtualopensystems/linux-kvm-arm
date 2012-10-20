@@ -67,6 +67,11 @@ config BCM63XX_PHY
 	---help---
 	  Currently supports the 6348 and 6358 PHYs.
 
+config BCM87XX_PHY
+	tristate "Driver for Broadcom BCM8706 and BCM8727 PHYs"
+	help
+	  Currently supports the BCM8706 and BCM8727 10G Ethernet PHYs.
+
 config ICPLUS_PHY
 	tristate "Drivers for ICPlus PHYs"
 	---help---
@@ -153,6 +158,19 @@ config MDIO_BUS_MUX_GPIO
 	  are controlled via GPIO lines.  The multiplexer connects one of
 	  several child MDIO busses to a parent bus.  Child bus
 	  selection is under the control of GPIO lines.
+
+config MDIO_BUS_MUX_MMIOREG
+	tristate "Support for MMIO device-controlled MDIO bus multiplexers"
+	depends on OF_MDIO
+	select MDIO_BUS_MUX
+	help
+	  This module provides a driver for MDIO bus multiplexers that
+	  are controlled via a simple memory-mapped device, like an FPGA.
+	  The multiplexer connects one of several child MDIO busses to a
+	  parent bus.  Child bus selection is under the control of one of
+	  the FPGA's registers.
+
+	  Currently, only 8-bit registers are supported.
 
 endif # PHYLIB
 

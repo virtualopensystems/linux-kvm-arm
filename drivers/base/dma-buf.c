@@ -460,8 +460,7 @@ int dma_buf_mmap(struct dma_buf *dmabuf, struct vm_area_struct *vma,
 	if (vma->vm_file)
 		fput(vma->vm_file);
 
-	vma->vm_file = dmabuf->file;
-	get_file(vma->vm_file);
+	vma->vm_file = get_file(dmabuf->file);
 
 	vma->vm_pgoff = pgoff;
 
@@ -493,6 +492,7 @@ EXPORT_SYMBOL_GPL(dma_buf_vmap);
 /**
  * dma_buf_vunmap - Unmap a vmap obtained by dma_buf_vmap.
  * @dmabuf:	[in]	buffer to vunmap
+ * @vaddr:	[in]	vmap to vunmap
  */
 void dma_buf_vunmap(struct dma_buf *dmabuf, void *vaddr)
 {

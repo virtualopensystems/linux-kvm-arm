@@ -187,11 +187,17 @@ struct lpfc_sli_intf {
 /* Active interrupt test count */
 #define LPFC_ACT_INTR_CNT	4
 
+/* Algrithmns for scheduling FCP commands to WQs */
+#define	LPFC_FCP_SCHED_ROUND_ROBIN	0
+#define	LPFC_FCP_SCHED_BY_CPU		1
+
 /* Delay Multiplier constant */
 #define LPFC_DMULT_CONST       651042
-#define LPFC_MIM_IMAX          636
-#define LPFC_FP_DEF_IMAX       10000
-#define LPFC_SP_DEF_IMAX       10000
+
+/* Configuration of Interrupts / sec for entire HBA port */
+#define LPFC_MIN_IMAX          5000
+#define LPFC_MAX_IMAX          5000000
+#define LPFC_DEF_IMAX          50000
 
 /* PORT_CAPABILITIES constants. */
 #define LPFC_MAX_SUPPORTED_PAGES	8
@@ -338,7 +344,7 @@ struct lpfc_cqe {
  * Define mask value for xri_aborted and wcqe completed CQE extended status.
  * Currently, extended status is limited to 9 bits (0x0 -> 0x103) .
  */
-#define WCQE_PARAM_MASK		0x1FF;
+#define WCQE_PARAM_MASK		0x1FF
 
 /* completion queue entry for wqe completions */
 struct lpfc_wcqe_complete {
@@ -874,18 +880,25 @@ struct mbox_header {
 #define LPFC_MBOX_OPCODE_MQ_CREATE			0x15
 #define LPFC_MBOX_OPCODE_GET_CNTL_ATTRIBUTES		0x20
 #define LPFC_MBOX_OPCODE_NOP				0x21
+#define LPFC_MBOX_OPCODE_MODIFY_EQ_DELAY		0x29
 #define LPFC_MBOX_OPCODE_MQ_DESTROY			0x35
 #define LPFC_MBOX_OPCODE_CQ_DESTROY			0x36
 #define LPFC_MBOX_OPCODE_EQ_DESTROY			0x37
 #define LPFC_MBOX_OPCODE_QUERY_FW_CFG			0x3A
 #define LPFC_MBOX_OPCODE_FUNCTION_RESET			0x3D
+#define LPFC_MBOX_OPCODE_SET_PHYSICAL_LINK_CONFIG	0x3E
+#define LPFC_MBOX_OPCODE_SET_BOOT_CONFIG		0x43
 #define LPFC_MBOX_OPCODE_GET_PORT_NAME			0x4D
 #define LPFC_MBOX_OPCODE_MQ_CREATE_EXT			0x5A
+#define LPFC_MBOX_OPCODE_GET_VPD_DATA			0x5B
+#define LPFC_MBOX_OPCODE_SEND_ACTIVATION		0x73
+#define LPFC_MBOX_OPCODE_RESET_LICENSES			0x74
 #define LPFC_MBOX_OPCODE_GET_RSRC_EXTENT_INFO		0x9A
 #define LPFC_MBOX_OPCODE_GET_ALLOC_RSRC_EXTENT		0x9B
 #define LPFC_MBOX_OPCODE_ALLOC_RSRC_EXTENT		0x9C
 #define LPFC_MBOX_OPCODE_DEALLOC_RSRC_EXTENT		0x9D
 #define LPFC_MBOX_OPCODE_GET_FUNCTION_CONFIG		0xA0
+#define LPFC_MBOX_OPCODE_GET_PROFILE_CAPACITIES		0xA1
 #define LPFC_MBOX_OPCODE_GET_PROFILE_CONFIG		0xA4
 #define LPFC_MBOX_OPCODE_SET_PROFILE_CONFIG		0xA5
 #define LPFC_MBOX_OPCODE_GET_PROFILE_LIST		0xA6
@@ -939,6 +952,13 @@ struct eq_context {
 #define lpfc_eq_context_delay_multi_WORD	word2
 	uint32_t reserved3;
 };
+
+struct eq_delay_info {
+	uint32_t eq_id;
+	uint32_t phase;
+	uint32_t delay_multi;
+};
+#define	LPFC_MAX_EQ_DELAY	8
 
 struct sgl_page_pairs {
 	uint32_t sgl_pg0_addr_lo;
@@ -998,6 +1018,19 @@ struct lpfc_mbx_eq_create {
 #define lpfc_mbx_eq_create_q_id_SHIFT	0
 #define lpfc_mbx_eq_create_q_id_MASK	0x0000FFFF
 #define lpfc_mbx_eq_create_q_id_WORD	word0
+		} response;
+	} u;
+};
+
+struct lpfc_mbx_modify_eq_delay {
+	struct mbox_header header;
+	union {
+		struct {
+			uint32_t num_eq;
+			struct eq_delay_info eq[LPFC_MAX_EQ_DELAY];
+		} request;
+		struct {
+			uint32_t word0;
 		} response;
 	} u;
 };
@@ -1272,6 +1305,11 @@ struct lpfc_mbx_mq_create_ext {
 #define lpfc_mbx_mq_create_ext_async_evt_link_SHIFT	LPFC_TRAILER_CODE_LINK
 #define lpfc_mbx_mq_create_ext_async_evt_link_MASK	0x00000001
 #define lpfc_mbx_mq_create_ext_async_evt_link_WORD	async_evt_bmap
+#define LPFC_EVT_CODE_LINK_NO_LINK	0x0
+#define LPFC_EVT_CODE_LINK_10_MBIT	0x1
+#define LPFC_EVT_CODE_LINK_100_MBIT	0x2
+#define LPFC_EVT_CODE_LINK_1_GBIT	0x3
+#define LPFC_EVT_CODE_LINK_10_GBIT	0x4
 #define lpfc_mbx_mq_create_ext_async_evt_fip_SHIFT	LPFC_TRAILER_CODE_FCOE
 #define lpfc_mbx_mq_create_ext_async_evt_fip_MASK	0x00000001
 #define lpfc_mbx_mq_create_ext_async_evt_fip_WORD	async_evt_bmap
@@ -1281,6 +1319,13 @@ struct lpfc_mbx_mq_create_ext {
 #define lpfc_mbx_mq_create_ext_async_evt_fc_SHIFT	LPFC_TRAILER_CODE_FC
 #define lpfc_mbx_mq_create_ext_async_evt_fc_MASK	0x00000001
 #define lpfc_mbx_mq_create_ext_async_evt_fc_WORD	async_evt_bmap
+#define LPFC_EVT_CODE_FC_NO_LINK	0x0
+#define LPFC_EVT_CODE_FC_1_GBAUD	0x1
+#define LPFC_EVT_CODE_FC_2_GBAUD	0x2
+#define LPFC_EVT_CODE_FC_4_GBAUD	0x4
+#define LPFC_EVT_CODE_FC_8_GBAUD	0x8
+#define LPFC_EVT_CODE_FC_10_GBAUD	0xA
+#define LPFC_EVT_CODE_FC_16_GBAUD	0x10
 #define lpfc_mbx_mq_create_ext_async_evt_sli_SHIFT	LPFC_TRAILER_CODE_SLI
 #define lpfc_mbx_mq_create_ext_async_evt_sli_MASK	0x00000001
 #define lpfc_mbx_mq_create_ext_async_evt_sli_WORD	async_evt_bmap
@@ -1361,6 +1406,11 @@ struct lpfc_mbx_set_link_diag_state {
 #define lpfc_mbx_set_diag_state_diag_SHIFT	0
 #define lpfc_mbx_set_diag_state_diag_MASK	0x00000001
 #define lpfc_mbx_set_diag_state_diag_WORD	word0
+#define lpfc_mbx_set_diag_state_diag_bit_valid_SHIFT	2
+#define lpfc_mbx_set_diag_state_diag_bit_valid_MASK	0x00000001
+#define lpfc_mbx_set_diag_state_diag_bit_valid_WORD	word0
+#define LPFC_DIAG_STATE_DIAG_BIT_VALID_NO_CHANGE	0
+#define LPFC_DIAG_STATE_DIAG_BIT_VALID_CHANGE		1
 #define lpfc_mbx_set_diag_state_link_num_SHIFT	16
 #define lpfc_mbx_set_diag_state_link_num_MASK	0x0000003F
 #define lpfc_mbx_set_diag_state_link_num_WORD	word0
@@ -1657,8 +1707,14 @@ struct fcf_record {
 #define lpfc_fcf_record_fc_map_2_MASK		0x000000FF
 #define lpfc_fcf_record_fc_map_2_WORD		word7
 #define lpfc_fcf_record_fcf_valid_SHIFT		24
-#define lpfc_fcf_record_fcf_valid_MASK		0x000000FF
+#define lpfc_fcf_record_fcf_valid_MASK		0x00000001
 #define lpfc_fcf_record_fcf_valid_WORD		word7
+#define lpfc_fcf_record_fcf_fc_SHIFT		25
+#define lpfc_fcf_record_fcf_fc_MASK		0x00000001
+#define lpfc_fcf_record_fcf_fc_WORD		word7
+#define lpfc_fcf_record_fcf_sol_SHIFT		31
+#define lpfc_fcf_record_fcf_sol_MASK		0x00000001
+#define lpfc_fcf_record_fcf_sol_WORD		word7
 	uint32_t word8;
 #define lpfc_fcf_record_fcf_index_SHIFT		0
 #define lpfc_fcf_record_fcf_index_MASK		0x0000FFFF
@@ -2535,7 +2591,7 @@ struct lpfc_mbx_get_sli4_parameters {
 };
 
 struct lpfc_rscr_desc_generic {
-#define LPFC_RSRC_DESC_WSIZE			18
+#define LPFC_RSRC_DESC_WSIZE			22
 	uint32_t desc[LPFC_RSRC_DESC_WSIZE];
 };
 
@@ -2545,6 +2601,9 @@ struct lpfc_rsrc_desc_pcie {
 #define lpfc_rsrc_desc_pcie_type_MASK		0x000000ff
 #define lpfc_rsrc_desc_pcie_type_WORD		word0
 #define LPFC_RSRC_DESC_TYPE_PCIE		0x40
+#define lpfc_rsrc_desc_pcie_length_SHIFT	8
+#define lpfc_rsrc_desc_pcie_length_MASK		0x000000ff
+#define lpfc_rsrc_desc_pcie_length_WORD		word0
 	uint32_t word1;
 #define lpfc_rsrc_desc_pcie_pfnum_SHIFT		0
 #define lpfc_rsrc_desc_pcie_pfnum_MASK		0x000000ff
@@ -2572,6 +2631,12 @@ struct lpfc_rsrc_desc_fcfcoe {
 #define lpfc_rsrc_desc_fcfcoe_type_MASK		0x000000ff
 #define lpfc_rsrc_desc_fcfcoe_type_WORD		word0
 #define LPFC_RSRC_DESC_TYPE_FCFCOE		0x43
+#define lpfc_rsrc_desc_fcfcoe_length_SHIFT	8
+#define lpfc_rsrc_desc_fcfcoe_length_MASK	0x000000ff
+#define lpfc_rsrc_desc_fcfcoe_length_WORD	word0
+#define LPFC_RSRC_DESC_TYPE_FCFCOE_V0_RSVD	0
+#define LPFC_RSRC_DESC_TYPE_FCFCOE_V0_LENGTH	72
+#define LPFC_RSRC_DESC_TYPE_FCFCOE_V1_LENGTH	88
 	uint32_t word1;
 #define lpfc_rsrc_desc_fcfcoe_vfnum_SHIFT	0
 #define lpfc_rsrc_desc_fcfcoe_vfnum_MASK	0x000000ff
@@ -2630,6 +2695,12 @@ struct lpfc_rsrc_desc_fcfcoe {
 #define lpfc_rsrc_desc_fcfcoe_eq_cnt_SHIFT	16
 #define lpfc_rsrc_desc_fcfcoe_eq_cnt_MASK	0x0000ffff
 #define lpfc_rsrc_desc_fcfcoe_eq_cnt_WORD	word13
+/* extended FC/FCoE Resource Descriptor when length = 88 bytes */
+	uint32_t bw_min;
+	uint32_t bw_max;
+	uint32_t iops_min;
+	uint32_t iops_max;
+	uint32_t reserved[4];
 };
 
 struct lpfc_func_cfg {
@@ -2875,6 +2946,7 @@ struct lpfc_mqe {
 		struct lpfc_mbx_mq_create mq_create;
 		struct lpfc_mbx_mq_create_ext mq_create_ext;
 		struct lpfc_mbx_eq_create eq_create;
+		struct lpfc_mbx_modify_eq_delay eq_delay;
 		struct lpfc_mbx_cq_create cq_create;
 		struct lpfc_mbx_wq_create wq_create;
 		struct lpfc_mbx_rq_create rq_create;
@@ -3084,6 +3156,28 @@ struct lpfc_acqe_fc_la {
 #define LPFC_FC_LA_EVENT_TYPE_SHARED_LINK	0x2
 };
 
+struct lpfc_acqe_misconfigured_event {
+	struct {
+	uint32_t word0;
+#define lpfc_sli_misconfigured_port0_SHIFT	0
+#define lpfc_sli_misconfigured_port0_MASK	0x000000FF
+#define lpfc_sli_misconfigured_port0_WORD	word0
+#define lpfc_sli_misconfigured_port1_SHIFT	8
+#define lpfc_sli_misconfigured_port1_MASK	0x000000FF
+#define lpfc_sli_misconfigured_port1_WORD	word0
+#define lpfc_sli_misconfigured_port2_SHIFT	16
+#define lpfc_sli_misconfigured_port2_MASK	0x000000FF
+#define lpfc_sli_misconfigured_port2_WORD	word0
+#define lpfc_sli_misconfigured_port3_SHIFT	24
+#define lpfc_sli_misconfigured_port3_MASK	0x000000FF
+#define lpfc_sli_misconfigured_port3_WORD	word0
+	} theEvent;
+#define LPFC_SLI_EVENT_STATUS_VALID			0x00
+#define LPFC_SLI_EVENT_STATUS_NOT_PRESENT	0x01
+#define LPFC_SLI_EVENT_STATUS_WRONG_TYPE	0x02
+#define LPFC_SLI_EVENT_STATUS_UNSUPPORTED	0x03
+};
+
 struct lpfc_acqe_sli {
 	uint32_t event_data1;
 	uint32_t event_data2;
@@ -3094,6 +3188,7 @@ struct lpfc_acqe_sli {
 #define LPFC_SLI_EVENT_TYPE_NORM_TEMP		0x3
 #define LPFC_SLI_EVENT_TYPE_NVLOG_POST		0x4
 #define LPFC_SLI_EVENT_TYPE_DIAG_DUMP		0x5
+#define LPFC_SLI_EVENT_TYPE_MISCONFIGURED	0x9
 };
 
 /*

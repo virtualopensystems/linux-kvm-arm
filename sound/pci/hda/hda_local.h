@@ -89,7 +89,7 @@
 	{ .iface = SNDRV_CTL_ELEM_IFACE_MIXER, .name = xname, .index = xcidx, \
 	  .subdevice = HDA_SUBDEV_AMP_FLAG, \
 	  .info = snd_hda_mixer_amp_switch_info, \
-	  .get = snd_hda_mixer_amp_switch_get, \
+	  .get = snd_hda_mixer_amp_switch_get_beep, \
 	  .put = snd_hda_mixer_amp_switch_put_beep, \
 	  .private_value = HDA_COMPOSE_AMP_VAL(nid, channel, xindex, direction) }
 #else
@@ -121,6 +121,8 @@ int snd_hda_mixer_amp_switch_get(struct snd_kcontrol *kcontrol,
 int snd_hda_mixer_amp_switch_put(struct snd_kcontrol *kcontrol,
 				 struct snd_ctl_elem_value *ucontrol);
 #ifdef CONFIG_SND_HDA_INPUT_BEEP
+int snd_hda_mixer_amp_switch_get_beep(struct snd_kcontrol *kcontrol,
+				      struct snd_ctl_elem_value *ucontrol);
 int snd_hda_mixer_amp_switch_put_beep(struct snd_kcontrol *kcontrol,
 				      struct snd_ctl_elem_value *ucontrol);
 #endif
@@ -527,7 +529,7 @@ int snd_hda_create_hwdep(struct hda_codec *codec);
 static inline int snd_hda_create_hwdep(struct hda_codec *codec) { return 0; }
 #endif
 
-#if defined(CONFIG_SND_HDA_POWER_SAVE) && defined(CONFIG_SND_HDA_HWDEP)
+#if defined(CONFIG_PM) && defined(CONFIG_SND_HDA_HWDEP)
 int snd_hda_hwdep_add_power_sysfs(struct hda_codec *codec);
 #else
 static inline int snd_hda_hwdep_add_power_sysfs(struct hda_codec *codec)

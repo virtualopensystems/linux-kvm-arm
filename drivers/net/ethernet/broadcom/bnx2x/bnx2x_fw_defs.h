@@ -88,9 +88,6 @@
 #define TSTORM_ASSERT_LIST_INDEX_OFFSET	(IRO[102].base)
 #define TSTORM_ASSERT_LIST_OFFSET(assertListEntry) \
 	(IRO[101].base + ((assertListEntry) * IRO[101].m1))
-#define TSTORM_COMMON_SAFC_WORKAROUND_ENABLE_OFFSET (IRO[107].base)
-#define TSTORM_COMMON_SAFC_WORKAROUND_TIMEOUT_10USEC_OFFSET \
-	(IRO[108].base)
 #define TSTORM_FUNCTION_COMMON_CONFIG_OFFSET(pfId) \
 	(IRO[201].base + ((pfId) * IRO[201].m1))
 #define TSTORM_FUNC_EN_OFFSET(funcId) \
@@ -321,9 +318,7 @@
 #define DISABLE_STATISTIC_COUNTER_ID_VALUE 0
 
 
-/**
- * This file defines HSI constants common to all microcode flows
- */
+/* This file defines HSI constants common to all microcode flows */
 
 #define PROTOCOL_STATE_BIT_OFFSET 6
 

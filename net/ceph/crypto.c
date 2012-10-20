@@ -423,14 +423,15 @@ int ceph_encrypt2(struct ceph_crypto_key *secret, void *dst, size_t *dst_len,
 	}
 }
 
-int ceph_key_instantiate(struct key *key, const void *data, size_t datalen)
+int ceph_key_instantiate(struct key *key, struct key_preparsed_payload *prep)
 {
 	struct ceph_crypto_key *ckey;
+	size_t datalen = prep->datalen;
 	int ret;
 	void *p;
 
 	ret = -EINVAL;
-	if (datalen <= 0 || datalen > 32767 || !data)
+	if (datalen <= 0 || datalen > 32767 || !prep->data)
 		goto err;
 
 	ret = key_payload_reserve(key, datalen);
@@ -443,8 +444,8 @@ int ceph_key_instantiate(struct key *key, const void *data, size_t datalen)
 		goto err;
 
 	/* TODO ceph_crypto_key_decode should really take const input */
-	p = (void *)data;
-	ret = ceph_crypto_key_decode(ckey, &p, (char*)data+datalen);
+	p = (void *)prep->data;
+	ret = ceph_crypto_key_decode(ckey, &p, (char*)prep->data+datalen);
 	if (ret < 0)
 		goto err_ckey;
 
@@ -466,6 +467,7 @@ void ceph_key_destroy(struct key *key) {
 	struct ceph_crypto_key *ckey = key->payload.data;
 
 	ceph_crypto_key_destroy(ckey);
+	kfree(ckey);
 }
 
 struct key_type key_type_ceph = {

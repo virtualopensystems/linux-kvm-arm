@@ -466,7 +466,7 @@ static int iscsit_handle_recovery_datain(
 int iscsit_handle_recovery_datain_or_r2t(
 	struct iscsi_conn *conn,
 	unsigned char *buf,
-	u32 init_task_tag,
+	itt_t init_task_tag,
 	u32 targ_xfer_tag,
 	u32 begrun,
 	u32 runlength)
@@ -498,7 +498,7 @@ int iscsit_handle_recovery_datain_or_r2t(
 /* #warning FIXME: Status SNACK needs to be dependent on OPCODE!!! */
 int iscsit_handle_status_snack(
 	struct iscsi_conn *conn,
-	u32 init_task_tag,
+	itt_t init_task_tag,
 	u32 targ_xfer_tag,
 	u32 begrun,
 	u32 runlength)
@@ -965,8 +965,8 @@ int iscsit_execute_cmd(struct iscsi_cmd *cmd, int ooo)
 		if (cmd->immediate_data) {
 			if (cmd->cmd_flags & ICF_GOT_LAST_DATAOUT) {
 				spin_unlock_bh(&cmd->istate_lock);
-				return transport_generic_handle_data(
-						&cmd->se_cmd);
+				target_execute_cmd(&cmd->se_cmd);
+				return 0;
 			}
 			spin_unlock_bh(&cmd->istate_lock);
 

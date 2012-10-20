@@ -78,6 +78,19 @@ int main(int argc, char *argv[])
         return 0;
 }
 endef
+
+define SOURCE_GTK2_INFOBAR
+#pragma GCC diagnostic ignored \"-Wstrict-prototypes\"
+#include <gtk/gtk.h>
+#pragma GCC diagnostic error \"-Wstrict-prototypes\"
+
+int main(void)
+{
+	gtk_info_bar_new();
+
+	return 0;
+}
+endef
 endif
 
 ifndef NO_LIBPERL
@@ -141,3 +154,53 @@ int main(void)
 	return 0;
 }
 endef
+
+ifndef NO_LIBUNWIND
+define SOURCE_LIBUNWIND
+#include <libunwind.h>
+#include <stdlib.h>
+
+extern int UNW_OBJ(dwarf_search_unwind_table) (unw_addr_space_t as,
+                                      unw_word_t ip,
+                                      unw_dyn_info_t *di,
+                                      unw_proc_info_t *pi,
+                                      int need_unwind_info, void *arg);
+
+
+#define dwarf_search_unwind_table UNW_OBJ(dwarf_search_unwind_table)
+
+int main(void)
+{
+	unw_addr_space_t addr_space;
+	addr_space = unw_create_addr_space(NULL, 0);
+	unw_init_remote(NULL, addr_space, NULL);
+	dwarf_search_unwind_table(addr_space, 0, NULL, NULL, 0, NULL);
+	return 0;
+}
+endef
+endif
+
+ifndef NO_BACKTRACE
+define SOURCE_BACKTRACE
+#include <execinfo.h>
+#include <stdio.h>
+
+int main(void)
+{
+	backtrace(NULL, 0);
+	backtrace_symbols(NULL, 0);
+	return 0;
+}
+endef
+endif
+
+ifndef NO_LIBAUDIT
+define SOURCE_LIBAUDIT
+#include <libaudit.h>
+
+int main(void)
+{
+	return audit_open();
+}
+endef
+endif

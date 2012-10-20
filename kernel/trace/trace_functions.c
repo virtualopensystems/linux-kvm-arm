@@ -48,7 +48,8 @@ static void function_trace_start(struct trace_array *tr)
 }
 
 static void
-function_trace_call_preempt_only(unsigned long ip, unsigned long parent_ip)
+function_trace_call_preempt_only(unsigned long ip, unsigned long parent_ip,
+				 struct ftrace_ops *op, struct pt_regs *pt_regs)
 {
 	struct trace_array *tr = func_trace;
 	struct trace_array_cpu *data;
@@ -74,8 +75,17 @@ function_trace_call_preempt_only(unsigned long ip, unsigned long parent_ip)
 	preempt_enable_notrace();
 }
 
+/* Our option */
+enum {
+	TRACE_FUNC_OPT_STACK	= 0x1,
+};
+
+static struct tracer_flags func_flags;
+
 static void
-function_trace_call(unsigned long ip, unsigned long parent_ip)
+function_trace_call(unsigned long ip, unsigned long parent_ip,
+		    struct ftrace_ops *op, struct pt_regs *pt_regs)
+
 {
 	struct trace_array *tr = func_trace;
 	struct trace_array_cpu *data;
@@ -106,7 +116,8 @@ function_trace_call(unsigned long ip, unsigned long parent_ip)
 }
 
 static void
-function_stack_trace_call(unsigned long ip, unsigned long parent_ip)
+function_stack_trace_call(unsigned long ip, unsigned long parent_ip,
+			  struct ftrace_ops *op, struct pt_regs *pt_regs)
 {
 	struct trace_array *tr = func_trace;
 	struct trace_array_cpu *data;
@@ -149,18 +160,13 @@ function_stack_trace_call(unsigned long ip, unsigned long parent_ip)
 static struct ftrace_ops trace_ops __read_mostly =
 {
 	.func = function_trace_call,
-	.flags = FTRACE_OPS_FL_GLOBAL,
+	.flags = FTRACE_OPS_FL_GLOBAL | FTRACE_OPS_FL_RECURSION_SAFE,
 };
 
 static struct ftrace_ops trace_stack_ops __read_mostly =
 {
 	.func = function_stack_trace_call,
-	.flags = FTRACE_OPS_FL_GLOBAL,
-};
-
-/* Our two options */
-enum {
-	TRACE_FUNC_OPT_STACK = 0x1,
+	.flags = FTRACE_OPS_FL_GLOBAL | FTRACE_OPS_FL_RECURSION_SAFE,
 };
 
 static struct tracer_opt func_opts[] = {
@@ -204,10 +210,11 @@ static void tracing_stop_function_trace(void)
 
 static int func_set_flag(u32 old_flags, u32 bit, int set)
 {
-	if (bit == TRACE_FUNC_OPT_STACK) {
+	switch (bit) {
+	case TRACE_FUNC_OPT_STACK:
 		/* do nothing if already set */
 		if (!!set == !!(func_flags.val & TRACE_FUNC_OPT_STACK))
-			return 0;
+			break;
 
 		if (set) {
 			unregister_ftrace_function(&trace_ops);
@@ -217,10 +224,12 @@ static int func_set_flag(u32 old_flags, u32 bit, int set)
 			register_ftrace_function(&trace_ops);
 		}
 
-		return 0;
+		break;
+	default:
+		return -EINVAL;
 	}
 
-	return -EINVAL;
+	return 0;
 }
 
 static struct tracer function_trace __read_mostly =

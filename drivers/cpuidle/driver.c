@@ -16,10 +16,12 @@
 
 static struct cpuidle_driver *cpuidle_curr_driver;
 DEFINE_SPINLOCK(cpuidle_driver_lock);
+int cpuidle_driver_refcount;
 
-static void __cpuidle_register_driver(struct cpuidle_driver *drv)
+static void set_power_states(struct cpuidle_driver *drv)
 {
 	int i;
+
 	/*
 	 * cpuidle driver should set the drv->power_specified bit
 	 * before registering if the driver provides
@@ -34,12 +36,9 @@ static void __cpuidle_register_driver(struct cpuidle_driver *drv)
 	 * an power value of -1.  So we use -2, -3, etc, for other
 	 * c-states.
 	 */
-	if (!drv->power_specified) {
-		for (i = CPUIDLE_DRIVER_STATE_START; i < drv->state_count; i++)
-			drv->states[i].power_usage = -1 - i;
-	}
+	for (i = CPUIDLE_DRIVER_STATE_START; i < drv->state_count; i++)
+		drv->states[i].power_usage = -1 - i;
 }
-
 
 /**
  * cpuidle_register_driver - registers a driver
@@ -58,13 +57,16 @@ int cpuidle_register_driver(struct cpuidle_driver *drv)
 		spin_unlock(&cpuidle_driver_lock);
 		return -EBUSY;
 	}
-	__cpuidle_register_driver(drv);
+
+	if (!drv->power_specified)
+		set_power_states(drv);
+
 	cpuidle_curr_driver = drv;
+
 	spin_unlock(&cpuidle_driver_lock);
 
 	return 0;
 }
-
 EXPORT_SYMBOL_GPL(cpuidle_register_driver);
 
 /**
@@ -89,8 +91,33 @@ void cpuidle_unregister_driver(struct cpuidle_driver *drv)
 	}
 
 	spin_lock(&cpuidle_driver_lock);
-	cpuidle_curr_driver = NULL;
+
+	if (!WARN_ON(cpuidle_driver_refcount > 0))
+		cpuidle_curr_driver = NULL;
+
 	spin_unlock(&cpuidle_driver_lock);
 }
-
 EXPORT_SYMBOL_GPL(cpuidle_unregister_driver);
+
+struct cpuidle_driver *cpuidle_driver_ref(void)
+{
+	struct cpuidle_driver *drv;
+
+	spin_lock(&cpuidle_driver_lock);
+
+	drv = cpuidle_curr_driver;
+	cpuidle_driver_refcount++;
+
+	spin_unlock(&cpuidle_driver_lock);
+	return drv;
+}
+
+void cpuidle_driver_unref(void)
+{
+	spin_lock(&cpuidle_driver_lock);
+
+	if (!WARN_ON(cpuidle_driver_refcount <= 0))
+		cpuidle_driver_refcount--;
+
+	spin_unlock(&cpuidle_driver_lock);
+}

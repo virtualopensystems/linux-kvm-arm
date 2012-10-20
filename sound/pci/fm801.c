@@ -205,7 +205,7 @@ struct fm801 {
 	struct snd_tea575x tea;
 #endif
 
-#ifdef CONFIG_PM
+#ifdef CONFIG_PM_SLEEP
 	u16 saved_regs[0x20];
 #endif
 };
@@ -710,6 +710,13 @@ static int __devinit snd_fm801_pcm(struct fm801 *chip, int device, struct snd_pc
 	snd_pcm_lib_preallocate_pages_for_all(pcm, SNDRV_DMA_TYPE_DEV,
 					      snd_dma_pci_data(chip->pci),
 					      chip->multichannel ? 128*1024 : 64*1024, 128*1024);
+
+	err = snd_pcm_add_chmap_ctls(pcm, SNDRV_PCM_STREAM_PLAYBACK,
+				     snd_pcm_alt_chmaps,
+				     chip->multichannel ? 6 : 2, 0,
+				     NULL);
+	if (err < 0)
+		return err;
 
 	if (rpcm)
 		*rpcm = pcm;
@@ -1361,7 +1368,7 @@ static void __devexit snd_card_fm801_remove(struct pci_dev *pci)
 	pci_set_drvdata(pci, NULL);
 }
 
-#ifdef CONFIG_PM
+#ifdef CONFIG_PM_SLEEP
 static unsigned char saved_regs[] = {
 	FM801_PCM_VOL, FM801_I2S_VOL, FM801_FM_VOL, FM801_REC_SRC,
 	FM801_PLY_CTRL, FM801_PLY_COUNT, FM801_PLY_BUF1, FM801_PLY_BUF2,
@@ -1369,9 +1376,10 @@ static unsigned char saved_regs[] = {
 	FM801_CODEC_CTRL, FM801_I2S_MODE, FM801_VOLUME, FM801_GEN_CTRL,
 };
 
-static int snd_fm801_suspend(struct pci_dev *pci, pm_message_t state)
+static int snd_fm801_suspend(struct device *dev)
 {
-	struct snd_card *card = pci_get_drvdata(pci);
+	struct pci_dev *pci = to_pci_dev(dev);
+	struct snd_card *card = dev_get_drvdata(dev);
 	struct fm801 *chip = card->private_data;
 	int i;
 
@@ -1385,13 +1393,14 @@ static int snd_fm801_suspend(struct pci_dev *pci, pm_message_t state)
 
 	pci_disable_device(pci);
 	pci_save_state(pci);
-	pci_set_power_state(pci, pci_choose_state(pci, state));
+	pci_set_power_state(pci, PCI_D3hot);
 	return 0;
 }
 
-static int snd_fm801_resume(struct pci_dev *pci)
+static int snd_fm801_resume(struct device *dev)
 {
-	struct snd_card *card = pci_get_drvdata(pci);
+	struct pci_dev *pci = to_pci_dev(dev);
+	struct snd_card *card = dev_get_drvdata(dev);
 	struct fm801 *chip = card->private_data;
 	int i;
 
@@ -1414,17 +1423,21 @@ static int snd_fm801_resume(struct pci_dev *pci)
 	snd_power_change_state(card, SNDRV_CTL_POWER_D0);
 	return 0;
 }
-#endif
+
+static SIMPLE_DEV_PM_OPS(snd_fm801_pm, snd_fm801_suspend, snd_fm801_resume);
+#define SND_FM801_PM_OPS	&snd_fm801_pm
+#else
+#define SND_FM801_PM_OPS	NULL
+#endif /* CONFIG_PM_SLEEP */
 
 static struct pci_driver fm801_driver = {
 	.name = KBUILD_MODNAME,
 	.id_table = snd_fm801_ids,
 	.probe = snd_card_fm801_probe,
 	.remove = __devexit_p(snd_card_fm801_remove),
-#ifdef CONFIG_PM
-	.suspend = snd_fm801_suspend,
-	.resume = snd_fm801_resume,
-#endif
+	.driver = {
+		.pm = SND_FM801_PM_OPS,
+	},
 };
 
 module_pci_driver(fm801_driver);

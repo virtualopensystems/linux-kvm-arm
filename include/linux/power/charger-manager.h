@@ -16,6 +16,7 @@
 #define _CHARGER_MANAGER_H
 
 #include <linux/power_supply.h>
+#include <linux/extcon.h>
 
 enum data_source {
 	CM_BATTERY_PRESENT,
@@ -65,6 +66,89 @@ struct charger_global_desc {
 };
 
 /**
+ * struct charger_cable
+ * @extcon_name: the name of extcon device.
+ * @name: the name of charger cable(external connector).
+ * @extcon_dev: the extcon device.
+ * @wq: the workqueue to control charger according to the state of
+ *	charger cable. If charger cable is attached, enable charger.
+ *	But if charger cable is detached, disable charger.
+ * @nb: the notifier block to receive changed state from EXTCON
+ *	(External Connector) when charger cable is attached/detached.
+ * @attached: the state of charger cable.
+ *	true: the charger cable is attached
+ *	false: the charger cable is detached
+ * @charger: the instance of struct charger_regulator.
+ * @cm: the Charger Manager representing the battery.
+ */
+struct charger_cable {
+	const char *extcon_name;
+	const char *name;
+
+	/* The charger-manager use Exton framework*/
+	struct extcon_specific_cable_nb extcon_dev;
+	struct work_struct wq;
+	struct notifier_block nb;
+
+	/* The state of charger cable */
+	bool attached;
+
+	struct charger_regulator *charger;
+
+	/*
+	 * Set min/max current of regulator to protect over-current issue
+	 * according to a kind of charger cable when cable is attached.
+	 */
+	int min_uA;
+	int max_uA;
+
+	struct charger_manager *cm;
+};
+
+/**
+ * struct charger_regulator
+ * @regulator_name: the name of regulator for using charger.
+ * @consumer: the regulator consumer for the charger.
+ * @externally_control:
+ *	Set if the charger-manager cannot control charger,
+ *	the charger will be maintained with disabled state.
+ * @cables:
+ *	the array of charger cables to enable/disable charger
+ *	and set current limit according to constratint data of
+ *	struct charger_cable if only charger cable included
+ *	in the array of charger cables is attached/detached.
+ * @num_cables: the number of charger cables.
+ * @attr_g: Attribute group for the charger(regulator)
+ * @attr_name: "name" sysfs entry
+ * @attr_state: "state" sysfs entry
+ * @attr_externally_control: "externally_control" sysfs entry
+ * @attrs: Arrays pointing to attr_name/state/externally_control for attr_g
+ */
+struct charger_regulator {
+	/* The name of regulator for charging */
+	const char *regulator_name;
+	struct regulator *consumer;
+
+	/* charger never on when system is on */
+	int externally_control;
+
+	/*
+	 * Store constraint information related to current limit,
+	 * each cable have different condition for charging.
+	 */
+	struct charger_cable *cables;
+	int num_cables;
+
+	struct attribute_group attr_g;
+	struct device_attribute attr_name;
+	struct device_attribute attr_state;
+	struct device_attribute attr_externally_control;
+	struct attribute *attrs[4];
+
+	struct charger_manager *cm;
+};
+
+/**
  * struct charger_desc
  * @psy_name: the name of power-supply-class for charger manager
  * @polling_mode:
@@ -75,7 +159,11 @@ struct charger_global_desc {
  *	If it has dropped more than fullbatt_vchkdrop_uV after
  *	fullbatt_vchkdrop_ms, CM will restart charging.
  * @fullbatt_uV: voltage in microvolt
- *	If it is not being charged and VBATT >= fullbatt_uV,
+ *	If VBATT >= fullbatt_uV, it is assumed to be full.
+ * @fullbatt_soc: state of Charge in %
+ *	If state of Charge >= fullbatt_soc, it is assumed to be full.
+ * @fullbatt_full_capacity: full capacity measure
+ *	If full capacity of battery >= fullbatt_full_capacity,
  *	it is assumed to be full.
  * @polling_interval_ms: interval in millisecond at which
  *	charger manager will monitor battery health
@@ -83,7 +171,7 @@ struct charger_global_desc {
  *	Specify where information for existance of battery can be obtained
  * @psy_charger_stat: the names of power-supply for chargers
  * @num_charger_regulator: the number of entries in charger_regulators
- * @charger_regulators: array of regulator_bulk_data for chargers
+ * @charger_regulators: array of charger regulators
  * @psy_fuel_gauge: the name of power-supply for fuel gauge
  * @temperature_out_of_range:
  *	Determine whether the status is overheat or cold or normal.
@@ -93,6 +181,13 @@ struct charger_global_desc {
  * @measure_battery_temp:
  *	true: measure battery temperature
  *	false: measure ambient temperature
+ * @charging_max_duration_ms: Maximum possible duration for charging
+ *	If whole charging duration exceed 'charging_max_duration_ms',
+ *	cm stop charging.
+ * @discharging_max_duration_ms:
+ *	Maximum possible duration for discharging with charger cable
+ *	after full-batt. If discharging duration exceed 'discharging
+ *	max_duration_ms', cm start charging.
  */
 struct charger_desc {
 	char *psy_name;
@@ -103,18 +198,23 @@ struct charger_desc {
 	unsigned int fullbatt_vchkdrop_ms;
 	unsigned int fullbatt_vchkdrop_uV;
 	unsigned int fullbatt_uV;
+	unsigned int fullbatt_soc;
+	unsigned int fullbatt_full_capacity;
 
 	enum data_source battery_present;
 
 	char **psy_charger_stat;
 
 	int num_charger_regulators;
-	struct regulator_bulk_data *charger_regulators;
+	struct charger_regulator *charger_regulators;
 
 	char *psy_fuel_gauge;
 
 	int (*temperature_out_of_range)(int *mC);
 	bool measure_battery_temp;
+
+	u64 charging_max_duration_ms;
+	u64 discharging_max_duration_ms;
 };
 
 #define PSY_NAME_MAX	30
@@ -129,8 +229,6 @@ struct charger_desc {
  * @charger_enabled: the state of charger
  * @fullbatt_vchk_jiffies_at:
  *	jiffies at the time full battery check will occur.
- * @fullbatt_vchk_uV: voltage in microvolt
- *	criteria for full battery
  * @fullbatt_vchk_work: work queue for full battery check
  * @emergency_stop:
  *	When setting true, stop charging
@@ -141,6 +239,8 @@ struct charger_desc {
  *	saved status of external power before entering suspend-to-RAM
  * @status_save_batt:
  *	saved status of battery before entering suspend-to-RAM
+ * @charging_start_time: saved start time of enabling charging
+ * @charging_end_time: saved end time of disabling charging
  */
 struct charger_manager {
 	struct list_head entry;
@@ -153,7 +253,6 @@ struct charger_manager {
 	bool charger_enabled;
 
 	unsigned long fullbatt_vchk_jiffies_at;
-	unsigned int fullbatt_vchk_uV;
 	struct delayed_work fullbatt_vchk_work;
 
 	int emergency_stop;
@@ -164,6 +263,9 @@ struct charger_manager {
 
 	bool status_save_ext_pwr_inserted;
 	bool status_save_batt;
+
+	u64 charging_start_time;
+	u64 charging_end_time;
 };
 
 #ifdef CONFIG_CHARGER_MANAGER

@@ -33,7 +33,7 @@
 #include <sound/control.h>
 #include <sound/info.h>
 #include <sound/tlv.h>
-#include <sound/ymfpci.h>
+#include "ymfpci.h"
 #include <sound/asoundef.h>
 #include <sound/mpu401.h>
 
@@ -1166,6 +1166,11 @@ int __devinit snd_ymfpci_pcm(struct snd_ymfpci *chip, int device, struct snd_pcm
 	snd_pcm_lib_preallocate_pages_for_all(pcm, SNDRV_DMA_TYPE_DEV,
 					      snd_dma_pci_data(chip->pci), 64*1024, 256*1024);
 
+	err = snd_pcm_add_chmap_ctls(pcm, SNDRV_PCM_STREAM_PLAYBACK,
+				     snd_pcm_std_chmaps, 2, 0, NULL);
+	if (err < 0)
+		return err;
+
 	if (rpcm)
 		*rpcm = pcm;
 	return 0;
@@ -1257,6 +1262,14 @@ static struct snd_pcm_ops snd_ymfpci_playback_4ch_ops = {
 	.pointer =		snd_ymfpci_playback_pointer,
 };
 
+static const struct snd_pcm_chmap_elem surround_map[] = {
+	{ .channels = 1,
+	  .map = { SNDRV_CHMAP_MONO } },
+	{ .channels = 2,
+	  .map = { SNDRV_CHMAP_RL, SNDRV_CHMAP_RR } },
+	{ }
+};
+
 int __devinit snd_ymfpci_pcm_4ch(struct snd_ymfpci *chip, int device, struct snd_pcm ** rpcm)
 {
 	struct snd_pcm *pcm;
@@ -1277,6 +1290,11 @@ int __devinit snd_ymfpci_pcm_4ch(struct snd_ymfpci *chip, int device, struct snd
 
 	snd_pcm_lib_preallocate_pages_for_all(pcm, SNDRV_DMA_TYPE_DEV,
 					      snd_dma_pci_data(chip->pci), 64*1024, 256*1024);
+
+	err = snd_pcm_add_chmap_ctls(pcm, SNDRV_PCM_STREAM_PLAYBACK,
+				     surround_map, 2, 0, NULL);
+	if (err < 0)
+		return err;
 
 	if (rpcm)
 		*rpcm = pcm;
@@ -2242,7 +2260,7 @@ static int snd_ymfpci_free(struct snd_ymfpci *chip)
 	pci_set_power_state(chip->pci, 3);
 #endif
 
-#ifdef CONFIG_PM
+#ifdef CONFIG_PM_SLEEP
 	vfree(chip->saved_regs);
 #endif
 	if (chip->irq >= 0)
@@ -2272,7 +2290,7 @@ static int snd_ymfpci_dev_free(struct snd_device *device)
 	return snd_ymfpci_free(chip);
 }
 
-#ifdef CONFIG_PM
+#ifdef CONFIG_PM_SLEEP
 static int saved_regs_index[] = {
 	/* spdif */
 	YDSXGR_SPDIFOUTCTRL,
@@ -2302,9 +2320,10 @@ static int saved_regs_index[] = {
 };
 #define YDSXGR_NUM_SAVED_REGS	ARRAY_SIZE(saved_regs_index)
 
-int snd_ymfpci_suspend(struct pci_dev *pci, pm_message_t state)
+static int snd_ymfpci_suspend(struct device *dev)
 {
-	struct snd_card *card = pci_get_drvdata(pci);
+	struct pci_dev *pci = to_pci_dev(dev);
+	struct snd_card *card = dev_get_drvdata(dev);
 	struct snd_ymfpci *chip = card->private_data;
 	unsigned int i;
 	
@@ -2326,13 +2345,14 @@ int snd_ymfpci_suspend(struct pci_dev *pci, pm_message_t state)
 	snd_ymfpci_disable_dsp(chip);
 	pci_disable_device(pci);
 	pci_save_state(pci);
-	pci_set_power_state(pci, pci_choose_state(pci, state));
+	pci_set_power_state(pci, PCI_D3hot);
 	return 0;
 }
 
-int snd_ymfpci_resume(struct pci_dev *pci)
+static int snd_ymfpci_resume(struct device *dev)
 {
-	struct snd_card *card = pci_get_drvdata(pci);
+	struct pci_dev *pci = to_pci_dev(dev);
+	struct snd_card *card = dev_get_drvdata(dev);
 	struct snd_ymfpci *chip = card->private_data;
 	unsigned int i;
 
@@ -2370,7 +2390,9 @@ int snd_ymfpci_resume(struct pci_dev *pci)
 	snd_power_change_state(card, SNDRV_CTL_POWER_D0);
 	return 0;
 }
-#endif /* CONFIG_PM */
+
+SIMPLE_DEV_PM_OPS(snd_ymfpci_pm, snd_ymfpci_suspend, snd_ymfpci_resume);
+#endif /* CONFIG_PM_SLEEP */
 
 int __devinit snd_ymfpci_create(struct snd_card *card,
 				struct pci_dev * pci,
@@ -2448,7 +2470,7 @@ int __devinit snd_ymfpci_create(struct snd_card *card,
 		return err;
 	}
 
-#ifdef CONFIG_PM
+#ifdef CONFIG_PM_SLEEP
 	chip->saved_regs = vmalloc(YDSXGR_NUM_SAVED_REGS * sizeof(u32));
 	if (chip->saved_regs == NULL) {
 		snd_ymfpci_free(chip);

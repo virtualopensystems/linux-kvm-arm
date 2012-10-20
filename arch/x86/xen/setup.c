@@ -17,6 +17,7 @@
 #include <asm/e820.h>
 #include <asm/setup.h>
 #include <asm/acpi.h>
+#include <asm/numa.h>
 #include <asm/xen/hypervisor.h>
 #include <asm/xen/hypercall.h>
 
@@ -78,9 +79,16 @@ static void __init xen_add_extra_mem(u64 start, u64 size)
 	memblock_reserve(start, size);
 
 	xen_max_p2m_pfn = PFN_DOWN(start + size);
+	for (pfn = PFN_DOWN(start); pfn < xen_max_p2m_pfn; pfn++) {
+		unsigned long mfn = pfn_to_mfn(pfn);
 
-	for (pfn = PFN_DOWN(start); pfn <= xen_max_p2m_pfn; pfn++)
+		if (WARN(mfn == pfn, "Trying to over-write 1-1 mapping (pfn: %lx)\n", pfn))
+			continue;
+		WARN(mfn != INVALID_P2M_ENTRY, "Trying to remove %lx which has %lx mfn!\n",
+			pfn, mfn);
+
 		__set_phys_to_machine(pfn, INVALID_P2M_ENTRY);
+	}
 }
 
 static unsigned long __init xen_do_chunk(unsigned long start,
@@ -157,25 +165,24 @@ static unsigned long __init xen_populate_chunk(
 	unsigned long dest_pfn;
 
 	for (i = 0, entry = list; i < map_size; i++, entry++) {
-		unsigned long credits = credits_left;
 		unsigned long s_pfn;
 		unsigned long e_pfn;
 		unsigned long pfns;
 		long capacity;
 
-		if (credits <= 0)
+		if (credits_left <= 0)
 			break;
 
 		if (entry->type != E820_RAM)
 			continue;
 
-		e_pfn = PFN_UP(entry->addr + entry->size);
+		e_pfn = PFN_DOWN(entry->addr + entry->size);
 
 		/* We only care about E820 after the xen_start_info->nr_pages */
 		if (e_pfn <= max_pfn)
 			continue;
 
-		s_pfn = PFN_DOWN(entry->addr);
+		s_pfn = PFN_UP(entry->addr);
 		/* If the E820 falls within the nr_pages, we want to start
 		 * at the nr_pages PFN.
 		 * If that would mean going past the E820 entry, skip it
@@ -184,23 +191,19 @@ static unsigned long __init xen_populate_chunk(
 			capacity = e_pfn - max_pfn;
 			dest_pfn = max_pfn;
 		} else {
-			/* last_pfn MUST be within E820_RAM regions */
-			if (*last_pfn && e_pfn >= *last_pfn)
-				s_pfn = *last_pfn;
 			capacity = e_pfn - s_pfn;
 			dest_pfn = s_pfn;
 		}
-		/* If we had filled this E820_RAM entry, go to the next one. */
-		if (capacity <= 0)
-			continue;
 
-		if (credits > capacity)
-			credits = capacity;
+		if (credits_left < capacity)
+			capacity = credits_left;
 
-		pfns = xen_do_chunk(dest_pfn, dest_pfn + credits, false);
+		pfns = xen_do_chunk(dest_pfn, dest_pfn + capacity, false);
 		done += pfns;
-		credits_left -= pfns;
 		*last_pfn = (dest_pfn + pfns);
+		if (pfns < capacity)
+			break;
+		credits_left -= pfns;
 	}
 	return done;
 }
@@ -429,6 +432,24 @@ char * __init xen_memory_setup(void)
 	 *  - mfn_list
 	 *  - xen_start_info
 	 * See comment above "struct start_info" in <xen/interface/xen.h>
+	 * We tried to make the the memblock_reserve more selective so
+	 * that it would be clear what region is reserved. Sadly we ran
+	 * in the problem wherein on a 64-bit hypervisor with a 32-bit
+	 * initial domain, the pt_base has the cr3 value which is not
+	 * neccessarily where the pagetable starts! As Jan put it: "
+	 * Actually, the adjustment turns out to be correct: The page
+	 * tables for a 32-on-64 dom0 get allocated in the order "first L1",
+	 * "first L2", "first L3", so the offset to the page table base is
+	 * indeed 2. When reading xen/include/public/xen.h's comment
+	 * very strictly, this is not a violation (since there nothing is said
+	 * that the first thing in the page table space is pointed to by
+	 * pt_base; I admit that this seems to be implied though, namely
+	 * do I think that it is implied that the page table space is the
+	 * range [pt_base, pt_base + nt_pt_frames), whereas that
+	 * range here indeed is [pt_base - 2, pt_base - 2 + nt_pt_frames),
+	 * which - without a priori knowledge - the kernel would have
+	 * difficulty to figure out)." - so lets just fall back to the
+	 * easy way and reserve the whole region.
 	 */
 	memblock_reserve(__pa(xen_start_info->mfn_list),
 			 xen_start_info->pt_base - xen_start_info->mfn_list);
@@ -542,4 +563,7 @@ void __init xen_arch_setup(void)
 	disable_cpufreq();
 	WARN_ON(set_pm_idle_to_default());
 	fiddle_vdso();
+#ifdef CONFIG_NUMA
+	numa_off = 1;
+#endif
 }

@@ -229,8 +229,7 @@ static inline int bnx2x_exe_queue_step(struct bnx2x *bp,
 			 */
 			list_add_tail(&spacer.link, &o->pending_comp);
 			mb();
-			list_del(&elem->link);
-			list_add_tail(&elem->link, &o->pending_comp);
+			list_move_tail(&elem->link, &o->pending_comp);
 			list_del(&spacer.link);
 		} else
 			break;
@@ -2485,6 +2484,7 @@ static int bnx2x_mcast_enqueue_cmd(struct bnx2x *bp,
 		break;
 
 	default:
+		kfree(new_cmd);
 		BNX2X_ERR("Unknown command: %d\n", cmd);
 		return -EINVAL;
 	}
@@ -4107,6 +4107,10 @@ static int bnx2x_setup_rss(struct bnx2x *bp,
 		data->capabilities |=
 			ETH_RSS_UPDATE_RAMROD_DATA_IPV4_TCP_CAPABILITY;
 
+	if (test_bit(BNX2X_RSS_IPV4_UDP, &p->rss_flags))
+		data->capabilities |=
+			ETH_RSS_UPDATE_RAMROD_DATA_IPV4_UDP_CAPABILITY;
+
 	if (test_bit(BNX2X_RSS_IPV6, &p->rss_flags))
 		data->capabilities |=
 			ETH_RSS_UPDATE_RAMROD_DATA_IPV6_CAPABILITY;
@@ -4114,6 +4118,10 @@ static int bnx2x_setup_rss(struct bnx2x *bp,
 	if (test_bit(BNX2X_RSS_IPV6_TCP, &p->rss_flags))
 		data->capabilities |=
 			ETH_RSS_UPDATE_RAMROD_DATA_IPV6_TCP_CAPABILITY;
+
+	if (test_bit(BNX2X_RSS_IPV6_UDP, &p->rss_flags))
+		data->capabilities |=
+			ETH_RSS_UPDATE_RAMROD_DATA_IPV6_UDP_CAPABILITY;
 
 	/* Hashing mask */
 	data->rss_result_mask = p->rss_result_mask;
@@ -5611,7 +5619,7 @@ static inline int bnx2x_func_send_start(struct bnx2x *bp,
 	memset(rdata, 0, sizeof(*rdata));
 
 	/* Fill the ramrod data with provided parameters */
-	rdata->function_mode = cpu_to_le16(start_params->mf_mode);
+	rdata->function_mode = (u8)start_params->mf_mode;
 	rdata->sd_vlan_tag   = cpu_to_le16(start_params->sd_vlan_tag);
 	rdata->path_id       = BP_PATH(bp);
 	rdata->network_cos_mode = start_params->network_cos_mode;

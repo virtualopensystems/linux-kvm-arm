@@ -11,6 +11,7 @@
 #ifndef EFX_NIC_H
 #define EFX_NIC_H
 
+#include <linux/net_tstamp.h>
 #include <linux/i2c-algo-bit.h>
 #include "net_driver.h"
 #include "efx.h"
@@ -250,6 +251,41 @@ extern int efx_sriov_get_vf_config(struct net_device *dev, int vf,
 extern int efx_sriov_set_vf_spoofchk(struct net_device *net_dev, int vf,
 				     bool spoofchk);
 
+struct ethtool_ts_info;
+#ifdef CONFIG_SFC_PTP
+extern void efx_ptp_probe(struct efx_nic *efx);
+extern int efx_ptp_ioctl(struct efx_nic *efx, struct ifreq *ifr, int cmd);
+extern int efx_ptp_get_ts_info(struct net_device *net_dev,
+			       struct ethtool_ts_info *ts_info);
+extern bool efx_ptp_is_ptp_tx(struct efx_nic *efx, struct sk_buff *skb);
+extern int efx_ptp_tx(struct efx_nic *efx, struct sk_buff *skb);
+extern void efx_ptp_event(struct efx_nic *efx, efx_qword_t *ev);
+#else
+static inline void efx_ptp_probe(struct efx_nic *efx) {}
+static inline int efx_ptp_ioctl(struct efx_nic *efx, struct ifreq *ifr, int cmd)
+{
+	return -EOPNOTSUPP;
+}
+static inline int efx_ptp_get_ts_info(struct net_device *net_dev,
+				      struct ethtool_ts_info *ts_info)
+{
+	ts_info->so_timestamping = (SOF_TIMESTAMPING_SOFTWARE |
+				    SOF_TIMESTAMPING_RX_SOFTWARE);
+	ts_info->phc_index = -1;
+
+	return 0;
+}
+static inline bool efx_ptp_is_ptp_tx(struct efx_nic *efx, struct sk_buff *skb)
+{
+	return false;
+}
+static inline int efx_ptp_tx(struct efx_nic *efx, struct sk_buff *skb)
+{
+	return NETDEV_TX_OK;
+}
+static inline void efx_ptp_event(struct efx_nic *efx, efx_qword_t *ev) {}
+#endif
+
 extern const struct efx_nic_type falcon_a1_nic_type;
 extern const struct efx_nic_type falcon_b0_nic_type;
 extern const struct efx_nic_type siena_a0_nic_type;
@@ -293,6 +329,24 @@ extern void falcon_reconfigure_mac_wrapper(struct efx_nic *efx);
 extern bool falcon_xmac_check_fault(struct efx_nic *efx);
 extern int falcon_reconfigure_xmac(struct efx_nic *efx);
 extern void falcon_update_stats_xmac(struct efx_nic *efx);
+
+/* Some statistics are computed as A - B where A and B each increase
+ * linearly with some hardware counter(s) and the counters are read
+ * asynchronously.  If the counters contributing to B are always read
+ * after those contributing to A, the computed value may be lower than
+ * the true value by some variable amount, and may decrease between
+ * subsequent computations.
+ *
+ * We should never allow statistics to decrease or to exceed the true
+ * value.  Since the computed value will never be greater than the
+ * true value, we can achieve this by only storing the computed value
+ * when it increases.
+ */
+static inline void efx_update_diff_stat(u64 *stat, u64 diff)
+{
+	if ((s64)(diff - *stat) > 0)
+		*stat = diff;
+}
 
 /* Interrupts and test events */
 extern int efx_nic_init_interrupt(struct efx_nic *efx);

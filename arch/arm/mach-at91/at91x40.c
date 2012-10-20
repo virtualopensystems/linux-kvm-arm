@@ -13,10 +13,12 @@
 #include <linux/kernel.h>
 #include <linux/init.h>
 #include <linux/irq.h>
+#include <linux/io.h>
 #include <asm/proc-fns.h>
 #include <asm/system_misc.h>
 #include <asm/mach/arch.h>
 #include <mach/at91x40.h>
+#include <mach/at91_aic.h>
 #include <mach/at91_st.h>
 #include <mach/timex.h>
 #include "generic.h"
@@ -45,7 +47,7 @@ static void at91x40_idle(void)
 	 * Disable the processor clock.  The processor will be automatically
 	 * re-enabled by an interrupt or by a reset.
 	 */
-	__raw_writel(AT91_PS_CR_CPU, AT91_PS_CR);
+	__raw_writel(AT91_PS_CR_CPU, AT91_IO_P2V(AT91_PS_CR));
 	cpu_do_idle();
 }
 

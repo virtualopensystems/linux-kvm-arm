@@ -132,6 +132,16 @@
  *
  */
 
+/* RTC_CTRL_REG bitfields */
+#define TPS65910_RTC_CTRL_STOP_RTC			0x01 /*0=stop, 1=run */
+#define TPS65910_RTC_CTRL_GET_TIME			0x40
+
+/* RTC_STATUS_REG bitfields */
+#define TPS65910_RTC_STATUS_ALARM               0x40
+
+/* RTC_INTERRUPTS_REG bitfields */
+#define TPS65910_RTC_INTERRUPTS_EVERY           0x03
+#define TPS65910_RTC_INTERRUPTS_IT_ALARM        0x08
 
 /*Register BCK1  (0x80) register.RegisterDescription */
 #define BCK1_BCKUP_MASK					0xFF
@@ -366,6 +376,8 @@
 
 
 /*Register DEVCTRL  (0x80) register.RegisterDescription */
+#define DEVCTRL_PWR_OFF_MASK				0x80
+#define DEVCTRL_PWR_OFF_SHIFT				7
 #define DEVCTRL_RTC_PWDN_MASK				0x40
 #define DEVCTRL_RTC_PWDN_SHIFT				6
 #define DEVCTRL_CK32K_CTRL_MASK				0x20
@@ -807,7 +819,9 @@ struct tps65910_board {
 	int irq_base;
 	int vmbch_threshold;
 	int vmbch2_threshold;
+	bool en_ck32k_xtal;
 	bool en_dev_slp;
+	bool pm_off;
 	struct tps65910_sleep_keepon_data *slp_keepon;
 	bool en_gpio_sleep[TPS6591X_MAX_NUM_GPIO];
 	unsigned long regulator_ext_sleep_control[TPS65910_NUM_REGS];
@@ -878,6 +892,12 @@ static inline int tps65910_reg_clear_bits(struct tps65910 *tps65910, u8 reg,
 		u8 mask)
 {
 	return regmap_update_bits(tps65910->regmap, reg, mask, 0);
+}
+
+static inline int tps65910_reg_update_bits(struct tps65910 *tps65910, u8 reg,
+					   u8 mask, u8 val)
+{
+	return regmap_update_bits(tps65910->regmap, reg, mask, val);
 }
 
 #endif /*  __LINUX_MFD_TPS65910_H */

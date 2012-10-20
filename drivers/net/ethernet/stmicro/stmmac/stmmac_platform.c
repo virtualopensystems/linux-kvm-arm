@@ -49,7 +49,9 @@ static int __devinit stmmac_probe_config_dt(struct platform_device *pdev,
 	 * are provided. All other properties should be added
 	 * once needed on other platforms.
 	 */
-	if (of_device_is_compatible(np, "st,spear600-gmac")) {
+	if (of_device_is_compatible(np, "st,spear600-gmac") ||
+		of_device_is_compatible(np, "snps,dwmac-3.70a") ||
+		of_device_is_compatible(np, "snps,dwmac")) {
 		plat->has_gmac = 1;
 		plat->pmt = 1;
 	}
@@ -72,10 +74,11 @@ static int __devinit stmmac_probe_config_dt(struct platform_device *pdev,
  * the necessary resources and invokes the main to init
  * the net device, register the mdio bus etc.
  */
-static int stmmac_pltfr_probe(struct platform_device *pdev)
+static int __devinit stmmac_pltfr_probe(struct platform_device *pdev)
 {
 	int ret = 0;
 	struct resource *res;
+	struct device *dev = &pdev->dev;
 	void __iomem *addr = NULL;
 	struct stmmac_priv *priv = NULL;
 	struct plat_stmmacenet_data *plat_dat = NULL;
@@ -85,18 +88,10 @@ static int stmmac_pltfr_probe(struct platform_device *pdev)
 	if (!res)
 		return -ENODEV;
 
-	if (!request_mem_region(res->start, resource_size(res), pdev->name)) {
-		pr_err("%s: ERROR: memory allocation failed"
-		       "cannot get the I/O addr 0x%x\n",
-		       __func__, (unsigned int)res->start);
-		return -EBUSY;
-	}
-
-	addr = ioremap(res->start, resource_size(res));
+	addr = devm_request_and_ioremap(dev, res);
 	if (!addr) {
 		pr_err("%s: ERROR: memory mapping failed", __func__);
-		ret = -ENOMEM;
-		goto out_release_region;
+		return -ENOMEM;
 	}
 
 	if (pdev->dev.of_node) {
@@ -105,14 +100,13 @@ static int stmmac_pltfr_probe(struct platform_device *pdev)
 					GFP_KERNEL);
 		if (!plat_dat) {
 			pr_err("%s: ERROR: no memory", __func__);
-			ret = -ENOMEM;
-			goto out_unmap;
+			return  -ENOMEM;
 		}
 
 		ret = stmmac_probe_config_dt(pdev, plat_dat, &mac);
 		if (ret) {
 			pr_err("%s: main dt probe failed", __func__);
-			goto out_unmap;
+			return ret;
 		}
 	} else {
 		plat_dat = pdev->dev.platform_data;
@@ -122,13 +116,13 @@ static int stmmac_pltfr_probe(struct platform_device *pdev)
 	if (plat_dat->init) {
 		ret = plat_dat->init(pdev);
 		if (unlikely(ret))
-			goto out_unmap;
+			return ret;
 	}
 
 	priv = stmmac_dvr_probe(&(pdev->dev), plat_dat, addr);
 	if (!priv) {
 		pr_err("%s: main driver probe failed", __func__);
-		goto out_unmap;
+		return -ENODEV;
 	}
 
 	/* Get MAC address if available (DT) */
@@ -140,8 +134,7 @@ static int stmmac_pltfr_probe(struct platform_device *pdev)
 	if (priv->dev->irq == -ENXIO) {
 		pr_err("%s: ERROR: MAC IRQ configuration "
 		       "information not found\n", __func__);
-		ret = -ENXIO;
-		goto out_unmap;
+		return -ENXIO;
 	}
 
 	/*
@@ -156,20 +149,13 @@ static int stmmac_pltfr_probe(struct platform_device *pdev)
 	if (priv->wol_irq == -ENXIO)
 		priv->wol_irq = priv->dev->irq;
 
+	priv->lpi_irq = platform_get_irq_byname(pdev, "eth_lpi");
+
 	platform_set_drvdata(pdev, priv->dev);
 
 	pr_debug("STMMAC platform driver registration completed");
 
 	return 0;
-
-out_unmap:
-	iounmap(addr);
-	platform_set_drvdata(pdev, NULL);
-
-out_release_region:
-	release_mem_region(res->start, resource_size(res));
-
-	return ret;
 }
 
 /**
@@ -182,17 +168,12 @@ static int stmmac_pltfr_remove(struct platform_device *pdev)
 {
 	struct net_device *ndev = platform_get_drvdata(pdev);
 	struct stmmac_priv *priv = netdev_priv(ndev);
-	struct resource *res;
 	int ret = stmmac_dvr_remove(ndev);
 
 	if (priv->plat->exit)
 		priv->plat->exit(pdev);
 
 	platform_set_drvdata(pdev, NULL);
-
-	iounmap((void *)priv->ioaddr);
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	release_mem_region(res->start, resource_size(res));
 
 	return ret;
 }
@@ -250,7 +231,9 @@ static const struct dev_pm_ops stmmac_pltfr_pm_ops;
 #endif /* CONFIG_PM */
 
 static const struct of_device_id stmmac_dt_ids[] = {
-	{ .compatible = "st,spear600-gmac", },
+	{ .compatible = "st,spear600-gmac"},
+	{ .compatible = "snps,dwmac-3.70a"},
+	{ .compatible = "snps,dwmac"},
 	{ /* sentinel */ }
 };
 MODULE_DEVICE_TABLE(of, stmmac_dt_ids);

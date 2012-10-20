@@ -1,5 +1,4 @@
 /*
- *  arch/s390/hypfs/inode.c
  *    Hypervisor filesystem for Linux on s390.
  *
  *    Copyright IBM Corp. 2006, 2008
@@ -32,8 +31,8 @@ static struct dentry *hypfs_create_update_file(struct super_block *sb,
 					       struct dentry *dir);
 
 struct hypfs_sb_info {
-	uid_t uid;			/* uid used for files and dirs */
-	gid_t gid;			/* gid used for files and dirs */
+	kuid_t uid;			/* uid used for files and dirs */
+	kgid_t gid;			/* gid used for files and dirs */
 	struct dentry *update_file;	/* file to trigger update */
 	time_t last_update;		/* last update time in secs since 1970 */
 	struct mutex lock;		/* lock to protect update process */
@@ -73,8 +72,6 @@ static void hypfs_remove(struct dentry *dentry)
 	struct dentry *parent;
 
 	parent = dentry->d_parent;
-	if (!parent || !parent->d_inode)
-		return;
 	mutex_lock(&parent->d_inode->i_mutex);
 	if (hypfs_positive(dentry)) {
 		if (S_ISDIR(dentry->d_inode->i_mode))
@@ -103,6 +100,7 @@ static struct inode *hypfs_make_inode(struct super_block *sb, umode_t mode)
 
 	if (ret) {
 		struct hypfs_sb_info *hypfs_info = sb->s_fs_info;
+		ret->i_ino = get_next_ino();
 		ret->i_mode = mode;
 		ret->i_uid = hypfs_info->uid;
 		ret->i_gid = hypfs_info->gid;
@@ -229,6 +227,8 @@ static int hypfs_parse_options(char *options, struct super_block *sb)
 {
 	char *str;
 	substring_t args[MAX_OPT_ARGS];
+	kuid_t uid;
+	kgid_t gid;
 
 	if (!options)
 		return 0;
@@ -243,12 +243,18 @@ static int hypfs_parse_options(char *options, struct super_block *sb)
 		case opt_uid:
 			if (match_int(&args[0], &option))
 				return -EINVAL;
-			hypfs_info->uid = option;
+			uid = make_kuid(current_user_ns(), option);
+			if (!uid_valid(uid))
+				return -EINVAL;
+			hypfs_info->uid = uid;
 			break;
 		case opt_gid:
 			if (match_int(&args[0], &option))
 				return -EINVAL;
-			hypfs_info->gid = option;
+			gid = make_kgid(current_user_ns(), option);
+			if (!gid_valid(gid))
+				return -EINVAL;
+			hypfs_info->gid = gid;
 			break;
 		case opt_err:
 		default:
@@ -263,8 +269,8 @@ static int hypfs_show_options(struct seq_file *s, struct dentry *root)
 {
 	struct hypfs_sb_info *hypfs_info = root->d_sb->s_fs_info;
 
-	seq_printf(s, ",uid=%u", hypfs_info->uid);
-	seq_printf(s, ",gid=%u", hypfs_info->gid);
+	seq_printf(s, ",uid=%u", from_kuid_munged(&init_user_ns, hypfs_info->uid));
+	seq_printf(s, ",gid=%u", from_kgid_munged(&init_user_ns, hypfs_info->gid));
 	return 0;
 }
 

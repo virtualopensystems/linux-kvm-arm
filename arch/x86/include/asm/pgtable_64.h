@@ -26,16 +26,16 @@ extern pgd_t init_level4_pgt[];
 extern void paging_init(void);
 
 #define pte_ERROR(e)					\
-	printk("%s:%d: bad pte %p(%016lx).\n",		\
+	pr_err("%s:%d: bad pte %p(%016lx)\n",		\
 	       __FILE__, __LINE__, &(e), pte_val(e))
 #define pmd_ERROR(e)					\
-	printk("%s:%d: bad pmd %p(%016lx).\n",		\
+	pr_err("%s:%d: bad pmd %p(%016lx)\n",		\
 	       __FILE__, __LINE__, &(e), pmd_val(e))
 #define pud_ERROR(e)					\
-	printk("%s:%d: bad pud %p(%016lx).\n",		\
+	pr_err("%s:%d: bad pud %p(%016lx)\n",		\
 	       __FILE__, __LINE__, &(e), pud_val(e))
 #define pgd_ERROR(e)					\
-	printk("%s:%d: bad pgd %p(%016lx).\n",		\
+	pr_err("%s:%d: bad pgd %p(%016lx)\n",		\
 	       __FILE__, __LINE__, &(e), pgd_val(e))
 
 struct mm_struct;
@@ -143,6 +143,7 @@ static inline int pgd_large(pgd_t pgd) { return 0; }
 #define pte_unmap(pte) ((void)(pte))/* NOP */
 
 #define update_mmu_cache(vma, address, ptep) do { } while (0)
+#define update_mmu_cache_pmd(vma, address, pmd) do { } while (0)
 
 /* Encode and de-code a swap entry */
 #if _PAGE_BIT_FILE < _PAGE_BIT_PROTNONE

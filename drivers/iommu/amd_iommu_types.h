@@ -152,6 +152,7 @@
 #define CMD_INV_DEV_ENTRY       0x02
 #define CMD_INV_IOMMU_PAGES	0x03
 #define CMD_INV_IOTLB_PAGES	0x04
+#define CMD_INV_IRT		0x05
 #define CMD_COMPLETE_PPR	0x07
 #define CMD_INV_ALL		0x08
 
@@ -175,6 +176,7 @@
 #define DEV_ENTRY_EX            0x67
 #define DEV_ENTRY_SYSMGT1       0x68
 #define DEV_ENTRY_SYSMGT2       0x69
+#define DEV_ENTRY_IRQ_TBL_EN	0x80
 #define DEV_ENTRY_INIT_PASS     0xb8
 #define DEV_ENTRY_EINT_PASS     0xb9
 #define DEV_ENTRY_NMI_PASS      0xba
@@ -182,6 +184,8 @@
 #define DEV_ENTRY_LINT1_PASS    0xbf
 #define DEV_ENTRY_MODE_MASK	0x07
 #define DEV_ENTRY_MODE_SHIFT	0x09
+
+#define MAX_DEV_TABLE_ENTRIES	0xffff
 
 /* constants to configure the command buffer */
 #define CMD_BUFFER_SIZE    8192
@@ -255,7 +259,7 @@
 #define PAGE_SIZE_ALIGN(address, pagesize) \
 		((address) & ~((pagesize) - 1))
 /*
- * Creates an IOMMU PTE for an address an a given pagesize
+ * Creates an IOMMU PTE for an address and a given pagesize
  * The PTE has no permission bits set
  * Pagesize is expected to be a power-of-two larger than 4096
  */
@@ -334,6 +338,23 @@ extern bool amd_iommu_np_cache;
 /* Only true if all IOMMUs support device IOTLBs */
 extern bool amd_iommu_iotlb_sup;
 
+#define MAX_IRQS_PER_TABLE	256
+#define IRQ_TABLE_ALIGNMENT	128
+
+struct irq_remap_table {
+	spinlock_t lock;
+	unsigned min_index;
+	u32 *table;
+};
+
+extern struct irq_remap_table **irq_lookup_table;
+
+/* Interrupt remapping feature used? */
+extern bool amd_iommu_irq_remap;
+
+/* kmem_cache to get tables with 128 byte alignement */
+extern struct kmem_cache *amd_iommu_irq_cache;
+
 /*
  * Make iterating over all IOMMUs easier
  */
@@ -404,7 +425,7 @@ struct iommu_dev_data {
 	struct list_head dev_data_list;	  /* For global dev_data_list */
 	struct iommu_dev_data *alias_data;/* The alias dev_data */
 	struct protection_domain *domain; /* Domain the device is bound to */
-	atomic_t bind;			  /* Domain attach reverent count */
+	atomic_t bind;			  /* Domain attach reference count */
 	u16 devid;			  /* PCI Device ID */
 	bool iommu_v2;			  /* Device can make use of IOMMUv2 */
 	bool passthrough;		  /* Default for device is pt_domain */
@@ -487,7 +508,7 @@ struct amd_iommu {
 	/* physical address of MMIO space */
 	u64 mmio_phys;
 	/* virtual address of MMIO space */
-	u8 *mmio_base;
+	u8 __iomem *mmio_base;
 
 	/* capabilities of that IOMMU read from ACPI */
 	u32 cap;
@@ -500,6 +521,9 @@ struct amd_iommu {
 
 	/* IOMMUv2 */
 	bool is_iommu_v2;
+
+	/* PCI device id of the IOMMU device */
+	u16 devid;
 
 	/*
 	 * Capability pointer. There could be more than one IOMMU per PCI
@@ -530,8 +554,6 @@ struct amd_iommu {
 	u32 evt_buf_size;
 	/* event buffer virtual address */
 	u8 *evt_buf;
-	/* MSI number for event interrupt */
-	u16 evt_msi_num;
 
 	/* Base of the PPR log, if present */
 	u8 *ppr_log;
@@ -563,6 +585,16 @@ struct amd_iommu {
 	/* The l2 indirect registers */
 	u32 stored_l2[0x83];
 };
+
+struct devid_map {
+	struct list_head list;
+	u8 id;
+	u16 devid;
+};
+
+/* Map HPET and IOAPIC ids to the devid used by the IOMMU */
+extern struct list_head ioapic_map;
+extern struct list_head hpet_map;
 
 /*
  * List with all IOMMUs in the system. This list is not locked because it is
@@ -664,11 +696,41 @@ extern bool amd_iommu_force_isolation;
 /* Max levels of glxval supported */
 extern int amd_iommu_max_glx_val;
 
+/*
+ * This function flushes all internal caches of
+ * the IOMMU used by this driver.
+ */
+extern void iommu_flush_all_caches(struct amd_iommu *iommu);
+
 /* takes bus and device/function and returns the device id
  * FIXME: should that be in generic PCI code? */
 static inline u16 calc_devid(u8 bus, u8 devfn)
 {
 	return (((u16)bus) << 8) | devfn;
+}
+
+static inline int get_ioapic_devid(int id)
+{
+	struct devid_map *entry;
+
+	list_for_each_entry(entry, &ioapic_map, list) {
+		if (entry->id == id)
+			return entry->devid;
+	}
+
+	return -EINVAL;
+}
+
+static inline int get_hpet_devid(int id)
+{
+	struct devid_map *entry;
+
+	list_for_each_entry(entry, &hpet_map, list) {
+		if (entry->id == id)
+			return entry->devid;
+	}
+
+	return -EINVAL;
 }
 
 #ifdef CONFIG_AMD_IOMMU_STATS

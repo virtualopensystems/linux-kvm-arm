@@ -46,7 +46,7 @@ static int get_firmware(const struct firmware **fw_entry,
 	int err;
 	char name[30];
 
-#ifdef CONFIG_PM
+#ifdef CONFIG_PM_SLEEP
 	if (chip->fw_cache[fw_index]) {
 		DE_ACT(("firmware requested: %s is cached\n", card_fw[fw_index].data));
 		*fw_entry = chip->fw_cache[fw_index];
@@ -59,7 +59,7 @@ static int get_firmware(const struct firmware **fw_entry,
 	err = request_firmware(fw_entry, name, pci_device(chip));
 	if (err < 0)
 		snd_printk(KERN_ERR "get_firmware(): Firmware not available (%d)\n", err);
-#ifdef CONFIG_PM
+#ifdef CONFIG_PM_SLEEP
 	else
 		chip->fw_cache[fw_index] = *fw_entry;
 #endif
@@ -70,7 +70,7 @@ static int get_firmware(const struct firmware **fw_entry,
 
 static void free_firmware(const struct firmware *fw_entry)
 {
-#ifdef CONFIG_PM
+#ifdef CONFIG_PM_SLEEP
 	DE_ACT(("firmware not released (kept in cache)\n"));
 #else
 	release_firmware(fw_entry);
@@ -82,7 +82,7 @@ static void free_firmware(const struct firmware *fw_entry)
 
 static void free_firmware_cache(struct echoaudio *chip)
 {
-#ifdef CONFIG_PM
+#ifdef CONFIG_PM_SLEEP
 	int i;
 
 	for (i = 0; i < 8 ; i++)
@@ -2203,11 +2203,12 @@ ctl_error:
 
 
 
-#if defined(CONFIG_PM)
+#if defined(CONFIG_PM_SLEEP)
 
-static int snd_echo_suspend(struct pci_dev *pci, pm_message_t state)
+static int snd_echo_suspend(struct device *dev)
 {
-	struct echoaudio *chip = pci_get_drvdata(pci);
+	struct pci_dev *pci = to_pci_dev(dev);
+	struct echoaudio *chip = dev_get_drvdata(dev);
 
 	DE_INIT(("suspend start\n"));
 	snd_pcm_suspend_all(chip->analog_pcm);
@@ -2242,9 +2243,10 @@ static int snd_echo_suspend(struct pci_dev *pci, pm_message_t state)
 
 
 
-static int snd_echo_resume(struct pci_dev *pci)
+static int snd_echo_resume(struct device *dev)
 {
-	struct echoaudio *chip = pci_get_drvdata(pci);
+	struct pci_dev *pci = to_pci_dev(dev);
+	struct echoaudio *chip = dev_get_drvdata(dev);
 	struct comm_page *commpage, *commpage_bak;
 	u32 pipe_alloc_mask;
 	int err;
@@ -2307,8 +2309,11 @@ static int snd_echo_resume(struct pci_dev *pci)
 	return 0;
 }
 
-#endif /* CONFIG_PM */
-
+static SIMPLE_DEV_PM_OPS(snd_echo_pm, snd_echo_suspend, snd_echo_resume);
+#define SND_ECHO_PM_OPS	&snd_echo_pm
+#else
+#define SND_ECHO_PM_OPS	NULL
+#endif /* CONFIG_PM_SLEEP */
 
 
 static void __devexit snd_echo_remove(struct pci_dev *pci)
@@ -2333,10 +2338,9 @@ static struct pci_driver echo_driver = {
 	.id_table = snd_echo_ids,
 	.probe = snd_echo_probe,
 	.remove = __devexit_p(snd_echo_remove),
-#ifdef CONFIG_PM
-	.suspend = snd_echo_suspend,
-	.resume = snd_echo_resume,
-#endif /* CONFIG_PM */
+	.driver = {
+		.pm = SND_ECHO_PM_OPS,
+	},
 };
 
 module_pci_driver(echo_driver);

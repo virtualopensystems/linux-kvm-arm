@@ -66,7 +66,13 @@
 /* HW limitation: maximum possible chunk size is 4095 bytes */
 #define WSPI_MAX_CHUNK_SIZE    4092
 
-#define WSPI_MAX_NUM_OF_CHUNKS (WL1271_AGGR_BUFFER_SIZE / WSPI_MAX_CHUNK_SIZE)
+/*
+ * only support SPI for 12xx - this code should be reworked when 18xx
+ * support is introduced
+ */
+#define SPI_AGGR_BUFFER_SIZE (4 * PAGE_SIZE)
+
+#define WSPI_MAX_NUM_OF_CHUNKS (SPI_AGGR_BUFFER_SIZE / WSPI_MAX_CHUNK_SIZE)
 
 struct wl12xx_spi_glue {
 	struct device *dev;
@@ -193,8 +199,8 @@ static int wl12xx_spi_read_busy(struct device *child)
 	return -ETIMEDOUT;
 }
 
-static void wl12xx_spi_raw_read(struct device *child, int addr, void *buf,
-				size_t len, bool fixed)
+static int __must_check wl12xx_spi_raw_read(struct device *child, int addr,
+					    void *buf, size_t len, bool fixed)
 {
 	struct wl12xx_spi_glue *glue = dev_get_drvdata(child->parent);
 	struct wl1271 *wl = dev_get_drvdata(child);
@@ -238,7 +244,7 @@ static void wl12xx_spi_raw_read(struct device *child, int addr, void *buf,
 		if (!(busy_buf[WL1271_BUSY_WORD_CNT - 1] & 0x1) &&
 		    wl12xx_spi_read_busy(child)) {
 			memset(buf, 0, chunk_len);
-			return;
+			return 0;
 		}
 
 		spi_message_init(&m);
@@ -256,10 +262,12 @@ static void wl12xx_spi_raw_read(struct device *child, int addr, void *buf,
 		buf += chunk_len;
 		len -= chunk_len;
 	}
+
+	return 0;
 }
 
-static void wl12xx_spi_raw_write(struct device *child, int addr, void *buf,
-				 size_t len, bool fixed)
+static int __must_check wl12xx_spi_raw_write(struct device *child, int addr,
+					     void *buf, size_t len, bool fixed)
 {
 	struct wl12xx_spi_glue *glue = dev_get_drvdata(child->parent);
 	struct spi_transfer t[2 * WSPI_MAX_NUM_OF_CHUNKS];
@@ -269,7 +277,7 @@ static void wl12xx_spi_raw_write(struct device *child, int addr, void *buf,
 	u32 chunk_len;
 	int i;
 
-	WARN_ON(len > WL1271_AGGR_BUFFER_SIZE);
+	WARN_ON(len > SPI_AGGR_BUFFER_SIZE);
 
 	spi_message_init(&m);
 	memset(t, 0, sizeof(t));
@@ -304,6 +312,8 @@ static void wl12xx_spi_raw_write(struct device *child, int addr, void *buf,
 	}
 
 	spi_sync(to_spi_device(glue->dev), &m);
+
+	return 0;
 }
 
 static struct wl1271_if_operations spi_ops = {
@@ -431,10 +441,4 @@ module_exit(wl1271_exit);
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Luciano Coelho <coelho@ti.com>");
 MODULE_AUTHOR("Juuso Oikarinen <juuso.oikarinen@nokia.com>");
-MODULE_FIRMWARE(WL127X_FW_NAME_SINGLE);
-MODULE_FIRMWARE(WL127X_FW_NAME_MULTI);
-MODULE_FIRMWARE(WL127X_PLT_FW_NAME);
-MODULE_FIRMWARE(WL128X_FW_NAME_SINGLE);
-MODULE_FIRMWARE(WL128X_FW_NAME_MULTI);
-MODULE_FIRMWARE(WL128X_PLT_FW_NAME);
 MODULE_ALIAS("spi:wl1271");

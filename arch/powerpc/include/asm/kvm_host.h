@@ -33,6 +33,7 @@
 #include <asm/kvm_asm.h>
 #include <asm/processor.h>
 #include <asm/page.h>
+#include <asm/cacheflush.h>
 
 #define KVM_MAX_VCPUS		NR_CPUS
 #define KVM_MAX_VCORES		NR_CPUS
@@ -52,6 +53,8 @@
 
 struct kvm;
 extern int kvm_unmap_hva(struct kvm *kvm, unsigned long hva);
+extern int kvm_unmap_hva_range(struct kvm *kvm,
+			       unsigned long start, unsigned long end);
 extern int kvm_age_hva(struct kvm *kvm, unsigned long hva);
 extern int kvm_test_age_hva(struct kvm *kvm, unsigned long hva);
 extern void kvm_set_spte_hva(struct kvm *kvm, unsigned long hva, pte_t pte);
@@ -219,6 +222,7 @@ struct revmap_entry {
 #define KVMPPC_GOT_PAGE		0x80
 
 struct kvm_arch_memory_slot {
+	unsigned long *rmap;
 };
 
 struct kvm_arch {
@@ -237,6 +241,10 @@ struct kvm_arch {
 	unsigned long vrma_slb_v;
 	int rma_setup_done;
 	int using_mmu_notifiers;
+	u32 hpt_order;
+	atomic_t vcpus_running;
+	unsigned long hpt_npte;
+	unsigned long hpt_mask;
 	spinlock_t slot_phys_lock;
 	unsigned long *slot_phys[KVM_MEM_SLOTS_NUM];
 	int slot_npages[KVM_MEM_SLOTS_NUM];
@@ -414,7 +422,9 @@ struct kvm_vcpu_arch {
 	ulong mcsrr1;
 	ulong mcsr;
 	u32 dec;
+#ifdef CONFIG_BOOKE
 	u32 decar;
+#endif
 	u32 tbl;
 	u32 tbu;
 	u32 tcr;

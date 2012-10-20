@@ -101,10 +101,8 @@ struct inet_cork {
 	__be32			addr;
 	struct ip_options	*opt;
 	unsigned int		fragsize;
-	struct dst_entry	*dst;
 	int			length; /* Total length of all frames */
-	struct page		*page;
-	u32			off;
+	struct dst_entry	*dst;
 	u8			tx_flags;
 };
 
@@ -172,6 +170,7 @@ struct inet_sock {
 	int			uc_index;
 	int			mc_index;
 	__be32			mc_addr;
+	int			rx_dst_ifindex;
 	struct ip_mc_socklist __rcu	*mc_list;
 	struct inet_cork_full	cork;
 };
@@ -245,8 +244,6 @@ static inline __u8 inet_sk_flowi_flags(const struct sock *sk)
 
 	if (inet_sk(sk)->transparent || inet_sk(sk)->hdrincl)
 		flags |= FLOWI_FLAG_ANYSRC;
-	if (sk->sk_protocol == IPPROTO_TCP)
-		flags |= FLOWI_FLAG_PRECOW_METRICS;
 	return flags;
 }
 

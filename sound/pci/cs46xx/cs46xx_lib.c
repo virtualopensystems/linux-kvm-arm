@@ -61,7 +61,7 @@
 #include <sound/info.h>
 #include <sound/pcm.h>
 #include <sound/pcm_params.h>
-#include <sound/cs46xx.h>
+#include "cs46xx.h"
 
 #include <asm/io.h>
 
@@ -94,7 +94,7 @@ static unsigned short snd_cs46xx_codec_read(struct snd_cs46xx *chip,
 
 	if (snd_BUG_ON(codec_index != CS46XX_PRIMARY_CODEC_INDEX &&
 		       codec_index != CS46XX_SECONDARY_CODEC_INDEX))
-		return -EINVAL;
+		return 0xffff;
 
 	chip->active_ctrl(chip, 1);
 
@@ -2797,7 +2797,7 @@ static int snd_cs46xx_free(struct snd_cs46xx *chip)
 	}
 #endif
 	
-#ifdef CONFIG_PM
+#ifdef CONFIG_PM_SLEEP
 	kfree(chip->saved_regs);
 #endif
 
@@ -3590,7 +3590,7 @@ static struct cs_card_type __devinitdata cards[] = {
 /*
  * APM support
  */
-#ifdef CONFIG_PM
+#ifdef CONFIG_PM_SLEEP
 static unsigned int saved_regs[] = {
 	BA0_ACOSV,
 	/*BA0_ASER_FADDR,*/
@@ -3599,9 +3599,10 @@ static unsigned int saved_regs[] = {
 	BA1_CVOL,
 };
 
-int snd_cs46xx_suspend(struct pci_dev *pci, pm_message_t state)
+static int snd_cs46xx_suspend(struct device *dev)
 {
-	struct snd_card *card = pci_get_drvdata(pci);
+	struct pci_dev *pci = to_pci_dev(dev);
+	struct snd_card *card = dev_get_drvdata(dev);
 	struct snd_cs46xx *chip = card->private_data;
 	int i, amp_saved;
 
@@ -3628,13 +3629,14 @@ int snd_cs46xx_suspend(struct pci_dev *pci, pm_message_t state)
 
 	pci_disable_device(pci);
 	pci_save_state(pci);
-	pci_set_power_state(pci, pci_choose_state(pci, state));
+	pci_set_power_state(pci, PCI_D3hot);
 	return 0;
 }
 
-int snd_cs46xx_resume(struct pci_dev *pci)
+static int snd_cs46xx_resume(struct device *dev)
 {
-	struct snd_card *card = pci_get_drvdata(pci);
+	struct pci_dev *pci = to_pci_dev(dev);
+	struct snd_card *card = dev_get_drvdata(dev);
 	struct snd_cs46xx *chip = card->private_data;
 	int amp_saved;
 #ifdef CONFIG_SND_CS46XX_NEW_DSP
@@ -3707,7 +3709,9 @@ int snd_cs46xx_resume(struct pci_dev *pci)
 	snd_power_change_state(card, SNDRV_CTL_POWER_D0);
 	return 0;
 }
-#endif /* CONFIG_PM */
+
+SIMPLE_DEV_PM_OPS(snd_cs46xx_pm, snd_cs46xx_suspend, snd_cs46xx_resume);
+#endif /* CONFIG_PM_SLEEP */
 
 
 /*
@@ -3864,7 +3868,7 @@ int __devinit snd_cs46xx_create(struct snd_card *card,
 	
 	snd_cs46xx_proc_init(card, chip);
 
-#ifdef CONFIG_PM
+#ifdef CONFIG_PM_SLEEP
 	chip->saved_regs = kmalloc(sizeof(*chip->saved_regs) *
 				   ARRAY_SIZE(saved_regs), GFP_KERNEL);
 	if (!chip->saved_regs) {

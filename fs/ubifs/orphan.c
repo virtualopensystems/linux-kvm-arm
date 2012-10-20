@@ -176,7 +176,7 @@ int ubifs_orphan_start_commit(struct ubifs_info *c)
 		*last = orphan;
 		last = &orphan->cnext;
 	}
-	*last = orphan->cnext;
+	*last = NULL;
 	c->cmt_orphans = c->new_orphans;
 	c->new_orphans = 0;
 	dbg_cmt("%d orphans to commit", c->cmt_orphans);
@@ -382,7 +382,7 @@ static int consolidate(struct ubifs_info *c)
 			last = &orphan->cnext;
 			cnt += 1;
 		}
-		*last = orphan->cnext;
+		*last = NULL;
 		ubifs_assert(cnt == c->tot_orphans - c->new_orphans);
 		c->cmt_orphans = cnt;
 		c->ohead_lnum = c->orph_first;
@@ -562,8 +562,8 @@ static int do_kill_orphans(struct ubifs_info *c, struct ubifs_scan_leb *sleb,
 
 	list_for_each_entry(snod, &sleb->nodes, list) {
 		if (snod->type != UBIFS_ORPH_NODE) {
-			ubifs_err("invalid node type %d in orphan area at "
-				  "%d:%d", snod->type, sleb->lnum, snod->offs);
+			ubifs_err("invalid node type %d in orphan area at %d:%d",
+				  snod->type, sleb->lnum, snod->offs);
 			ubifs_dump_node(c, snod->node);
 			return -EINVAL;
 		}
@@ -589,8 +589,7 @@ static int do_kill_orphans(struct ubifs_info *c, struct ubifs_scan_leb *sleb,
 			 * number. That makes this orphan node, out of date.
 			 */
 			if (!first) {
-				ubifs_err("out of order commit number %llu in "
-					  "orphan node at %d:%d",
+				ubifs_err("out of order commit number %llu in orphan node at %d:%d",
 					  cmt_no, sleb->lnum, snod->offs);
 				ubifs_dump_node(c, snod->node);
 				return -EINVAL;

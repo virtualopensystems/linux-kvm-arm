@@ -191,7 +191,7 @@ static int oaktrail_hdmi_mode_valid(struct drm_connector *connector,
 }
 
 static bool oaktrail_hdmi_mode_fixup(struct drm_encoder *encoder,
-				 struct drm_display_mode *mode,
+				 const struct drm_display_mode *mode,
 				 struct drm_display_mode *adjusted_mode)
 {
 	return true;
@@ -252,7 +252,6 @@ static int oaktrail_hdmi_get_modes(struct drm_connector *connector)
 	if (edid) {
 		drm_mode_connector_update_edid_property(connector, edid);
 		ret = drm_add_edid_modes(connector, edid);
-		connector->display_info.raw_edid = NULL;
 	}
 
 	/*

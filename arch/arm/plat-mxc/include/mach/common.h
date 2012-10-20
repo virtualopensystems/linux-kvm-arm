@@ -52,8 +52,8 @@ extern void imx31_soc_init(void);
 extern void imx35_soc_init(void);
 extern void imx50_soc_init(void);
 extern void imx51_soc_init(void);
-extern void imx53_soc_init(void);
 extern void imx51_init_late(void);
+extern void imx53_init_late(void);
 extern void epit_timer_init(void __iomem *base, int irq);
 extern void mxc_timer_init(void __iomem *, int);
 extern int mx1_clocks_init(unsigned long fref);
@@ -67,6 +67,7 @@ extern int mx51_clocks_init(unsigned long ckil, unsigned long osc,
 extern int mx53_clocks_init(unsigned long ckil, unsigned long osc,
 			unsigned long ckih1, unsigned long ckih2);
 extern int mx27_clocks_init_dt(void);
+extern int mx31_clocks_init_dt(void);
 extern int mx51_clocks_init_dt(void);
 extern int mx53_clocks_init_dt(void);
 extern int mx6q_clocks_init(void);
@@ -95,7 +96,6 @@ enum mx3_cpu_pwr_mode {
 };
 
 extern void mx3_cpu_lp_set(enum mx3_cpu_pwr_mode mode);
-extern void mx5_cpu_lp_set(enum mxc_cpu_pwr_mode mode);
 extern void imx_print_silicon_rev(const char *cpu, int srev);
 
 void avic_handle_irq(struct pt_regs *);
@@ -136,18 +136,19 @@ extern void imx_src_prepare_restart(void);
 extern void imx_gpc_init(void);
 extern void imx_gpc_pre_suspend(void);
 extern void imx_gpc_post_resume(void);
-extern void imx51_babbage_common_init(void);
-extern void imx53_ard_common_init(void);
-extern void imx53_evk_common_init(void);
-extern void imx53_qsb_common_init(void);
-extern void imx53_smd_common_init(void);
 extern int imx6q_set_lpm(enum mxc_cpu_pwr_mode mode);
 extern void imx6q_clock_map_io(void);
 
+extern void imx_cpu_die(unsigned int cpu);
+
 #ifdef CONFIG_PM
 extern void imx6q_pm_init(void);
+extern void imx51_pm_init(void);
+extern void imx53_pm_init(void);
 #else
 static inline void imx6q_pm_init(void) {}
+static inline void imx51_pm_init(void) {}
+static inline void imx53_pm_init(void) {}
 #endif
 
 #ifdef CONFIG_NEON
@@ -155,5 +156,7 @@ extern int mx51_neon_fixup(void);
 #else
 static inline int mx51_neon_fixup(void) { return 0; }
 #endif
+
+extern struct smp_operations imx_smp_ops;
 
 #endif

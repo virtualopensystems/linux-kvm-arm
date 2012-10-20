@@ -333,9 +333,6 @@ int copy_thread(unsigned long clone_flags, unsigned long sp,
 		put_psr(get_psr() | PSR_EF);
 		fpsave(&p->thread.float_regs[0], &p->thread.fsr,
 		       &p->thread.fpqueue[0], &p->thread.fpqdepth);
-#ifdef CONFIG_SMP
-		clear_thread_flag(TIF_USEDFPU);
-#endif
 	}
 
 	/*
@@ -413,6 +410,7 @@ int copy_thread(unsigned long clone_flags, unsigned long sp,
 #ifdef CONFIG_SMP
 	/* FPU must be disabled on SMP. */
 	childregs->psr &= ~PSR_EF;
+	clear_tsk_thread_flag(p, TIF_USEDFPU);
 #endif
 
 	/* Set the return value for the child. */
@@ -484,7 +482,7 @@ int dump_fpu (struct pt_regs * regs, elf_fpregset_t * fpregs)
 asmlinkage int sparc_execve(struct pt_regs *regs)
 {
 	int error, base = 0;
-	char *filename;
+	struct filename *filename;
 
 	/* Check for indirect call. */
 	if(regs->u_regs[UREG_G1] == 0)
@@ -494,7 +492,7 @@ asmlinkage int sparc_execve(struct pt_regs *regs)
 	error = PTR_ERR(filename);
 	if(IS_ERR(filename))
 		goto out;
-	error = do_execve(filename,
+	error = do_execve(filename->name,
 			  (const char __user *const  __user *)
 			  regs->u_regs[base + UREG_I1],
 			  (const char __user *const  __user *)

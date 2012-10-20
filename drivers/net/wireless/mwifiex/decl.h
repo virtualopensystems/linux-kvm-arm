@@ -28,11 +28,14 @@
 #include <linux/ieee80211.h>
 
 
-#define MWIFIEX_MAX_BSS_NUM         (2)
+#define MWIFIEX_MAX_BSS_NUM         (3)
 
 #define MWIFIEX_MIN_DATA_HEADER_LEN 36	/* sizeof(mwifiex_txpd)
 					 *   + 4 byte alignment
 					 */
+#define MWIFIEX_MGMT_FRAME_HEADER_SIZE	8	/* sizeof(pkt_type)
+						 *   + sizeof(tx_control)
+						 */
 
 #define MWIFIEX_MAX_TX_BASTREAM_SUPPORTED	2
 #define MWIFIEX_MAX_RX_BASTREAM_SUPPORTED	16
@@ -41,16 +44,7 @@
 #define MWIFIEX_AMPDU_DEF_RXWINSIZE        16
 #define MWIFIEX_DEFAULT_BLOCK_ACK_TIMEOUT  0xffff
 
-#define MWIFIEX_RATE_INDEX_HRDSSS0 0
-#define MWIFIEX_RATE_INDEX_HRDSSS3 3
-#define MWIFIEX_RATE_INDEX_OFDM0   4
-#define MWIFIEX_RATE_INDEX_OFDM7   11
-#define MWIFIEX_RATE_INDEX_MCS0    12
-
-#define MWIFIEX_RATE_BITMAP_OFDM0  16
-#define MWIFIEX_RATE_BITMAP_OFDM7  23
 #define MWIFIEX_RATE_BITMAP_MCS0   32
-#define MWIFIEX_RATE_BITMAP_MCS127 159
 
 #define MWIFIEX_RX_DATA_BUF_SIZE     (4 * 1024)
 #define MWIFIEX_RX_CMD_BUF_SIZE	     (2 * 1024)
@@ -69,10 +63,14 @@
 #define MWIFIEX_SDIO_BLOCK_SIZE            256
 
 #define MWIFIEX_BUF_FLAG_REQUEUED_PKT      BIT(0)
+#define MWIFIEX_BUF_FLAG_BRIDGED_PKT	   BIT(1)
+
+#define MWIFIEX_BRIDGED_PKTS_THRESHOLD     1024
 
 enum mwifiex_bss_type {
 	MWIFIEX_BSS_TYPE_STA = 0,
 	MWIFIEX_BSS_TYPE_UAP = 1,
+	MWIFIEX_BSS_TYPE_P2P = 2,
 	MWIFIEX_BSS_TYPE_ANY = 0xff,
 };
 

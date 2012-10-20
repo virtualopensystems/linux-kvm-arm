@@ -857,7 +857,8 @@ struct kvm_userspace_memory_region {
 };
 
 /* for kvm_memory_region::flags */
-#define KVM_MEM_LOG_DIRTY_PAGES  1UL
+#define KVM_MEM_LOG_DIRTY_PAGES	(1UL << 0)
+#define KVM_MEM_READONLY	(1UL << 1)
 
 This ioctl allows the user to create or modify a guest physical memory
 slot.  When changing an existing slot, it may be moved in the guest
@@ -873,14 +874,17 @@ It is recommended that the lower 21 bits of guest_phys_addr and userspace_addr
 be identical.  This allows large pages in the guest to be backed by large
 pages in the host.
 
-The flags field supports just one flag, KVM_MEM_LOG_DIRTY_PAGES, which
-instructs kvm to keep track of writes to memory within the slot.  See
-the KVM_GET_DIRTY_LOG ioctl.
+The flags field supports two flag, KVM_MEM_LOG_DIRTY_PAGES, which instructs
+kvm to keep track of writes to memory within the slot.  See KVM_GET_DIRTY_LOG
+ioctl.  The KVM_CAP_READONLY_MEM capability indicates the availability of the
+KVM_MEM_READONLY flag.  When this flag is set for a memory region, KVM only
+allows read accesses.  Writes will be posted to userspace as KVM_EXIT_MMIO
+exits.
 
-When the KVM_CAP_SYNC_MMU capability, changes in the backing of the memory
-region are automatically reflected into the guest.  For example, an mmap()
-that affects the region will be made visible immediately.  Another example
-is madvise(MADV_DROP).
+When the KVM_CAP_SYNC_MMU capability is available, changes in the backing of
+the memory region are automatically reflected into the guest.  For example, an
+mmap() that affects the region will be made visible immediately.  Another
+example is madvise(MADV_DROP).
 
 It is recommended to use this API instead of the KVM_SET_MEMORY_REGION ioctl.
 The KVM_SET_MEMORY_REGION does not allow fine grained control over memory
@@ -1945,6 +1949,53 @@ an event is tiggered on the eventfd, an interrupt is injected into
 the guest using the specified gsi pin.  The irqfd is removed using
 the KVM_IRQFD_FLAG_DEASSIGN flag, specifying both kvm_irqfd.fd
 and kvm_irqfd.gsi.
+
+With KVM_CAP_IRQFD_RESAMPLE, KVM_IRQFD supports a de-assert and notify
+mechanism allowing emulation of level-triggered, irqfd-based
+interrupts.  When KVM_IRQFD_FLAG_RESAMPLE is set the user must pass an
+additional eventfd in the kvm_irqfd.resamplefd field.  When operating
+in resample mode, posting of an interrupt through kvm_irq.fd asserts
+the specified gsi in the irqchip.  When the irqchip is resampled, such
+as from an EOI, the gsi is de-asserted and the user is notifed via
+kvm_irqfd.resamplefd.  It is the user's responsibility to re-queue
+the interrupt if the device making use of it still requires service.
+Note that closing the resamplefd is not sufficient to disable the
+irqfd.  The KVM_IRQFD_FLAG_RESAMPLE is only necessary on assignment
+and need not be specified with KVM_IRQFD_FLAG_DEASSIGN.
+
+4.76 KVM_PPC_ALLOCATE_HTAB
+
+Capability: KVM_CAP_PPC_ALLOC_HTAB
+Architectures: powerpc
+Type: vm ioctl
+Parameters: Pointer to u32 containing hash table order (in/out)
+Returns: 0 on success, -1 on error
+
+This requests the host kernel to allocate an MMU hash table for a
+guest using the PAPR paravirtualization interface.  This only does
+anything if the kernel is configured to use the Book 3S HV style of
+virtualization.  Otherwise the capability doesn't exist and the ioctl
+returns an ENOTTY error.  The rest of this description assumes Book 3S
+HV.
+
+There must be no vcpus running when this ioctl is called; if there
+are, it will do nothing and return an EBUSY error.
+
+The parameter is a pointer to a 32-bit unsigned integer variable
+containing the order (log base 2) of the desired size of the hash
+table, which must be between 18 and 46.  On successful return from the
+ioctl, it will have been updated with the order of the hash table that
+was allocated.
+
+If no hash table has been allocated when any vcpu is asked to run
+(with the KVM_RUN ioctl), the host kernel will allocate a
+default-sized hash table (16 MB).
+
+If this ioctl is called when a hash table has already been allocated,
+the kernel will clear out the existing hash table (zero all HPTEs) and
+return the hash table order in the parameter.  (If the guest is using
+the virtualized real-mode area (VRMA) facility, the kernel will
+re-create the VMRA HPTEs on the next KVM_RUN of any vcpu.)
 
 
 5. The kvm_run structure

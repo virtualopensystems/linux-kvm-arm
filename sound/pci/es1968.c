@@ -491,7 +491,7 @@ struct esschan {
 	/* linked list */
 	struct list_head list;
 
-#ifdef CONFIG_PM
+#ifdef CONFIG_PM_SLEEP
 	u16 wc_map[4];
 #endif
 };
@@ -544,7 +544,7 @@ struct es1968 {
 	struct list_head substream_list;
 	spinlock_t substream_lock;
 
-#ifdef CONFIG_PM
+#ifdef CONFIG_PM_SLEEP
 	u16 apu_map[NR_APUS][NR_APU_REGS];
 #endif
 
@@ -706,7 +706,7 @@ static void __apu_set_register(struct es1968 *chip, u16 channel, u8 reg, u16 dat
 {
 	if (snd_BUG_ON(channel >= NR_APUS))
 		return;
-#ifdef CONFIG_PM
+#ifdef CONFIG_PM_SLEEP
 	chip->apu_map[channel][reg] = data;
 #endif
 	reg |= (channel << 4);
@@ -993,7 +993,7 @@ static void snd_es1968_program_wavecache(struct es1968 *chip, struct esschan *es
 	/* set the wavecache control reg */
 	wave_set_register(chip, es->apu[channel] << 3, tmpval);
 
-#ifdef CONFIG_PM
+#ifdef CONFIG_PM_SLEEP
 	es->wc_map[channel] = tmpval;
 #endif
 }
@@ -2377,13 +2377,14 @@ static void snd_es1968_start_irq(struct es1968 *chip)
 	outw(w, chip->io_port + ESM_PORT_HOST_IRQ);
 }
 
-#ifdef CONFIG_PM
+#ifdef CONFIG_PM_SLEEP
 /*
  * PM support
  */
-static int es1968_suspend(struct pci_dev *pci, pm_message_t state)
+static int es1968_suspend(struct device *dev)
 {
-	struct snd_card *card = pci_get_drvdata(pci);
+	struct pci_dev *pci = to_pci_dev(dev);
+	struct snd_card *card = dev_get_drvdata(dev);
 	struct es1968 *chip = card->private_data;
 
 	if (! chip->do_pm)
@@ -2398,13 +2399,14 @@ static int es1968_suspend(struct pci_dev *pci, pm_message_t state)
 
 	pci_disable_device(pci);
 	pci_save_state(pci);
-	pci_set_power_state(pci, pci_choose_state(pci, state));
+	pci_set_power_state(pci, PCI_D3hot);
 	return 0;
 }
 
-static int es1968_resume(struct pci_dev *pci)
+static int es1968_resume(struct device *dev)
 {
-	struct snd_card *card = pci_get_drvdata(pci);
+	struct pci_dev *pci = to_pci_dev(dev);
+	struct snd_card *card = dev_get_drvdata(dev);
 	struct es1968 *chip = card->private_data;
 	struct esschan *es;
 
@@ -2454,7 +2456,12 @@ static int es1968_resume(struct pci_dev *pci)
 	chip->in_suspend = 0;
 	return 0;
 }
-#endif /* CONFIG_PM */
+
+static SIMPLE_DEV_PM_OPS(es1968_pm, es1968_suspend, es1968_resume);
+#define ES1968_PM_OPS	&es1968_pm
+#else
+#define ES1968_PM_OPS	NULL
+#endif /* CONFIG_PM_SLEEP */
 
 #ifdef SUPPORT_JOYSTICK
 #define JOYSTICK_ADDR	0x200
@@ -2903,10 +2910,9 @@ static struct pci_driver es1968_driver = {
 	.id_table = snd_es1968_ids,
 	.probe = snd_es1968_probe,
 	.remove = __devexit_p(snd_es1968_remove),
-#ifdef CONFIG_PM
-	.suspend = es1968_suspend,
-	.resume = es1968_resume,
-#endif
+	.driver = {
+		.pm = ES1968_PM_OPS,
+	},
 };
 
 module_pci_driver(es1968_driver);

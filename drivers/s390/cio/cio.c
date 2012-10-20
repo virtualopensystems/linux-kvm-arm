@@ -1,8 +1,7 @@
 /*
- *  drivers/s390/cio/cio.c
  *   S/390 common I/O routines -- low level i/o calls
  *
- *    Copyright IBM Corp. 1999,2008
+ *    Copyright IBM Corp. 1999, 2008
  *    Author(s): Ingo Adlung (adlung@de.ibm.com)
  *		 Cornelia Huck (cornelia.huck@de.ibm.com)
  *		 Arnd Bergmann (arndb@de.ibm.com)
@@ -1030,7 +1029,7 @@ extern void do_reipl_asm(__u32 schid);
 /* Make sure all subchannels are quiet before we re-ipl an lpar. */
 void reipl_ccw_dev(struct ccw_dev_id *devid)
 {
-	struct subchannel_id schid;
+	struct subchannel_id uninitialized_var(schid);
 
 	s390_reset_system(NULL, NULL);
 	if (reipl_find_schid(devid, &schid) != 0)

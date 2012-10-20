@@ -22,7 +22,6 @@
 
 #include <linux/module.h>
 #include <linux/moduleparam.h>
-#include <generated/utsrelease.h>
 #include <linux/utsname.h>
 #include <linux/init.h>
 #include <linux/fs.h>
@@ -764,8 +763,7 @@ static int target_fabric_port_link(
 		goto out;
 	}
 
-	lun_p = core_dev_add_lun(se_tpg, dev->se_hba, dev,
-				lun->unpacked_lun);
+	lun_p = core_dev_add_lun(se_tpg, dev, lun->unpacked_lun);
 	if (IS_ERR(lun_p)) {
 		pr_err("core_dev_add_lun() failed\n");
 		ret = PTR_ERR(lun_p);

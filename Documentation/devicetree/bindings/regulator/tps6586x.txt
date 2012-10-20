@@ -6,10 +6,30 @@ Required properties:
 - interrupts: the interrupt outputs of the controller
 - #gpio-cells: number of cells to describe a GPIO
 - gpio-controller: mark the device as a GPIO controller
-- regulators: list of regulators provided by this controller, must be named
-  after their hardware counterparts: sm[0-2], ldo[0-9] and ldo_rtc
+- regulators: A node that houses a sub-node for each regulator within the
+  device. Each sub-node is identified using the node's name (or the deprecated
+  regulator-compatible property if present), with valid values listed below.
+  The content of each sub-node is defined by the standard binding for
+  regulators; see regulator.txt.
+  sys, sm[0-2], ldo[0-9] and ldo_rtc
+- sys-supply: The input supply for SYS.
+- vin-sm0-supply: The input supply for the SM0.
+- vin-sm1-supply: The input supply for the SM1.
+- vin-sm2-supply: The input supply for the SM2.
+- vinldo01-supply: The input supply for the LDO1 and LDO2
+- vinldo23-supply: The input supply for the LDO2 and LDO3
+- vinldo4-supply: The input supply for the LDO4
+- vinldo678-supply: The input supply for the LDO6, LDO7 and LDO8
+- vinldo9-supply: The input supply for the LDO9
+
+Optional properties:
+- ti,system-power-controller: Telling whether or not this pmic is controlling
+  the system power.
 
 Each regulator is defined using the standard binding for regulators.
+
+Note: LDO5 and LDO_RTC is supplied by SYS regulator internally and driver
+      take care of making proper parent child relationship.
 
 Example:
 
@@ -21,7 +41,25 @@ Example:
 		#gpio-cells = <2>;
 		gpio-controller;
 
+		ti,system-power-controller;
+
+		sys-supply = <&some_reg>;
+		vin-sm0-supply = <&some_reg>;
+		vin-sm1-supply = <&some_reg>;
+		vin-sm2-supply = <&some_reg>;
+		vinldo01-supply = <...>;
+		vinldo23-supply = <...>;
+		vinldo4-supply = <...>;
+		vinldo678-supply = <...>;
+		vinldo9-supply = <...>;
+
 		regulators {
+			sys_reg: sys {
+				regulator-name = "vdd_sys";
+				regulator-boot-on;
+				regulator-always-on;
+			};
+
 			sm0_reg: sm0 {
 				regulator-min-microvolt = < 725000>;
 				regulator-max-microvolt = <1500000>;

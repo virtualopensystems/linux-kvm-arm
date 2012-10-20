@@ -512,28 +512,6 @@ static u32 convert_to_et_setting(u32 if_type, u32 if_speeds)
 	return val;
 }
 
-static int convert_to_et_speed(u32 be_speed)
-{
-	int et_speed = SPEED_10000;
-
-	switch (be_speed) {
-	case PHY_LINK_SPEED_10MBPS:
-		et_speed = SPEED_10;
-		break;
-	case PHY_LINK_SPEED_100MBPS:
-		et_speed = SPEED_100;
-		break;
-	case PHY_LINK_SPEED_1GBPS:
-		et_speed = SPEED_1000;
-		break;
-	case PHY_LINK_SPEED_10GBPS:
-		et_speed = SPEED_10000;
-		break;
-	}
-
-	return et_speed;
-}
-
 bool be_pause_supported(struct be_adapter *adapter)
 {
 	return (adapter->phy.interface_type == PHY_TYPE_SFP_PLUS_10GB ||
@@ -544,27 +522,16 @@ bool be_pause_supported(struct be_adapter *adapter)
 static int be_get_settings(struct net_device *netdev, struct ethtool_cmd *ecmd)
 {
 	struct be_adapter *adapter = netdev_priv(netdev);
-	u8 port_speed = 0;
-	u16 link_speed = 0;
 	u8 link_status;
-	u32 et_speed = 0;
+	u16 link_speed = 0;
 	int status;
 
-	if (adapter->phy.link_speed < 0 || !(netdev->flags & IFF_UP)) {
-		if (adapter->phy.forced_port_speed < 0) {
-			status = be_cmd_link_status_query(adapter, &port_speed,
-						&link_speed, &link_status, 0);
-			if (!status)
-				be_link_status_update(adapter, link_status);
-			if (link_speed)
-				et_speed = link_speed * 10;
-			else if (link_status)
-				et_speed = convert_to_et_speed(port_speed);
-		} else {
-			et_speed = adapter->phy.forced_port_speed;
-		}
-
-		ethtool_cmd_speed_set(ecmd, et_speed);
+	if (adapter->phy.link_speed < 0) {
+		status = be_cmd_link_status_query(adapter, &link_speed,
+						  &link_status, 0);
+		if (!status)
+			be_link_status_update(adapter, link_status);
+		ethtool_cmd_speed_set(ecmd, link_speed);
 
 		status = be_cmd_get_phy_info(adapter);
 		if (status)
@@ -648,7 +615,7 @@ be_set_pauseparam(struct net_device *netdev, struct ethtool_pauseparam *ecmd)
 	struct be_adapter *adapter = netdev_priv(netdev);
 	int status;
 
-	if (ecmd->autoneg != 0)
+	if (ecmd->autoneg != adapter->phy.fc_autoneg)
 		return -EINVAL;
 	adapter->tx_fc = ecmd->tx_pause;
 	adapter->rx_fc = ecmd->rx_pause;
@@ -773,8 +740,8 @@ static void
 be_self_test(struct net_device *netdev, struct ethtool_test *test, u64 *data)
 {
 	struct be_adapter *adapter = netdev_priv(netdev);
-	u8 mac_speed = 0;
-	u16 qos_link_speed = 0;
+	int status;
+	u8 link_status = 0;
 
 	memset(data, 0, sizeof(u64) * ETHTOOL_TESTS_NUM);
 
@@ -798,11 +765,11 @@ be_self_test(struct net_device *netdev, struct ethtool_test *test, u64 *data)
 		test->flags |= ETH_TEST_FL_FAILED;
 	}
 
-	if (be_cmd_link_status_query(adapter, &mac_speed,
-				     &qos_link_speed, NULL, 0) != 0) {
+	status = be_cmd_link_status_query(adapter, NULL, &link_status, 0);
+	if (status) {
 		test->flags |= ETH_TEST_FL_FAILED;
 		data[4] = -1;
-	} else if (!mac_speed) {
+	} else if (!link_status) {
 		test->flags |= ETH_TEST_FL_FAILED;
 		data[4] = 1;
 	}
@@ -910,8 +877,9 @@ static void be_set_fw_log_level(struct be_adapter *adapter, u32 level)
 	if (!status) {
 		cfgs = (struct be_fat_conf_params *)(extfat_cmd.va +
 					sizeof(struct be_cmd_resp_hdr));
-		for (i = 0; i < cfgs->num_modules; i++) {
-			for (j = 0; j < cfgs->module[i].num_modes; j++) {
+		for (i = 0; i < le32_to_cpu(cfgs->num_modules); i++) {
+			u32 num_modes = le32_to_cpu(cfgs->module[i].num_modes);
+			for (j = 0; j < num_modes; j++) {
 				if (cfgs->module[i].trace_lvl[j].mode ==
 								MODE_UART)
 					cfgs->module[i].trace_lvl[j].dbg_lvl =

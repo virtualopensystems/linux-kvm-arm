@@ -44,9 +44,11 @@
 #include <linux/rwsem.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
+#include <asm/xen/hypervisor.h>
 #include <xen/xenbus.h>
 #include <xen/xen.h>
 #include "xenbus_comms.h"
+#include <asm/xen/hypervisor.h>
 
 struct xs_stored_msg {
 	struct list_head list;
@@ -617,6 +619,43 @@ static struct xenbus_watch *find_watch(const char *token)
 
 	return NULL;
 }
+/*
+ * Certain older XenBus toolstack cannot handle reading values that are
+ * not populated. Some Xen 3.4 installation are incapable of doing this
+ * so if we are running on anything older than 4 do not attempt to read
+ * control/platform-feature-xs_reset_watches.
+ */
+static bool xen_strict_xenbus_quirk()
+{
+	uint32_t eax, ebx, ecx, edx, base;
+
+	base = xen_cpuid_base();
+	cpuid(base + 1, &eax, &ebx, &ecx, &edx);
+
+	if ((eax >> 16) < 4)
+		return true;
+	return false;
+
+}
+static void xs_reset_watches(void)
+{
+	int err, supported = 0;
+
+	if (!xen_hvm_domain() || xen_initial_domain())
+		return;
+
+	if (xen_strict_xenbus_quirk())
+		return;
+
+	err = xenbus_scanf(XBT_NIL, "control",
+			"platform-feature-xs_reset_watches", "%d", &supported);
+	if (err != 1 || !supported)
+		return;
+
+	err = xs_error(xs_single(XBT_NIL, XS_RESET_WATCHES, "", NULL));
+	if (err && err != -EEXIST)
+		printk(KERN_WARNING "xs_reset_watches failed: %d\n", err);
+}
 
 /* Register callback to watch this node. */
 int register_xenbus_watch(struct xenbus_watch *watch)
@@ -899,6 +938,9 @@ int xs_init(void)
 	task = kthread_run(xenbus_thread, NULL, "xenbus");
 	if (IS_ERR(task))
 		return PTR_ERR(task);
+
+	/* shutdown watches for kexec boot */
+	xs_reset_watches();
 
 	return 0;
 }

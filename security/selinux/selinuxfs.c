@@ -174,7 +174,7 @@ static ssize_t sel_write_enforce(struct file *file, const char __user *buf,
 		audit_log(current->audit_context, GFP_KERNEL, AUDIT_MAC_STATUS,
 			"enforcing=%d old_enforcing=%d auid=%u ses=%u",
 			new_value, selinux_enforcing,
-			audit_get_loginuid(current),
+			from_kuid(&init_user_ns, audit_get_loginuid(current)),
 			audit_get_sessionid(current));
 		selinux_enforcing = new_value;
 		if (selinux_enforcing)
@@ -305,7 +305,7 @@ static ssize_t sel_write_disable(struct file *file, const char __user *buf,
 			goto out;
 		audit_log(current->audit_context, GFP_KERNEL, AUDIT_MAC_STATUS,
 			"selinux=0 auid=%u ses=%u",
-			audit_get_loginuid(current),
+			from_kuid(&init_user_ns, audit_get_loginuid(current)),
 			audit_get_sessionid(current));
 	}
 
@@ -485,7 +485,7 @@ static int sel_mmap_policy(struct file *filp, struct vm_area_struct *vma)
 			return -EACCES;
 	}
 
-	vma->vm_flags |= VM_RESERVED;
+	vma->vm_flags |= VM_DONTEXPAND | VM_DONTDUMP;
 	vma->vm_ops = &sel_mmap_policy_ops;
 
 	return 0;
@@ -551,7 +551,7 @@ static ssize_t sel_write_load(struct file *file, const char __user *buf,
 out1:
 	audit_log(current->audit_context, GFP_KERNEL, AUDIT_MAC_POLICY_LOAD,
 		"policy loaded auid=%u ses=%u",
-		audit_get_loginuid(current),
+		from_kuid(&init_user_ns, audit_get_loginuid(current)),
 		audit_get_sessionid(current));
 out:
 	mutex_unlock(&sel_mutex);
@@ -1297,7 +1297,7 @@ out:
 
 #define NULL_FILE_NAME "null"
 
-struct dentry *selinux_null;
+struct path selinux_null;
 
 static ssize_t sel_read_avc_cache_threshold(struct file *filp, char __user *buf,
 					    size_t count, loff_t *ppos)
@@ -1838,7 +1838,7 @@ static int sel_fill_super(struct super_block *sb, void *data, int silent)
 
 	init_special_inode(inode, S_IFCHR | S_IRUGO | S_IWUGO, MKDEV(MEM_MAJOR, 3));
 	d_add(dentry, inode);
-	selinux_null = dentry;
+	selinux_null.dentry = dentry;
 
 	dentry = sel_make_dir(sb->s_root, "avc", &sel_last_ino);
 	if (IS_ERR(dentry)) {
@@ -1912,7 +1912,7 @@ static int __init init_sel_fs(void)
 		return err;
 	}
 
-	selinuxfs_mount = kern_mount(&sel_fs_type);
+	selinux_null.mnt = selinuxfs_mount = kern_mount(&sel_fs_type);
 	if (IS_ERR(selinuxfs_mount)) {
 		printk(KERN_ERR "selinuxfs:  could not mount!\n");
 		err = PTR_ERR(selinuxfs_mount);

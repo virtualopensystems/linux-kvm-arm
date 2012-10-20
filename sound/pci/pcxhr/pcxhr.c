@@ -91,6 +91,14 @@ enum {
 	PCI_ID_PCX924E,
 	PCI_ID_PCX924HRMIC,
 	PCI_ID_PCX924E_MIC,
+	PCI_ID_VX442HR,
+	PCI_ID_PCX442HR,
+	PCI_ID_VX442E,
+	PCI_ID_PCX442E,
+	PCI_ID_VX822HR,
+	PCI_ID_PCX822HR,
+	PCI_ID_VX822E,
+	PCI_ID_PCX822E,
 	PCI_ID_LAST
 };
 
@@ -121,6 +129,14 @@ static DEFINE_PCI_DEVICE_TABLE(pcxhr_ids) = {
 	{ 0x10b5, 0x9056, 0x1369, 0xbb21, 0, 0, PCI_ID_PCX924E, },
 	{ 0x10b5, 0x9056, 0x1369, 0xbf01, 0, 0, PCI_ID_PCX924HRMIC, },
 	{ 0x10b5, 0x9056, 0x1369, 0xbf21, 0, 0, PCI_ID_PCX924E_MIC, },
+	{ 0x10b5, 0x9656, 0x1369, 0xd001, 0, 0, PCI_ID_VX442HR, },
+	{ 0x10b5, 0x9656, 0x1369, 0xd101, 0, 0, PCI_ID_PCX442HR, },
+	{ 0x10b5, 0x9056, 0x1369, 0xd021, 0, 0, PCI_ID_VX442E, },
+	{ 0x10b5, 0x9056, 0x1369, 0xd121, 0, 0, PCI_ID_PCX442E, },
+	{ 0x10b5, 0x9656, 0x1369, 0xd201, 0, 0, PCI_ID_VX822HR, },
+	{ 0x10b5, 0x9656, 0x1369, 0xd301, 0, 0, PCI_ID_PCX822HR, },
+	{ 0x10b5, 0x9056, 0x1369, 0xd221, 0, 0, PCI_ID_VX822E, },
+	{ 0x10b5, 0x9056, 0x1369, 0xd321, 0, 0, PCI_ID_PCX822E, },
 	{ 0, }
 };
 
@@ -160,6 +176,14 @@ static struct board_parameters pcxhr_board_params[] = {
 [PCI_ID_PCX924E] =      { "PCX924e",      1, 1, 5, 44 },
 [PCI_ID_PCX924HRMIC] =  { "PCX924HR-Mic", 1, 1, 5, 44 },
 [PCI_ID_PCX924E_MIC] =  { "PCX924e-Mic",  1, 1, 5, 44 },
+[PCI_ID_VX442HR] =      { "VX442HR",      2, 2, 0, 41 },
+[PCI_ID_PCX442HR] =     { "PCX442HR",     2, 2, 0, 41 },
+[PCI_ID_VX442E] =       { "VX442e",       2, 2, 1, 41 },
+[PCI_ID_PCX442E] =      { "PCX442e",      2, 2, 1, 41 },
+[PCI_ID_VX822HR] =      { "VX822HR",      4, 1, 2, 42 },
+[PCI_ID_PCX822HR] =     { "PCX822HR",     4, 1, 2, 42 },
+[PCI_ID_VX822E] =       { "VX822e",       4, 1, 3, 42 },
+[PCI_ID_PCX822E] =      { "PCX822e",      4, 1, 3, 42 },
 };
 
 /* boards without hw AES1 and SRC onboard are all using fw_file_set==4 */
@@ -1368,6 +1392,67 @@ static void pcxhr_proc_gpo_write(struct snd_info_entry *entry,
 	}
 }
 
+/* Access to the results of the CMD_GET_TIME_CODE RMH */
+#define TIME_CODE_VALID_MASK	0x00800000
+#define TIME_CODE_NEW_MASK	0x00400000
+#define TIME_CODE_BACK_MASK	0x00200000
+#define TIME_CODE_WAIT_MASK	0x00100000
+
+/* Values for the CMD_MANAGE_SIGNAL RMH */
+#define MANAGE_SIGNAL_TIME_CODE	0x01
+#define MANAGE_SIGNAL_MIDI	0x02
+
+/* linear time code read proc*/
+static void pcxhr_proc_ltc(struct snd_info_entry *entry,
+			   struct snd_info_buffer *buffer)
+{
+	struct snd_pcxhr *chip = entry->private_data;
+	struct pcxhr_mgr *mgr = chip->mgr;
+	struct pcxhr_rmh rmh;
+	unsigned int ltcHrs, ltcMin, ltcSec, ltcFrm;
+	int err;
+	/* commands available when embedded DSP is running */
+	if (!(mgr->dsp_loaded & (1 << PCXHR_FIRMWARE_DSP_MAIN_INDEX))) {
+		snd_iprintf(buffer, "no firmware loaded\n");
+		return;
+	}
+	if (!mgr->capture_ltc) {
+		pcxhr_init_rmh(&rmh, CMD_MANAGE_SIGNAL);
+		rmh.cmd[0] |= MANAGE_SIGNAL_TIME_CODE;
+		err = pcxhr_send_msg(mgr, &rmh);
+		if (err) {
+			snd_iprintf(buffer, "ltc not activated (%d)\n", err);
+			return;
+		}
+		if (mgr->is_hr_stereo)
+			hr222_manage_timecode(mgr, 1);
+		else
+			pcxhr_write_io_num_reg_cont(mgr, REG_CONT_VALSMPTE,
+						    REG_CONT_VALSMPTE, NULL);
+		mgr->capture_ltc = 1;
+	}
+	pcxhr_init_rmh(&rmh, CMD_GET_TIME_CODE);
+	err = pcxhr_send_msg(mgr, &rmh);
+	if (err) {
+		snd_iprintf(buffer, "ltc read error (err=%d)\n", err);
+		return ;
+	}
+	ltcHrs = 10*((rmh.stat[0] >> 8) & 0x3) + (rmh.stat[0] & 0xf);
+	ltcMin = 10*((rmh.stat[1] >> 16) & 0x7) + ((rmh.stat[1] >> 8) & 0xf);
+	ltcSec = 10*(rmh.stat[1] & 0x7) + ((rmh.stat[2] >> 16) & 0xf);
+	ltcFrm = 10*((rmh.stat[2] >> 8) & 0x3) + (rmh.stat[2] & 0xf);
+
+	snd_iprintf(buffer, "timecode: %02u:%02u:%02u-%02u\n",
+			    ltcHrs, ltcMin, ltcSec, ltcFrm);
+	snd_iprintf(buffer, "raw: 0x%04x%06x%06x\n", rmh.stat[0] & 0x00ffff,
+			    rmh.stat[1] & 0xffffff, rmh.stat[2] & 0xffffff);
+	/*snd_iprintf(buffer, "dsp ref time: 0x%06x%06x\n",
+			    rmh.stat[3] & 0xffffff, rmh.stat[4] & 0xffffff);*/
+	if (!(rmh.stat[0] & TIME_CODE_VALID_MASK)) {
+		snd_iprintf(buffer, "warning: linear timecode not valid\n");
+	}
+}
+
 static void __devinit pcxhr_proc_init(struct snd_pcxhr *chip)
 {
 	struct snd_info_entry *entry;
@@ -1383,6 +1468,8 @@ static void __devinit pcxhr_proc_init(struct snd_pcxhr *chip)
 		entry->c.text.write = pcxhr_proc_gpo_write;
 		entry->mode |= S_IWUSR;
 	}
+	if (!snd_card_proc_new(chip->card, "ltc", &entry))
+		snd_info_set_text_ops(entry, chip, pcxhr_proc_ltc);
 }
 /* end of proc interface */
 
