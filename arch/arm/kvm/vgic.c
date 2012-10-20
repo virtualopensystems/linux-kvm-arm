@@ -65,11 +65,16 @@
  *   interrupt line to be sampled again.
  */
 
-/* Temporary hacks, need to be provided by userspace emulation */
-#define VGIC_DIST_BASE		0x2c001000
+#define VGIC_ADDR_UNDEF		(-1)
+#define IS_VGIC_ADDR_UNDEF(_x)  ((_x) == (typeof(_x))VGIC_ADDR_UNDEF)
+
+
 #define VGIC_DIST_SIZE		0x1000
 #define VGIC_CPU_BASE		0x2c002000
 #define VGIC_CPU_SIZE		0x2000
+
+/* Physical address of vgic virtual cpu interface */
+static phys_addr_t vgic_vcpu_base;
 
 /* Virtual control interface base address */
 static void __iomem *vgic_vctrl_base;
@@ -538,7 +543,7 @@ bool vgic_handle_mmio(struct kvm_vcpu *vcpu, struct kvm_run *run, struct kvm_exi
 
 	if (!irqchip_in_kernel(vcpu->kvm) ||
 	    mmio->phys_addr < base ||
-	    (mmio->phys_addr + mmio->len) > (base + dist->vgic_dist_size))
+	    (mmio->phys_addr + mmio->len) > (base + VGIC_DIST_SIZE))
 		return false;
 
 	range = find_matching_range(vgic_ranges, mmio, base);
@@ -1027,7 +1032,7 @@ void kvm_vgic_vcpu_init(struct kvm_vcpu *vcpu)
 		vgic_cpu->vgic_irq_lr_map[i] = LR_EMPTY;
 	}
 
-	BUG_ON(!vcpu->kvm->arch.vgic.vctrl_base);
+	BUG_ON(IS_VGIC_ADDR_UNDEF(vcpu->kvm->arch.vgic.vctrl_base));
 	reg = readl_relaxed(vcpu->kvm->arch.vgic.vctrl_base + GICH_VTR);
 	vgic_cpu->nr_lr = (reg & 0x1f) + 1;
 
@@ -1049,6 +1054,7 @@ int kvm_vgic_hyp_init(void)
 	int ret;
 	unsigned int irq;
 	struct resource vctrl_res;
+	struct resource vcpu_res;
 
 	vgic_node = of_find_compatible_node(NULL, NULL, "arm,cortex-a15-gic");
 	if (!vgic_node)
@@ -1089,6 +1095,13 @@ int kvm_vgic_hyp_init(void)
 	kvm_info("%s@%llx IRQ%d\n", vgic_node->name, vctrl_res.start, irq);
 	on_each_cpu(vgic_init_maintenance_interrupt, &irq, 1);
 
+	if (of_address_to_resource(vgic_node, 3, &vcpu_res)) {
+		kvm_err("Cannot obtain VCPU resource\n");
+		ret = -ENXIO;
+		goto out_unmap;
+	}
+	vgic_vcpu_base = vcpu_res.start;
+
 	return 0;
 
 out_unmap:
@@ -1101,29 +1114,23 @@ out_free_irq:
 
 int kvm_vgic_init(struct kvm *kvm)
 {
-	int ret, i;
-	struct resource vcpu_res;
+	int ret = 0, i;
 
 	mutex_lock(&kvm->lock);
 
-	if (of_address_to_resource(vgic_node, 3, &vcpu_res)) {
-		kvm_err("Cannot obtain VCPU resource\n");
+	if (vgic_initialized(kvm))
+		goto out;
+
+	if (IS_VGIC_ADDR_UNDEF(kvm->arch.vgic.vgic_dist_base) ||
+	    IS_VGIC_ADDR_UNDEF(kvm->arch.vgic.vgic_cpu_base)) {
+		kvm_err("Need to set vgic cpu and dist addresses first\n");
 		ret = -ENXIO;
 		goto out;
 	}
 
-	if (atomic_read(&kvm->online_vcpus) || kvm->arch.vgic.vctrl_base) {
-		ret = -EEXIST;
-		goto out;
-	}
+	ret = kvm_phys_addr_ioremap(kvm, kvm->arch.vgic.vgic_cpu_base,
+				    vgic_vcpu_base, VGIC_CPU_SIZE);
 
-	spin_lock_init(&kvm->arch.vgic.lock);
-	kvm->arch.vgic.vctrl_base = vgic_vctrl_base;
-	kvm->arch.vgic.vgic_dist_base = VGIC_DIST_BASE;
-	kvm->arch.vgic.vgic_dist_size = VGIC_DIST_SIZE;
-
-	ret = kvm_phys_addr_ioremap(kvm, VGIC_CPU_BASE,
-				    vcpu_res.start, VGIC_CPU_SIZE);
 	if (ret) {
 		kvm_err("Unable to remap VGIC CPU to VCPU\n");
 		goto out;
@@ -1132,18 +1139,52 @@ int kvm_vgic_init(struct kvm *kvm)
 	for (i = 32; i < VGIC_NR_IRQS; i += 4)
 		vgic_set_target_reg(kvm, 0, i);
 
+	kvm_timer_init(kvm);
+	kvm->arch.vgic.ready = true;
 out:
 	mutex_unlock(&kvm->lock);
-
-	if (!ret)
-		kvm_timer_init(kvm);
-
 	return ret;
+}
+
+int kvm_vgic_create(struct kvm *kvm)
+{
+	int ret;
+
+	mutex_lock(&kvm->lock);
+
+	if (atomic_read(&kvm->online_vcpus) || kvm->arch.vgic.vctrl_base) {
+		ret = -EEXIST;
+		goto out;
+	}
+
+	spin_lock_init(&kvm->arch.vgic.lock);
+	kvm->arch.vgic.vctrl_base = vgic_vctrl_base;
+	kvm->arch.vgic.vgic_dist_base = VGIC_ADDR_UNDEF;
+	kvm->arch.vgic.vgic_cpu_base = VGIC_ADDR_UNDEF;
+
+	ret = 0;
+out:
+	mutex_unlock(&kvm->lock);
+	return ret;
+}
+
+static bool vgic_ioaddr_overlap(struct kvm *kvm)
+{
+	phys_addr_t dist = kvm->arch.vgic.vgic_dist_base;
+	phys_addr_t cpu = kvm->arch.vgic.vgic_cpu_base;
+
+	if (IS_VGIC_ADDR_UNDEF(dist) || IS_VGIC_ADDR_UNDEF(cpu))
+		return false;
+	if ((dist <= cpu && dist + VGIC_DIST_SIZE > cpu) ||
+	    (cpu <= dist && cpu + VGIC_CPU_SIZE > dist))
+		return true;
+	return false;
 }
 
 int kvm_vgic_set_addr(struct kvm *kvm, unsigned long type, u64 addr)
 {
 	int r = 0;
+	struct vgic_dist *vgic = &kvm->arch.vgic;
 
 	if (addr & ~KVM_PHYS_MASK)
 		return -E2BIG;
@@ -1154,15 +1195,27 @@ int kvm_vgic_set_addr(struct kvm *kvm, unsigned long type, u64 addr)
 	mutex_lock(&kvm->lock);
 	switch (type) {
 	case KVM_VGIC_V2_ADDR_TYPE_DIST:
-		if (addr != VGIC_DIST_BASE)
+		if (!IS_VGIC_ADDR_UNDEF(vgic->vgic_dist_base))
+			return -EEXIST;
+		if (addr + VGIC_DIST_SIZE < addr)
 			return -EINVAL;
+		kvm->arch.vgic.vgic_dist_base = addr;
 		break;
 	case KVM_VGIC_V2_ADDR_TYPE_CPU:
-		if (addr != VGIC_CPU_BASE)
+		if (!IS_VGIC_ADDR_UNDEF(vgic->vgic_cpu_base))
+			return -EEXIST;
+		if (addr + VGIC_CPU_SIZE < addr)
 			return -EINVAL;
+		kvm->arch.vgic.vgic_cpu_base = addr;
 		break;
 	default:
 		r = -ENODEV;
+	}
+
+	if (vgic_ioaddr_overlap(kvm)) {
+		kvm->arch.vgic.vgic_dist_base = VGIC_ADDR_UNDEF;
+		kvm->arch.vgic.vgic_cpu_base = VGIC_ADDR_UNDEF;
+		return -EINVAL;
 	}
 
 	mutex_unlock(&kvm->lock);

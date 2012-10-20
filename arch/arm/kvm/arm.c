@@ -636,6 +636,14 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 	if (unlikely(vcpu->arch.target < 0))
 		return -ENOEXEC;
 
+	/* Initalize the VGIC before running the vcpu */
+	if (unlikely(irqchip_in_kernel(vcpu->kvm) &&
+		     !vgic_initialized(vcpu->kvm))) {
+		ret = kvm_vgic_init(vcpu->kvm);
+		if (ret)
+			return ret;
+	}
+
 	if (run->exit_reason == KVM_EXIT_MMIO) {
 		ret = kvm_handle_mmio_return(vcpu, vcpu->run);
 		if (ret)
@@ -889,7 +897,7 @@ long kvm_arch_vm_ioctl(struct file *filp,
 #ifdef CONFIG_KVM_ARM_VGIC
 	case KVM_CREATE_IRQCHIP: {
 		if (vgic_present)
-			return kvm_vgic_init(kvm);
+			return kvm_vgic_create(kvm);
 		else
 			return -EINVAL;
 	}
