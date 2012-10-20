@@ -374,7 +374,7 @@ static inline int get_arm_ls_instr_index(u32 instr)
 #define OFFSET_SCALE_MASK		0x0e000010
 #define OFFSET_SCALE_VALUE		0x06000000
 
-#define SCALE_SHIFT_MASK		0x000000a0
+#define SCALE_SHIFT_MASK		0x00000060
 #define SCALE_SHIFT_SHIFT		5
 #define SCALE_SHIFT_LSL			0x0
 #define SCALE_SHIFT_LSR			0x1
