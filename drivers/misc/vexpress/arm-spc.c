@@ -19,10 +19,11 @@
 #include <linux/delay.h>
 #include <linux/err.h>
 #include <linux/io.h>
+#include <linux/interrupt.h>
 #include <linux/module.h>
 #include <linux/platform_device.h>
 #include <linux/slab.h>
-#include <linux/spinlock.h>
+#include <linux/semaphore.h>
 #include <linux/vexpress.h>
 
 #include <asm/cacheflush.h>
@@ -58,13 +59,27 @@
 #define A7_RESET_STAT		0xB64
 #define A15_CONF		0x400
 #define A7_CONF			0x500
+#define SYS_INFO		0x700
+#define SCC_CFGREG6             0x018
+
+#define A15_STANDBYWFIL2_MSK    (1 << 2)
+#define A7_STANDBYWFIL2_MSK     (1 << 6)
+#define GBL_WAKEUP_INT_MSK      (0x3 << 10)
+
+#define A15_PART_NO             0xF
+#define A7_PART_NO              0x7
+
+#define A15_BX_ADDR0            0xB68
+#define A7_BX_ADDR0             0xB78
 
 #define DRIVER_NAME	"SPC"
-#define TIME_OUT	100
+#define TIME_OUT_US	3000
 
 struct vexpress_spc_drvdata {
 	void __iomem *baseaddr;
-	spinlock_t lock;
+	struct semaphore lock;
+	int irq;
+	struct completion done;
 };
 
 static struct vexpress_spc_drvdata *info;
@@ -72,23 +87,150 @@ static struct vexpress_spc_drvdata *info;
 /* SCC virtual address */
 u32 vscc;
 
-static inline int read_wait_to(void __iomem *reg, int status, int timeout)
+u32 vexpress_spc_get_clusterid(int cpu_part_no)
 {
-	while (timeout-- && readl(reg) == status) {
-		cpu_relax();
-		udelay(2);
+	switch (cpu_part_no & 0xf) {
+	case A15_PART_NO:
+		return readl_relaxed(info->baseaddr + A15_CONF) & 0xf;
+	case A7_PART_NO:
+		return readl_relaxed(info->baseaddr + A7_CONF) & 0xf;
+	default:
+		BUG();
 	}
-	if (!timeout)
-		return -EAGAIN;
-	else
-		return 0;
 }
+
+EXPORT_SYMBOL_GPL(vexpress_spc_get_clusterid);
+
+void vexpress_spc_write_bxaddr_reg(int cluster, int cpu, u32 val)
+{
+	u32 a15_clusid;
+
+	if (IS_ERR_OR_NULL(info))
+		return;
+
+	a15_clusid = readl_relaxed(info->baseaddr + A15_CONF) & 0xf;
+
+	if (cluster != a15_clusid)
+		writel_relaxed(val, info->baseaddr + A7_BX_ADDR0 + (cpu << 2));
+	else
+		writel_relaxed(val, info->baseaddr + A15_BX_ADDR0 + (cpu << 2));
+
+	dsb();
+	return;
+}
+
+EXPORT_SYMBOL_GPL(vexpress_spc_write_bxaddr_reg);
+
+int vexpress_spc_get_nb_cpus(int cluster)
+{
+	u32 a15_clusid;
+	u32 val;
+
+	if (IS_ERR_OR_NULL(info))
+		return -ENXIO;
+
+	a15_clusid = readl_relaxed(info->baseaddr + A15_CONF) & 0xf;
+	val = readl_relaxed(info->baseaddr + SYS_INFO);
+	val = (cluster != a15_clusid) ? (val >> 20) : (val >> 16);
+
+	return (val & 0xf);
+}
+
+EXPORT_SYMBOL_GPL(vexpress_spc_get_nb_cpus);
+
+int vexpress_spc_standbywfil2_status(int cluster)
+{
+	u32 standbywfi_stat;
+	u32 a15_clusid;
+
+	if (IS_ERR_OR_NULL(info))
+		BUG();
+
+	a15_clusid = readl_relaxed(info->baseaddr + A15_CONF) & 0xf;
+	standbywfi_stat = readl_relaxed(info->baseaddr + STANDBYWFI_STAT);
+
+	if (cluster != a15_clusid)
+		return standbywfi_stat & A7_STANDBYWFIL2_MSK;
+	else
+		return standbywfi_stat & A15_STANDBYWFIL2_MSK;
+}
+
+EXPORT_SYMBOL_GPL(vexpress_spc_standbywfil2_status);
+
+int vexpress_spc_standbywfi_status(int cluster, int cpu)
+{
+	u32 a15_clusid;
+	u32 standbywfi_stat;
+
+	if (IS_ERR_OR_NULL(info))
+		BUG();
+
+	a15_clusid = readl_relaxed(info->baseaddr + A15_CONF) & 0xf;
+	standbywfi_stat = readl_relaxed(info->baseaddr + STANDBYWFI_STAT);
+
+	if (cluster != a15_clusid)
+		return standbywfi_stat & ((1 << cpu) << 3);
+	else
+		return standbywfi_stat & (1 << cpu);
+}
+
+EXPORT_SYMBOL_GPL(vexpress_spc_standbywfi_status);
+
+u32 vexpress_spc_read_rststat_reg(int cluster)
+{
+	u32 a15_clusid = 0;
+
+	if (IS_ERR_OR_NULL(info))
+		BUG();
+
+	a15_clusid = readl_relaxed(info->baseaddr + A15_CONF) & 0xf;
+
+	if (cluster != a15_clusid)
+		return readl_relaxed(info->baseaddr + A7_RESET_STAT);
+	else
+		return readl_relaxed(info->baseaddr + A15_RESET_STAT);
+}
+
+EXPORT_SYMBOL_GPL(vexpress_spc_read_rststat_reg);
+
+u32 vexpress_spc_read_rsthold_reg(int cluster)
+{
+	u32 a15_clusid = 0;
+
+	if (IS_ERR_OR_NULL(info))
+		BUG();
+
+	a15_clusid = readl_relaxed(info->baseaddr + A15_CONF) & 0xf;
+
+	if (cluster != a15_clusid)
+		return readl_relaxed(info->baseaddr + A7_RESET_HOLD);
+	else
+		return readl_relaxed(info->baseaddr + A15_RESET_HOLD);
+}
+
+EXPORT_SYMBOL_GPL(vexpress_spc_read_rsthold_reg);
+
+void vexpress_spc_write_rsthold_reg(int cluster, u32 value)
+{
+	u32 a15_clusid = 0;
+
+	if (IS_ERR_OR_NULL(info))
+		BUG();
+
+	a15_clusid = readl_relaxed(info->baseaddr + A15_CONF) & 0xf;
+
+	if (cluster != a15_clusid)
+		writel_relaxed(value, info->baseaddr + A7_RESET_HOLD);
+	else
+		writel_relaxed(value, info->baseaddr + A15_RESET_HOLD);
+}
+
+EXPORT_SYMBOL_GPL(vexpress_spc_write_rsthold_reg);
 
 int vexpress_spc_get_performance(int cluster, int *perf)
 {
 	u32 perf_cfg_reg = 0;
 	u32 a15_clusid = 0;
-	int ret = 0;
 
 	if (IS_ERR_OR_NULL(info))
 		return -ENXIO;
@@ -96,11 +238,12 @@ int vexpress_spc_get_performance(int cluster, int *perf)
 	a15_clusid = readl_relaxed(info->baseaddr + A15_CONF) & 0xf;
 	perf_cfg_reg = cluster != a15_clusid ? PERF_LVL_A7 : PERF_LVL_A15;
 
-	spin_lock(&info->lock);
+	if (down_timeout(&info->lock, usecs_to_jiffies(TIME_OUT_US)))
+		return -ETIME;
 	*perf = readl(info->baseaddr + perf_cfg_reg);
-	spin_unlock(&info->lock);
+	up(&info->lock);
 
-	return ret;
+	return 0;
 
 }
 EXPORT_SYMBOL_GPL(vexpress_spc_get_performance);
@@ -115,6 +258,8 @@ int vexpress_spc_set_performance(int cluster, int perf)
 	if (IS_ERR_OR_NULL(info))
 		return -ENXIO;
 
+	init_completion(&info->done);
+
 	a15_clusid = readl_relaxed(info->baseaddr + A15_CONF) & 0xf;
 	perf_cfg_reg = cluster != a15_clusid ? PERF_LVL_A7 : PERF_LVL_A15;
 	perf_stat_reg = cluster != a15_clusid ? PERF_REQ_A7 : PERF_REQ_A15;
@@ -122,15 +267,64 @@ int vexpress_spc_set_performance(int cluster, int perf)
 	if (perf < 0 || perf > 7)
 		return -EINVAL;
 
-	spin_lock(&info->lock);
+	if (down_timeout(&info->lock, usecs_to_jiffies(TIME_OUT_US)))
+		return -ETIME;
 	writel(perf, info->baseaddr + perf_cfg_reg);
-	if (read_wait_to(info->baseaddr + perf_stat_reg, 1, TIME_OUT))
-		ret = -EAGAIN;
-	spin_unlock(&info->lock);
+
+	if (!wait_for_completion_interruptible_timeout(&info->done,
+				usecs_to_jiffies(TIME_OUT_US))) {
+		ret = -ETIMEDOUT;
+	}
+
+	up(&info->lock);
 	return ret;
 
 }
 EXPORT_SYMBOL_GPL(vexpress_spc_set_performance);
+
+int vexpress_spc_set_global_wakeup_intr(u32 set)
+{
+	u32 wake_int_mask_reg = 0;
+
+	if (IS_ERR_OR_NULL(info))
+		return -ENXIO;
+
+	wake_int_mask_reg = readl(info->baseaddr + WAKE_INT_MASK);
+	if (set)
+		wake_int_mask_reg |= GBL_WAKEUP_INT_MSK;
+	else
+		wake_int_mask_reg &= ~GBL_WAKEUP_INT_MSK;
+
+	vexpress_spc_set_wake_intr(wake_int_mask_reg);
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(vexpress_spc_set_global_wakeup_intr);
+
+int vexpress_spc_set_cpu_wakeup_irq(u32 cpu, u32 cluster, u32 set)
+{
+	u32 a15_clusid = 0, mask = 0;
+	u32 wake_int_mask_reg = 0;
+
+	if (IS_ERR_OR_NULL(info))
+		return -ENXIO;
+
+	a15_clusid = readl_relaxed(info->baseaddr + A15_CONF) & 0xf;
+	mask = 1 << cpu;
+	if (a15_clusid != cluster)
+		mask <<= 4;
+
+	wake_int_mask_reg = readl(info->baseaddr + WAKE_INT_MASK);
+	if (set)
+		wake_int_mask_reg |= mask;
+	else
+		wake_int_mask_reg &= ~mask;
+
+	vexpress_spc_set_wake_intr(wake_int_mask_reg);
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(vexpress_spc_set_cpu_wakeup_irq);
 
 void vexpress_spc_set_wake_intr(u32 mask)
 {
@@ -178,9 +372,7 @@ void vexpress_spc_adb400_pd_enable(int cluster, int enable)
 	a15_clusid = readl_relaxed(info->baseaddr + A15_CONF) & 0xf;
 	pwdrn_reg = cluster != a15_clusid ? A7_PWRDNREQ : A15_PWRDNREQ;
 
-	spin_lock(&info->lock);
 	writel(val, info->baseaddr + pwdrn_reg);
-	spin_unlock(&info->lock);
 	return;
 }
 EXPORT_SYMBOL_GPL(vexpress_spc_adb400_pd_enable);
@@ -205,10 +397,29 @@ void vexpress_scc_ctl_snoops(int cluster, int enable)
 		val &= or;
 	} else {
 		val |= or;
+		dsb();
+		isb();
 	}
+
 	writel_relaxed(val, info->baseaddr + snoop_reg);
 }
 EXPORT_SYMBOL_GPL(vexpress_scc_ctl_snoops);
+
+u32 vexpress_scc_read_rststat(int cluster)
+{
+	u32 a15_clusid = 0;
+
+	if (IS_ERR_OR_NULL(info))
+		BUG();
+
+	a15_clusid = readl_relaxed(info->baseaddr + A15_CONF) & 0xf;
+
+	if (cluster != a15_clusid)
+		return (readl_relaxed(info->baseaddr + SCC_CFGREG6) >> 16) & 0x7;
+	else
+		return (readl_relaxed(info->baseaddr + SCC_CFGREG6) >> 2) & 0x3;
+}
+EXPORT_SYMBOL_GPL(vexpress_scc_read_rststat);
 
 void vexpress_spc_wfi_cpureset(int cluster, int cpu, int enable)
 {
@@ -256,14 +467,12 @@ void vexpress_spc_wfi_cluster_reset(int cluster, int enable)
 		rsthold_reg = A15_RESET_HOLD;
 		shift = 4;
 	}
-	spin_lock(&info->lock);
 	val = readl(info->baseaddr + rsthold_reg);
 	if (enable)
 		val |= 1 << shift;
 	else
 		val &= ~(1 << shift);
 	writel(val, info->baseaddr + rsthold_reg);
-	spin_unlock(&info->lock);
 	return;
 }
 EXPORT_SYMBOL_GPL(vexpress_spc_wfi_cluster_reset);
@@ -293,9 +502,20 @@ bool vexpress_spc_check_loaded(void)
 }
 EXPORT_SYMBOL_GPL(vexpress_spc_check_loaded);
 
+irqreturn_t vexpress_spc_irq_handler(int irq, void *data)
+{
+	struct vexpress_spc_drvdata *drv_data = data;
+
+	readl_relaxed(drv_data->baseaddr + PWC_STATUS);
+
+	complete(&drv_data->done);
+
+	return IRQ_HANDLED;
+}
+
 static int __devinit vexpress_spc_driver_probe(struct platform_device *pdev)
 {
-	struct resource *res;
+	struct resource *res, *irq_res;
 	int ret = 0;
 
 	info = kzalloc(sizeof(*info), GFP_KERNEL);
@@ -324,7 +544,28 @@ static int __devinit vexpress_spc_driver_probe(struct platform_device *pdev)
 		goto ioremap_err;
 	}
 	vscc = (u32) info->baseaddr;
-	spin_lock_init(&info->lock);
+	sema_init(&info->lock, 1);
+
+	irq_res = platform_get_resource(pdev, IORESOURCE_IRQ, 0);
+	if (!irq_res) {
+		dev_err(&pdev->dev, "No interrupt resource\n");
+		ret = -EINVAL;
+		goto irq_err;
+	}
+	info->irq = irq_res->start;
+
+	init_completion(&info->done);
+
+	readl_relaxed(info->baseaddr + PWC_STATUS);
+
+	ret = request_irq(info->irq, vexpress_spc_irq_handler,
+			IRQF_DISABLED | IRQF_TRIGGER_HIGH | IRQF_ONESHOT, "arm-spc", info);
+	if (ret) {
+		dev_err(&pdev->dev, "IRQ %d request failed \n", info->irq);
+		ret = -ENODEV;
+		goto irq_err;
+	}
+
 	platform_set_drvdata(pdev, info);
 
 	/*
@@ -338,6 +579,8 @@ static int __devinit vexpress_spc_driver_probe(struct platform_device *pdev)
 	vexpress_spc_loaded = true;
 	return ret;
 
+irq_err:
+	iounmap(info->baseaddr);
 ioremap_err:
 	release_region(res->start, resource_size(res));
 mem_free:
@@ -352,6 +595,7 @@ static int __devexit vexpress_spc_driver_remove(struct platform_device *pdev)
 	struct resource *res = pdev->resource;
 
 	info = platform_get_drvdata(pdev);
+	free_irq(info->irq, info);
 	iounmap(info->baseaddr);
 	release_region(res->start, resource_size(res));
 	kfree(info);
