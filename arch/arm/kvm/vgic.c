@@ -66,11 +66,9 @@
  */
 
 #define VGIC_ADDR_UNDEF		(-1)
-#define IS_VGIC_ADDR_UNDEF(_x)  ((_x) == (typeof(_x))VGIC_ADDR_UNDEF)
-
+#define IS_VGIC_ADDR_UNDEF(_x)  ((_x) == VGIC_ADDR_UNDEF)
 
 #define VGIC_DIST_SIZE		0x1000
-#define VGIC_CPU_BASE		0x2c002000
 #define VGIC_CPU_SIZE		0x2000
 
 /* Physical address of vgic virtual cpu interface */
@@ -1062,7 +1060,7 @@ void kvm_vgic_vcpu_init(struct kvm_vcpu *vcpu)
 		vgic_cpu->vgic_irq_lr_map[i] = LR_EMPTY;
 	}
 
-	BUG_ON(IS_VGIC_ADDR_UNDEF(vcpu->kvm->arch.vgic.vctrl_base));
+	BUG_ON(!vcpu->kvm->arch.vgic.vctrl_base);
 	reg = readl_relaxed(vcpu->kvm->arch.vgic.vctrl_base + GICH_VTR);
 	vgic_cpu->nr_lr = (reg & 0x1f) + 1;
 
