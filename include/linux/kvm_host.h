@@ -119,7 +119,8 @@ static inline bool is_error_page(struct page *page)
 #define KVM_REQ_PMU               16
 #define KVM_REQ_PMI               17
 
-#define KVM_USERSPACE_IRQ_SOURCE_ID	0
+#define KVM_USERSPACE_IRQ_SOURCE_ID		0
+#define KVM_IRQFD_RESAMPLE_IRQ_SOURCE_ID	1
 
 struct kvm;
 struct kvm_vcpu;
@@ -343,6 +344,8 @@ struct kvm {
 	struct {
 		spinlock_t        lock;
 		struct list_head  items;
+		struct list_head  resampler_list;
+		struct mutex      resampler_lock;
 	} irqfds;
 	struct list_head ioeventfds;
 #endif
@@ -734,7 +737,7 @@ static inline int kvm_deassign_device(struct kvm *kvm,
 static inline void kvm_guest_enter(void)
 {
 	BUG_ON(preemptible());
-	account_system_vtime(current);
+	vtime_account(current);
 	current->flags |= PF_VCPU;
 	/* KVM does not hold any references to rcu protected data when it
 	 * switches CPU into a guest mode. In fact switching to a guest mode
@@ -748,7 +751,7 @@ static inline void kvm_guest_enter(void)
 
 static inline void kvm_guest_exit(void)
 {
-	account_system_vtime(current);
+	vtime_account(current);
 	current->flags &= ~PF_VCPU;
 }
 
