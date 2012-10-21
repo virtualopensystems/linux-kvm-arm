@@ -21,6 +21,7 @@
 
 #include <asm/kvm.h>
 #include <asm/kvm_asm.h>
+#include <asm/fpstate.h>
 
 #define KVM_MAX_VCPUS NR_CPUS
 #define KVM_MEMORY_SLOTS 32
@@ -85,6 +86,14 @@ struct kvm_vcpu_arch {
 	u32 hxfar;		/* Hyp Data/Inst Fault Address Register */
 	u32 hpfar;		/* Hyp IPA Fault Address Register */
 
+	/* Floating point registers (VFP and Advanced SIMD/NEON) */
+	struct vfp_hard_struct vfp_guest;
+	struct vfp_hard_struct *vfp_host;
+
+	/*
+	 * Anything that is not used directly from assembly code goes
+	 * here.
+	 */
 	/* IO related fields */
 	struct {
 		bool sign_extend;	/* for byte/halfword loads */
