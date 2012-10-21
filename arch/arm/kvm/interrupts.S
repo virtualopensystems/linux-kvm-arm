@@ -194,6 +194,7 @@ after_vfp_restore:
 	clrex				@ Clear exclusive monitor
 	bx	lr			@ return to IOCTL
 
+
 /********************************************************************
  * Translate VA to PA
  *

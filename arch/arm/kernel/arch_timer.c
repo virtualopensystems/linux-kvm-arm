@@ -527,4 +527,3 @@ int __init arch_timer_sched_clock_init(void)
 	setup_sched_clock(cnt32, 32, arch_timer_rate);
 	return 0;
 }
-

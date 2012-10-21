@@ -242,10 +242,10 @@ struct kvm_run;
 struct kvm_exit_mmio;
 
 #ifdef CONFIG_KVM_ARM_VGIC
-int kvm_vgic_hyp_init(void);
 int kvm_vgic_set_addr(struct kvm *kvm, unsigned long type, u64 addr);
-int kvm_vgic_create(struct kvm *kvm);
+int kvm_vgic_hyp_init(void);
 int kvm_vgic_init(struct kvm *kvm);
+int kvm_vgic_create(struct kvm *kvm);
 void kvm_vgic_vcpu_init(struct kvm_vcpu *vcpu);
 void kvm_vgic_sync_to_cpu(struct kvm_vcpu *vcpu);
 void kvm_vgic_sync_from_cpu(struct kvm_vcpu *vcpu);
@@ -270,12 +270,12 @@ static inline int kvm_vgic_set_addr(struct kvm *kvm, unsigned long type, u64 add
 	return 0;
 }
 
-static inline int kvm_vgic_create(struct kvm *kvm)
+static inline int kvm_vgic_init(struct kvm *kvm)
 {
 	return 0;
 }
 
-static inline int kvm_vgic_init(struct kvm *kvm)
+static inline int kvm_vgic_create(struct kvm *kvm)
 {
 	return 0;
 }

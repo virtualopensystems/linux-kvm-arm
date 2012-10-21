@@ -146,6 +146,7 @@ int kvm_arm_copy_reg_indices(struct kvm_vcpu *vcpu, u64 __user *indices);
 struct kvm_one_reg;
 int kvm_arm_get_reg(struct kvm_vcpu *vcpu, const struct kvm_one_reg *reg);
 int kvm_arm_set_reg(struct kvm_vcpu *vcpu, const struct kvm_one_reg *reg);
+u64 kvm_call_hyp(void *hypfn, ...);
 
 #define KVM_ARCH_WANT_MMU_NOTIFIER
 struct kvm;
@@ -176,6 +177,5 @@ unsigned long kvm_arm_num_coproc_regs(struct kvm_vcpu *vcpu);
 struct kvm_one_reg;
 int kvm_arm_coproc_get_reg(struct kvm_vcpu *vcpu, const struct kvm_one_reg *);
 int kvm_arm_coproc_set_reg(struct kvm_vcpu *vcpu, const struct kvm_one_reg *);
-u64 kvm_call_hyp(void *hypfn, ...);
 
 #endif /* __ARM_KVM_HOST_H__ */

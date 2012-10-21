@@ -805,8 +805,9 @@ static void __kvm_vgic_sync_to_cpu(struct kvm_vcpu *vcpu)
 		if (vgic_irq_is_edge(dist, i)) {
 			clear_bit(i - 32, pending);
 			clear_bit(i, vgic_cpu->pending);
-		} else
+		} else {
 			vgic_bitmap_set_irq_val(&dist->irq_active, 0, i, 1);
+		}
 	}
 
 epilog:
@@ -1026,8 +1027,9 @@ static irqreturn_t vgic_maintenance_handler(int irq, void *data)
 				set_bit(irq, vcpu->arch.vgic_cpu.pending);
 				set_bit(vcpu->vcpu_id,
 					&dist->irq_pending_on_cpu);
-			} else
+			} else {
 				clear_bit(irq, vgic_cpu->pending);
+			}
 		}
 	}
 
@@ -1158,7 +1160,6 @@ int kvm_vgic_init(struct kvm *kvm)
 
 	ret = kvm_phys_addr_ioremap(kvm, kvm->arch.vgic.vgic_cpu_base,
 				    vgic_vcpu_base, VGIC_CPU_SIZE);
-
 	if (ret) {
 		kvm_err("Unable to remap VGIC CPU to VCPU\n");
 		goto out;
