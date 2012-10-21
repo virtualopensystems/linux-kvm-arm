@@ -260,11 +260,6 @@ ENTRY(kvm_call_hyp)
  *    - The HYP function will be called with its arguments in r0, r1 and r2.
  *    On HYP function return, we return directly to SVC.
  *
- * Hyp-ABI: Change the HVBAR:
- *    When removing the KVM module we want to reset our hold on Hyp mode.
- *    This is accomplished by calling HVC #0xff from the host kernel
- *    (VMID==0) with the desired new HVBAR in r0.
- *
  * Note that the above is used to execute code in Hyp-mode from a host-kernel
  * point of view, and is a different concept from performing a world-switch and
  * executing guest code SVC mode (with a VMID != 0).
