@@ -22,6 +22,7 @@
 #include <asm/kvm.h>
 #include <asm/kvm_asm.h>
 #include <asm/fpstate.h>
+#include <asm/kvm_vgic.h>
 
 #define KVM_MAX_VCPUS NR_CPUS
 #define KVM_MEMORY_SLOTS 32
@@ -57,6 +58,9 @@ struct kvm_arch {
 
 	/* Stage-2 page table */
 	pgd_t *pgd;
+
+	/* Interrupt controller */
+	struct vgic_dist	vgic;
 };
 
 #define KVM_NR_MEM_OBJS     40
@@ -90,6 +94,9 @@ struct kvm_vcpu_arch {
 	/* Floating point registers (VFP and Advanced SIMD/NEON) */
 	struct vfp_hard_struct vfp_guest;
 	struct vfp_hard_struct *vfp_host;
+
+	/* VGIC state */
+	struct vgic_cpu vgic_cpu;
 
 	/*
 	 * Anything that is not used directly from assembly code goes
