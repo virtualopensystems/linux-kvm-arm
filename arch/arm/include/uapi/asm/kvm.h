@@ -42,6 +42,19 @@ struct kvm_regs {
 #define KVM_ARM_TARGET_CORTEX_A15	0
 #define KVM_ARM_NUM_TARGETS		1
 
+/* KVM_SET_DEVICE_ADDRESS ioctl id encoding */
+#define KVM_DEVICE_TYPE_SHIFT		0
+#define KVM_DEVICE_TYPE_MASK		(0xffff << KVM_DEVICE_TYPE_SHIFT)
+#define KVM_DEVICE_ID_SHIFT		16
+#define KVM_DEVICE_ID_MASK		(0xffff << KVM_DEVICE_ID_SHIFT)
+
+/* Supported device IDs */
+#define KVM_ARM_DEVICE_VGIC_V2		0
+
+/* Supported VGIC address types  */
+#define KVM_VGIC_V2_ADDR_TYPE_DIST	0
+#define KVM_VGIC_V2_ADDR_TYPE_CPU	1
+
 struct kvm_vcpu_init {
 	__u32 target;
 	__u32 features[7];
