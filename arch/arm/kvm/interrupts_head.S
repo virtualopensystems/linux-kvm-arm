@@ -422,6 +422,25 @@
 #define CNTHCTL_PL1PCEN		(1 << 1)
 
 .macro save_timer_state	vcpup
+#ifdef CONFIG_KVM_ARM_TIMER
+	ldr	r4, [\vcpup, #VCPU_KVM]
+	ldr	r2, [r4, #KVM_TIMER_ENABLED]
+	cmp	r2, #0
+	beq	1f
+
+	mrc	p15, 0, r2, c14, c3, 1	@ CNTV_CTL
+	and	r2, #3
+	str	r2, [\vcpup, #VCPU_TIMER_CNTV_CTL]
+	bic	r2, #1			@ Clear ENABLE
+	mcr	p15, 0, r2, c14, c3, 1	@ CNTV_CTL
+	isb
+
+	mrrc	p15, 3, r2, r3, c14	@ CNTV_CVAL
+	str	r3, [\vcpup, #VCPU_TIMER_CNTV_CVALH]
+	str	r2, [\vcpup, #VCPU_TIMER_CNTV_CVALL]
+
+1:
+#endif
 	@ Allow physical timer/counter access for the host
 	mrc	p15, 4, r2, c14, c1, 0	@ CNTHCTL
 	orr	r2, r2, #(CNTHCTL_PL1PCEN | CNTHCTL_PL1PCTEN)
@@ -435,6 +454,28 @@
 	orr	r2, r2, #CNTHCTL_PL1PCTEN
 	bic	r2, r2, #CNTHCTL_PL1PCEN
 	mcr	p15, 4, r2, c14, c1, 0	@ CNTHCTL
+
+#ifdef CONFIG_KVM_ARM_TIMER
+	ldr	r4, [\vcpup, #VCPU_KVM]
+	ldr	r2, [r4, #KVM_TIMER_ENABLED]
+	cmp	r2, #0
+	beq	1f
+
+	ldr	r3, [r4, #KVM_TIMER_CNTVOFF_H]
+	ldr	r2, [r4, #KVM_TIMER_CNTVOFF_L]
+	mcrr	p15, 4, r2, r3, c14	@ CNTVOFF
+	isb
+
+	ldr	r3, [\vcpup, #VCPU_TIMER_CNTV_CVALH]
+	ldr	r2, [\vcpup, #VCPU_TIMER_CNTV_CVALL]
+	mcrr	p15, 3, r2, r3, c14	@ CNTV_CVAL
+
+	ldr	r2, [\vcpup, #VCPU_TIMER_CNTV_CTL]
+	and	r2, #3
+	mcr	p15, 0, r2, c14, c3, 1	@ CNTV_CTL
+	isb
+1:
+#endif
 .endm
 
 /* Configures the HSTR (Hyp System Trap Register) on entry/return
