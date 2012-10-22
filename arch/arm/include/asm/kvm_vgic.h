@@ -215,6 +215,9 @@ struct vgic_cpu {
 	u32		vgic_elrsr[2];	/* Saved only */
 	u32		vgic_apr;
 	u32		vgic_lr[64];	/* A15 has only 4... */
+
+	/* Number of level-triggered interrupt in progress */
+	atomic_t	irq_active_count;
 #endif
 };
 
@@ -254,6 +257,8 @@ bool vgic_handle_mmio(struct kvm_vcpu *vcpu, struct kvm_run *run,
 
 #define irqchip_in_kernel(k)	(!!((k)->arch.vgic.vctrl_base))
 #define vgic_initialized(k)	((k)->arch.vgic.ready)
+#define vgic_active_irq(v)	(atomic_read(&(v)->arch.vgic_cpu.irq_active_count) == 0)
+
 #else
 static inline int kvm_vgic_hyp_init(void)
 {
@@ -304,6 +309,11 @@ static inline int irqchip_in_kernel(struct kvm *kvm)
 static inline bool kvm_vgic_initialized(struct kvm *kvm)
 {
 	return true;
+}
+
+static inline int vgic_active_irq(struct kvm_vcpu *vcpu)
+{
+	return 0;
 }
 #endif
 
