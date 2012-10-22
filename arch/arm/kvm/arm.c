@@ -580,6 +580,12 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 	if (unlikely(vcpu->arch.target < 0))
 		return -ENOEXEC;
 
+	if (run->exit_reason == KVM_EXIT_MMIO) {
+		ret = kvm_handle_mmio_return(vcpu, vcpu->run);
+		if (ret)
+			return ret;
+	}
+
 	if (vcpu->sigset_active)
 		sigprocmask(SIG_SETMASK, &vcpu->sigset, &sigsaved);
 
@@ -615,7 +621,13 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 		kvm_guest_enter();
 		vcpu->mode = IN_GUEST_MODE;
 
-		ret = kvm_call_hyp(__kvm_vcpu_run, vcpu);
+		smp_mb(); /* set mode before reading vcpu->arch.pause */
+		if (unlikely(vcpu->arch.pause)) {
+			/* This means ignore, try again. */
+			ret = ARM_EXCEPTION_IRQ;
+		} else {
+			ret = kvm_call_hyp(__kvm_vcpu_run, vcpu);
+		}
 
 		vcpu->mode = OUTSIDE_GUEST_MODE;
 		vcpu->arch.last_pcpu = smp_processor_id();

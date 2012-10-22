@@ -19,11 +19,13 @@
 #include <linux/mman.h>
 #include <linux/kvm_host.h>
 #include <linux/io.h>
+#include <trace/events/kvm.h>
 #include <asm/idmap.h>
 #include <asm/pgalloc.h>
 #include <asm/cacheflush.h>
 #include <asm/kvm_arm.h>
 #include <asm/kvm_mmu.h>
+#include <asm/kvm_mmio.h>
 #include <asm/kvm_asm.h>
 #include <asm/kvm_emulate.h>
 #include <asm/mach/map.h>
@@ -636,8 +638,9 @@ int kvm_handle_guest_abort(struct kvm_vcpu *vcpu, struct kvm_run *run)
 			return -EFAULT;
 		}
 
-		kvm_pr_unimpl("I/O address abort...");
-		return 0;
+		/* Adjust page offset */
+		fault_ipa |= vcpu->arch.hxfar & ~PAGE_MASK;
+		return io_mem_abort(vcpu, run, fault_ipa, memslot);
 	}
 
 	memslot = gfn_to_memslot(vcpu->kvm, gfn);

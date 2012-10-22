@@ -19,4 +19,4 @@ obj-$(CONFIG_KVM_ARM_HOST) += init.o interrupts.o
 obj-$(CONFIG_KVM_ARM_HOST) += $(addprefix ../../../virt/kvm/, kvm_main.o coalesced_mmio.o)
 
 obj-$(CONFIG_KVM_ARM_HOST) += arm.o guest.o mmu.o emulate.o reset.o
-obj-$(CONFIG_KVM_ARM_HOST) += coproc.o coproc_a15.o
+obj-$(CONFIG_KVM_ARM_HOST) += coproc.o coproc_a15.o mmio.o

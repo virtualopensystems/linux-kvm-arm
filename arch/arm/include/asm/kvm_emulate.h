@@ -21,11 +21,14 @@
 
 #include <linux/kvm_host.h>
 #include <asm/kvm_asm.h>
+#include <asm/kvm_mmio.h>
 
 u32 *vcpu_reg(struct kvm_vcpu *vcpu, u8 reg_num);
 u32 *vcpu_spsr(struct kvm_vcpu *vcpu);
 
 int kvm_handle_wfi(struct kvm_vcpu *vcpu, struct kvm_run *run);
+int kvm_emulate_mmio_ls(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
+			struct kvm_exit_mmio *mmio);
 void kvm_skip_instr(struct kvm_vcpu *vcpu, bool is_wide_instr);
 void kvm_inject_undefined(struct kvm_vcpu *vcpu);
 void kvm_inject_dabt(struct kvm_vcpu *vcpu, unsigned long addr);
@@ -51,6 +54,11 @@ static inline bool vcpu_mode_priv(struct kvm_vcpu *vcpu)
 {
 	unsigned long cpsr_mode = vcpu->arch.regs.cpsr & MODE_MASK;
 	return cpsr_mode > USR_MODE;;
+}
+
+static inline bool kvm_vcpu_reg_is_pc(struct kvm_vcpu *vcpu, int reg)
+{
+	return reg == 15;
 }
 
 #endif /* __ARM_KVM_EMULATE_H__ */
