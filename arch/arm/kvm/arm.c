@@ -61,6 +61,8 @@ static atomic64_t kvm_vmid_gen = ATOMIC64_INIT(1);
 static u8 kvm_next_vmid;
 static DEFINE_SPINLOCK(kvm_vmid_lock);
 
+static bool vgic_present;
+
 static void kvm_arm_set_running_vcpu(struct kvm_vcpu *vcpu)
 {
 	BUG_ON(preemptible());
@@ -824,7 +826,19 @@ int kvm_vm_ioctl_get_dirty_log(struct kvm *kvm, struct kvm_dirty_log *log)
 static int kvm_vm_ioctl_set_device_address(struct kvm *kvm,
 					   struct kvm_device_address *dev_addr)
 {
-	return -ENODEV;
+	unsigned long dev_id, type;
+
+	dev_id = (dev_addr->id & KVM_DEVICE_ID_MASK) >> KVM_DEVICE_ID_SHIFT;
+	type = (dev_addr->id & KVM_DEVICE_TYPE_MASK) >> KVM_DEVICE_TYPE_SHIFT;
+
+	switch (dev_id) {
+	case KVM_ARM_DEVICE_VGIC_V2:
+		if (!vgic_present)
+			return -ENXIO;
+		return kvm_vgic_set_addr(kvm, type, dev_addr->addr);
+	default:
+		return -ENODEV;
+	}
 }
 
 long kvm_arch_vm_ioctl(struct file *filp,

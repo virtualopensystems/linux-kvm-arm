@@ -22,6 +22,13 @@
 #include <linux/io.h>
 #include <asm/kvm_emulate.h>
 
+#define VGIC_ADDR_UNDEF		(-1)
+#define IS_VGIC_ADDR_UNDEF(_x)  ((_x) == (typeof(_x))VGIC_ADDR_UNDEF)
+
+#define VGIC_DIST_SIZE		0x1000
+#define VGIC_CPU_SIZE		0x2000
+
+
 #define ACCESS_READ_VALUE	(1 << 0)
 #define ACCESS_READ_RAZ		(0 << 0)
 #define ACCESS_READ_MASK(x)	((x) & (1 << 0))
@@ -135,4 +142,58 @@ struct mmio_range *find_matching_range(const struct mmio_range *ranges,
 bool vgic_handle_mmio(struct kvm_vcpu *vcpu, struct kvm_run *run, struct kvm_exit_mmio *mmio)
 {
 	return KVM_EXIT_MMIO;
+}
+
+static bool vgic_ioaddr_overlap(struct kvm *kvm)
+{
+	phys_addr_t dist = kvm->arch.vgic.vgic_dist_base;
+	phys_addr_t cpu = kvm->arch.vgic.vgic_cpu_base;
+
+	if (IS_VGIC_ADDR_UNDEF(dist) || IS_VGIC_ADDR_UNDEF(cpu))
+		return false;
+	if ((dist <= cpu && dist + VGIC_DIST_SIZE > cpu) ||
+	    (cpu <= dist && cpu + VGIC_CPU_SIZE > dist))
+		return true;
+	return false;
+}
+
+int kvm_vgic_set_addr(struct kvm *kvm, unsigned long type, u64 addr)
+{
+	int r = 0;
+	struct vgic_dist *vgic = &kvm->arch.vgic;
+
+	if (addr & ~KVM_PHYS_MASK)
+		return -E2BIG;
+
+	if (addr & ~PAGE_MASK)
+		return -EINVAL;
+
+	mutex_lock(&kvm->lock);
+	switch (type) {
+	case KVM_VGIC_V2_ADDR_TYPE_DIST:
+		if (!IS_VGIC_ADDR_UNDEF(vgic->vgic_dist_base))
+			return -EEXIST;
+		if (addr + VGIC_DIST_SIZE < addr)
+			return -EINVAL;
+		kvm->arch.vgic.vgic_dist_base = addr;
+		break;
+	case KVM_VGIC_V2_ADDR_TYPE_CPU:
+		if (!IS_VGIC_ADDR_UNDEF(vgic->vgic_cpu_base))
+			return -EEXIST;
+		if (addr + VGIC_CPU_SIZE < addr)
+			return -EINVAL;
+		kvm->arch.vgic.vgic_cpu_base = addr;
+		break;
+	default:
+		r = -ENODEV;
+	}
+
+	if (vgic_ioaddr_overlap(kvm)) {
+		kvm->arch.vgic.vgic_dist_base = VGIC_ADDR_UNDEF;
+		kvm->arch.vgic.vgic_cpu_base = VGIC_ADDR_UNDEF;
+		return -EINVAL;
+	}
+
+	mutex_unlock(&kvm->lock);
+	return r;
 }
