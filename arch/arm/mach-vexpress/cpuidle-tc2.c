@@ -92,7 +92,7 @@ static atomic_t abort_barrier[NR_CLUSTERS];
 extern void tc2_cpu_resume(void);
 extern void disable_snoops(void);
 
-int tc2_coupled_finisher(unsigned long arg)
+static int notrace tc2_coupled_finisher(unsigned long arg)
 {
 	unsigned int mpidr = read_cpuid_mpidr();
 	unsigned int cpu = smp_processor_id();
