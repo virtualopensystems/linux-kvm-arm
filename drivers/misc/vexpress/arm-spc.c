@@ -258,8 +258,6 @@ int vexpress_spc_set_performance(int cluster, int perf)
 	if (IS_ERR_OR_NULL(info))
 		return -ENXIO;
 
-	init_completion(&info->done);
-
 	a15_clusid = readl_relaxed(info->baseaddr + A15_CONF) & 0xf;
 	perf_cfg_reg = cluster != a15_clusid ? PERF_LVL_A7 : PERF_LVL_A15;
 	perf_stat_reg = cluster != a15_clusid ? PERF_REQ_A7 : PERF_REQ_A15;
@@ -269,6 +267,9 @@ int vexpress_spc_set_performance(int cluster, int perf)
 
 	if (down_timeout(&info->lock, usecs_to_jiffies(TIME_OUT_US)))
 		return -ETIME;
+
+	init_completion(&info->done);
+
 	writel(perf, info->baseaddr + perf_cfg_reg);
 
 	if (!wait_for_completion_interruptible_timeout(&info->done,
