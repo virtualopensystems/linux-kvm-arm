@@ -114,15 +114,9 @@ static unsigned long __init xen_do_chunk(unsigned long start,
 
 		if (release) {
 			/* Make sure pfn exists to start with */
-			if (mfn == INVALID_P2M_ENTRY || (!xlated_phys && (mfn_to_pfn(mfn) != pfn)))
+			if (mfn == INVALID_P2M_ENTRY || mfn_to_pfn(mfn) != pfn)
 				continue;
 			frame = mfn;
-			/* The hypercall PHYSDEVOP_map_iomem to release memory has already
-			 * happend, so we just do a nop here. */
-			if (xlated_phys) {
-				len++;
-				continue;
-			}
 		} else {
 			if (!xlated_phys && mfn != INVALID_P2M_ENTRY)
 				continue;
@@ -225,29 +219,41 @@ static void __init xen_set_identity_and_release_chunk(
 {
 	unsigned long pfn;
 
-	/* For PVH, the pfns [0..MAX] are mapped to mfn's in the EPT/NPT. The mfns
-	 * are released as part of this 1:1 mapping hypercall back to the dom heap.
-	 * Also, we map the entire IO space, ie, beyond max_pfn_mapped.
-	 */
-	int xlated_phys = xen_feature(XENFEAT_auto_translated_physmap);
-
 	/*
 	 * If the PFNs are currently mapped, the VA mapping also needs
 	 * to be updated to be 1:1.
 	 */
-	for (pfn = start_pfn; pfn <= max_pfn_mapped && pfn < end_pfn; pfn++) {
-		if (xlated_phys)
-			xen_set_clr_mmio_pvh_pte(pfn, pfn, 1 /* one pfn */, 1 /* add mapping */);
-		else
-			(void)HYPERVISOR_update_va_mapping(
-				(unsigned long)__va(pfn << PAGE_SHIFT),
-				mfn_pte(pfn, PAGE_KERNEL_IO), 0);
-	}
+	for (pfn = start_pfn; pfn <= max_pfn_mapped && pfn < end_pfn; pfn++)
+		(void)HYPERVISOR_update_va_mapping(
+			(unsigned long)__va(pfn << PAGE_SHIFT),
+			mfn_pte(pfn, PAGE_KERNEL_IO), 0);
+
 	if (start_pfn < nr_pages)
 		*released += xen_release_chunk(
 			start_pfn, min(end_pfn, nr_pages));
 
 	*identity += set_phys_range_identity(start_pfn, end_pfn);
+}
+
+/* For PVH, the pfns [0..MAX] are mapped to mfn's in the EPT/NPT. The mfns
+ * are released as part of this 1:1 mapping hypercall back to the dom heap.
+ * Also, we map the entire IO space, ie, beyond max_pfn_mapped.
+ */
+static void __init xen_pvh_identity_map_chunk(unsigned long start_pfn,
+		unsigned long end_pfn, unsigned long *released,
+		unsigned long *identity, unsigned long max_pfn)
+{
+	unsigned long pfn;
+	int numpfns = 1, add_mapping = 1;
+
+	for (pfn = start_pfn; pfn < end_pfn; pfn++)
+		xen_set_clr_mmio_pvh_pte(pfn, pfn, numpfns, add_mapping);
+
+	if (start_pfn <= max_pfn) {
+		unsigned long end = min(max_pfn_mapped, end_pfn);
+		*released += end - start_pfn;
+	}
+	*identity += end_pfn - start_pfn;
 }
 
 static unsigned long __init xen_set_identity_and_release(
@@ -258,6 +264,7 @@ static unsigned long __init xen_set_identity_and_release(
 	unsigned long identity = 0;
 	const struct e820entry *entry;
 	int i;
+	int xlated_phys = xen_feature(XENFEAT_auto_translated_physmap);
 
 	/*
 	 * Combine non-RAM regions and gaps until a RAM region (or the
@@ -279,10 +286,17 @@ static unsigned long __init xen_set_identity_and_release(
 			if (entry->type == E820_RAM)
 				end_pfn = PFN_UP(entry->addr);
 
-			if (start_pfn < end_pfn)
-				xen_set_identity_and_release_chunk(
+			if (start_pfn < end_pfn) {
+				if (xlated_phys) {
+					xen_pvh_identity_map_chunk(start_pfn,
+						end_pfn, &released, &identity,
+						nr_pages);
+				} else {
+					xen_set_identity_and_release_chunk(
 						start_pfn, end_pfn, nr_pages,
 						&released, &identity);
+				}
+			}
 			start = end;
 		}
 	}
