@@ -306,7 +306,7 @@ static inline int irqchip_in_kernel(struct kvm *kvm)
 	return 0;
 }
 
-static inline bool kvm_vgic_initialized(struct kvm *kvm)
+static inline bool vgic_initialized(struct kvm *kvm)
 {
 	return true;
 }
