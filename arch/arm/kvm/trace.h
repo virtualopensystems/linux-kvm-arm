@@ -42,14 +42,14 @@ TRACE_EVENT(kvm_exit,
 TRACE_EVENT(kvm_guest_fault,
 	TP_PROTO(unsigned long vcpu_pc, unsigned long hsr,
 		 unsigned long hxfar,
-		 unsigned long ipa),
+		 unsigned long long ipa),
 	TP_ARGS(vcpu_pc, hsr, hxfar, ipa),
 
 	TP_STRUCT__entry(
 		__field(	unsigned long,	vcpu_pc		)
 		__field(	unsigned long,	hsr		)
 		__field(	unsigned long,	hxfar		)
-		__field(	unsigned long,	ipa		)
+		__field(   unsigned long long,	ipa		)
 	),
 
 	TP_fast_assign(
@@ -60,9 +60,9 @@ TRACE_EVENT(kvm_guest_fault,
 	),
 
 	TP_printk("guest fault at PC %#08lx (hxfar %#08lx, "
-		  "ipa %#08lx, hsr %#08lx",
+		  "ipa %#16llx, hsr %#08lx",
 		  __entry->vcpu_pc, __entry->hxfar,
-		  __entry->hsr, __entry->ipa)
+		  __entry->ipa, __entry->hsr)
 );
 
 TRACE_EVENT(kvm_irq_line,
