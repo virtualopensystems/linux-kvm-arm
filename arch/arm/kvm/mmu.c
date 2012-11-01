@@ -365,59 +365,103 @@ void kvm_free_stage2_pgd(struct kvm *kvm)
 	kvm->arch.pgd = NULL;
 }
 
+static void clear_pud_entry(pud_t *pud)
+{
+	pmd_t *pmd_table = pmd_offset(pud, 0);
+	pud_clear(pud);
+	pmd_free(NULL, pmd_table);
+	put_page(virt_to_page(pud));
+}
+
+static void clear_pmd_entry(pmd_t *pmd)
+{
+	if (pmd_huge(*pmd)) {
+		pmd_clear(pmd);
+	} else {
+		pte_t *pte_table = pte_offset_kernel(pmd, 0);
+		pmd_clear(pmd);
+		pte_free_kernel(NULL, pte_table);
+	}
+	put_page(virt_to_page(pmd));
+}
+
+static bool pmd_empty(pmd_t *pmd)
+{
+	struct page *pmd_page = virt_to_page(pmd);
+	return page_count(pmd_page) == 1;
+}
+
+static void clear_pte_entry(pte_t *pte)
+{
+	set_pte_ext(pte, __pte(0), 0);
+	put_page(virt_to_page(pte));
+}
+
+static bool pte_empty(pte_t *pte)
+{
+	struct page *pte_page = virt_to_page(pte);
+	return page_count(pte_page) == 1;
+}
+
 /**
- * stage2_clear_pte -- Clear a stage-2 PTE.
- * @kvm:  The VM pointer
- * @addr: The physical address of the PTE
+ * unmap_stage2_range -- Clear stage2 page table entries to unmap a range
+ * @kvm:   The VM pointer
+ * @start: The intermediate physical base address of the range to unmap
+ * @size:  The size of the area to unmap
  *
- * Clear a stage-2 PTE, lowering the various ref-counts. Also takes
- * care of invalidating the TLBs.  Must be called while holding
- * mmu_lock, otherwise another faulting VCPU may come in and mess
- * things behind our back.
+ * Clear a range of stage-2 mappings, lowering the various ref-counts. Also
+ * takes care of invalidating the TLBs.  Must be called while holding
+ * mmu_lock, otherwise another faulting VCPU may come in and mess with things
+ * behind our backs.
  */
-static void stage2_clear_pte(struct kvm *kvm, phys_addr_t addr)
+static void unmap_stage2_range(struct kvm *kvm, phys_addr_t start, size_t size)
 {
 	pgd_t *pgd;
 	pud_t *pud;
 	pmd_t *pmd;
 	pte_t *pte;
-	struct page *page;
+	phys_addr_t addr = start, end = start + size;
+	size_t range;
 
-	pgd = kvm->arch.pgd + pgd_index(addr);
-	pud = pud_offset(pgd, addr);
-	if (pud_none(*pud))
-		return;
+	while (addr < end) {
+		pgd = kvm->arch.pgd + pgd_index(addr);
+		pud = pud_offset(pgd, addr);
+		if (pud_none(*pud)) {
+			addr += PUD_SIZE;
+			continue;
+		}
 
-	pmd = pmd_offset(pud, addr);
-	if (pmd_none(*pmd))
-		return;
+		pmd = pmd_offset(pud, addr);
+		if (pmd_none(*pmd)) {
+			addr += PMD_SIZE;
+			continue;
+		}
 
-	pte = pte_offset_kernel(pmd, addr);
-	set_pte_ext(pte, __pte(0), 0);
+		if (pmd_huge(*pmd)) {
+			clear_pmd_entry(pmd);
+			if (pmd_empty(pmd))
+				clear_pud_entry(pud);
+			addr += PMD_SIZE;
+			continue;
+		}
 
-	page = virt_to_page(pte);
-	put_page(page);
-	if (page_count(page) != 1) {
-		kvm_tlb_flush_vmid(kvm);
-		return;
+		pte = pte_offset_kernel(pmd, addr);
+		clear_pte_entry(pte);
+		range = PAGE_SIZE;
+
+		/* If we emptied the pte, walk back up the ladder */
+		if (pte_empty(pte)) {
+			clear_pmd_entry(pmd);
+			range = PMD_SIZE;
+			if (pmd_empty(pmd)) {
+				clear_pud_entry(pud);
+				range = PUD_SIZE;
+			}
+		}
+
+		addr += range;
 	}
 
-	/* Need to remove pte page */
-	pmd_clear(pmd);
-	pte_free_kernel(NULL, (pte_t *)((unsigned long)pte & PAGE_MASK));
-
-	page = virt_to_page(pmd);
-	put_page(page);
-	if (page_count(page) != 1) {
-		kvm_tlb_flush_vmid(kvm);
-		return;
-	}
-
-	pud_clear(pud);
-	pmd_free(NULL, (pmd_t *)((unsigned long)pmd & PAGE_MASK));
-
-	page = virt_to_page(pud);
-	put_page(page);
 	kvm_tlb_flush_vmid(kvm);
 }
 
@@ -693,7 +737,7 @@ static void handle_hva_to_gpa(struct kvm *kvm,
 
 static void kvm_unmap_hva_handler(struct kvm *kvm, gpa_t gpa, void *data)
 {
-	stage2_clear_pte(kvm, gpa);
+	unmap_stage2_range(kvm, gpa, PAGE_SIZE);
 }
 
 int kvm_unmap_hva(struct kvm *kvm, unsigned long hva)
