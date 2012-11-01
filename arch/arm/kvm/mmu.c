@@ -19,6 +19,7 @@
 #include <linux/mman.h>
 #include <linux/kvm_host.h>
 #include <linux/io.h>
+#include <linux/hugetlb.h>
 #include <trace/events/kvm.h>
 #include <asm/idmap.h>
 #include <asm/pgalloc.h>
@@ -302,8 +303,7 @@ static void free_stage2_ptes(pmd_t *pmd, unsigned long addr)
 	pmd_page = virt_to_page(pmd);
 
 	for (i = 0; i < PTRS_PER_PMD; i++, addr += PMD_SIZE) {
-		BUG_ON(pmd_sect(*pmd));
-		if (!pmd_none(*pmd) && pmd_table(*pmd)) {
+		if (pmd_table(*pmd)) {
 			pte = pte_offset_kernel(pmd, addr);
 			free_guest_pages(pte, addr);
 			pte_free_kernel(NULL, pte);
@@ -470,7 +470,7 @@ static int stage2_set_pte(struct kvm *kvm, struct kvm_mmu_memory_cache *cache,
 {
 	pgd_t *pgd;
 	pud_t *pud;
-	pmd_t *pmd;
+	pmd_t *pmd, old_pmd;
 	pte_t *pte, old_pte;
 
 	/* Create 2nd stage page table mapping - Level 1 */
@@ -486,7 +486,22 @@ static int stage2_set_pte(struct kvm *kvm, struct kvm_mmu_memory_cache *cache,
 	} else
 		pmd = pmd_offset(pud, addr);
 
-	/* Create 2nd stage page table mapping - Level 2 */
+	/* Create 2nd stage section mappings (huge tlb pages) - Level 2 */
+	if (pte_huge(*new_pte) || pmd_huge(*pmd)) {
+		pte_t *huge_pte = (pte_t *)pmd;
+		BUG_ON(pmd_present(*pmd) && !pmd_huge(*pmd));
+
+		old_pmd = *pmd;
+		set_pte_ext(huge_pte, *new_pte, 0); /* new_pte really new_pmd */
+		if (pmd_present(old_pmd))
+			kvm_tlb_flush_vmid(kvm);
+		else
+			get_page(virt_to_page(pmd));
+		return 0;
+	}
+
+	/* Create 2nd stage page mappings - Level 2 */
+	BUG_ON(pmd_present(*pmd) && pmd_huge(*pmd));
 	if (pmd_none(*pmd)) {
 		if (!cache)
 			return 0; /* ignore calls from kvm_set_spte_hva */
@@ -551,7 +566,8 @@ out:
 	return ret;
 }
 
-static void coherent_icache_guest_page(struct kvm *kvm, gfn_t gfn)
+static void coherent_icache_guest_page(struct kvm *kvm, hva_t hva,
+				       unsigned long size)
 {
 	/*
 	 * If we are going to insert an instruction page and the icache is
@@ -563,24 +579,62 @@ static void coherent_icache_guest_page(struct kvm *kvm, gfn_t gfn)
 	 * damn shame - as written in the ARM ARM (DDI 0406C - Page B3-1384)
 	 */
 	if (icache_is_pipt()) {
-		unsigned long hva = gfn_to_hva(kvm, gfn);
-		__cpuc_coherent_user_range(hva, hva + PAGE_SIZE);
+		__cpuc_coherent_user_range(hva, hva + size);
 	} else if (!icache_is_vivt_asid_tagged()) {
 		/* any kind of VIPT cache */
 		__flush_icache_all();
 	}
 }
 
+static bool transparent_hugepage_adjust(struct kvm *kvm, pfn_t *pfnp,
+					phys_addr_t *ipap)
+{
+	pfn_t pfn = *pfnp;
+	gfn_t gfn = *ipap >> PAGE_SHIFT;
+
+	if (PageTransCompound(pfn_to_page(pfn))) {
+		unsigned long mask;
+		/*
+		 * mmu_notifier_retry was successful and we hold the
+		 * mmu_lock here, so the pmd can't become splitting
+		 * from under us, and in turn
+		 * __split_huge_page_refcount() can't run from under
+		 * us and we can safely transfer the refcount from
+		 * PG_tail to PG_head as we switch the pfn from tail to
+		 * head.
+		 */
+		mask = KVM_PAGES_PER_HPAGE - 1;
+		VM_BUG_ON((gfn & mask) != (pfn & mask));
+		if (pfn & mask) {
+			gfn &= ~mask;
+			*ipap &= ~(KVM_HPAGE_SIZE - 1);
+			kvm_release_pfn_clean(pfn);
+			pfn &= ~mask;
+			kvm_get_pfn(pfn);
+			*pfnp = pfn;
+		}
+
+		return true;
+	}
+
+	return false;
+}
+
 static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
-			  gfn_t gfn, struct kvm_memory_slot *memslot,
+			  struct kvm_memory_slot *memslot,
 			  bool is_iabt, unsigned long fault_status)
 {
-	pte_t new_pte;
-	pfn_t pfn;
 	int ret;
-	bool write_fault, writable;
+	bool write_fault, writable, hugetlb = false, force_pte = false;
 	unsigned long mmu_seq;
+	gfn_t gfn = fault_ipa >> PAGE_SHIFT;
+	unsigned long hva = gfn_to_hva(vcpu->kvm, gfn);
+	struct kvm *kvm = vcpu->kvm;
 	struct kvm_mmu_memory_cache *memcache = &vcpu->arch.mmu_page_cache;
+	struct vm_area_struct *vma;
+	pfn_t pfn;
+	pte_t new_pte;
+	unsigned long psize;
 
 	if (is_iabt)
 		write_fault = false;
@@ -594,32 +648,51 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
 		return -EFAULT;
 	}
 
+	/* Let's check if we will get back a huge page */
+	down_read(&current->mm->mmap_sem);
+	vma = find_vma_intersection(current->mm, hva, hva + 1);
+	if (is_vm_hugetlb_page(vma)) {
+		hugetlb = true;
+		hva &= PMD_MASK;
+		gfn = (fault_ipa & PMD_MASK) >> PAGE_SHIFT;
+		psize = PMD_SIZE;
+	} else {
+		psize = PAGE_SIZE;
+		if (vma->vm_start & ~PMD_MASK)
+			force_pte = true;
+	}
+	up_read(&current->mm->mmap_sem);
+
+	pfn = gfn_to_pfn_prot(kvm, gfn, write_fault, &writable);
+	if (is_error_pfn(pfn))
+		return -EFAULT;
+
+	coherent_icache_guest_page(kvm, hva, psize);
+
 	/* We need minimum second+third level pages */
 	ret = mmu_topup_memory_cache(memcache, 2, KVM_NR_MEM_OBJS);
 	if (ret)
 		return ret;
 
-	mmu_seq = vcpu->kvm->mmu_notifier_seq;
+	mmu_seq = kvm->mmu_notifier_seq;
 	smp_rmb();
 
-	pfn = gfn_to_pfn_prot(vcpu->kvm, gfn, write_fault, &writable);
-	if (is_error_pfn(pfn))
-		return -EFAULT;
-
-	new_pte = pfn_pte(pfn, PAGE_S2);
-	coherent_icache_guest_page(vcpu->kvm, gfn);
-
-	spin_lock(&vcpu->kvm->mmu_lock);
-	if (mmu_notifier_retry(vcpu->kvm, mmu_seq))
+	spin_lock(&kvm->mmu_lock);
+	if (mmu_notifier_retry(kvm, mmu_seq))
 		goto out_unlock;
+	if (!hugetlb && !force_pte)
+		hugetlb = transparent_hugepage_adjust(kvm, &pfn, &fault_ipa);
+	new_pte = pfn_pte(pfn, PAGE_S2);
+	if (hugetlb)
+		new_pte = pte_mkhuge(new_pte);
 	if (writable) {
 		pte_val(new_pte) |= L_PTE_S2_RDWR;
 		kvm_set_pfn_dirty(pfn);
 	}
-	stage2_set_pte(vcpu->kvm, memcache, fault_ipa, &new_pte, false);
+	ret = stage2_set_pte(kvm, memcache, fault_ipa, &new_pte, false);
 
 out_unlock:
-	spin_unlock(&vcpu->kvm->mmu_lock);
+	spin_unlock(&kvm->mmu_lock);
 	/*
 	 * XXX TODO FIXME:
 -        * This is _really_ *weird* !!!
@@ -628,7 +701,7 @@ out_unlock:
 	 * guests under heavy memory pressure on the host and heavy swapping.
 	 */
 	kvm_release_pfn_dirty(pfn);
-	return 0;
+	return ret;
 }
 
 /**
@@ -693,8 +766,7 @@ int kvm_handle_guest_abort(struct kvm_vcpu *vcpu, struct kvm_run *run)
 		return -EINVAL;
 	}
 
-	ret = user_mem_abort(vcpu, fault_ipa, gfn, memslot,
-			     is_iabt, fault_status);
+	ret = user_mem_abort(vcpu, fault_ipa, memslot, is_iabt, fault_status);
 	return ret ? ret : 1;
 }
 

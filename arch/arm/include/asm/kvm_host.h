@@ -34,10 +34,9 @@
 
 #define KVM_VCPU_MAX_FEATURES 0
 
-/* We don't currently support large pages. */
-#define KVM_HPAGE_GFN_SHIFT(x)	0
-#define KVM_NR_PAGE_SIZES	1
-#define KVM_PAGES_PER_HPAGE(x)	(1UL<<31)
+#define KVM_HPAGE_GFN_SHIFT(_level)	(((_level) - 1) * 21)
+#define KVM_HPAGE_SIZE			(1UL << KVM_HPAGE_GFN_SHIFT(2))
+#define KVM_PAGES_PER_HPAGE		(KVM_HPAGE_SIZE / PAGE_SIZE)
 
 struct kvm_vcpu;
 u32 *kvm_vcpu_reg(struct kvm_vcpu *vcpu, u8 reg_num, u32 mode);
