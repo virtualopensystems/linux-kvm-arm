@@ -427,6 +427,7 @@ static bool need_new_vmid_gen(struct kvm *kvm)
 static void update_vttbr(struct kvm *kvm)
 {
 	phys_addr_t pgd_phys;
+	u64 vmid;
 
 	if (!need_new_vmid_gen(kvm))
 		return;
@@ -452,9 +453,9 @@ static void update_vttbr(struct kvm *kvm)
 
 	/* update vttbr to be used with the new vmid */
 	pgd_phys = virt_to_phys(kvm->arch.pgd);
-	kvm->arch.vttbr = pgd_phys & ((1LLU << 40) - 1)
-			  & ~((2 << VTTBR_X) - 1);
-	kvm->arch.vttbr |= (u64)(kvm->arch.vmid) << 48;
+	vmid = ((u64)(kvm->arch.vmid) << VTTBR_VMID_SHIFT) & VTTBR_VMID_MASK;
+	kvm->arch.vttbr = pgd_phys & VTTBR_BADDR_MASK;
+	kvm->arch.vttbr |= vmid;
 
 	spin_unlock(&kvm_vmid_lock);
 }

@@ -144,6 +144,10 @@
 #else
 #define VTTBR_X		(5 - VTCR_GUEST_T0SZ)
 #endif
+#define VTTBR_BADDR_SHIFT (VTTBR_X - 1)
+#define VTTBR_BADDR_MASK  (((1LLU << (40 - VTTBR_X)) - 1) << VTTBR_BADDR_SHIFT)
+#define VTTBR_VMID_SHIFT  (48LLU)
+#define VTTBR_VMID_MASK	  (0xffLLU << VTTBR_VMID_SHIFT)
 
 /* Hyp Syndrome Register (HSR) bits */
 #define HSR_EC_SHIFT	(26)
