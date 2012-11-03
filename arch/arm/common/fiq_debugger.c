@@ -1188,7 +1188,9 @@ err:
 	state->tty_rbuf = NULL;
 	return ret;
 }
-#endif
+#else
+static int fiq_debugger_tty_init(void) { return 0; }
+#endif /* CONFIG_FIQ_DEBUGGER_CONSOLE */
 
 static int fiq_debugger_dev_suspend(struct device *dev)
 {
