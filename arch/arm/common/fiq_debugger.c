@@ -33,6 +33,7 @@
 #include <linux/tty.h>
 #include <linux/tty_flip.h>
 #include <linux/wakelock.h>
+#include <linux/kmsg_dump.h>
 
 #include <asm/fiq_debugger.h>
 #include <asm/fiq_glue.h>
@@ -205,31 +206,6 @@ static void debug_puts(struct fiq_debugger_state *state, char *s)
 static void debug_prompt(struct fiq_debugger_state *state)
 {
 	debug_puts(state, "debug> ");
-}
-
-int log_buf_copy(char *dest, int idx, int len);
-static void dump_kernel_log(struct fiq_debugger_state *state)
-{
-	char buf[1024];
-	int idx = 0;
-	int ret;
-	int saved_oip;
-
-	/* setting oops_in_progress prevents log_buf_copy()
-	 * from trying to take a spinlock which will make it
-	 * very unhappy in some cases...
-	 */
-	saved_oip = oops_in_progress;
-	oops_in_progress = 1;
-	for (;;) {
-		ret = log_buf_copy(buf, idx, 1023);
-		if (ret <= 0)
-			break;
-		buf[ret] = 0;
-		debug_puts(state, buf);
-		idx += ret;
-	}
-	oops_in_progress = saved_oip;
 }
 
 static char *mode_name(unsigned cpsr)
@@ -503,6 +479,21 @@ static void do_ps(struct fiq_debugger_state *state)
 	read_unlock(&tasklist_lock);
 }
 
+static void dump_kernel_log(struct fiq_debugger_state *state)
+{
+#ifdef CONFIG_PRINTK
+	char buf[512];
+	struct kmsg_dumper dumper = { .active = 1 };
+	size_t len;
+
+	kmsg_dump_rewind_nolock(&dumper);
+	while (kmsg_dump_get_line_nolock(&dumper, 1, buf, sizeof(buf), &len))
+		debug_printf(state, "%.*s\n", (int)len - 1, buf);
+#else
+	debug_puts("Unavailable without CONFIG_PRINTK.\n");
+#endif /* CONFIG_PRINTK */
+}
+
 #ifdef CONFIG_FIQ_DEBUGGER_CONSOLE
 static void begin_syslog_dump(struct fiq_debugger_state *state)
 {
@@ -522,18 +513,7 @@ static void begin_syslog_dump(struct fiq_debugger_state *state)
 
 static void end_syslog_dump(struct fiq_debugger_state *state)
 {
-	char buf[128];
-	int ret;
-	int idx = 0;
-
-	while (1) {
-		ret = log_buf_copy(buf, idx, sizeof(buf) - 1);
-		if (ret <= 0)
-			break;
-		buf[ret] = 0;
-		debug_printf(state, "%s", buf);
-		idx += ret;
-	}
+	dump_kernel_log(state);
 }
 #endif
 
