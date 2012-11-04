@@ -22,6 +22,7 @@
 #include <asm/kvm.h>
 #include <asm/kvm_asm.h>
 #include <asm/fpstate.h>
+#include <asm/kvm_decode.h>
 #include <asm/kvm_vgic.h>
 #include <asm/kvm_arch_timer.h>
 
@@ -76,13 +77,6 @@ struct kvm_arch {
 struct kvm_mmu_memory_cache {
 	int nobjs;
 	void *objects[KVM_NR_MEM_OBJS];
-};
-
-struct kvm_decode {
-	struct pt_regs *regs;
-	unsigned long hxfar;
-	unsigned long rt;	/* destination register for loads */
-	bool sign_extend;	/* for byte/halfword loads */
 };
 
 struct kvm_vcpu_arch {

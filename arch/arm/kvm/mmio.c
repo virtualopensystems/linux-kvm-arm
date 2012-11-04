@@ -18,6 +18,7 @@
 
 #include <asm/kvm_mmio.h>
 #include <asm/kvm_emulate.h>
+#include <asm/kvm_decode.h>
 #include <trace/events/kvm.h>
 
 #include "trace.h"
@@ -129,13 +130,15 @@ int io_mem_abort(struct kvm_vcpu *vcpu, struct kvm_run *run,
 	 * space do its magic.
 	 */
 
-	if (vcpu->arch.hsr & HSR_ISV)
+	if (vcpu->arch.hsr & HSR_ISV) {
 		ret = decode_hsr(vcpu, fault_ipa, &mmio);
-	else
+		if (ret)
+			return ret;
+	} else {
 		ret = kvm_emulate_mmio_ls(vcpu, fault_ipa, &mmio);
-
-	if (ret != 0)
-		return ret;
+		if (ret)
+			return ret;
+	}
 
 	rt = vcpu->arch.mmio_decode.rt;
 	trace_kvm_mmio((mmio.is_write) ? KVM_TRACE_MMIO_WRITE :
