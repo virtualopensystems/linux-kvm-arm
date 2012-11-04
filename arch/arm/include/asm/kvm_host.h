@@ -78,6 +78,13 @@ struct kvm_mmu_memory_cache {
 	void *objects[KVM_NR_MEM_OBJS];
 };
 
+struct kvm_decode {
+	struct pt_regs *regs;
+	unsigned long hxfar;
+	unsigned long rt;	/* destination register for loads */
+	bool sign_extend;	/* for byte/halfword loads */
+};
+
 struct kvm_vcpu_arch {
 	struct kvm_regs regs;
 
@@ -115,10 +122,7 @@ struct kvm_vcpu_arch {
 	bool pause;
 
 	/* IO related fields */
-	struct {
-		bool sign_extend;	/* for byte/halfword loads */
-		u32  rd;
-	} mmio;
+	struct kvm_decode mmio_decode;
 
 	/* Interrupt related fields */
 	u32 irq_lines;		/* IRQ and FIQ levels */

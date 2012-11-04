@@ -304,7 +304,7 @@ struct arm_instr {
 	bool sign_extend;
 	bool w;
 
-	bool (*decode)(struct kvm_vcpu *vcpu, struct kvm_exit_mmio *mmio,
+	bool (*decode)(struct kvm_decode *decode, struct kvm_exit_mmio *mmio,
 		       unsigned long instr, struct arm_instr *ai);
 };
 
@@ -380,7 +380,7 @@ u32 shift(u32 value, u8 N, enum SRType type, u8 amount, bool carry_in)
 	return value & mask;
 }
 
-static bool decode_arm_wb(struct kvm_vcpu *vcpu, struct kvm_exit_mmio *mmio,
+static bool decode_arm_wb(struct kvm_decode *decode, struct kvm_exit_mmio *mmio,
 			  unsigned long instr, const struct arm_instr *ai)
 {
 	u8 Rt = (instr >> 12) & 0xf;
@@ -388,7 +388,7 @@ static bool decode_arm_wb(struct kvm_vcpu *vcpu, struct kvm_exit_mmio *mmio,
 	u8 W = (instr >> 21) & 1;
 	u8 U = (instr >> 23) & 1;
 	u8 P = (instr >> 24) & 1;
-	u32 base_addr = *vcpu_reg(vcpu, Rn);
+	u32 base_addr = decode->regs->uregs[Rn];
 	u32 offset_addr, offset;
 
 	/*
@@ -403,14 +403,14 @@ static bool decode_arm_wb(struct kvm_vcpu *vcpu, struct kvm_exit_mmio *mmio,
 		return false;
 	}
 
-	vcpu->arch.mmio.rd = Rt;
+	decode->rt = Rt;
 
 	if (ai->register_form) {
 		/* Register operation */
 		enum SRType s_type;
 		u8 shift_n;
-		bool c_bit = *vcpu_cpsr(vcpu) & PSR_C_BIT;
-		u32 s_reg = *vcpu_reg(vcpu, ai->Rm);
+		bool c_bit = decode->regs->ARM_cpsr & PSR_C_BIT;
+		u32 s_reg = decode->regs->uregs[ai->Rm];
 
 		s_type = decode_imm_shift(ai->type, ai->shift_n, &shift_n);
 		offset = shift(s_reg, 5, s_type, shift_n, c_bit);
@@ -424,18 +424,18 @@ static bool decode_arm_wb(struct kvm_vcpu *vcpu, struct kvm_exit_mmio *mmio,
 		offset_addr = base_addr + offset;
 	else
 		offset_addr = base_addr - offset;
-	*vcpu_reg(vcpu, Rn) = offset_addr;
+	decode->regs->uregs[Rn] = offset_addr;
 	return true;
 }
 
-static bool decode_arm_ls(struct kvm_vcpu *vcpu, struct kvm_exit_mmio *mmio,
+static bool decode_arm_ls(struct kvm_decode *decode, struct kvm_exit_mmio *mmio,
 			  unsigned long instr, struct arm_instr *ai)
 {
 	u8 A = (instr >> 25) & 1;
 
 	mmio->is_write = ai->w;
 	mmio->len = ai->len;
-	vcpu->arch.mmio.sign_extend = false;
+	decode->sign_extend = false;
 
 	ai->register_form = A;
 	ai->imm = instr & 0xfff;
@@ -443,15 +443,16 @@ static bool decode_arm_ls(struct kvm_vcpu *vcpu, struct kvm_exit_mmio *mmio,
 	ai->type = (instr >> 5) & 0x3;
 	ai->shift_n = (instr >> 7) & 0x1f;
 
-	return decode_arm_wb(vcpu, mmio, instr, ai);
+	return decode_arm_wb(decode, mmio, instr, ai);
 }
 
-static bool decode_arm_extra(struct kvm_vcpu *vcpu, struct kvm_exit_mmio *mmio,
+static bool decode_arm_extra(struct kvm_decode *decode,
+			     struct kvm_exit_mmio *mmio,
 			     unsigned long instr, struct arm_instr *ai)
 {
 	mmio->is_write = ai->w;
 	mmio->len = ai->len;
-	vcpu->arch.mmio.sign_extend = ai->sign_extend;
+	decode->sign_extend = ai->sign_extend;
 
 	ai->register_form = !((instr >> 22) & 1);
 	ai->imm = ((instr >> 4) & 0xf0) | (instr & 0xf);
@@ -459,7 +460,7 @@ static bool decode_arm_extra(struct kvm_vcpu *vcpu, struct kvm_exit_mmio *mmio,
 	ai->type = 0; /* SRType_LSL */
 	ai->shift_n = 0;
 
-	return decode_arm_wb(vcpu, mmio, instr, ai);
+	return decode_arm_wb(decode, mmio, instr, ai);
 }
 
 /*
@@ -526,7 +527,7 @@ static const struct arm_instr arm_instr[] = {
 		.sign_extend = true , .decode = decode_arm_extra },
 };
 
-static bool kvm_decode_arm_ls(struct kvm_vcpu *vcpu, unsigned long instr,
+static bool kvm_decode_arm_ls(struct kvm_decode *decode, unsigned long instr,
 			      struct kvm_exit_mmio *mmio)
 {
 	int i;
@@ -535,7 +536,7 @@ static bool kvm_decode_arm_ls(struct kvm_vcpu *vcpu, unsigned long instr,
 		const struct arm_instr *ai = &arm_instr[i];
 		if ((instr & ai->opc_mask) == ai->opc) {
 			struct arm_instr ai_copy = *ai;
-			return ai->decode(vcpu, mmio, instr, &ai_copy);
+			return ai->decode(decode, mmio, instr, &ai_copy);
 		}
 	}
 	return false;
@@ -557,40 +558,42 @@ struct thumb_instr {
 		} t32;
 	};
 
-	bool (*decode)(struct kvm_vcpu *vcpu, struct kvm_exit_mmio *mmio,
+	bool (*decode)(struct kvm_decode *decode, struct kvm_exit_mmio *mmio,
 		       unsigned long instr, const struct thumb_instr *ti);
 };
 
-static bool decode_thumb_wb(struct kvm_vcpu *vcpu, struct kvm_exit_mmio *mmio,
+static bool decode_thumb_wb(struct kvm_decode *decode,
+			    struct kvm_exit_mmio *mmio,
 			    unsigned long instr)
 {
 	bool P = (instr >> 10) & 1;
 	bool U = (instr >> 9) & 1;
 	u8 imm8 = instr & 0xff;
-	u32 offset_addr = vcpu->arch.hxfar;
+	u32 offset_addr = decode->hxfar;
 	u8 Rn = (instr >> 16) & 0xf;
 
-	vcpu->arch.mmio.rd = (instr >> 12) & 0xf;
+	decode->rt = (instr >> 12) & 0xf;
 
-	if (kvm_vcpu_reg_is_pc(vcpu, Rn))
+	if (Rn == 15)
 		return false;
 
 	/* Handle Writeback */
 	if (!P && U)
-		*vcpu_reg(vcpu, Rn) = offset_addr + imm8;
+		decode->regs->uregs[Rn] = offset_addr + imm8;
 	else if (!P && !U)
-		*vcpu_reg(vcpu, Rn) = offset_addr - imm8;
+		decode->regs->uregs[Rn] = offset_addr - imm8;
 	return true;
 }
 
-static bool decode_thumb_str(struct kvm_vcpu *vcpu, struct kvm_exit_mmio *mmio,
+static bool decode_thumb_str(struct kvm_decode *decode,
+			     struct kvm_exit_mmio *mmio,
 			     unsigned long instr, const struct thumb_instr *ti)
 {
 	u8 op1 = (instr >> (16 + 5)) & 0x7;
 	u8 op2 = (instr >> 6) & 0x3f;
 
 	mmio->is_write = true;
-	vcpu->arch.mmio.sign_extend = false;
+	decode->sign_extend = false;
 
 	switch (op1) {
 	case 0x0: mmio->len = 1; break;
@@ -602,13 +605,14 @@ static bool decode_thumb_str(struct kvm_vcpu *vcpu, struct kvm_exit_mmio *mmio,
 
 	if ((op2 & 0x24) == 0x24) {
 		/* STRB (immediate, thumb, W=1) */
-		return decode_thumb_wb(vcpu, mmio, instr);
+		return decode_thumb_wb(decode, mmio, instr);
 	}
 
 	return false;
 }
 
-static bool decode_thumb_ldr(struct kvm_vcpu *vcpu, struct kvm_exit_mmio *mmio,
+static bool decode_thumb_ldr(struct kvm_decode *decode,
+			     struct kvm_exit_mmio *mmio,
 			     unsigned long instr, const struct thumb_instr *ti)
 {
 	u8 op1 = (instr >> (16 + 7)) & 0x3;
@@ -623,15 +627,15 @@ static bool decode_thumb_ldr(struct kvm_vcpu *vcpu, struct kvm_exit_mmio *mmio,
 	}
 
 	if (op1 == 0x0)
-		vcpu->arch.mmio.sign_extend = false;
+		decode->sign_extend = false;
 	else if (op1 == 0x2 && (ti->t32.op2 & 0x7) != 0x5)
-		vcpu->arch.mmio.sign_extend = true;
+		decode->sign_extend = true;
 	else
 		return false; /* Only register write-back versions! */
 
 	if ((op2 & 0x24) == 0x24) {
 		/* LDR{S}X (immediate, thumb, W=1) */
-		return decode_thumb_wb(vcpu, mmio, instr);
+		return decode_thumb_wb(decode, mmio, instr);
 	}
 
 	return false;
@@ -663,7 +667,7 @@ static const struct thumb_instr thumb_instr[] = {
 
 
 
-static bool kvm_decode_thumb_ls(struct kvm_vcpu *vcpu, unsigned long instr,
+static bool kvm_decode_thumb_ls(struct kvm_decode *decode, unsigned long instr,
 				struct kvm_exit_mmio *mmio)
 {
 	bool is32 = is_wide_instruction(instr);
@@ -693,7 +697,7 @@ static bool kvm_decode_thumb_ls(struct kvm_vcpu *vcpu, unsigned long instr,
 				continue;
 		}
 
-		return ti->decode(vcpu, mmio, instr, &tinstr);
+		return ti->decode(decode, mmio, instr, &tinstr);
 	}
 
 	return false;
@@ -720,6 +724,8 @@ int kvm_emulate_mmio_ls(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
 {
 	bool is_thumb;
 	unsigned long instr = 0;
+	struct pt_regs current_regs;
+	struct kvm_decode *decode = &vcpu->arch.mmio_decode;
 
 	trace_kvm_mmio_emulate(*vcpu_pc(vcpu), instr, *vcpu_cpsr(vcpu));
 
@@ -728,20 +734,32 @@ int kvm_emulate_mmio_ls(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
 		return 1;
 
 	mmio->phys_addr = fault_ipa;
+
+	memcpy(&current_regs, &vcpu->arch.regs.usr_regs, sizeof(current_regs));
+	current_regs.ARM_sp = *vcpu_reg(vcpu, 13);
+	current_regs.ARM_lr = *vcpu_reg(vcpu, 14);
+
+	decode->regs = &current_regs;
+	decode->hxfar = vcpu->arch.hxfar;
+
 	is_thumb = !!(*vcpu_cpsr(vcpu) & PSR_T_BIT);
-	if (!is_thumb && !kvm_decode_arm_ls(vcpu, instr, mmio)) {
+	if (!is_thumb && !kvm_decode_arm_ls(decode, instr, mmio)) {
 		kvm_debug("Unable to decode inst: %#08lx (cpsr: %#08x (T=0)"
 			  "pc: %#08x)\n",
 			  instr, *vcpu_cpsr(vcpu), *vcpu_pc(vcpu));
 		kvm_inject_dabt(vcpu, vcpu->arch.hxfar);
 		return 1;
-	} else if (is_thumb && !kvm_decode_thumb_ls(vcpu, instr, mmio)) {
+	} else if (is_thumb && !kvm_decode_thumb_ls(decode, instr, mmio)) {
 		kvm_debug("Unable to decode inst: %#08lx (cpsr: %#08x (T=1)"
 			  "pc: %#08x)\n",
 			  instr, *vcpu_cpsr(vcpu), *vcpu_pc(vcpu));
 		kvm_inject_dabt(vcpu, vcpu->arch.hxfar);
 		return 1;
 	}
+
+	memcpy(&vcpu->arch.regs.usr_regs, &current_regs, sizeof(current_regs));
+	*vcpu_reg(vcpu, 13) = current_regs.ARM_sp;
+	*vcpu_reg(vcpu, 14) = current_regs.ARM_lr;
 
 	/*
 	 * The MMIO instruction is emulated and should not be re-executed

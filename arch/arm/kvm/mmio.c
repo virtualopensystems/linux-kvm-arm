@@ -37,7 +37,7 @@ int kvm_handle_mmio_return(struct kvm_vcpu *vcpu, struct kvm_run *run)
 	int mask;
 
 	if (!run->mmio.is_write) {
-		dest = vcpu_reg(vcpu, vcpu->arch.mmio.rd);
+		dest = vcpu_reg(vcpu, vcpu->arch.mmio_decode.rt);
 		memset(dest, 0, sizeof(int));
 
 		len = run->mmio.len;
@@ -49,7 +49,7 @@ int kvm_handle_mmio_return(struct kvm_vcpu *vcpu, struct kvm_run *run)
 		trace_kvm_mmio(KVM_TRACE_MMIO_READ, len, run->mmio.phys_addr,
 				*((u64 *)run->mmio.data));
 
-		if (vcpu->arch.mmio.sign_extend && len < 4) {
+		if (vcpu->arch.mmio_decode.sign_extend && len < 4) {
 			mask = 1U << ((len * 8) - 1);
 			*dest = (*dest ^ mask) - mask;
 		}
@@ -61,7 +61,7 @@ int kvm_handle_mmio_return(struct kvm_vcpu *vcpu, struct kvm_run *run)
 static int decode_hsr(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
 		      struct kvm_exit_mmio *mmio)
 {
-	unsigned long rd, len;
+	unsigned long rt, len;
 	bool is_write, sign_extend;
 
 	if ((vcpu->arch.hsr >> 8) & 1) {
@@ -93,9 +93,9 @@ static int decode_hsr(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
 
 	is_write = vcpu->arch.hsr & HSR_WNR;
 	sign_extend = vcpu->arch.hsr & HSR_SSE;
-	rd = (vcpu->arch.hsr & HSR_SRT_MASK) >> HSR_SRT_SHIFT;
+	rt = (vcpu->arch.hsr & HSR_SRT_MASK) >> HSR_SRT_SHIFT;
 
-	if (kvm_vcpu_reg_is_pc(vcpu, rd)) {
+	if (kvm_vcpu_reg_is_pc(vcpu, rt)) {
 		/* IO memory trying to read/write pc */
 		kvm_inject_pabt(vcpu, vcpu->arch.hxfar);
 		return 1;
@@ -104,8 +104,8 @@ static int decode_hsr(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
 	mmio->is_write = is_write;
 	mmio->phys_addr = fault_ipa;
 	mmio->len = len;
-	vcpu->arch.mmio.sign_extend = sign_extend;
-	vcpu->arch.mmio.rd = rd;
+	vcpu->arch.mmio_decode.sign_extend = sign_extend;
+	vcpu->arch.mmio_decode.rt = rt;
 
 	/*
 	 * The MMIO instruction is emulated and should not be re-executed
@@ -119,7 +119,7 @@ int io_mem_abort(struct kvm_vcpu *vcpu, struct kvm_run *run,
 		 phys_addr_t fault_ipa, struct kvm_memory_slot *memslot)
 {
 	struct kvm_exit_mmio mmio;
-	unsigned long rd;
+	unsigned long rt;
 	int ret;
 
 	/*
@@ -137,14 +137,14 @@ int io_mem_abort(struct kvm_vcpu *vcpu, struct kvm_run *run,
 	if (ret != 0)
 		return ret;
 
-	rd = vcpu->arch.mmio.rd;
+	rt = vcpu->arch.mmio_decode.rt;
 	trace_kvm_mmio((mmio.is_write) ? KVM_TRACE_MMIO_WRITE :
 					 KVM_TRACE_MMIO_READ_UNSATISFIED,
 			mmio.len, fault_ipa,
-			(mmio.is_write) ? *vcpu_reg(vcpu, rd) : 0);
+			(mmio.is_write) ? *vcpu_reg(vcpu, rt) : 0);
 
 	if (mmio.is_write)
-		memcpy(mmio.data, vcpu_reg(vcpu, rd), mmio.len);
+		memcpy(mmio.data, vcpu_reg(vcpu, rt), mmio.len);
 
 	if (vgic_handle_mmio(vcpu, run, &mmio))
 		return 1;
