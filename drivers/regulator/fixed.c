@@ -53,6 +53,7 @@ of_get_fixed_voltage_config(struct device *dev)
 	struct device_node *np = dev->of_node;
 	const __be32 *delay;
 	struct regulator_init_data *init_data;
+	const char *vin_name;
 
 	config = devm_kzalloc(dev, sizeof(struct fixed_voltage_config),
 								 GFP_KERNEL);
@@ -102,8 +103,9 @@ of_get_fixed_voltage_config(struct device *dev)
 	if (of_find_property(np, "gpio-open-drain", NULL))
 		config->gpio_is_open_drain = true;
 
-	if (of_find_property(np, "vin-supply", NULL))
-		config->input_supply = "vin";
+	vin_name = of_get_property(np, "vin-supply", NULL);
+	if (vin_name)
+		config->input_supply = vin_name;
 
 	return config;
 }
