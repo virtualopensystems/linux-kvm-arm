@@ -147,7 +147,9 @@ static struct usbhs_omap_platform_data usbhs_bdata __initdata = {
 	.phy_reset  = false,
 	.reset_gpio_port[0]  = -EINVAL,
 	.reset_gpio_port[1]  = -EINVAL,
-	.reset_gpio_port[2]  = -EINVAL
+	.reset_gpio_port[2]  = -EINVAL,
+	.clk[0] = "auxclk3_ck", /* FREF_CLK3 provides 19.2 MHz clock to PHY */
+	.clkrate[0] = 19200000,
 };
 
 static struct gpio panda_ehci_gpios[] __initdata = {
@@ -158,16 +160,6 @@ static struct gpio panda_ehci_gpios[] __initdata = {
 static void __init omap4_ehci_init(void)
 {
 	int ret;
-	struct clk *phy_ref_clk;
-
-	/* FREF_CLK3 provides the 19.2 MHz reference clock to the PHY */
-	phy_ref_clk = clk_get(NULL, "auxclk3_ck");
-	if (IS_ERR(phy_ref_clk)) {
-		pr_err("Cannot request auxclk3\n");
-		return;
-	}
-	clk_set_rate(phy_ref_clk, 19200000);
-	clk_prepare_enable(phy_ref_clk);
 
 	/* disable the power to the usb hub prior to init and reset phy+hub */
 	ret = gpio_request_array(panda_ehci_gpios,
