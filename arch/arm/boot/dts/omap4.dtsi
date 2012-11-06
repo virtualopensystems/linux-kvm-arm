@@ -529,5 +529,10 @@
 			ti,hwmods = "timer11";
 			ti,timer-pwm;
 		};
+
+		usbhost: usb-host {
+			compatible = "ti,usb-host";
+			num_ports = <2>;
+		};
 	};
 };
