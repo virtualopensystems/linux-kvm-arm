@@ -49,6 +49,8 @@ static void __init omap_generic_init(void)
 		omap4_panda_display_init_of();
 	else if (of_machine_is_compatible("ti,omap4-sdp"))
 		omap_4430sdp_display_init_of();
+
+	usbhost_init_of();
 }
 
 #ifdef CONFIG_SOC_OMAP2420

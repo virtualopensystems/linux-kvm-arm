@@ -1,0 +1,60 @@
+* usb-host - OMAP USB Host Subsystem
+
+The OMAP USB host subsystem consists of the following modules
+1) USBTLL (Tranceiverless interface)
+2) USBHOST (Host Controller module) which includes both EHCI and OHCI controllers
+
+THe USB Host subsystem can be connected to the external world using 3 PORTs that could
+be configured in various modes like  UTMI+ for external PHY, ULPI transceiverless link (TLL),
+Serial TLL, High-speed interchip (HSIC), etc.
+
+Required proprties:
+- compatible: Must be "ti,usb-host";
+- num_ports: Number of physical ports available
+
+Optional properties:
+- 1 child node for each available port.  These child nodes are usually supplied by the
+  board support device tree as they are specific to how the ports are wired on the board
+
+  - mode: Integer specifying the mode in which the port is used
+	* OMAP_USBHS_PORT_MODE_UNUSED		= 0,
+	* OMAP_EHCI_PORT_MODE_PHY		= 1,
+	* OMAP_EHCI_PORT_MODE_TLL		= 2,
+	* OMAP_EHCI_PORT_MODE_HSIC		= 3,
+	* OMAP_OHCI_PORT_MODE_PHY_6PIN_DATSE0 	= 4,
+	* OMAP_OHCI_PORT_MODE_PHY_6PIN_DPDM 	= 5,
+	* OMAP_OHCI_PORT_MODE_PHY_3PIN_DATSE0	= 6,
+	* OMAP_OHCI_PORT_MODE_PHY_4PIN_DPDM	= 7,
+	* OMAP_OHCI_PORT_MODE_TLL_6PIN_DATSE0	= 8,
+	* OMAP_OHCI_PORT_MODE_TLL_6PIN_DPDM	= 9,
+	* OMAP_OHCI_PORT_MODE_TLL_3PIN_DATSE0	= 10,
+	* OMAP_OHCI_PORT_MODE_TLL_4PIN_DPDM	= 11,
+	* OMAP_OHCI_PORT_MODE_TLL_2PIN_DATSE0	= 12,
+	* OMAP_OHCI_PORT_MODE_TLL_2PIN_DPDM	= 13,
+   - clk: Name of the clock that needs to be active when using the port
+   - clkrate: Frequency at which the above clk needs to be run at
+
+
+Example:
+
+/* In the OMAP Core tree */
+usbhost: usb-host {
+	compatible = "ti,usb-host";
+	num_ports = <3>;
+};
+
+/* In the Board tree */
+&usbhost {
+	port@0 {
+		mode = <1>;
+		clk = "auxclk3_ck";
+		clkrate = <19200000>;
+	};
+	port@1 {
+		mode = <0>;
+	};
+	port@2 {
+		mode = <0>;
+	};
+};
+
