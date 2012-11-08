@@ -35,6 +35,10 @@
  *       state for this trip point
  *    b. if the trend is THERMAL_TREND_DROPPING, use lower cooling
  *       state for this trip point
+ *    c. if the trend is THERMAL_TREND_RAISE_FULL, use highest cooling
+ *       state for this trip point
+ *    d. if the trend is THERMAL_TREND_DROP_FULL, use lowest cooling
+ *       state for this trip point
  */
 static unsigned long get_target_state(struct thermal_instance *instance,
 					enum thermal_trend trend)
@@ -50,7 +54,10 @@ static unsigned long get_target_state(struct thermal_instance *instance,
 	} else if (trend == THERMAL_TREND_DROPPING) {
 		cur_state = cur_state > instance->lower ?
 			    (cur_state - 1) : instance->lower;
-	}
+	} else if (trend == THERMAL_TREND_RAISE_FULL)
+		cur_state = instance->upper;
+	else if (trend == THERMAL_TREND_DROP_FULL)
+		cur_state = instance->lower;
 
 	return cur_state;
 }
@@ -87,7 +94,8 @@ static void update_instance_for_throttle(struct thermal_zone_device *tz,
 }
 
 static void update_instance_for_dethrottle(struct thermal_zone_device *tz,
-				int trip, enum thermal_trip_type trip_type)
+				int trip, enum thermal_trip_type trip_type,
+				enum thermal_trend trend)
 {
 	struct thermal_instance *instance;
 	struct thermal_cooling_device *cdev;
@@ -101,7 +109,10 @@ static void update_instance_for_dethrottle(struct thermal_zone_device *tz,
 		cdev = instance->cdev;
 		cdev->ops->get_cur_state(cdev, &cur_state);
 
-		instance->target = cur_state > instance->lower ?
+		if (trend == THERMAL_TREND_DROP_FULL)
+			instance->target = instance->lower;
+		else
+			instance->target = cur_state > instance->lower ?
 			    (cur_state - 1) : THERMAL_NO_TARGET;
 
 		/* Deactivate a passive thermal instance */
@@ -133,7 +144,7 @@ static void thermal_zone_trip_update(struct thermal_zone_device *tz, int trip)
 	if (tz->temperature >= trip_temp)
 		update_instance_for_throttle(tz, trip, trip_type, trend);
 	else
-		update_instance_for_dethrottle(tz, trip, trip_type);
+		update_instance_for_dethrottle(tz, trip, trip_type, trend);
 
 	mutex_unlock(&tz->lock);
 }
