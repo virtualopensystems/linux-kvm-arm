@@ -566,7 +566,7 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
 	coherent_icache_guest_page(vcpu->kvm, gfn);
 
 	spin_lock(&vcpu->kvm->mmu_lock);
-	if (mmu_notifier_retry(vcpu, mmu_seq))
+	if (mmu_notifier_retry(vcpu->kvm, mmu_seq))
 		goto out_unlock;
 	if (writable) {
 		pte_val(new_pte) |= L_PTE_S2_RDWR;

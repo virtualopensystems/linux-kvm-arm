@@ -635,7 +635,7 @@ int kvm_set_cr3(struct kvm_vcpu *vcpu, unsigned long cr3)
 	}
 
 	if (is_long_mode(vcpu)) {
-		if (kvm_read_cr4(vcpu) & X86_CR4_PCIDE) {
+		if (kvm_read_cr4_bits(vcpu, X86_CR4_PCIDE)) {
 			if (cr3 & CR3_PCID_ENABLED_RESERVED_BITS)
 				return 1;
 		} else
@@ -4497,7 +4497,7 @@ static bool reexecute_instruction(struct kvm_vcpu *vcpu, gva_t gva)
 	 * instruction -> ...
 	 */
 	pfn = gfn_to_pfn(vcpu->kvm, gpa_to_gfn(gpa));
-	if (!is_error_pfn(pfn)) {
+	if (!is_error_noslot_pfn(pfn)) {
 		kvm_release_pfn_clean(pfn);
 		return true;
 	}

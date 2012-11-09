@@ -47,28 +47,40 @@
 
 /*
  * For the normal pfn, the highest 12 bits should be zero,
- * so we can mask these bits to indicate the error.
+ * so we can mask bit 62 ~ bit 52  to indicate the error pfn,
+ * mask bit 63 to indicate the noslot pfn.
  */
-#define KVM_PFN_ERR_MASK	(0xfffULL << 52)
+#define KVM_PFN_ERR_MASK	(0x7ffULL << 52)
+#define KVM_PFN_ERR_NOSLOT_MASK	(0xfffULL << 52)
+#define KVM_PFN_NOSLOT		(0x1ULL << 63)
 
 #define KVM_PFN_ERR_FAULT	(KVM_PFN_ERR_MASK)
 #define KVM_PFN_ERR_HWPOISON	(KVM_PFN_ERR_MASK + 1)
-#define KVM_PFN_ERR_BAD		(KVM_PFN_ERR_MASK + 2)
-#define KVM_PFN_ERR_RO_FAULT	(KVM_PFN_ERR_MASK + 3)
+#define KVM_PFN_ERR_RO_FAULT	(KVM_PFN_ERR_MASK + 2)
 
+/*
+ * error pfns indicate that the gfn is in slot but faild to
+ * translate it to pfn on host.
+ */
 static inline bool is_error_pfn(pfn_t pfn)
 {
 	return !!(pfn & KVM_PFN_ERR_MASK);
 }
 
-static inline bool is_noslot_pfn(pfn_t pfn)
+/*
+ * error_noslot pfns indicate that the gfn can not be
+ * translated to pfn - it is not in slot or failed to
+ * translate it to pfn.
+ */
+static inline bool is_error_noslot_pfn(pfn_t pfn)
 {
-	return pfn == KVM_PFN_ERR_BAD;
+	return !!(pfn & KVM_PFN_ERR_NOSLOT_MASK);
 }
 
-static inline bool is_invalid_pfn(pfn_t pfn)
+/* noslot pfn indicates that the gfn is not in slot. */
+static inline bool is_noslot_pfn(pfn_t pfn)
 {
-	return !is_noslot_pfn(pfn) && is_error_pfn(pfn);
+	return pfn == KVM_PFN_NOSLOT;
 }
 
 #define KVM_HVA_ERR_BAD		(PAGE_OFFSET)
@@ -830,9 +842,9 @@ extern struct kvm_stats_debugfs_item debugfs_entries[];
 extern struct dentry *kvm_debugfs_dir;
 
 #if defined(CONFIG_MMU_NOTIFIER) && defined(KVM_ARCH_WANT_MMU_NOTIFIER)
-static inline int mmu_notifier_retry(struct kvm_vcpu *vcpu, unsigned long mmu_seq)
+static inline int mmu_notifier_retry(struct kvm *kvm, unsigned long mmu_seq)
 {
-	if (unlikely(vcpu->kvm->mmu_notifier_count))
+	if (unlikely(kvm->mmu_notifier_count))
 		return 1;
 	/*
 	 * Ensure the read of mmu_notifier_count happens before the read
@@ -845,7 +857,7 @@ static inline int mmu_notifier_retry(struct kvm_vcpu *vcpu, unsigned long mmu_se
 	 * can't rely on kvm->mmu_lock to keep things ordered.
 	 */
 	smp_rmb();
-	if (vcpu->kvm->mmu_notifier_seq != mmu_seq)
+	if (kvm->mmu_notifier_seq != mmu_seq)
 		return 1;
 	return 0;
 }

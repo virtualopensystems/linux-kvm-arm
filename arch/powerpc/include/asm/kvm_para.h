@@ -21,7 +21,6 @@
 
 #include <uapi/asm/kvm_para.h>
 
-
 #ifdef CONFIG_KVM_GUEST
 
 #include <linux/of.h>
