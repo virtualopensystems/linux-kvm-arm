@@ -33,7 +33,13 @@ __kvm_hyp_code_start:
 /********************************************************************
  * Flush per-VMID TLBs
  */
+ENTRY(__kvm_tlb_flush_vmid)
+	bx	lr
+ENDPROC(__kvm_tlb_flush_vmid)
 
+/********************************************************************
+ * Flush TLBs and instruction caches of current CPU for all VMIDs
+ */
 ENTRY(__kvm_flush_vm_context)
 	bx	lr
 ENDPROC(__kvm_flush_vm_context)
@@ -41,8 +47,10 @@ ENDPROC(__kvm_flush_vm_context)
 /********************************************************************
  *  Hypervisor world-switch code
  */
-
 ENTRY(__kvm_vcpu_run)
+	bx	lr
+
+ENTRY(kvm_call_hyp)
 	bx	lr
 
 

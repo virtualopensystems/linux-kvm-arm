@@ -36,6 +36,7 @@ config KVM_ARM_HOST
 	depends on KVM
 	depends on MMU
 	depends on CPU_V7 && ARM_VIRT_EXT
+	select	MMU_NOTIFIER
 	---help---
 	  Provides host support for ARM processors.
 
