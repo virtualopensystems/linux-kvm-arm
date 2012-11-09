@@ -27,6 +27,7 @@
 
 #include "omap_device.h"
 #include "omap_hwmod.h"
+#include "soc.h"
 
 #if defined(CONFIG_DRM_OMAP) || (CONFIG_DRM_OMAP_MODULE)
 
@@ -56,7 +57,7 @@ static int __init omap_init_drm(void)
 			oh->name);
 	}
 
-	platform_data.omaprev = GET_OMAP_REVISION();
+	platform_data.omaprev = GET_OMAP_TYPE;
 
 	return platform_device_register(&omap_drm_device);
 
