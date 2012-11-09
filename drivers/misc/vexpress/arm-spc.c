@@ -21,7 +21,8 @@
 #include <linux/io.h>
 #include <linux/interrupt.h>
 #include <linux/module.h>
-#include <linux/platform_device.h>
+#include <linux/of_address.h>
+#include <linux/of_irq.h>
 #include <linux/slab.h>
 #include <linux/semaphore.h>
 #include <linux/vexpress.h>
@@ -525,60 +526,46 @@ irqreturn_t vexpress_spc_irq_handler(int irq, void *data)
 	return IRQ_HANDLED;
 }
 
-static int __devinit vexpress_spc_driver_probe(struct platform_device *pdev)
+static int __init vexpress_spc_early_init(void)
 {
-	struct resource *res, *irq_res;
-	int ret = 0;
+	struct device_node *node = of_find_compatible_node(NULL, NULL,
+							"arm,spc");
 
 	info = kzalloc(sizeof(*info), GFP_KERNEL);
 	if (!info) {
-		dev_err(&pdev->dev, "unable to allocate mem\n");
+		pr_err("%s: unable to allocate mem\n", __func__);
 		return -ENOMEM;
 	}
 
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	if (!res) {
-		dev_err(&pdev->dev, "No memory resource\n");
-		ret = -EINVAL;
-		goto mem_free;
+	if (node)
+		info->baseaddr = of_iomap(node, 0);
+
+	if (WARN_ON(!info->baseaddr)) {
+		kfree(info);
+		return -EIO;
 	}
 
-	if (!request_mem_region(res->start, resource_size(res),
-				dev_name(&pdev->dev))) {
-		dev_err(&pdev->dev, "address 0x%x in use\n", (u32) res->start);
-		ret = -EBUSY;
-		goto mem_free;
-	}
-
-	info->baseaddr = ioremap(res->start, resource_size(res));
-	if (!info->baseaddr) {
-		ret = -ENXIO;
-		goto ioremap_err;
-	}
 	vscc = (u32) info->baseaddr;
 	sema_init(&info->lock, 1);
 
-	irq_res = platform_get_resource(pdev, IORESOURCE_IRQ, 0);
-	if (!irq_res) {
-		dev_err(&pdev->dev, "No interrupt resource\n");
-		ret = -EINVAL;
-		goto irq_err;
-	}
-	info->irq = irq_res->start;
+	info->irq = irq_of_parse_and_map(node, 0);
 
-	init_completion(&info->done);
+	if (info->irq) {
+		int ret;
 
-	readl_relaxed(info->baseaddr + PWC_STATUS);
+		init_completion(&info->done);
 
-	ret = request_irq(info->irq, vexpress_spc_irq_handler,
+		readl_relaxed(info->baseaddr + PWC_STATUS);
+
+		ret = request_irq(info->irq, vexpress_spc_irq_handler,
 			IRQF_DISABLED | IRQF_TRIGGER_HIGH | IRQF_ONESHOT, "arm-spc", info);
-	if (ret) {
-		dev_err(&pdev->dev, "IRQ %d request failed \n", info->irq);
-		ret = -ENODEV;
-		goto irq_err;
+		if (ret) {
+			pr_err("IRQ %d request failed \n", info->irq);
+			iounmap(info->baseaddr);
+			kfree(info);
+			return -ENODEV;
+		}
 	}
-
-	platform_set_drvdata(pdev, info);
 
 	/*
 	 * Multi-cluster systems may need this data when non-coherent, during
@@ -589,58 +576,10 @@ static int __devinit vexpress_spc_driver_probe(struct platform_device *pdev)
 
 	pr_info("vexpress_spc loaded at %p\n", info->baseaddr);
 	vexpress_spc_loaded = true;
-	return ret;
-
-irq_err:
-	iounmap(info->baseaddr);
-ioremap_err:
-	release_region(res->start, resource_size(res));
-mem_free:
-	kfree(info);
-
-	return ret;
-}
-
-static int __devexit vexpress_spc_driver_remove(struct platform_device *pdev)
-{
-	struct vexpress_spc_drvdata *info;
-	struct resource *res = pdev->resource;
-
-	info = platform_get_drvdata(pdev);
-	free_irq(info->irq, info);
-	iounmap(info->baseaddr);
-	release_region(res->start, resource_size(res));
-	kfree(info);
 
 	return 0;
 }
 
-static const struct of_device_id arm_vexpress_spc_matches[] = {
-	{.compatible = "arm,spc"},
-	{},
-};
-
-static struct platform_driver vexpress_spc_platform_driver = {
-	.driver = {
-		   .owner = THIS_MODULE,
-		   .name = DRIVER_NAME,
-		   .of_match_table = arm_vexpress_spc_matches,
-		   },
-	.probe = vexpress_spc_driver_probe,
-	.remove = vexpress_spc_driver_remove,
-};
-
-static int __init vexpress_spc_init(void)
-{
-	return platform_driver_register(&vexpress_spc_platform_driver);
-}
-
-static void __exit vexpress_spc_exit(void)
-{
-	platform_driver_unregister(&vexpress_spc_platform_driver);
-}
-
-arch_initcall(vexpress_spc_init);
-module_exit(vexpress_spc_exit);
+early_initcall(vexpress_spc_early_init);
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("Serial Power Controller (SPC) support");
