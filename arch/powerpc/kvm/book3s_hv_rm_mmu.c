@@ -81,7 +81,7 @@ static void remove_revmap_chain(struct kvm *kvm, long pte_index,
 	ptel = rev->guest_rpte |= rcbits;
 	gfn = hpte_rpn(ptel, hpte_page_size(hpte_v, ptel));
 	memslot = __gfn_to_memslot(kvm_memslots(kvm), gfn);
-	if (!memslot || (memslot->flags & KVM_MEMSLOT_INVALID))
+	if (!memslot)
 		return;
 
 	rmap = real_vmalloc_addr(&memslot->arch.rmap[gfn - memslot->base_gfn]);
@@ -183,7 +183,7 @@ long kvmppc_h_enter(struct kvm_vcpu *vcpu, unsigned long flags,
 	rmap = &memslot->arch.rmap[slot_fn];
 
 	if (!kvm->arch.using_mmu_notifiers) {
-		physp = kvm->arch.slot_phys[memslot->id];
+		physp = memslot->arch.slot_phys;
 		if (!physp)
 			return H_PARAMETER;
 		physp += slot_fn;
@@ -297,7 +297,7 @@ long kvmppc_h_enter(struct kvm_vcpu *vcpu, unsigned long flags,
 		lock_rmap(rmap);
 		/* Check for pending invalidations under the rmap chain lock */
 		if (kvm->arch.using_mmu_notifiers &&
-		    mmu_notifier_retry(vcpu, mmu_seq)) {
+		    mmu_notifier_retry(vcpu->kvm, mmu_seq)) {
 			/* inval in progress, write a non-present HPTE */
 			pteh |= HPTE_V_ABSENT;
 			pteh &= ~HPTE_V_VALID;
