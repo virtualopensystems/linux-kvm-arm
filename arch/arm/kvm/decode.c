@@ -124,7 +124,7 @@ static bool decode_arm_wb(struct kvm_decode *decode, struct kvm_exit_mmio *mmio,
 	u8 W = (instr >> 21) & 1;
 	u8 U = (instr >> 23) & 1;
 	u8 P = (instr >> 24) & 1;
-	u32 base_addr = decode->regs->uregs[Rn];
+	u32 base_addr = *kvm_decode_reg(decode, Rn);
 	u32 offset_addr, offset;
 
 	/*
@@ -145,8 +145,8 @@ static bool decode_arm_wb(struct kvm_decode *decode, struct kvm_exit_mmio *mmio,
 		/* Register operation */
 		enum SRType s_type;
 		u8 shift_n = 0;
-		bool c_bit = decode->regs->ARM_cpsr & PSR_C_BIT;
-		u32 s_reg = decode->regs->uregs[ai->Rm];
+		bool c_bit = *kvm_decode_cpsr(decode) & PSR_C_BIT;
+		u32 s_reg = *kvm_decode_reg(decode, ai->Rm);
 
 		s_type = decode_imm_shift(ai->type, ai->shift_n, &shift_n);
 		offset = shift(s_reg, 5, s_type, shift_n, c_bit);
@@ -160,7 +160,7 @@ static bool decode_arm_wb(struct kvm_decode *decode, struct kvm_exit_mmio *mmio,
 		offset_addr = base_addr + offset;
 	else
 		offset_addr = base_addr - offset;
-	decode->regs->uregs[Rn] = offset_addr;
+	*kvm_decode_reg(decode, Rn) = offset_addr;
 	return true;
 }
 
@@ -305,7 +305,7 @@ static bool decode_thumb_wb(struct kvm_decode *decode,
 	bool P = (instr >> 10) & 1;
 	bool U = (instr >> 9) & 1;
 	u8 imm8 = instr & 0xff;
-	u32 offset_addr = decode->hxfar;
+	u32 offset_addr = decode->fault_addr;
 	u8 Rn = (instr >> 16) & 0xf;
 
 	decode->rt = (instr >> 12) & 0xf;
@@ -315,9 +315,9 @@ static bool decode_thumb_wb(struct kvm_decode *decode,
 
 	/* Handle Writeback */
 	if (!P && U)
-		decode->regs->uregs[Rn] = offset_addr + imm8;
+		*kvm_decode_reg(decode, Rn) = offset_addr + imm8;
 	else if (!P && !U)
-		decode->regs->uregs[Rn] = offset_addr - imm8;
+		*kvm_decode_reg(decode, Rn) = offset_addr - imm8;
 	return true;
 }
 
@@ -441,7 +441,7 @@ static bool kvm_decode_thumb_ls(struct kvm_decode *decode, unsigned long instr,
 
 /**
  * kvm_decode_load_store - decodes load/store instructions
- * @decode: reads regs and hxfar, writes rt and sign_extend
+ * @decode: reads regs and fault_addr, writes rt and sign_extend
  * @instr:  instruction to decode
  * @mmio:   fills in len and is_write
  *
@@ -455,7 +455,7 @@ int kvm_decode_load_store(struct kvm_decode *decode, unsigned long instr,
 {
 	bool is_thumb;
 
-	is_thumb = !!(decode->regs->ARM_cpsr & PSR_T_BIT);
+	is_thumb = !!(*kvm_decode_cpsr(decode) & PSR_T_BIT);
 	if (!is_thumb)
 		return kvm_decode_arm_ls(decode, instr, mmio) ? 0 : 1;
 	else

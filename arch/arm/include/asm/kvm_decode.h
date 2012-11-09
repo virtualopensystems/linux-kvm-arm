@@ -26,12 +26,22 @@ struct kvm_exit_mmio;
 
 struct kvm_decode {
 	struct pt_regs *regs;
-	unsigned long hxfar;
+	unsigned long fault_addr;
 	unsigned long rt;
 	bool sign_extend;
 };
 
 int kvm_decode_load_store(struct kvm_decode *decode, unsigned long instr,
 			  struct kvm_exit_mmio *mmio);
+
+static inline unsigned long *kvm_decode_reg(struct kvm_decode *decode, int reg)
+{
+	return &decode->regs->uregs[reg];
+}
+
+static inline unsigned long *kvm_decode_cpsr(struct kvm_decode *decode)
+{
+	return &decode->regs->ARM_cpsr;
+}
 
 #endif /* __ARM_KVM_DECODE_H__ */

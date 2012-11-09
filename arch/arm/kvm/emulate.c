@@ -321,7 +321,7 @@ int kvm_emulate_mmio_ls(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
 	current_regs.ARM_lr = *vcpu_reg(vcpu, 14);
 
 	decode->regs = &current_regs;
-	decode->hxfar = vcpu->arch.hxfar;
+	decode->fault_addr = vcpu->arch.hxfar;
 	ret = kvm_decode_load_store(decode, instr, mmio);
 	if (ret) {
 		kvm_debug("Insrn. decode error: %#08lx (cpsr: %#08x"
