@@ -104,6 +104,7 @@ EXPORT_SYMBOL_GPL(vexpress_spc_get_clusterid);
 void vexpress_spc_write_bxaddr_reg(int cluster, int cpu, u32 val)
 {
 	u32 a15_clusid;
+	void __iomem *baseaddr;
 
 	if (IS_ERR_OR_NULL(info))
 		return;
@@ -111,11 +112,14 @@ void vexpress_spc_write_bxaddr_reg(int cluster, int cpu, u32 val)
 	a15_clusid = readl_relaxed(info->baseaddr + A15_CONF) & 0xf;
 
 	if (cluster != a15_clusid)
-		writel_relaxed(val, info->baseaddr + A7_BX_ADDR0 + (cpu << 2));
+		baseaddr = info->baseaddr + A7_BX_ADDR0 + (cpu << 2);
 	else
-		writel_relaxed(val, info->baseaddr + A15_BX_ADDR0 + (cpu << 2));
+		baseaddr = info->baseaddr + A15_BX_ADDR0 + (cpu << 2);
 
+	writel_relaxed(val, baseaddr);
 	dsb();
+	while (val != readl_relaxed(baseaddr));
+
 	return;
 }
 
@@ -329,9 +333,14 @@ EXPORT_SYMBOL_GPL(vexpress_spc_set_cpu_wakeup_irq);
 
 void vexpress_spc_set_wake_intr(u32 mask)
 {
-	if (!IS_ERR_OR_NULL(info))
+	if (!IS_ERR_OR_NULL(info)) {
 		writel(mask & VEXPRESS_SPC_WAKE_INTR_MASK,
-					info->baseaddr + WAKE_INT_MASK);
+		       info->baseaddr + WAKE_INT_MASK);
+		dsb();
+		while ((mask & VEXPRESS_SPC_WAKE_INTR_MASK) !=
+		       readl(info->baseaddr + WAKE_INT_MASK));
+	}
+
 	return;
 }
 EXPORT_SYMBOL_GPL(vexpress_spc_set_wake_intr);
@@ -356,6 +365,8 @@ void vexpress_spc_powerdown_enable(int cluster, int enable)
 		a15_clusid = readl_relaxed(info->baseaddr + A15_CONF) & 0xf;
 		pwdrn_reg = cluster != a15_clusid ? A7_PWRDN_EN : A15_PWRDN_EN;
 		writel(!!enable, info->baseaddr + pwdrn_reg);
+		dsb();
+		while (readl(info->baseaddr + pwdrn_reg) != !!enable);
 	}
 	return;
 }
