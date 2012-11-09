@@ -20,6 +20,7 @@
 #include <linux/kvm_host.h>
 #include <asm/kvm_arm.h>
 #include <asm/kvm_emulate.h>
+#include <asm/kvm_decode.h>
 #include <trace/events/kvm.h>
 
 #include "trace.h"
@@ -174,6 +175,174 @@ int kvm_handle_wfi(struct kvm_vcpu *vcpu, struct kvm_run *run)
 	trace_kvm_wfi(*vcpu_pc(vcpu));
 	kvm_vcpu_block(vcpu);
 	return 1;
+}
+
+static u64 kvm_va_to_pa(struct kvm_vcpu *vcpu, u32 va, bool priv)
+{
+	return kvm_call_hyp(__kvm_va_to_pa, vcpu, va, priv);
+}
+
+/**
+ * copy_from_guest_va - copy memory from guest (very slow!)
+ * @vcpu:	vcpu pointer
+ * @dest:	memory to copy into
+ * @gva:	virtual address in guest to copy from
+ * @len:	length to copy
+ * @priv:	use guest PL1 (ie. kernel) mappings
+ *              otherwise use guest PL0 mappings.
+ *
+ * Returns true on success, false on failure (unlikely, but retry).
+ */
+static bool copy_from_guest_va(struct kvm_vcpu *vcpu,
+			       void *dest, unsigned long gva, size_t len,
+			       bool priv)
+{
+	u64 par;
+	phys_addr_t pc_ipa;
+	int err;
+
+	BUG_ON((gva & PAGE_MASK) != ((gva + len) & PAGE_MASK));
+	par = kvm_va_to_pa(vcpu, gva & PAGE_MASK, priv);
+	if (par & 1) {
+		kvm_err("IO abort from invalid instruction address"
+			" %#lx!\n", gva);
+		return false;
+	}
+
+	BUG_ON(!(par & (1U << 11)));
+	pc_ipa = par & PAGE_MASK & ((1ULL << 32) - 1);
+	pc_ipa += gva & ~PAGE_MASK;
+
+
+	err = kvm_read_guest(vcpu->kvm, pc_ipa, dest, len);
+	if (unlikely(err))
+		return false;
+
+	return true;
+}
+
+/*
+ * We have to be very careful copying memory from a running (ie. SMP) guest.
+ * Another CPU may remap the page (eg. swap out a userspace text page) as we
+ * read the instruction.  Unlike normal hardware operation, to emulate an
+ * instruction we map the virtual to physical address then read that memory
+ * as separate steps, thus not atomic.
+ *
+ * Fortunately this is so rare (we don't usually need the instruction), we
+ * can go very slowly and noone will mind.
+ */
+static bool copy_current_insn(struct kvm_vcpu *vcpu, unsigned long *instr)
+{
+	int i;
+	bool ret;
+	struct kvm_vcpu *v;
+	bool is_thumb;
+	size_t instr_len;
+
+	/* Don't cross with IPIs in kvm_main.c */
+	spin_lock(&vcpu->kvm->mmu_lock);
+
+	/* Tell them all to pause, so no more will enter guest. */
+	kvm_for_each_vcpu(i, v, vcpu->kvm)
+		v->arch.pause = true;
+
+	/* Set ->pause before we read ->mode */
+	smp_mb();
+
+	/* Kick out any which are still running. */
+	kvm_for_each_vcpu(i, v, vcpu->kvm) {
+		/* Guest could exit now, making cpu wrong. That's OK. */
+		if (kvm_vcpu_exiting_guest_mode(v) == IN_GUEST_MODE) {
+			force_vm_exit(get_cpu_mask(v->cpu));
+		}
+	}
+
+
+	is_thumb = !!(*vcpu_cpsr(vcpu) & PSR_T_BIT);
+	instr_len = (is_thumb) ? 2 : 4;
+
+	BUG_ON(!is_thumb && *vcpu_pc(vcpu) & 0x3);
+
+	/* Now guest isn't running, we can va->pa map and copy atomically. */
+	ret = copy_from_guest_va(vcpu, instr, *vcpu_pc(vcpu), instr_len,
+				 vcpu_mode_priv(vcpu));
+	if (!ret)
+		goto out;
+
+	/* A 32-bit thumb2 instruction can actually go over a page boundary! */
+	if (is_thumb && is_wide_instruction(*instr)) {
+		*instr = *instr << 16;
+		ret = copy_from_guest_va(vcpu, instr, *vcpu_pc(vcpu) + 2, 2,
+					 vcpu_mode_priv(vcpu));
+	}
+
+out:
+	/* Release them all. */
+	kvm_for_each_vcpu(i, v, vcpu->kvm)
+		v->arch.pause = false;
+
+	spin_unlock(&vcpu->kvm->mmu_lock);
+
+	return ret;
+}
+
+/**
+ * kvm_emulate_mmio_ls - emulates load/store instructions made to I/O memory
+ * @vcpu:	The vcpu pointer
+ * @fault_ipa:	The IPA that caused the 2nd stage fault
+ * @mmio:      Pointer to struct to hold decode information
+ *
+ * Some load/store instructions cannot be emulated using the information
+ * presented in the HSR, for instance, register write-back instructions are not
+ * supported. We therefore need to fetch the instruction, decode it, and then
+ * emulate its behavior.
+ *
+ * Handles emulation of load/store instructions which cannot be emulated through
+ * information found in the HSR on faults. It is necessary in this case to
+ * simply decode the offending instruction in software and determine the
+ * required operands.
+ */
+int kvm_emulate_mmio_ls(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
+			struct kvm_exit_mmio *mmio)
+{
+	unsigned long instr = 0;
+	struct pt_regs current_regs;
+	struct kvm_decode *decode = &vcpu->arch.mmio_decode;
+	int ret;
+
+	trace_kvm_mmio_emulate(*vcpu_pc(vcpu), instr, *vcpu_cpsr(vcpu));
+
+	/* If it fails (SMP race?), we reenter guest for it to retry. */
+	if (!copy_current_insn(vcpu, &instr))
+		return 1;
+
+	mmio->phys_addr = fault_ipa;
+
+	memcpy(&current_regs, &vcpu->arch.regs.usr_regs, sizeof(current_regs));
+	current_regs.ARM_sp = *vcpu_reg(vcpu, 13);
+	current_regs.ARM_lr = *vcpu_reg(vcpu, 14);
+
+	decode->regs = &current_regs;
+	decode->fault_addr = vcpu->arch.hxfar;
+	ret = kvm_decode_load_store(decode, instr, mmio);
+	if (ret) {
+		kvm_debug("Insrn. decode error: %#08lx (cpsr: %#08x"
+			  "pc: %#08x)\n",
+			  instr, *vcpu_cpsr(vcpu), *vcpu_pc(vcpu));
+		kvm_inject_dabt(vcpu, vcpu->arch.hxfar);
+		return ret;
+	}
+
+	memcpy(&vcpu->arch.regs.usr_regs, &current_regs, sizeof(current_regs));
+	*vcpu_reg(vcpu, 13) = current_regs.ARM_sp;
+	*vcpu_reg(vcpu, 14) = current_regs.ARM_lr;
+
+	/*
+	 * The MMIO instruction is emulated and should not be re-executed
+	 * in the guest.
+	 */
+	kvm_skip_instr(vcpu, is_wide_instruction(instr));
+	return 0;
 }
 
 /**
