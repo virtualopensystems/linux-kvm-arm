@@ -188,6 +188,44 @@ after_vfp_restore:
 	clrex				@ Clear exclusive monitor
 	bx	lr			@ return to IOCTL
 
+
+/********************************************************************
+ * Translate VA to PA
+ *
+ * u64 __kvm_va_to_pa(struct kvm_vcpu *vcpu, u32 va, bool priv)
+ *
+ * Arguments:
+ *  r0: pointer to vcpu struct
+ *  r1: virtual address to map (rounded to page)
+ *  r2: 1 = P1 (read) mapping, 0 = P0 (read) mapping.
+ * Returns 64 bit PAR value.
+ */
+ENTRY(__kvm_va_to_pa)
+	push	{r4-r12}
+
+	@ Fold flag into r1, easier than using stack.
+	cmp	r2, #0
+	movne	r2, #1
+	orr	r1, r1, r2
+
+	@ This swaps too many registers, but we're in the slow path anyway.
+	read_cp15_state
+	write_cp15_state 1, r0
+
+	ands	r2, r1, #1
+	bic	r1, r1, r2
+	mcrne	p15, 0, r1, c7, c8, 0	@ VA to PA, ATS1CPR
+	mcreq	p15, 0, r1, c7, c8, 2	@ VA to PA, ATS1CUR
+	isb
+
+	@ Restore host state.
+	read_cp15_state 1, r0
+	write_cp15_state
+
+	mrrc	p15, 0, r0, r1, c7	@ PAR
+	pop	{r4-r12}
+	bx	lr
+
 ENTRY(kvm_call_hyp)
 	hvc	#0
 	bx	lr
