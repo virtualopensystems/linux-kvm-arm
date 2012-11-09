@@ -155,4 +155,3 @@ int io_mem_abort(struct kvm_vcpu *vcpu, struct kvm_run *run,
 	kvm_prepare_mmio(run, &mmio);
 	return 0;
 }
-
