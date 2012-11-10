@@ -341,6 +341,45 @@
  * @vcpup: Register pointing to VCPU struct
  */
 .macro save_vgic_state	vcpup
+#ifdef CONFIG_KVM_ARM_VGIC
+	/* Get VGIC VCTRL base into r2 */
+	ldr	r2, [\vcpup, #VCPU_KVM]
+	ldr	r2, [r2, #KVM_VGIC_VCTRL]
+	cmp	r2, #0
+	beq	2f
+
+	/* Compute the address of struct vgic_cpu */
+	add	r11, \vcpup, #VCPU_VGIC_CPU
+
+	/* Save all interesting registers */
+	ldr	r3, [r2, #GICH_HCR]
+	ldr	r4, [r2, #GICH_VMCR]
+	ldr	r5, [r2, #GICH_MISR]
+	ldr	r6, [r2, #GICH_EISR0]
+	ldr	r7, [r2, #GICH_EISR1]
+	ldr	r8, [r2, #GICH_ELRSR0]
+	ldr	r9, [r2, #GICH_ELRSR1]
+	ldr	r10, [r2, #GICH_APR]
+
+	str	r3, [r11, #VGIC_CPU_HCR]
+	str	r4, [r11, #VGIC_CPU_VMCR]
+	str	r5, [r11, #VGIC_CPU_MISR]
+	str	r6, [r11, #VGIC_CPU_EISR]
+	str	r7, [r11, #(VGIC_CPU_EISR + 4)]
+	str	r8, [r11, #VGIC_CPU_ELRSR]
+	str	r9, [r11, #(VGIC_CPU_ELRSR + 4)]
+	str	r10, [r11, #VGIC_CPU_APR]
+
+	/* Save list registers */
+	add	r2, r2, #GICH_LR0
+	add	r3, r11, #VGIC_CPU_LR
+	ldr	r4, [r11, #VGIC_CPU_NR_LR]
+1:	ldr	r6, [r2], #4
+	str	r6, [r3], #4
+	subs	r4, r4, #1
+	bne	1b
+2:
+#endif
 .endm
 
 /*
@@ -348,6 +387,35 @@
  * @vcpup: Register pointing to VCPU struct
  */
 .macro restore_vgic_state	vcpup
+#ifdef CONFIG_KVM_ARM_VGIC
+	/* Get VGIC VCTRL base into r2 */
+	ldr	r2, [\vcpup, #VCPU_KVM]
+	ldr	r2, [r2, #KVM_VGIC_VCTRL]
+	cmp	r2, #0
+	beq	2f
+
+	/* Compute the address of struct vgic_cpu */
+	add	r11, \vcpup, #VCPU_VGIC_CPU
+
+	/* We only restore a minimal set of registers */
+	ldr	r3, [r11, #VGIC_CPU_HCR]
+	ldr	r4, [r11, #VGIC_CPU_VMCR]
+	ldr	r8, [r11, #VGIC_CPU_APR]
+
+	str	r3, [r2, #GICH_HCR]
+	str	r4, [r2, #GICH_VMCR]
+	str	r8, [r2, #GICH_APR]
+
+	/* Restore list registers */
+	add	r2, r2, #GICH_LR0
+	add	r3, r11, #VGIC_CPU_LR
+	ldr	r4, [r11, #VGIC_CPU_NR_LR]
+1:	ldr	r6, [r3], #4
+	str	r6, [r2], #4
+	subs	r4, r4, #1
+	bne	1b
+2:
+#endif
 .endm
 
 /* Configures the HSTR (Hyp System Trap Register) on entry/return
