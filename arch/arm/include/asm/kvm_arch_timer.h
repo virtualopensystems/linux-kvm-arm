@@ -19,13 +19,68 @@
 #ifndef __ASM_ARM_KVM_ARCH_TIMER_H
 #define __ASM_ARM_KVM_ARCH_TIMER_H
 
+#include <linux/clocksource.h>
+#include <linux/hrtimer.h>
+#include <linux/workqueue.h>
+
 struct arch_timer_kvm {
+#ifdef CONFIG_KVM_ARM_TIMER
+	/* Is the timer enabled */
+	bool			enabled;
+
+	/*
+	 * Virtual offset (kernel access it through cntvoff, HYP code
+	 * access it as two 32bit values).
+	 */
+	union {
+		cycle_t		cntvoff;
+		struct {
+			u32	low; 	/* Restored only */
+			u32	high;  	/* Restored only */
+		} cntvoff32;
+	};
+#endif
 };
 
 struct arch_timer_cpu {
+#ifdef CONFIG_KVM_ARM_TIMER
+	/* Registers: control register, timer value */
+	u32				cntv_ctl;	/* Saved/restored */
+	union {
+		cycle_t			cntv_cval;
+		struct {
+			u32		low;		/* Saved/restored */
+			u32		high;		/* Saved/restored */
+		} cntv_cval32;
+	};
+
+	/*
+	 * Anything that is not used directly from assembly code goes
+	 * here.
+	 */
+
+	/* Background timer used when the guest is not running */
+	struct hrtimer			timer;
+
+	/* Work queued with the above timer expires */
+	struct work_struct		expired;
+
+	/* Background timer active */
+	bool				armed;
+
+	/* Timer IRQ */
+	const struct kvm_irq_level	*irq;
+#endif
 };
 
-#ifndef CONFIG_KVM_ARM_TIMER
+#ifdef CONFIG_KVM_ARM_TIMER
+int kvm_timer_hyp_init(void);
+int kvm_timer_init(struct kvm *kvm);
+void kvm_timer_vcpu_init(struct kvm_vcpu *vcpu);
+void kvm_timer_sync_to_cpu(struct kvm_vcpu *vcpu);
+void kvm_timer_sync_from_cpu(struct kvm_vcpu *vcpu);
+void kvm_timer_vcpu_terminate(struct kvm_vcpu *vcpu);
+#else
 static inline int kvm_timer_hyp_init(void)
 {
 	return 0;
