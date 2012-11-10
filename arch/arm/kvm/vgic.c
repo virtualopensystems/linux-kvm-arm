@@ -705,8 +705,10 @@ static bool vgic_queue_irq(struct kvm_vcpu *vcpu, u8 sgi_source_id, int irq)
 		kvm_debug("LR%d piggyback for IRQ%d %x\n", lr, irq, vgic_cpu->vgic_lr[lr]);
 		BUG_ON(!test_bit(lr, vgic_cpu->lr_used));
 		vgic_cpu->vgic_lr[lr] |= VGIC_LR_PENDING_BIT;
-		if (is_level)
+		if (is_level) {
 			vgic_cpu->vgic_lr[lr] |= VGIC_LR_EOI;
+			atomic_inc(&vgic_cpu->irq_active_count);
+		}
 		return true;
 	}
 
@@ -718,8 +720,10 @@ static bool vgic_queue_irq(struct kvm_vcpu *vcpu, u8 sgi_source_id, int irq)
 
 	kvm_debug("LR%d allocated for IRQ%d %x\n", lr, irq, sgi_source_id);
 	vgic_cpu->vgic_lr[lr] = MK_LR_PEND(sgi_source_id, irq);
-	if (is_level)
+	if (is_level) {
 		vgic_cpu->vgic_lr[lr] |= VGIC_LR_EOI;
+		atomic_inc(&vgic_cpu->irq_active_count);
+	}
 
 	vgic_cpu->vgic_irq_lr_map[irq] = lr;
 	clear_bit(lr, (unsigned long *)vgic_cpu->vgic_elrsr);
@@ -1011,6 +1015,8 @@ static irqreturn_t vgic_maintenance_handler(int irq, void *data)
 
 			vgic_bitmap_set_irq_val(&dist->irq_active,
 						vcpu->vcpu_id, irq, 0);
+			atomic_dec(&vgic_cpu->irq_active_count);
+			smp_mb();
 			vgic_cpu->vgic_lr[lr] &= ~VGIC_LR_EOI;
 			writel_relaxed(vgic_cpu->vgic_lr[lr],
 				       dist->vctrl_base + GICH_LR0 + (lr << 2));
