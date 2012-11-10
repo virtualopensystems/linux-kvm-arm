@@ -193,7 +193,44 @@ struct vgic_dist {
 };
 
 struct vgic_cpu {
+#ifdef CONFIG_KVM_ARM_VGIC
+	/* per IRQ to LR mapping */
+	u8		vgic_irq_lr_map[VGIC_NR_IRQS];
+
+	/* Pending interrupts on this VCPU */
+	DECLARE_BITMAP(	pending, VGIC_NR_IRQS);
+
+	/* Bitmap of used/free list registers */
+	DECLARE_BITMAP(	lr_used, 64);
+
+	/* Number of list registers on this CPU */
+	int		nr_lr;
+
+	/* CPU vif control registers for world switch */
+	u32		vgic_hcr;
+	u32		vgic_vmcr;
+	u32		vgic_misr;	/* Saved only */
+	u32		vgic_eisr[2];	/* Saved only */
+	u32		vgic_elrsr[2];	/* Saved only */
+	u32		vgic_apr;
+	u32		vgic_lr[64];	/* A15 has only 4... */
+#endif
 };
+
+#define VGIC_HCR_EN		(1 << 0)
+#define VGIC_HCR_UIE		(1 << 1)
+
+#define VGIC_LR_VIRTUALID	(0x3ff << 0)
+#define VGIC_LR_PHYSID_CPUID	(7 << 10)
+#define VGIC_LR_STATE		(3 << 28)
+#define VGIC_LR_PENDING_BIT	(1 << 28)
+#define VGIC_LR_ACTIVE_BIT	(1 << 29)
+#define VGIC_LR_EOI		(1 << 19)
+
+#define VGIC_MISR_EOI		(1 << 0)
+#define VGIC_MISR_U		(1 << 1)
+
+#define LR_EMPTY	0xff
 
 struct kvm;
 struct kvm_vcpu;
@@ -202,9 +239,13 @@ struct kvm_exit_mmio;
 
 #ifdef CONFIG_KVM_ARM_VGIC
 int kvm_vgic_set_addr(struct kvm *kvm, unsigned long type, u64 addr);
+void kvm_vgic_sync_to_cpu(struct kvm_vcpu *vcpu);
+void kvm_vgic_sync_from_cpu(struct kvm_vcpu *vcpu);
+int kvm_vgic_vcpu_pending_irq(struct kvm_vcpu *vcpu);
 bool vgic_handle_mmio(struct kvm_vcpu *vcpu, struct kvm_run *run,
 		      struct kvm_exit_mmio *mmio);
 
+#define irqchip_in_kernel(k)	(!!((k)->arch.vgic.vctrl_base))
 #else
 static inline int kvm_vgic_hyp_init(void)
 {
