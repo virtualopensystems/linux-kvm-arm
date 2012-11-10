@@ -26,6 +26,8 @@
  * To save a bit of memory and to avoid alignment issues we assume 39-bit IPA
  * for now, but remember that the level-1 table must be aligned to its size.
  */
+#define KVM_PHYS_SHIFT	(38)
+#define KVM_PHYS_MASK	((1ULL << KVM_PHYS_SHIFT) - 1)
 #define PTRS_PER_PGD2	512
 #define PGD2_ORDER	get_order(PTRS_PER_PGD2 * sizeof(pgd_t))
 
