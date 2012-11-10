@@ -784,7 +784,7 @@ struct kvm_msi {
 };
 
 struct kvm_device_address {
-	__u32 id;
+	__u64 id;
 	__u64 addr;
 };
 

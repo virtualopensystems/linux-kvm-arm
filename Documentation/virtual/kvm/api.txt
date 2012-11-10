@@ -2205,7 +2205,7 @@ Errors:
   E2BIG:  Address outside guest physical address space
 
 struct kvm_device_address {
-	__u32 id;
+	__u64 id;
 	__u64 addr;
 };
 
