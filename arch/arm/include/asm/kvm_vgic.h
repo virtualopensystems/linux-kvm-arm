@@ -30,7 +30,11 @@ struct kvm_vcpu;
 struct kvm_run;
 struct kvm_exit_mmio;
 
-#ifndef CONFIG_KVM_ARM_VGIC
+#ifdef CONFIG_KVM_ARM_VGIC
+bool vgic_handle_mmio(struct kvm_vcpu *vcpu, struct kvm_run *run,
+		      struct kvm_exit_mmio *mmio);
+
+#else
 static inline int kvm_vgic_hyp_init(void)
 {
 	return 0;
