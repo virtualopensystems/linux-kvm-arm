@@ -281,18 +281,10 @@ static bool kvm_decode_arm_ls(struct kvm_decode *decode, unsigned long instr,
 struct thumb_instr {
 	bool is32;
 
-	union {
-		struct {
-			u8 opcode;
-			u8 mask;
-		} t16;
-
-		struct {
-			u8 op1;
-			u8 op2;
-			u8 op2_mask;
-		} t32;
-	};
+	u8 opcode;
+	u8 opcode_mask;
+	u8 op2;
+	u8 op2_mask;
 
 	bool (*decode)(struct kvm_decode *decode, struct kvm_exit_mmio *mmio,
 		       unsigned long instr, const struct thumb_instr *ti);
@@ -356,7 +348,7 @@ static bool decode_thumb_ldr(struct kvm_decode *decode,
 
 	mmio->is_write = false;
 
-	switch (ti->t32.op2 & 0x7) {
+	switch (ti->op2 & 0x7) {
 	case 0x1: mmio->len = 1; break;
 	case 0x3: mmio->len = 2; break;
 	case 0x5: mmio->len = 4; break;
@@ -364,7 +356,7 @@ static bool decode_thumb_ldr(struct kvm_decode *decode,
 
 	if (op1 == 0x0)
 		decode->sign_extend = false;
-	else if (op1 == 0x2 && (ti->t32.op2 & 0x7) != 0x5)
+	else if (op1 == 0x2 && (ti->op2 & 0x7) != 0x5)
 		decode->sign_extend = true;
 	else
 		return false; /* Only register write-back versions! */
@@ -392,13 +384,20 @@ static bool decode_thumb_ldr(struct kvm_decode *decode,
 static const struct thumb_instr thumb_instr[] = {
 	/**************** 32-bit Thumb instructions **********************/
 	/* Store single data item:	Op1 == 11, Op2 == 000xxx0 */
-	{ .is32 = true,  .t32 = { 3, 0x00, 0x71}, decode_thumb_str	},
+	{ .is32 = true,  .opcode = 3, .op2 = 0x00, .op2_mask = 0x71,
+						decode_thumb_str	},
+
 	/* Load byte:			Op1 == 11, Op2 == 00xx001 */
-	{ .is32 = true,  .t32 = { 3, 0x01, 0x67}, decode_thumb_ldr	},
+	{ .is32 = true,  .opcode = 3, .op2 = 0x01, .op2_mask = 0x67,
+						decode_thumb_ldr	},
+
 	/* Load halfword:		Op1 == 11, Op2 == 00xx011 */
-	{ .is32 = true,  .t32 = { 3, 0x03, 0x67}, decode_thumb_ldr	},
+	{ .is32 = true,  .opcode = 3, .op2 = 0x03, .op2_mask = 0x67,
+						decode_thumb_ldr	},
+
 	/* Load word:			Op1 == 11, Op2 == 00xx101 */
-	{ .is32 = true,  .t32 = { 3, 0x05, 0x67}, decode_thumb_ldr	},
+	{ .is32 = true,  .opcode = 3, .op2 = 0x05, .op2_mask = 0x67,
+						decode_thumb_ldr	},
 };
 
 
@@ -412,10 +411,10 @@ static bool kvm_decode_thumb_ls(struct kvm_decode *decode, unsigned long instr,
 	int i;
 
 	if (is16) {
-		tinstr.t16.opcode = (instr >> 10) & 0x3f;
+		tinstr.opcode = (instr >> 10) & 0x3f;
 	} else {
-		tinstr.t32.op1 = (instr >> (16 + 11)) & 0x3;
-		tinstr.t32.op2 = (instr >> (16 + 4)) & 0x7f;
+		tinstr.opcode = (instr >> (16 + 11)) & 0x3;
+		tinstr.op2 = (instr >> (16 + 4)) & 0x7f;
 	}
 
 	for (i = 0; i < ARRAY_SIZE(thumb_instr); i++) {
@@ -424,12 +423,12 @@ static bool kvm_decode_thumb_ls(struct kvm_decode *decode, unsigned long instr,
 			continue;
 
 		if (is16) {
-			if ((tinstr.t16.opcode & ti->t16.mask) != ti->t16.opcode)
+			if ((tinstr.opcode & ti->opcode_mask) != ti->opcode)
 				continue;
 		} else {
-			if (ti->t32.op1 != tinstr.t32.op1)
+			if (ti->opcode != tinstr.opcode)
 				continue;
-			if ((ti->t32.op2_mask & tinstr.t32.op2) != ti->t32.op2)
+			if ((ti->op2_mask & tinstr.op2) != ti->op2)
 				continue;
 		}
 
