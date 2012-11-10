@@ -39,8 +39,8 @@ static struct kvm_regs a15_regs_reset = {
 
 #ifdef CONFIG_KVM_ARM_TIMER
 static const struct kvm_irq_level a15_virt_timer_ppi = {
-	.irq	= 27,	/* A7/A15 specific */
-	.level	= 1,
+	{ .irq = 27 },	/* irq: A7/A15 specific */
+	.level = 1	/* level */
 };
 #endif
 
