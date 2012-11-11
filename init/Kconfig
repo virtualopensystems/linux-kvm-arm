@@ -676,6 +676,19 @@ config RCU_NOCB_CPU
 	  Say Y here if you want to help to debug reduced OS jitter.
 	  Say N here if you are unsure.
 
+config RCU_NOCB_CPU_DEFAULT
+	int "Offload RCU callback processing from compile-selected CPUs"
+	depends on RCU_NOCB_CPU
+	range 0 2
+	default 0
+	help
+	  Set this option to zero to only offload RCU callback processing
+	  from those CPUs specified by the boot-time rcu_nocbs kernel
+	  parameter.  Set it to one to offload processing from CPU 0
+	  in addition to any CPUs specified at boot time.  Set it to
+	  two to offload processing from all CPUs, regardless of the
+	  setting of the boot-time rcu_nocbs kernel parameter.
+
 endmenu # "RCU Subsystem"
 
 config IKCONFIG
