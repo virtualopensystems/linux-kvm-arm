@@ -401,11 +401,46 @@ guest_trap:
 	mrc	p15, 4, r2, c6, c0, 0	@ HDFAR
 
 2:	str	r2, [r1, #VCPU_HxFAR]
-	mrc	p15, 4, r2, c6, c0, 4	@ HPFAR
+
+	/*
+	 * B3.13.5 Reporting exceptions taken to the Non-secure PL2 mode:
+	 *
+	 * Abort on the stage 2 translation for a memory access from a
+	 * Non-secure PL1 or PL0 mode:
+	 *
+	 * For any Access flag fault or Translation fault, and also for any
+	 * Permission fault on the stage 2 translation of a memory access
+	 * made as part of a translation table walk for a stage 1 translation,
+	 * the HPFAR holds the IPA that caused the fault. Otherwise, the HPFAR
+	 * is UNKNOWN.
+	 */
+
+	/* Check for permission fault, and S1PTW */
+	mrc	p15, 4, r1, c5, c2, 0	@ HSR
+	and	r0, r1, #HSR_FSC_TYPE
+	cmp	r0, #FSC_PERM
+	tsteq	r1, #(1 << 7)		@ S1PTW
+	mrcne	p15, 4, r2, c6, c0, 4	@ HPFAR
+	bne	3f
+
+	/* Resolve IPA using the xFAR */
+	mcr	p15, 0, r2, c7, c8, 0	@ ATS1CPR
+	isb
+	mrrc	p15, 0, r0, r1, c7	@ PAR
+	tst	r0, #1
+	bne	4f			@ Failed translation
+	ubfx	r2, r0, #12, #20
+	lsl	r2, r2, #4
+	orr	r2, r2, r1, lsl #24
+
+3:	load_vcpu	r1
 	str	r2, [r1, #VCPU_HPFAR]
 
 1:	mov	r0, #ARM_EXCEPTION_HVC
 	b	__kvm_vcpu_return
+
+4:	pop	{r0, r1, r2}		@ Failed translation, return to guest
+	eret
 
 /*
  * If VFPv3 support is not available, then we will not switch the VFP
