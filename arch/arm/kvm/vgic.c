@@ -1246,7 +1246,7 @@ int kvm_vgic_set_addr(struct kvm *kvm, unsigned long type, u64 addr)
 	if (vgic_ioaddr_overlap(kvm)) {
 		kvm->arch.vgic.vgic_dist_base = VGIC_ADDR_UNDEF;
 		kvm->arch.vgic.vgic_cpu_base = VGIC_ADDR_UNDEF;
-		return -EINVAL;
+		r = -EINVAL;
 	}
 
 	mutex_unlock(&kvm->lock);
