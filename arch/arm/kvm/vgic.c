@@ -100,7 +100,7 @@ static inline int vgic_irq_is_edge(struct vgic_dist *dist, int irq)
 /**
  * vgic_reg_access - access vgic register
  * @mmio:   pointer to the data describing the mmio access
- * @reg:    pointer to the virtual backing of the vgic distributor struct
+ * @reg:    pointer to the virtual backing of vgic distributor data
  * @offset: least significant 2 bits used for word offset
  * @mode:   ACCESS_ mode (see defines above)
  *
@@ -527,12 +527,14 @@ struct mmio_range *find_matching_range(const struct mmio_range *ranges,
 /**
  * vgic_handle_mmio - handle an in-kernel MMIO access
  * @vcpu:	pointer to the vcpu performing the access
+ * @run:	pointer to the kvm_run structure
  * @mmio:	pointer to the data describing the access
  *
  * returns true if the MMIO access has been performed in kernel space,
  * and false if it needs to be emulated in user space.
  */
-bool vgic_handle_mmio(struct kvm_vcpu *vcpu, struct kvm_run *run, struct kvm_exit_mmio *mmio)
+bool vgic_handle_mmio(struct kvm_vcpu *vcpu, struct kvm_run *run,
+		      struct kvm_exit_mmio *mmio)
 {
 	const struct mmio_range *range;
 	struct vgic_dist *dist = &vcpu->kvm->arch.vgic;
