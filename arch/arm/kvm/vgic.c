@@ -540,6 +540,7 @@ bool vgic_handle_mmio(struct kvm_vcpu *vcpu, struct kvm_run *run,
 	struct vgic_dist *dist = &vcpu->kvm->arch.vgic;
 	unsigned long base = dist->vgic_dist_base;
 	bool updated_state;
+	unsigned long offset;
 
 	if (!irqchip_in_kernel(vcpu->kvm) ||
 	    mmio->phys_addr < base ||
@@ -554,7 +555,8 @@ bool vgic_handle_mmio(struct kvm_vcpu *vcpu, struct kvm_run *run,
 	}
 
 	spin_lock(&vcpu->kvm->arch.vgic.lock);
-	updated_state = range->handle_mmio(vcpu, mmio,mmio->phys_addr - range->base - base);
+	offset = mmio->phys_addr - range->base - base;
+	updated_state = range->handle_mmio(vcpu, mmio, offset);
 	spin_unlock(&vcpu->kvm->arch.vgic.lock);
 	kvm_prepare_mmio(run, mmio);
 	kvm_handle_mmio_return(vcpu, run);
