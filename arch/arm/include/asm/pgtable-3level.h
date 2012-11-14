@@ -62,12 +62,21 @@
 #define USER_PTRS_PER_PGD	(PAGE_OFFSET / PGDIR_SIZE)
 
 /*
+ * Hugetlb definitions.
+ */
+#define HPAGE_SHIFT		PMD_SHIFT
+#define HPAGE_SIZE		(_AC(1, UL) << HPAGE_SHIFT)
+#define HPAGE_MASK		(~(HPAGE_SIZE - 1))
+#define HUGETLB_PAGE_ORDER	(HPAGE_SHIFT - PAGE_SHIFT)
+
+/*
  * "Linux" PTE definitions for LPAE.
  *
  * These bits overlap with the hardware bits but the naming is preserved for
  * consistency with the classic page table format.
  */
-#define L_PTE_PRESENT		(_AT(pteval_t, 3) << 0)		/* Valid */
+#define L_PTE_VALID		(_AT(pteval_t, 1) << 0)		/* Valid */
+#define L_PTE_PRESENT		(_AT(pteval_t, 3) << 0)		/* Present */
 #define L_PTE_FILE		(_AT(pteval_t, 1) << 2)		/* only when !PRESENT */
 #define L_PTE_USER		(_AT(pteval_t, 1) << 6)		/* AP[1] */
 #define L_PTE_RDONLY		(_AT(pteval_t, 1) << 7)		/* AP[2] */
@@ -77,11 +86,19 @@
 #define L_PTE_DIRTY		(_AT(pteval_t, 1) << 55)	/* unused */
 #define L_PTE_SPECIAL		(_AT(pteval_t, 1) << 56)	/* unused */
 
+#define PMD_SECT_DIRTY		(_AT(pmdval_t, 1) << 55)
+#define PMD_SECT_SPLITTING	(_AT(pmdval_t, 1) << 57)
+
 /*
  * To be used in assembly code with the upper page attributes.
  */
 #define L_PTE_XN_HIGH		(1 << (54 - 32))
 #define L_PTE_DIRTY_HIGH	(1 << (55 - 32))
+
+/*
+ * we need to mask off PTE_EXT_NG when comparing present ptes.
+ */
+#define L_PTE_CMP_MASKOFF      PTE_EXT_NG
 
 /*
  * AttrIndx[2:0] encoding (mapping attributes defined in the MAIR* registers).
@@ -165,6 +182,67 @@ static inline pmd_t *pmd_offset(pud_t *pud, unsigned long addr)
 	} while (0)
 
 #define set_pte_ext(ptep,pte,ext) cpu_set_pte_ext(ptep,__pte(pte_val(pte)|(ext)))
+
+#define pte_huge(pte)		((pte_val(pte) & PMD_TYPE_MASK) == PMD_TYPE_SECT)
+
+#define pte_mkhuge(pte)		(__pte((pte_val(pte) & ~PMD_TYPE_MASK) | PMD_TYPE_SECT))
+
+
+#define pmd_present(pmd)	((pmd_val(pmd) & PMD_TYPE_MASK) != PMD_TYPE_FAULT)
+#define pmd_young(pmd)		(pmd_val(pmd) & PMD_SECT_AF)
+
+#define __HAVE_ARCH_PMD_WRITE
+#define pmd_write(pmd)		(!(pmd_val(pmd) & PMD_SECT_RDONLY))
+
+#ifdef CONFIG_TRANSPARENT_HUGEPAGE
+#define pmd_trans_huge(pmd)	((pmd_val(pmd) & PMD_TYPE_MASK) == PMD_TYPE_SECT)
+#define pmd_trans_splitting(pmd) (pmd_val(pmd) & PMD_SECT_SPLITTING)
+#endif
+
+#define PMD_BIT_FUNC(fn,op) \
+static inline pmd_t pmd_##fn(pmd_t pmd) { pmd_val(pmd) op; return pmd; }
+
+PMD_BIT_FUNC(wrprotect,	|= PMD_SECT_RDONLY);
+PMD_BIT_FUNC(mkold,	&= ~PMD_SECT_AF);
+PMD_BIT_FUNC(mksplitting, |= PMD_SECT_SPLITTING);
+PMD_BIT_FUNC(mkwrite,   &= ~PMD_SECT_RDONLY);
+PMD_BIT_FUNC(mkdirty,   |= PMD_SECT_DIRTY);
+PMD_BIT_FUNC(mkyoung,   |= PMD_SECT_AF);
+PMD_BIT_FUNC(mknotpresent, &= ~PMD_TYPE_MASK);
+
+#define pmd_mkhuge(pmd)		(__pmd((pmd_val(pmd) & ~PMD_TYPE_MASK) | PMD_TYPE_SECT))
+
+#define pmd_pfn(pmd)		((pmd_val(pmd) & PHYS_MASK) >> PAGE_SHIFT)
+#define pfn_pmd(pfn,prot)	(__pmd(((phys_addr_t)(pfn) << PAGE_SHIFT) | pgprot_val(prot)))
+#define mk_pmd(page,prot)	pfn_pmd(page_to_pfn(page),prot)
+
+#define pmd_page(pmd)           pfn_to_page(__phys_to_pfn(pmd_val(pmd) & PHYS_MASK))
+
+static inline pmd_t pmd_modify(pmd_t pmd, pgprot_t newprot)
+{
+	const pmdval_t mask = PMD_SECT_USER | PMD_SECT_XN | PMD_SECT_RDONLY;
+	pmd_val(pmd) = (pmd_val(pmd) & ~mask) | (pgprot_val(newprot) & mask);
+	return pmd;
+}
+
+static inline void set_pmd(pmd_t *pmdp, pmd_t pmd)
+{
+	*pmdp = pmd;
+}
+
+static inline void set_pmd_at(struct mm_struct *mm, unsigned long addr,
+			      pmd_t *pmdp, pmd_t pmd)
+{
+	BUG_ON(addr >= TASK_SIZE);
+	pmd = __pmd(pmd_val(pmd) | PMD_SECT_nG);
+	set_pmd(pmdp, pmd);
+	flush_pmd_entry(pmdp);
+}
+
+static inline int has_transparent_hugepage(void)
+{
+	return 1;
+}
 
 #endif /* __ASSEMBLY__ */
 

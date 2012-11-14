@@ -24,6 +24,9 @@
 #include <asm/memory.h>
 #include <asm/pgtable-hwdef.h>
 
+
+#include <asm/tlbflush.h>
+
 #ifdef CONFIG_ARM_LPAE
 #include <asm/pgtable-3level.h>
 #else
@@ -170,14 +173,16 @@ extern pgd_t swapper_pg_dir[PTRS_PER_PGD];
 #define pgd_offset_k(addr)	pgd_offset(&init_mm, addr)
 
 #define pmd_none(pmd)		(!pmd_val(pmd))
-#define pmd_present(pmd)	(pmd_val(pmd))
 
 static inline pte_t *pmd_page_vaddr(pmd_t pmd)
 {
+#ifdef SYS_SUPPORTS_HUGETLBFS
+	if ((pmd_val(pmd) & PMD_TYPE_MASK) == PMD_TYPE_SECT)
+		return __va(pmd_val(pmd) & HPAGE_MASK);
+#endif
+
 	return __va(pmd_val(pmd) & PHYS_MASK & (s32)PAGE_MASK);
 }
-
-#define pmd_page(pmd)		pfn_to_page(__phys_to_pfn(pmd_val(pmd) & PHYS_MASK))
 
 #ifndef CONFIG_HIGHPTE
 #define __pte_map(pmd)		pmd_page_vaddr(*(pmd))
@@ -210,9 +215,8 @@ static inline pte_t *pmd_page_vaddr(pmd_t pmd)
 #define pte_exec(pte)		(!(pte_val(pte) & L_PTE_XN))
 #define pte_special(pte)	(0)
 
-#define pte_present_user(pte) \
-	((pte_val(pte) & (L_PTE_PRESENT | L_PTE_USER)) == \
-	 (L_PTE_PRESENT | L_PTE_USER))
+#define pte_present_user(pte)	\
+		((pte_val(pte) & (L_PTE_PRESENT | L_PTE_USER)) > L_PTE_USER)
 
 #if __LINUX_ARM_ARCH__ < 6
 static inline void __sync_icache_dcache(pte_t pteval)
@@ -252,6 +256,29 @@ static inline pte_t pte_modify(pte_t pte, pgprot_t newprot)
 	const pteval_t mask = L_PTE_XN | L_PTE_RDONLY | L_PTE_USER;
 	pte_val(pte) = (pte_val(pte) & ~mask) | (pgprot_val(newprot) & mask);
 	return pte;
+}
+
+/*
+ * For 3 levels of paging the PTE_EXT_NG bit will be set for user address ptes
+ * that are written to a page table but not for ptes created with mk_pte.
+ *
+ * This can cause some comparison tests made by pte_same to fail spuriously and
+ * lead to other problems.
+ *
+ * To correct this behaviour, we mask off PTE_EXT_NG for any pte that is
+ * present before running the comparison.
+ */
+#define __HAVE_ARCH_PTE_SAME
+static inline int pte_same(pte_t pte_a, pte_t pte_b)
+{
+       pteval_t vala = pte_val(pte_a), valb = pte_val(pte_b);
+       if (pte_present(pte_a))
+               vala &= ~L_PTE_CMP_MASKOFF;
+
+       if (pte_present(pte_b))
+               valb &= ~L_PTE_CMP_MASKOFF;
+
+       return vala == valb;
 }
 
 /*
