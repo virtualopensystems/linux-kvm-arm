@@ -350,14 +350,15 @@ static struct xt_match quota_mt2_reg[] __read_mostly = {
 static int __init quota_mt2_init(void)
 {
 	int ret;
+#ifdef CONFIG_NETFILTER_XT_MATCH_QUOTA2_LOG
 	struct netlink_kernel_cfg cfg = {
 		.groups = 1,
 	};
+#endif
 	pr_debug("xt_quota2: init()");
 
 #ifdef CONFIG_NETFILTER_XT_MATCH_QUOTA2_LOG
-	nflognl = netlink_kernel_create(&init_net, NETLINK_NFLOG,
-			THIS_MODULE, &cfg);
+	nflognl = netlink_kernel_create(&init_net, NETLINK_NFLOG, &cfg);
 	if (!nflognl)
 		return -ENOMEM;
 #endif
