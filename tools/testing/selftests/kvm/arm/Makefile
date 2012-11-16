@@ -29,7 +29,7 @@ CFLAGS = -I../../../../../include/uapi \
 	 -I../../../../../arch/arm/include \
 	 -Wall -D__EXPORTED_HEADERS__ -marm
 
-TESTS=mmio vfp cond cp15 helloworld
+TESTS=mmio vfp cond cp15 helloworld vmexit
 
 GUESTS=$(TESTS:%=%-guest)
 HOST_DRIVERS=$(TESTS:%=%-host.o)
