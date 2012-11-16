@@ -31,6 +31,7 @@ static void alter_insn32(u32 *insn,
 	asm("mcr p15, 0, %0, c7, c5, 0"	: : "r" (0));
 }
 
+#if 0
 /* Alter mcrr or mrrc instruction */
 static void alter_insn64(u32 *insn,
 			 unsigned int opc1,
@@ -42,6 +43,7 @@ static void alter_insn64(u32 *insn,
 	/* ICIALLU */
 	asm("mcr p15, 0, %0, c7, c5, 0"	: : "r" (0));
 }
+#endif
 
 static bool __attribute__((noinline)) cp15_write(unsigned int opc1,
 						 unsigned int crn,
@@ -172,11 +174,13 @@ static void ro_wi(const struct test32 *test)
 	write_ignored(test);
 }
 
+#if 0
 static void raz_wi(const struct test32 *test)
 {
 	read_expect(test, 0, 0xFFFFFFFF);
 	write_ignored(test);
 }
+#endif
 
 static u32 read_unknown(const struct test32 *test)
 {
