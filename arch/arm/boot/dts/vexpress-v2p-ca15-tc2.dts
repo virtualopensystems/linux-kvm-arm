@@ -149,6 +149,7 @@
 	spc@7fff0000 {
 		compatible = "arm,spc";
 		reg = <0 0x7FFF0000 0 0x1000>;
+		interrupts = <0 95 4>;
 	};
 
 	cci@2c090000 {
