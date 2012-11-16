@@ -1,5 +1,2 @@
 guest-driver
-mmio-guest
-vfp-guest
-cond-guest
-cp15-guest
+*-guest
