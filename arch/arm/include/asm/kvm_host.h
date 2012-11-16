@@ -103,6 +103,15 @@ struct kvm_vcpu_arch {
 	struct vgic_cpu vgic_cpu;
 	struct arch_timer_cpu timer_cpu;
 
+	u32 ws_ent_cc1;
+	u32 ws_ent_cc2;
+	u32 ws_ret_cc1;
+	u32 ws_ret_cc2;
+	u32 hyp_ent_cc1;
+	u32 hyp_ent_cc2;
+	u32 hyp_ret_cc1;
+	u32 hyp_ret_cc2;
+
 	/*
 	 * Anything that is not used directly from assembly code goes
 	 * here.
@@ -133,6 +142,14 @@ struct kvm_vm_stat {
 
 struct kvm_vcpu_stat {
 	u32 halt_wakeup;
+	u32 ws_datapoints;
+	u32 ws_cycles;
+	u64 stddev_sum1;
+	u64 stddev_sum2;
+	u32 ws_stddev_n;
+	u32 ws_stddev_d;
+	u32 hyp_ent_cycles;
+	u32 hyp_ret_cycles;
 };
 
 struct kvm_vcpu_init;

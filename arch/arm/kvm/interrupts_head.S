@@ -3,6 +3,10 @@
 #define VCPU_USR_LR		(VCPU_USR_REG(14))
 #define CP15_OFFSET(_cp15_reg_idx) (VCPU_CP15 + (_cp15_reg_idx * 4))
 
+.macro read_ccounter reg
+	mrc	p15, 0, \reg, c9, c13, 0	@ PMCCNTR
+.endm
+
 /* Clobbers {r2-r6} */
 .macro store_vfp_state vfp_base
 	@ The VFPFMRX and VFPFMXR macros are the VMRS and VMSR instructions
@@ -112,6 +116,9 @@
 	mov	lr, r3
 	pop	{r4-r12}
 
+	read_ccounter	r2
+	str	r2, [r1, #VCPU_HYP_RET_CC1]
+
 	pop	{r2}
 	msr	ELR_hyp, r2
 .endm
@@ -163,6 +170,11 @@
 	ldr	r3, [r0, #VCPU_USR_LR]
 	msr	SP_usr, r2
 	mov	lr, r3
+
+	@ get ws enter counter
+	read_ccounter	r1
+	str	r1, [r0, #VCPU_WS_ENT_CC2]
+
 	add	r0, r0, #(VCPU_USR_REGS)
 	ldm	r0, {r0-r12}
 .endm
@@ -508,7 +520,8 @@
  * (hardware reset value is 0) */
 .macro set_hdcr entry
 	mrc	p15, 4, r2, c1, c1, 1
-	ldr	r3, =(HDCR_TPM|HDCR_TPMCR)
+	@ldr	r3, =(HDCR_TPM|HDCR_TPMCR)
+	mov	r3, #0
 	.if \entry == 1
 	orr	r2, r2, r3		@ Trap some perfmon accesses
 	.else
@@ -535,3 +548,4 @@
 .macro load_vcpu reg
 	mrc	p15, 4, \reg, c13, c0, 2	@ HTPIDR
 .endm
+

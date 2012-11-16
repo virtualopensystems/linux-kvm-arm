@@ -15,6 +15,7 @@
  * along with this program; if not, write to the Free Software
  * Foundation, 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
+#define DEBUG 1
 
 #include <linux/errno.h>
 #include <linux/err.h>
@@ -475,10 +476,13 @@ static int handle_hvc(struct kvm_vcpu *vcpu, struct kvm_run *run)
 	 * Guest called HVC instruction:
 	 * Let it know we don't want that by injecting an undefined exception.
 	 */
+#if 0
 	kvm_debug("hvc: %x (at %08x)", vcpu->arch.hsr & ((1 << 16) - 1),
 		  *vcpu_pc(vcpu));
 	kvm_debug("         HSR: %8x", vcpu->arch.hsr);
 	kvm_inject_undefined(vcpu);
+#endif
+	trace_kvm_guest_hvc(*vcpu_pc(vcpu), vcpu->arch.hsr & 0xffff);
 	return 1;
 }
 
@@ -618,6 +622,114 @@ static int handle_exit(struct kvm_vcpu *vcpu, struct kvm_run *run,
 	}
 }
 
+static void kvm_enable_hyp_ccount(void)
+{
+	unsigned long pmxevtyper, pmselr, pmcr, enable;
+
+	asm volatile("mrc p15, 0, %[dst], c9, c12, 5":
+		     [dst] "=r" (pmselr));
+	asm volatile("mcr p15, 0, %[src], c9, c12, 5": :
+		     [src] "r" (pmselr | 0x1f));
+
+	asm volatile("mrc p15, 0, %[dst], c9, c13, 1":
+		     [dst] "=r" (pmxevtyper));
+
+	pmxevtyper |= (1 << 27); /* enable hyp counting */
+
+	asm volatile("mcr p15, 0, %[src], c9, c13, 1": :
+		     [src] "r" (pmxevtyper));
+
+	asm volatile("mcr p15, 0, %[src], c9, c12, 5\n\t": :
+		     [src] "r" (pmselr));
+
+	asm volatile("mrc p15, 0, %[dst], c9, c12, 0":
+		     [dst] "=r" (pmcr));
+	if (pmcr & (1 << 3))
+		kvm_err("cycle counter divider 64 enabled\n");
+
+	pmcr |= 1;
+	asm volatile("mcr p15, 0, %[src], c9, c12, 0": :
+		     [src] "r" (pmcr));
+
+	/* Use PMCNTENSET to enable the cycle counter */
+	enable = (1 << 31);
+	asm volatile("mcr p15, 0, %[en], c9, c12, 1": :
+		     [en] "r" (enable));
+}
+
+static u32 kvm_read_ccounter(void)
+{
+	u32 val;
+	asm volatile("mrc p15, 0, %[val], c9, c13, 0": [val] "=r" (val));
+	return val;
+}
+
+static u32 __calc_avg(struct kvm_vcpu *vcpu,
+		      unsigned long oldavg, unsigned long newval)
+{
+	unsigned long newavg;
+
+	if (vcpu->stat.ws_datapoints == 0)
+		return newval;
+	newavg = ((oldavg * vcpu->stat.ws_datapoints) + newval) /
+		 (vcpu->stat.ws_datapoints + 1);
+	return newavg;
+}
+
+#if 0
+static void __calc_stddev(struct kvm_vcpu *vcpu, unsigned long newval,
+			  unsigned long oldavg, unsigned long newavg)
+{
+	unsigned long k = vcpu->stat.ws_datapoints + 1;
+	unsigned long long s1, s2;
+
+	if (k == 0) {
+		s1 = newval;
+		s2 = newval * newval;
+		goto out;
+	}
+
+	s1 = vcpu->stat.stddev_sum1 + newval;
+	s2 = vcpu->stat.stddev_sum2 + (newval * newval);
+
+	vcpu->stat.ws_stddev_n = k * s2 - (s1 * s1);
+	vcpu->stat.ws_stddev_d = k;
+
+out:
+	vcpu->stat.stddev_sum1 = s1;
+	vcpu->stat.stddev_sum2 = s2;
+}
+#endif
+
+
+#define calc_avg(_stat) __calc_avg(vcpu, vcpu->stat._stat, _stat)
+static void calc_ws_stats(struct kvm_vcpu *vcpu)
+{
+	unsigned long ws_cycles, hyp_ent_cycles, hyp_ret_cycles;
+	unsigned long ws_oldavg;
+
+	if (vcpu->arch.ws_ent_cc1 >= vcpu->arch.ws_ent_cc2 ||
+	    vcpu->arch.ws_ret_cc1 >= vcpu->arch.ws_ret_cc2 ||
+	    vcpu->arch.hyp_ent_cc1 >= vcpu->arch.hyp_ent_cc2 ||
+	    vcpu->arch.hyp_ret_cc1 >= vcpu->arch.hyp_ret_cc2) {
+		//kvm_err("cycle counter overflow\n");
+		return;
+	}
+
+	ws_cycles = (vcpu->arch.ws_ent_cc2 - vcpu->arch.ws_ent_cc1) +
+		    (vcpu->arch.ws_ret_cc2 - vcpu->arch.ws_ret_cc1);
+	hyp_ent_cycles = vcpu->arch.hyp_ent_cc2 - vcpu->arch.hyp_ent_cc1;
+	hyp_ret_cycles = vcpu->arch.hyp_ret_cc2 - vcpu->arch.hyp_ret_cc1;
+
+	ws_oldavg = vcpu->stat.ws_cycles;
+	vcpu->stat.ws_cycles = calc_avg(ws_cycles);
+	/* __calc_stddev(vcpu, ws_cycles, ws_oldavg, vcpu->stat.ws_cycles); */
+
+	vcpu->stat.hyp_ent_cycles = calc_avg(hyp_ent_cycles);
+	vcpu->stat.hyp_ent_cycles = calc_avg(hyp_ent_cycles);
+	vcpu->stat.ws_datapoints++;
+}
+
 /**
  * kvm_arch_vcpu_ioctl_run - the main VCPU run function to execute guest code
  * @vcpu:	The VCPU pointer
@@ -684,6 +796,8 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 			kvm_vgic_sync_from_cpu(vcpu);
 			continue;
 		}
+		
+		kvm_enable_hyp_ccount();
 
 		/**************************************************************
 		 * Enter the guest
@@ -697,13 +811,21 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 			/* This means ignore, try again. */
 			ret = ARM_EXCEPTION_IRQ;
 		} else {
+			vcpu->arch.ws_ent_cc1 = kvm_read_ccounter();
+			vcpu->arch.hyp_ent_cc1 = vcpu->arch.ws_ent_cc1;
+
 			ret = kvm_call_hyp(__kvm_vcpu_run, vcpu);
+
+			vcpu->arch.ws_ret_cc2 = kvm_read_ccounter();
+			vcpu->arch.hyp_ret_cc2 = vcpu->arch.ws_ret_cc2;
+			calc_ws_stats(vcpu);
 		}
 
 		vcpu->mode = OUTSIDE_GUEST_MODE;
 		vcpu->arch.last_pcpu = smp_processor_id();
 		kvm_guest_exit();
-		trace_kvm_exit(*vcpu_pc(vcpu));
+		trace_kvm_exit(*vcpu_pc(vcpu),
+			       vcpu->arch.ws_ent_cc2 - vcpu->arch.ws_ent_cc1);
 		/*
 		 * We may have taken a host interrupt in HYP mode (ie
 		 * while executing the guest). This interrupt is still

@@ -86,6 +86,10 @@ ENDPROC(__kvm_flush_vm_context)
  * int __kvm_vcpu_run(struct kvm_vcpu *vcpu)
  */
 ENTRY(__kvm_vcpu_run)
+	@ get hyp enter counter
+	read_ccounter	r1
+	str	r1, [r0, #VCPU_HYP_ENT_CC2]
+
 	@ Save the vcpu pointer
 	mcr	p15, 4, r0, c13, c0, 2	@ HTPIDR
 
@@ -389,7 +393,10 @@ THUMB(	orr	lr, #1)
 
 guest_trap:
 	load_vcpu	r1		@ Load VCPU pointer
+	read_ccounter	r2
+	str	r2, [r1, #VCPU_WS_RET_CC1]
 	str	r0, [r1, #VCPU_HSR]
+
 
 	@ Check if we need the fault information
 	lsr	r0, r0, #HSR_EC_SHIFT
@@ -473,6 +480,8 @@ hyp_irq:
 	push	{r0, r1, r2}
 	mov	r0, #ARM_EXCEPTION_IRQ
 	load_vcpu	r1		@ Load VCPU pointer
+	read_ccounter	r2
+	str	r2, [r1, #VCPU_WS_RET_CC1]
 	b	__kvm_vcpu_return
 
 	.align

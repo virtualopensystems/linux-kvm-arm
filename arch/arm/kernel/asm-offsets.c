@@ -167,6 +167,16 @@ int main(void)
   DEFINE(VCPU_HxFAR,		offsetof(struct kvm_vcpu, arch.hxfar));
   DEFINE(VCPU_HPFAR,		offsetof(struct kvm_vcpu, arch.hpfar));
   DEFINE(VCPU_HYP_PC,		offsetof(struct kvm_vcpu, arch.hyp_pc));
+
+  DEFINE(VCPU_WS_ENT_CC1,	offsetof(struct kvm_vcpu, arch.ws_ent_cc1));
+  DEFINE(VCPU_WS_ENT_CC2,	offsetof(struct kvm_vcpu, arch.ws_ent_cc2));
+  DEFINE(VCPU_WS_RET_CC1,	offsetof(struct kvm_vcpu, arch.ws_ret_cc1));
+  DEFINE(VCPU_WS_RET_CC2,	offsetof(struct kvm_vcpu, arch.ws_ret_cc2));
+  DEFINE(VCPU_HYP_ENT_CC1,	offsetof(struct kvm_vcpu, arch.hyp_ent_cc1));
+  DEFINE(VCPU_HYP_ENT_CC2,	offsetof(struct kvm_vcpu, arch.hyp_ent_cc2));
+  DEFINE(VCPU_HYP_RET_CC1,	offsetof(struct kvm_vcpu, arch.hyp_ret_cc1));
+  DEFINE(VCPU_HYP_RET_CC2,	offsetof(struct kvm_vcpu, arch.hyp_ret_cc2));
+
 #ifdef CONFIG_KVM_ARM_VGIC
   DEFINE(VCPU_VGIC_CPU,		offsetof(struct kvm_vcpu, arch.vgic_cpu));
   DEFINE(VGIC_CPU_HCR,		offsetof(struct vgic_cpu, vgic_hcr));
