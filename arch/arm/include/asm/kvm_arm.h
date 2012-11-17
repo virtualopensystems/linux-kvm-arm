@@ -125,24 +125,40 @@
 #define HDCR_TPMCR	(1 << 5)
 #define HDCR_HPMN_MASK	(0x1F)
 
+/*
+ * The architecture supports 40-bit IPA as input to the 2nd stage translations
+ * and PTRS_PER_PGD2 could therefore be 1024.
+ *
+ * To save a bit of memory and to avoid alignment issues we assume 38-bit IPA
+ * for now, but remember that the level-1 table must be aligned to its size.
+ */
+#define KVM_PHYS_SHIFT	(38)
+#define KVM_PHYS_SIZE	(1ULL << KVM_PHYS_SHIFT)
+#define KVM_PHYS_MASK	(KVM_PHYS_SIZE - 1)
+#define PTRS_PER_PGD2	512
+#define PGD2_ORDER	get_order(PTRS_PER_PGD2 * sizeof(pgd_t))
+
 /* Virtualization Translation Control Register (VTCR) bits */
 #define VTCR_SH0	(3 << 12)
 #define VTCR_ORGN0	(3 << 10)
 #define VTCR_IRGN0	(3 << 8)
 #define VTCR_SL0	(3 << 6)
 #define VTCR_S		(1 << 4)
-#define VTCR_T0SZ	3
+#define VTCR_T0SZ	(0xf << 0)
 #define VTCR_MASK	(VTCR_SH0 | VTCR_ORGN0 | VTCR_IRGN0 | VTCR_SL0 | \
-			 VTCR_S | VTCR_T0SZ | VTCR_MASK)
+			 VTCR_S | VTCR_T0SZ)
 #define VTCR_HTCR_SH	(VTCR_SH0 | VTCR_ORGN0 | VTCR_IRGN0)
 #define VTCR_SL_L2	0		/* Starting-level: 2 */
 #define VTCR_SL_L1	(1 << 6)	/* Starting-level: 1 */
 #define VTCR_GUEST_SL	VTCR_SL_L1
-#define VTCR_GUEST_T0SZ	0
+
+/* stage-2 input address range defined as 2^(32-T0SZ) */
+#define GUEST_T0SZ	(32 - KVM_PHYS_SHIFT)
+#define VTCR_GUEST_T0SZ	((GUEST_T0SZ & VTCR_T0SZ) << 0)
 #if VTCR_GUEST_SL == 0
-#define VTTBR_X		(14 - VTCR_GUEST_T0SZ)
+#define VTTBR_X		(14 - GUEST_T0SZ)
 #else
-#define VTTBR_X		(5 - VTCR_GUEST_T0SZ)
+#define VTTBR_X		(5 - GUEST_T0SZ)
 #endif
 #define VTTBR_BADDR_SHIFT (VTTBR_X - 1)
 #define VTTBR_BADDR_MASK  (((1LLU << (40 - VTTBR_X)) - 1) << VTTBR_BADDR_SHIFT)
