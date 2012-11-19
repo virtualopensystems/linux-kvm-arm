@@ -175,12 +175,14 @@ static u64 get_coherent_dma_mask(struct device *dev)
 			return 0;
 		}
 
+#if 0
 		if ((~mask) & (u64)arm_dma_limit) {
 			dev_warn(dev, "coherent DMA mask %#llx is smaller "
 				 "than system GFP_DMA mask %#llx\n",
 				 mask, (u64)arm_dma_limit);
 			return 0;
 		}
+#endif
 	}
 
 	return mask;
