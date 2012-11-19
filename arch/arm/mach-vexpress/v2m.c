@@ -492,9 +492,16 @@ static const char * const v2m_dt_match[] __initconst = {
 	NULL,
 };
 
+extern struct smp_operations bL_smp_ops;
+
 DT_MACHINE_START(VEXPRESS_DT, "ARM-Versatile Express")
 	.dt_compat	= v2m_dt_match,
+#ifdef CONFIG_BIG_LITTLE
+	/* FIXME: this must become selectable at run time somehow */
+	.smp		= smp_ops(bL_smp_ops),
+#else
 	.smp		= smp_ops(vexpress_smp_ops),
+#endif
 	.map_io		= v2m_dt_map_io,
 	.init_early	= v2m_dt_init_early,
 	.init_irq	= v2m_dt_init_irq,
