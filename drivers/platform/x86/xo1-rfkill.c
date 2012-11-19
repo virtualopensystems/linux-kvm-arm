@@ -60,7 +60,7 @@ static int __devinit xo1_rfkill_probe(struct platform_device *pdev)
 	return 0;
 }
 
-static int __devexit xo1_rfkill_remove(struct platform_device *pdev)
+static int xo1_rfkill_remove(struct platform_device *pdev)
 {
 	struct rfkill *rfk = platform_get_drvdata(pdev);
 	rfkill_unregister(rfk);

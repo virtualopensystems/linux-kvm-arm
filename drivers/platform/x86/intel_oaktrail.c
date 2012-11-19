@@ -283,7 +283,7 @@ static int __devinit oaktrail_probe(struct platform_device *pdev)
 	return 0;
 }
 
-static int __devexit oaktrail_remove(struct platform_device *pdev)
+static int oaktrail_remove(struct platform_device *pdev)
 {
 	return 0;
 }

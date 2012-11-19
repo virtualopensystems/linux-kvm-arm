@@ -835,7 +835,7 @@ platform_failed:
 	return ret;
 }
 
-static int __devexit ideapad_acpi_remove(struct acpi_device *adevice, int type)
+static int ideapad_acpi_remove(struct acpi_device *adevice, int type)
 {
 	struct ideapad_private *priv = dev_get_drvdata(&adevice->dev);
 	int i;

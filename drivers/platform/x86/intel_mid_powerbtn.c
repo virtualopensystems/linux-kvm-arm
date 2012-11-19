@@ -121,7 +121,7 @@ err_free_input:
 	return error;
 }
 
-static int __devexit mfld_pb_remove(struct platform_device *pdev)
+static int mfld_pb_remove(struct platform_device *pdev)
 {
 	struct input_dev *input = platform_get_drvdata(pdev);
 	int irq = platform_get_irq(pdev, 0);

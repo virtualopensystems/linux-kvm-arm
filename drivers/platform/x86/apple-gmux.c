@@ -577,7 +577,7 @@ err_free:
 	return ret;
 }
 
-static void __devexit gmux_remove(struct pnp_dev *pnp)
+static void gmux_remove(struct pnp_dev *pnp)
 {
 	struct apple_gmux_data *gmux_data = pnp_get_drvdata(pnp);
 

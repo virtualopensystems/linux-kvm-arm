@@ -99,7 +99,7 @@ static int __devinit samsungq10_probe(struct platform_device *pdev)
 	return 0;
 }
 
-static int __devexit samsungq10_remove(struct platform_device *pdev)
+static int samsungq10_remove(struct platform_device *pdev)
 {
 
 	struct backlight_device *bd = platform_get_drvdata(pdev);
