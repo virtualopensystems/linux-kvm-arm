@@ -13,7 +13,9 @@
 #include <linux/sched.h>
 #include <linux/mm.h>
 #include <linux/dma-mapping.h>
+#ifdef CONFIG_KVM_ARM_HOST
 #include <linux/kvm_host.h>
+#endif
 #include <asm/cacheflush.h>
 #include <asm/glue-df.h>
 #include <asm/glue-pf.h>
