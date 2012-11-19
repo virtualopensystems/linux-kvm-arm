@@ -115,7 +115,7 @@ static const struct dmi_system_id dell_device_table[] __initconst = {
 };
 MODULE_DEVICE_TABLE(dmi, dell_device_table);
 
-static struct dmi_system_id __devinitdata dell_quirks[] = {
+static struct dmi_system_id dell_quirks[] = {
 	{
 		.callback = dmi_matched,
 		.ident = "Dell Vostro V130",
