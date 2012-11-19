@@ -74,7 +74,7 @@ static struct platform_driver xo1_rfkill_driver = {
 		.owner = THIS_MODULE,
 	},
 	.probe		= xo1_rfkill_probe,
-	.remove		= __devexit_p(xo1_rfkill_remove),
+	.remove		= xo1_rfkill_remove,
 };
 
 module_platform_driver(xo1_rfkill_driver);

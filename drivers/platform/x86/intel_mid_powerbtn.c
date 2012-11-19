@@ -139,7 +139,7 @@ static struct platform_driver mfld_pb_driver = {
 		.owner = THIS_MODULE,
 	},
 	.probe	= mfld_pb_probe,
-	.remove	= __devexit_p(mfld_pb_remove),
+	.remove	= mfld_pb_remove,
 };
 
 module_platform_driver(mfld_pb_driver);

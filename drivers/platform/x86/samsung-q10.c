@@ -119,7 +119,7 @@ static struct platform_driver samsungq10_driver = {
 		.pm	= &samsungq10_pm_ops,
 	},
 	.probe		= samsungq10_probe,
-	.remove		= __devexit_p(samsungq10_remove),
+	.remove		= samsungq10_remove,
 };
 
 static struct platform_device *samsungq10_device;

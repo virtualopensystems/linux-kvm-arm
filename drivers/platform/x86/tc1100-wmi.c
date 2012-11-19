@@ -241,7 +241,7 @@ static struct platform_driver tc1100_driver = {
 		.pm = &tc1100_pm_ops,
 #endif
 	},
-	.remove = __devexit_p(tc1100_remove),
+	.remove = tc1100_remove,
 };
 
 static int __init tc1100_init(void)

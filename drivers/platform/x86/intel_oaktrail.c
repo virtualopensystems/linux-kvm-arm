@@ -294,7 +294,7 @@ static struct platform_driver oaktrail_driver = {
 		.owner = THIS_MODULE,
 	},
 	.probe	= oaktrail_probe,
-	.remove	= __devexit_p(oaktrail_remove)
+	.remove	= oaktrail_remove
 };
 
 static int dmi_check_cb(const struct dmi_system_id *id)

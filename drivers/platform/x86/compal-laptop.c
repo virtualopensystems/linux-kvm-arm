@@ -721,7 +721,7 @@ static struct platform_driver compal_driver = {
 		.owner = THIS_MODULE,
 	},
 	.probe	= compal_probe,
-	.remove	= __devexit_p(compal_remove)
+	.remove	= compal_remove
 };
 
 static enum power_supply_property compal_bat_properties[] = {
