@@ -21,6 +21,10 @@
 #include <linux/slab.h>
 #include <linux/arm-cci.h>
 
+#include <asm/cacheflush.h>
+#include <asm/memory.h>
+#include <asm/outercache.h>
+
 
 #define CCI_STATUS_OFFSET	0xc
 #define STATUS_CHANGE_PENDING	(1 << 0)
@@ -77,6 +81,15 @@ static int cci_driver_probe(struct platform_device *pdev)
 		ret = -EADDRNOTAVAIL;
 		goto ioremap_err;
 	}
+
+	/*
+	 * Multi-cluster systems may need this data when non-coherent, during
+	 * cluster power-up/power-down. Make sure it reaches main memory:
+	 */
+	__cpuc_flush_dcache_area(info, sizeof *info);
+	__cpuc_flush_dcache_area(&info, sizeof info);
+	outer_clean_range(virt_to_phys(info), virt_to_phys(info + 1));
+	outer_clean_range(virt_to_phys(&info), virt_to_phys(&info + 1));
 
 	platform_set_drvdata(pdev, info);
 

@@ -22,5 +22,6 @@ config OMAP_INTERCONNECT
 
 config ARM_CCI
        bool "ARM CCI driver support"
+	depends on ARM
 
 endmenu
