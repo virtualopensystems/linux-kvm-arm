@@ -56,7 +56,7 @@ static irqreturn_t mfld_pb_isr(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
-static int __devinit mfld_pb_probe(struct platform_device *pdev)
+static int mfld_pb_probe(struct platform_device *pdev)
 {
 	struct input_dev *input;
 	int irq = platform_get_irq(pdev, 0);

@@ -40,7 +40,7 @@ static const struct rfkill_ops rfkill_ops = {
 	.set_block = rfkill_set_block,
 };
 
-static int __devinit xo1_rfkill_probe(struct platform_device *pdev)
+static int xo1_rfkill_probe(struct platform_device *pdev)
 {
 	struct rfkill *rfk;
 	int r;

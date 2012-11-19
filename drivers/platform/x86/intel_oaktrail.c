@@ -278,7 +278,7 @@ static void oaktrail_backlight_exit(void)
 		backlight_device_unregister(oaktrail_bl_device);
 }
 
-static int __devinit oaktrail_probe(struct platform_device *pdev)
+static int oaktrail_probe(struct platform_device *pdev)
 {
 	return 0;
 }

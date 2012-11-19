@@ -192,7 +192,7 @@ static void fujitsu_reset(void)
 	fujitsu_send_state();
 }
 
-static int __devinit input_fujitsu_setup(struct device *parent,
+static int input_fujitsu_setup(struct device *parent,
 					 const char *name, const char *phys)
 {
 	struct input_dev *idev;
@@ -277,21 +277,21 @@ static irqreturn_t fujitsu_interrupt(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
-static void __devinit fujitsu_dmi_common(const struct dmi_system_id *dmi)
+static void fujitsu_dmi_common(const struct dmi_system_id *dmi)
 {
 	pr_info("%s\n", dmi->ident);
 	memcpy(fujitsu.config.keymap, dmi->driver_data,
 			sizeof(fujitsu.config.keymap));
 }
 
-static int __devinit fujitsu_dmi_lifebook(const struct dmi_system_id *dmi)
+static int fujitsu_dmi_lifebook(const struct dmi_system_id *dmi)
 {
 	fujitsu_dmi_common(dmi);
 	fujitsu.config.quirks |= INVERT_TABLET_MODE_BIT;
 	return 1;
 }
 
-static int __devinit fujitsu_dmi_stylistic(const struct dmi_system_id *dmi)
+static int fujitsu_dmi_stylistic(const struct dmi_system_id *dmi)
 {
 	fujitsu_dmi_common(dmi);
 	fujitsu.config.quirks |= FORCE_TABLET_MODE_IF_UNDOCK;
@@ -390,7 +390,7 @@ fujitsu_walk_resources(struct acpi_resource *res, void *data)
 	}
 }
 
-static int __devinit acpi_fujitsu_add(struct acpi_device *adev)
+static int acpi_fujitsu_add(struct acpi_device *adev)
 {
 	acpi_status status;
 	int error;

@@ -979,7 +979,7 @@ static void toshiba_acpi_report_hotkey(struct toshiba_acpi_dev *dev,
 		pr_info("Unknown key %x\n", scancode);
 }
 
-static int __devinit toshiba_acpi_setup_keyboard(struct toshiba_acpi_dev *dev)
+static int toshiba_acpi_setup_keyboard(struct toshiba_acpi_dev *dev)
 {
 	acpi_status status;
 	acpi_handle ec_handle, handle;
@@ -1069,7 +1069,7 @@ static int __devinit toshiba_acpi_setup_keyboard(struct toshiba_acpi_dev *dev)
 	return error;
 }
 
-static int __devinit toshiba_acpi_setup_backlight(struct toshiba_acpi_dev *dev)
+static int toshiba_acpi_setup_backlight(struct toshiba_acpi_dev *dev)
 {
 	struct backlight_properties props;
 	int brightness;
@@ -1154,7 +1154,7 @@ static int toshiba_acpi_remove(struct acpi_device *acpi_dev, int type)
 	return 0;
 }
 
-static const char * __devinit find_hci_method(acpi_handle handle)
+static const char * find_hci_method(acpi_handle handle)
 {
 	acpi_status status;
 	acpi_handle hci_handle;
@@ -1170,7 +1170,7 @@ static const char * __devinit find_hci_method(acpi_handle handle)
 	return NULL;
 }
 
-static int __devinit toshiba_acpi_add(struct acpi_device *acpi_dev)
+static int toshiba_acpi_add(struct acpi_device *acpi_dev)
 {
 	struct toshiba_acpi_dev *dev;
 	const char *hci_method;

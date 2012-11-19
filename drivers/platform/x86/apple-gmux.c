@@ -411,7 +411,7 @@ static int gmux_resume(struct pnp_dev *pnp)
 	return 0;
 }
 
-static int __devinit gmux_probe(struct pnp_dev *pnp,
+static int gmux_probe(struct pnp_dev *pnp,
 				const struct pnp_device_id *id)
 {
 	struct apple_gmux_data *gmux_data;

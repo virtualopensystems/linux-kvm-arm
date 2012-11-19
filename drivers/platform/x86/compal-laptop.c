@@ -713,7 +713,7 @@ static struct attribute_group compal_attribute_group = {
 	.attrs = compal_attributes
 };
 
-static int __devinit compal_probe(struct platform_device *);
+static int compal_probe(struct platform_device *);
 static int compal_remove(struct platform_device *);
 static struct platform_driver compal_driver = {
 	.driver = {
@@ -1015,7 +1015,7 @@ err_backlight:
 	return ret;
 }
 
-static int __devinit compal_probe(struct platform_device *pdev)
+static int compal_probe(struct platform_device *pdev)
 {
 	int err;
 	struct compal_data *data;

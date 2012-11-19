@@ -77,7 +77,7 @@ static int samsungq10_resume(struct device *dev)
 static SIMPLE_DEV_PM_OPS(samsungq10_pm_ops,
 			  samsungq10_suspend, samsungq10_resume);
 
-static int __devinit samsungq10_probe(struct platform_device *pdev)
+static int samsungq10_probe(struct platform_device *pdev)
 {
 
 	struct backlight_properties props;
