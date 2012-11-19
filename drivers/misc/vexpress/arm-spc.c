@@ -25,6 +25,10 @@
 #include <linux/spinlock.h>
 #include <linux/vexpress.h>
 
+#include <asm/cacheflush.h>
+#include <asm/memory.h>
+#include <asm/outercache.h>
+
 #define SNOOP_CTL_A15		0x404
 #define SNOOP_CTL_A7		0x504
 #define PERF_LVL_A15		0xB00
@@ -322,6 +326,13 @@ static int __devinit vexpress_spc_driver_probe(struct platform_device *pdev)
 	vscc = (u32) info->baseaddr;
 	spin_lock_init(&info->lock);
 	platform_set_drvdata(pdev, info);
+
+	/*
+	 * Multi-cluster systems may need this data when non-coherent, during
+	 * cluster power-up/power-down. Make sure it reaches main memory:
+	 */
+	__cpuc_flush_dcache_area(info, sizeof *info);
+	outer_clean_range(virt_to_phys(info), virt_to_phys(info + 1));
 
 	pr_info("vexpress_spc loaded at %p\n", info->baseaddr);
 	vexpress_spc_loaded = true;

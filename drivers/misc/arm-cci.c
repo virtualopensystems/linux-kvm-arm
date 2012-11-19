@@ -21,6 +21,10 @@
 #include <linux/slab.h>
 #include <linux/arm-cci.h>
 
+#include <asm/cacheflush.h>
+#include <asm/memory.h>
+#include <asm/outercache.h>
+
 #include <asm/irq_regs.h>
 #include <asm/pmu.h>
 
@@ -460,6 +464,13 @@ static int cci_driver_probe(struct platform_device *pdev)
 		ret = -ENXIO;
 		goto ioremap_err;
 	}
+
+	/*
+	 * Multi-cluster systems may need this data when non-coherent, during
+	 * cluster power-up/power-down. Make sure it reaches main memory:
+	 */
+	__cpuc_flush_dcache_area(info, sizeof *info);
+	outer_clean_range(virt_to_phys(info), virt_to_phys(info + 1));
 
 	platform_set_drvdata(pdev, info);
 

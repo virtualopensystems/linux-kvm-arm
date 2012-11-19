@@ -501,6 +501,7 @@ config USB_SWITCH_FSA9480
 
 config ARM_CCI
        bool "ARM CCI driver support"
+	depends on ARM
 
 source "drivers/misc/c2port/Kconfig"
 source "drivers/misc/eeprom/Kconfig"
