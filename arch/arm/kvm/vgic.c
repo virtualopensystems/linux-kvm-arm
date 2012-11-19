@@ -1045,7 +1045,7 @@ static irqreturn_t vgic_maintenance_handler(int irq, void *data)
 	return IRQ_HANDLED;
 }
 
-void kvm_vgic_vcpu_init(struct kvm_vcpu *vcpu)
+int kvm_vgic_vcpu_init(struct kvm_vcpu *vcpu)
 {
 	struct vgic_cpu *vgic_cpu = &vcpu->arch.vgic_cpu;
 	struct vgic_dist *dist = &vcpu->kvm->arch.vgic;
@@ -1053,7 +1053,10 @@ void kvm_vgic_vcpu_init(struct kvm_vcpu *vcpu)
 	int i;
 
 	if (!irqchip_in_kernel(vcpu->kvm))
-		return;
+		return 0;
+
+	if (vcpu->vcpu_id >= VGIC_MAX_CPUS)
+		return -EBUSY;
 
 	for (i = 0; i < VGIC_NR_IRQS; i++) {
 		if (i < 16)

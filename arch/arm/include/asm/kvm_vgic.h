@@ -28,7 +28,7 @@
 
 #define VGIC_NR_IRQS		128
 #define VGIC_NR_SHARED_IRQS	(VGIC_NR_IRQS - 32)
-#define VGIC_MAX_CPUS		NR_CPUS
+#define VGIC_MAX_CPUS		KVM_MAX_VCPUS
 
 /* Sanity checks... */
 #if (VGIC_MAX_CPUS > 8)
@@ -246,7 +246,7 @@ int kvm_vgic_set_addr(struct kvm *kvm, unsigned long type, u64 addr);
 int kvm_vgic_hyp_init(void);
 int kvm_vgic_init(struct kvm *kvm);
 int kvm_vgic_create(struct kvm *kvm);
-void kvm_vgic_vcpu_init(struct kvm_vcpu *vcpu);
+int kvm_vgic_vcpu_init(struct kvm_vcpu *vcpu);
 void kvm_vgic_sync_to_cpu(struct kvm_vcpu *vcpu);
 void kvm_vgic_sync_from_cpu(struct kvm_vcpu *vcpu);
 int kvm_vgic_inject_irq(struct kvm *kvm, int cpuid, unsigned int irq_num,
