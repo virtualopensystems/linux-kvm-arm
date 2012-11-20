@@ -365,7 +365,7 @@ static u32 vgic_cfg_expand(u16 val)
 	int i;
 
 	for (i = 0; i < 16; i++)
-		res |= (val >> i) << (2 * i + 1);
+		res |= ((val >> i) & 1) << (2 * i + 1);
 
 	return res;
 }
@@ -376,7 +376,7 @@ static u16 vgic_cfg_compress(u32 val)
 	int i;
 
 	for (i = 0; i < 16; i++)
-		res |= (val >> (i * 2 + 1)) << i;
+		res |= ((val >> (i * 2 + 1)) & 1) << i;
 
 	return res;
 }
