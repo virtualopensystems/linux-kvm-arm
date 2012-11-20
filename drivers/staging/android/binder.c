@@ -2435,7 +2435,7 @@ static void binder_release_work(struct list_head *list)
 
 			death = container_of(w, struct binder_ref_death, work);
 			binder_debug(BINDER_DEBUG_DEAD_TRANSACTION,
-				"undelivered death notification, %p\n",
+				"undelivered death notification, %d\n",
 				death->cookie);
 			kfree(death);
 			binder_stats_deleted(BINDER_STAT_DEATH);
