@@ -202,10 +202,6 @@ static int bl_cpufreq_init(struct cpufreq_policy *policy)
 
 	cpufreq_frequency_table_get_attr(freq_table[cur_cluster], policy->cpu);
 
-	/* set default policy and cpuinfo */
-	policy->min = policy->cpuinfo.min_freq;
-	policy->max = policy->cpuinfo.max_freq;
-
 	policy->cpuinfo.transition_latency = 1000000;	/* 1 ms assumed */
 	policy->cur = bl_cpufreq_get(policy->cpu);
 
