@@ -735,7 +735,7 @@ static bool vgic_queue_irq(struct kvm_vcpu *vcpu, u8 sgi_source_id, int irq)
 	}
 
 	/* Try to use another LR for this interrupt */
-	lr = find_first_bit((unsigned long *)vgic_cpu->vgic_elrsr,
+	lr = find_first_zero_bit((unsigned long *)vgic_cpu->lr_used,
 			       vgic_cpu->nr_lr);
 	if (lr >= vgic_cpu->nr_lr)
 		return false;
@@ -748,7 +748,6 @@ static bool vgic_queue_irq(struct kvm_vcpu *vcpu, u8 sgi_source_id, int irq)
 	}
 
 	vgic_cpu->vgic_irq_lr_map[irq] = lr;
-	clear_bit(lr, (unsigned long *)vgic_cpu->vgic_elrsr);
 	set_bit(lr, vgic_cpu->lr_used);
 
 	return true;
