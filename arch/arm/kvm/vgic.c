@@ -761,7 +761,6 @@ static void __kvm_vgic_sync_to_cpu(struct kvm_vcpu *vcpu)
 {
 	struct vgic_cpu *vgic_cpu = &vcpu->arch.vgic_cpu;
 	struct vgic_dist *dist = &vcpu->kvm->arch.vgic;
-	unsigned long *pending;
 	int i, c, vcpu_id;
 	int overflow = 0;
 
@@ -780,7 +779,6 @@ static void __kvm_vgic_sync_to_cpu(struct kvm_vcpu *vcpu)
 	}
 
 	/* SGIs */
-	pending = vgic_bitmap_get_cpu_map(&dist->irq_state, vcpu_id);
 	for_each_set_bit(i, vgic_cpu->pending_percpu, 16) {
 		unsigned long sources;
 
@@ -795,7 +793,7 @@ static void __kvm_vgic_sync_to_cpu(struct kvm_vcpu *vcpu)
 		}
 
 		if (!sources) {
-			clear_bit(i, pending);
+			vgic_bitmap_set_irq_val(&dist->irq_state, vcpu_id, i, 0);
 			kvm_vgic_vcpu_clear_pending_irq(vcpu, i);
 		}
 
@@ -809,13 +807,12 @@ static void __kvm_vgic_sync_to_cpu(struct kvm_vcpu *vcpu)
 			continue;
 		}
 
-		clear_bit(i, pending);
+		vgic_bitmap_set_irq_val(&dist->irq_state, vcpu_id, i, 0);
 		kvm_vgic_vcpu_clear_pending_irq(vcpu, i);
 	}
 
 
 	/* SPIs */
-	pending = vgic_bitmap_get_shared_map(&dist->irq_state);
 	for_each_set_bit(i, vgic_cpu->pending_shared, VGIC_NR_SHARED_IRQS) {
 		int irq = i + 32;
 		if (vgic_bitmap_get_irq_val(&dist->irq_active, 0, irq))
@@ -828,7 +825,7 @@ static void __kvm_vgic_sync_to_cpu(struct kvm_vcpu *vcpu)
 
 		/* Immediate clear on edge, set active on level */
 		if (vgic_irq_is_edge(dist, irq)) {
-			clear_bit(i, pending);
+			vgic_bitmap_set_irq_val(&dist->irq_state, 0, irq, 0);
 			kvm_vgic_vcpu_clear_pending_irq(vcpu, irq);
 		} else {
 			vgic_bitmap_set_irq_val(&dist->irq_active, 0, irq, 1);
