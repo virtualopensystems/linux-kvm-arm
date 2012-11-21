@@ -794,8 +794,10 @@ static void __kvm_vgic_sync_to_cpu(struct kvm_vcpu *vcpu)
 			clear_bit(c, &sources);
 		}
 
-		if (!sources)
+		if (!sources) {
 			clear_bit(i, pending);
+			kvm_vgic_vcpu_clear_pending_irq(vcpu, i);
+		}
 
 		dist->irq_sgi_sources[vcpu_id][i] = sources;
 	}
@@ -808,6 +810,7 @@ static void __kvm_vgic_sync_to_cpu(struct kvm_vcpu *vcpu)
 		}
 
 		clear_bit(i, pending);
+		kvm_vgic_vcpu_clear_pending_irq(vcpu, i);
 	}
 
 
