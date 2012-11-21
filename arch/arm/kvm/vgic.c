@@ -92,6 +92,8 @@ static void vgic_update_state(struct kvm *kvm);
 static void vgic_kick_vcpus(struct kvm *kvm);
 static void vgic_dispatch_sgi(struct kvm_vcpu *vcpu, u32 reg);
 
+static u32 vgic_nr_lr;
+
 static inline int vgic_irq_is_edge(struct vgic_dist *dist, int irq)
 {
 	return vgic_bitmap_get_irq_val(&dist->irq_cfg, 0, irq);
@@ -1067,7 +1069,6 @@ int kvm_vgic_vcpu_init(struct kvm_vcpu *vcpu)
 {
 	struct vgic_cpu *vgic_cpu = &vcpu->arch.vgic_cpu;
 	struct vgic_dist *dist = &vcpu->kvm->arch.vgic;
-	u32 reg;
 	int i;
 
 	if (!irqchip_in_kernel(vcpu->kvm))
@@ -1087,10 +1088,6 @@ int kvm_vgic_vcpu_init(struct kvm_vcpu *vcpu)
 		vgic_cpu->vgic_irq_lr_map[i] = LR_EMPTY;
 	}
 
-	BUG_ON(!vcpu->kvm->arch.vgic.vctrl_base);
-	reg = readl_relaxed(vcpu->kvm->arch.vgic.vctrl_base + GICH_VTR);
-	vgic_cpu->nr_lr = (reg & 0x1f) + 1;
-
 	/*
 	 * By forcing VMCR to zero, the GIC will restore the binary
 	 * points to their reset values. Anything else resets to zero
@@ -1098,6 +1095,7 @@ int kvm_vgic_vcpu_init(struct kvm_vcpu *vcpu)
 	 */
 	vgic_cpu->vgic_vmcr = 0;
 
+	vgic_cpu->nr_lr = vgic_nr_lr;
 	vgic_cpu->vgic_hcr = VGIC_HCR_EN; /* Get the show on the road... */
 
 	return 0;
@@ -1144,6 +1142,9 @@ int kvm_vgic_hyp_init(void)
 		ret = -ENOMEM;
 		goto out_free_irq;
 	}
+
+	vgic_nr_lr = readl_relaxed(vgic_vctrl_base + GICH_VTR);
+	vgic_nr_lr = (vgic_nr_lr & 0x1f) + 1;
 
 	ret = create_hyp_io_mappings(vgic_vctrl_base,
 				     vgic_vctrl_base + resource_size(&vctrl_res),
