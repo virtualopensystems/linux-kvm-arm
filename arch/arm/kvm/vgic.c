@@ -1076,7 +1076,7 @@ int kvm_vgic_vcpu_init(struct kvm_vcpu *vcpu)
 	reg = readl_relaxed(vcpu->kvm->arch.vgic.vctrl_base + GICH_VMCR);
 	vgic_cpu->vgic_vmcr = reg | (0x1f << 27); /* Priority */
 
-	vgic_cpu->vgic_hcr |= VGIC_HCR_EN; /* Get the show on the road... */
+	vgic_cpu->vgic_hcr = VGIC_HCR_EN; /* Get the show on the road... */
 
 	return 0;
 }
