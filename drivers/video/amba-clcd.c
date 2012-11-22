@@ -396,16 +396,22 @@ static int clcdfb_blank(int blank_mode, struct fb_info *info)
 }
 int clcdfb_mmap_dma(struct clcd_fb *fb, struct vm_area_struct *vma)
 {
+#ifdef CONFIG_ARM64
+	return -ENOMEM;
+#else
 	return dma_mmap_writecombine(&fb->dev->dev, vma,
 				     fb->fb.screen_base,
 				     fb->fb.fix.smem_start,
 				     fb->fb.fix.smem_len);
+#endif
 }
 
 void clcdfb_remove_dma(struct clcd_fb *fb)
 {
+#ifndef CONFIG_ARM64
 	dma_free_writecombine(&fb->dev->dev, fb->fb.fix.smem_len,
 			      fb->fb.screen_base, fb->fb.fix.smem_start);
+#endif
 }
 
 static int clcdfb_mmap(struct fb_info *info,
@@ -739,8 +745,12 @@ static int clcdfb_dt_init(struct clcd_fb *fb)
 	if (of_property_read_u32(node, "use_dma", &use_dma))
 		use_dma = 0;
 	if (use_dma) {
+#ifdef CONFIG_ARM64
+		fb->fb.screen_base = NULL;
+#else
 		fb->fb.screen_base = dma_alloc_writecombine(&fb->dev->dev,
 			fb->fb.fix.smem_len, &dma, GFP_KERNEL);
+#endif
 		if (!fb->fb.screen_base) {
 			pr_err("CLCD: unable to map framebuffer\n");
 			err = -ENOMEM;
