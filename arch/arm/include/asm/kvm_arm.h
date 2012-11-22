@@ -125,24 +125,41 @@
 #define HDCR_TPMCR	(1 << 5)
 #define HDCR_HPMN_MASK	(0x1F)
 
+/*
+ * The architecture supports 40-bit IPA as input to the 2nd stage translations
+ * and PTRS_PER_PGD2 becomes 1024, because each entry covers 1GB of address
+ * space.
+ */
+#define KVM_PHYS_SHIFT	(40)
+#define KVM_PHYS_SIZE	(1ULL << KVM_PHYS_SHIFT)
+#define KVM_PHYS_MASK	(KVM_PHYS_SIZE - 1ULL)
+#define PTRS_PER_PGD2	(1ULL << (KVM_PHYS_SHIFT - 30))
+#define PGD2_ORDER	get_order(PTRS_PER_PGD2 * sizeof(pgd_t))
+#define PGD2_SIZE	(1 << PGD2_ORDER)
+
 /* Virtualization Translation Control Register (VTCR) bits */
 #define VTCR_SH0	(3 << 12)
 #define VTCR_ORGN0	(3 << 10)
 #define VTCR_IRGN0	(3 << 8)
 #define VTCR_SL0	(3 << 6)
 #define VTCR_S		(1 << 4)
-#define VTCR_T0SZ	3
+#define VTCR_T0SZ	(0xf)
 #define VTCR_MASK	(VTCR_SH0 | VTCR_ORGN0 | VTCR_IRGN0 | VTCR_SL0 | \
-			 VTCR_S | VTCR_T0SZ | VTCR_MASK)
+			 VTCR_S | VTCR_T0SZ)
 #define VTCR_HTCR_SH	(VTCR_SH0 | VTCR_ORGN0 | VTCR_IRGN0)
-#define VTCR_SL_L2	0		/* Starting-level: 2 */
+#define VTCR_SL_L2	(0 << 6)	/* Starting-level: 2 */
 #define VTCR_SL_L1	(1 << 6)	/* Starting-level: 1 */
-#define VTCR_GUEST_SL	VTCR_SL_L1
-#define VTCR_GUEST_T0SZ	0
-#if VTCR_GUEST_SL == 0
-#define VTTBR_X		(14 - VTCR_GUEST_T0SZ)
+#define KVM_VTCR_SL0	VTCR_SL_L1
+/* stage-2 input address range defined as 2^(32-T0SZ) */
+#define KVM_T0SZ	(32 - KVM_PHYS_SHIFT)
+#define KVM_VTCR_T0SZ	(KVM_T0SZ & VTCR_T0SZ)
+#define KVM_VTCR_S	((KVM_VTCR_T0SZ << 1) & VTCR_S)
+
+/* Virtualization Translation Table Base Register (VTTBR) bits */
+#if KVM_VTCR_SL0 == VTCR_SL_L2	/* see ARM DDI 0406C: B4-1720 */
+#define VTTBR_X		(14 - KVM_T0SZ)
 #else
-#define VTTBR_X		(5 - VTCR_GUEST_T0SZ)
+#define VTTBR_X		(5 - KVM_T0SZ)
 #endif
 #define VTTBR_BADDR_SHIFT (VTTBR_X - 1)
 #define VTTBR_BADDR_MASK  (((1LLU << (40 - VTTBR_X)) - 1) << VTTBR_BADDR_SHIFT)

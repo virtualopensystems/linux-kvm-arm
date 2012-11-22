@@ -19,18 +19,6 @@
 #ifndef __ARM_KVM_MMU_H__
 #define __ARM_KVM_MMU_H__
 
-/*
- * The architecture supports 40-bit IPA as input to the 2nd stage translations
- * and PTRS_PER_PGD2 could therefore be 1024.
- *
- * To save a bit of memory and to avoid alignment issues we assume 39-bit IPA
- * for now, but remember that the level-1 table must be aligned to its size.
- */
-#define KVM_PHYS_SHIFT	(38)
-#define KVM_PHYS_MASK	((1ULL << KVM_PHYS_SHIFT) - 1)
-#define PTRS_PER_PGD2	512
-#define PGD2_ORDER	get_order(PTRS_PER_PGD2 * sizeof(pgd_t))
-
 int create_hyp_mappings(void *from, void *to);
 int create_hyp_io_mappings(void *from, void *to, phys_addr_t);
 void free_hyp_pmds(void);

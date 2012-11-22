@@ -280,6 +280,9 @@ int kvm_alloc_stage2_pgd(struct kvm *kvm)
 	if (!pgd)
 		return -ENOMEM;
 
+	/* stage-2 pgd must be aligned to its size */
+	VM_BUG_ON((unsigned long)pgd & (PGD2_SIZE - 1));
+
 	memset(pgd, 0, PTRS_PER_PGD2 * sizeof(pgd_t));
 	clean_dcache_area(pgd, PTRS_PER_PGD2 * sizeof(pgd_t));
 	kvm->arch.pgd = pgd;
