@@ -30,49 +30,27 @@
 
 #include <linux/vexpress.h>
 
+#include <asm/topology.h>
+
 #define VEXPRESS_MAX_CLUSTER	2
 
 static struct cpufreq_frequency_table *freq_table[VEXPRESS_MAX_CLUSTER];
 static atomic_t freq_table_users = ATOMIC_INIT(0);
-
-/* Cached current cluster for each CPU to save on IPIs */
-static DEFINE_PER_CPU(unsigned int, cpu_cur_cluster);
 
 /*
  * Functions to get the current status.
  *
  * Beware that the cluster for another CPU may change unexpectedly.
  */
-
-static unsigned int get_local_cluster(void)
+static int cpu_to_cluster(int cpu)
 {
-	unsigned int mpidr;
-	asm ("mrc\tp15, 0, %0, c0, c0, 5" : "=r" (mpidr));
-	return (mpidr >> 8) & 0xf;
-}
-
-static void __get_current_cluster(void *_data)
-{
-	unsigned int *_cluster = _data;
-	*_cluster = get_local_cluster();
-}
-
-static int get_current_cluster(unsigned int cpu)
-{
-	unsigned int cluster = 0;
-	smp_call_function_single(cpu, __get_current_cluster, &cluster, 1);
-	return cluster;
-}
-
-static int get_current_cached_cluster(unsigned int cpu)
-{
-	return per_cpu(cpu_cur_cluster, cpu);
+	return topology_physical_package_id(cpu);
 }
 
 /* Validate policy frequency range */
 static int vexpress_cpufreq_verify_policy(struct cpufreq_policy *policy)
 {
-	uint32_t cur_cluster = get_current_cached_cluster(policy->cpu);
+	uint32_t cur_cluster = cpu_to_cluster(policy->cpu);
 
 	/* This call takes care of it all using freq_table */
 	return cpufreq_frequency_table_verify(policy, freq_table[cur_cluster]);
@@ -89,7 +67,9 @@ static int vexpress_cpufreq_set_target(struct cpufreq_policy *policy,
 	int ret = 0;
 
 	/* Read current clock rate */
-	cur_cluster = get_current_cached_cluster(cpu);
+
+	/* ASSUMPTION: The cpu can't be hotplugged in this function */
+	cur_cluster = cpu_to_cluster(policy->cpu);
 
 	if (vexpress_spc_get_performance(cur_cluster, &freqs.old))
 		return -EIO;
@@ -133,7 +113,7 @@ static int vexpress_cpufreq_set_target(struct cpufreq_policy *policy,
 static unsigned int vexpress_cpufreq_get(unsigned int cpu)
 {
 	uint32_t freq = 0;
-	uint32_t cur_cluster = get_current_cached_cluster(cpu);
+	uint32_t cur_cluster = cpu_to_cluster(cpu);
 
 	/*
 	 * Read current clock rate with vexpress_spc call
@@ -207,7 +187,7 @@ free_mem:
 static int vexpress_cpufreq_init(struct cpufreq_policy *policy)
 {
 	int result = 0;
-	uint32_t cur_cluster = get_current_cluster(policy->cpu);
+	uint32_t cur_cluster = cpu_to_cluster(policy->cpu);
 
 	if (atomic_inc_return(&freq_table_users) == 1)
 		result = vexpress_cpufreq_of_init();
@@ -227,8 +207,6 @@ static int vexpress_cpufreq_init(struct cpufreq_policy *policy)
 		return result;
 
 	cpufreq_frequency_table_get_attr(freq_table[cur_cluster], policy->cpu);
-
-	per_cpu(cpu_cur_cluster, policy->cpu) = cur_cluster;
 
 	/* set default policy and cpuinfo */
 	policy->min = policy->cpuinfo.min_freq;
