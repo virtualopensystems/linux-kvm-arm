@@ -112,6 +112,7 @@ void __init vexpress_clk_of_init(void)
 	struct clk *refclk, *timclk;
 
 	of_clk_init(vexpress_fixed_clk_match);
+	vexpress_clk_of_register_spc();
 
 	node = of_find_compatible_node(NULL, NULL, "arm,sp810");
 	vexpress_sp810_init(of_iomap(node, 0));
