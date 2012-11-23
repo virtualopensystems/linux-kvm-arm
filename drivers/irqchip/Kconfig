@@ -7,7 +7,8 @@ config VERSATILE_FPGA_IRQ_NR
        default 4
        depends on VERSATILE_FPGA_IRQ
 
-config ARM_GIC
+config ARM64_GIC
+	depends on ARM64
 	bool
 	help
-	  ARM Generic Interrupt Controller support.
+	  ARM Generic Interrupt Controller support. Only used on arm64 plaftorms at present.

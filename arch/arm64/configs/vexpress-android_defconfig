@@ -210,7 +210,6 @@ CONFIG_MUTEX_SPIN_ON_OWNER=y
 # System Type
 #
 CONFIG_PLAT_VEXPRESS=y
-CONFIG_ARM_GIC=y
 
 #
 # Bus support

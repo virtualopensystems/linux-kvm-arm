@@ -73,7 +73,7 @@ void handle_IRQ(unsigned int irq, struct pt_regs *regs)
  * Interrupt controllers supported by the kernel.
  */
 static const struct of_device_id intctrl_of_match[] __initconst = {
-#ifdef CONFIG_ARM_GIC
+#ifdef CONFIG_ARM64_GIC
 	{ .compatible = "arm,cortex-a9-gic", .data = gic_of_init, },
 #endif
 	{}
