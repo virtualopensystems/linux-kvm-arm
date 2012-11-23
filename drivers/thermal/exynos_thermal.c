@@ -287,7 +287,7 @@ static int exynos_bind(struct thermal_zone_device *thermal,
 		case MONITOR_ZONE:
 		case WARN_ZONE:
 			if (thermal_zone_bind_cooling_device(thermal, i, cdev,
-								level, level)) {
+								level, 0)) {
 				pr_err("error binding cdev inst %d\n", i);
 				ret = -EINVAL;
 			}
@@ -373,9 +373,9 @@ static int exynos_get_trend(struct thermal_zone_device *thermal,
 		return ret;
 
 	if (thermal->temperature >= trip_temp)
-		*trend = THERMAL_TREND_RAISING;
+		*trend = THERMAL_TREND_RAISE_FULL;
 	else
-		*trend = THERMAL_TREND_DROPPING;
+		*trend = THERMAL_TREND_DROP_FULL;
 
 	return ret;
 }
