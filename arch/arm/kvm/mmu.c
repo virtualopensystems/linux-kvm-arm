@@ -41,6 +41,16 @@ static void kvm_tlb_flush_vmid(struct kvm *kvm)
 	kvm_call_hyp(__kvm_tlb_flush_vmid, kvm);
 }
 
+static void set_pte(pte_t *pte, pte_t new_pte)
+{
+	*pte = new_pte;
+	/*
+	 * flush_pmd_entry just takes a void pointer and cleans the necessary
+	 * cache entries, so we can reuse the function for ptes.
+	 */
+	flush_pmd_entry(pte);
+}
+
 static int mmu_topup_memory_cache(struct kvm_mmu_memory_cache *cache,
 				  int min, int max)
 {
@@ -140,13 +150,13 @@ static void create_hyp_pte_mappings(pmd_t *pmd, unsigned long start,
 		pte = pte_offset_kernel(pmd, addr);
 		if (pfn_base) {
 			BUG_ON(pfn_valid(*pfn_base));
-			set_pte_ext(pte, pfn_pte(*pfn_base, prot), 0);
+			set_pte(pte, pfn_pte(*pfn_base, prot));
 			(*pfn_base)++;
 		} else {
 			struct page *page;
 			BUG_ON(!virt_addr_valid(addr));
 			page = virt_to_page(addr);
-			set_pte_ext(pte, mk_pte(page, prot), 0);
+			set_pte(pte, mk_pte(page, prot));
 		}
 
 	}
@@ -393,7 +403,7 @@ static void stage2_clear_pte(struct kvm *kvm, phys_addr_t addr)
 		return;
 
 	pte = pte_offset_kernel(pmd, addr);
-	set_pte_ext(pte, __pte(0), 0);
+	set_pte(pte, __pte(0));
 
 	page = virt_to_page(pte);
 	put_page(page);
@@ -459,7 +469,7 @@ static int stage2_set_pte(struct kvm *kvm, struct kvm_mmu_memory_cache *cache,
 
 	/* Create 2nd stage page table mapping - Level 3 */
 	old_pte = *pte;
-	set_pte_ext(pte, *new_pte, 0);
+	set_pte(pte, *new_pte);
 	if (pte_present(old_pte))
 		kvm_tlb_flush_vmid(kvm);
 	else
@@ -576,14 +586,7 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
 
 out_unlock:
 	spin_unlock(&vcpu->kvm->mmu_lock);
-	/*
-	 * XXX TODO FIXME:
--        * This is _really_ *weird* !!!
--        * We should be calling the _clean version, because we set the pfn dirty
-	 * if we map the page writable, but this causes memory failures in
-	 * guests under heavy memory pressure on the host and heavy swapping.
-	 */
-	kvm_release_pfn_dirty(pfn);
+	kvm_release_pfn_clean(pfn);
 	return 0;
 }
 
