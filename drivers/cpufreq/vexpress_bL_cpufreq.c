@@ -74,12 +74,6 @@ static int vexpress_cpufreq_set_target(struct cpufreq_policy *policy,
 	if (vexpress_spc_get_performance(cur_cluster, &freqs.old))
 		return -EIO;
 
-	/* Make sure that target_freq is within supported range */
-	if (target_freq > policy->max)
-		target_freq = policy->max;
-	if (target_freq < policy->min)
-		target_freq = policy->min;
-
 	/* Determine valid target frequency using freq_table */
 	cpufreq_frequency_table_target(policy, freq_table[cur_cluster],
 				       target_freq, relation, &freq_tab_idx);
