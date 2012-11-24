@@ -290,94 +290,6 @@ int kvm_alloc_stage2_pgd(struct kvm *kvm)
 	return 0;
 }
 
-static void free_guest_pages(pte_t *pte, unsigned long addr)
-{
-	unsigned int i;
-	struct page *pte_page;
-
-	pte_page = virt_to_page(pte);
-
-	for (i = 0; i < PTRS_PER_PTE; i++) {
-		if (pte_present(*pte))
-			put_page(pte_page);
-		pte++;
-	}
-
-	WARN_ON(page_count(pte_page) != 1);
-}
-
-static void free_stage2_ptes(pmd_t *pmd, unsigned long addr)
-{
-	unsigned int i;
-	pte_t *pte;
-	struct page *pmd_page;
-
-	pmd_page = virt_to_page(pmd);
-
-	for (i = 0; i < PTRS_PER_PMD; i++, addr += PMD_SIZE) {
-		BUG_ON(pmd_sect(*pmd));
-		if (!pmd_none(*pmd) && pmd_table(*pmd)) {
-			pte = pte_offset_kernel(pmd, addr);
-			free_guest_pages(pte, addr);
-			pte_free_kernel(NULL, pte);
-
-			put_page(pmd_page);
-		}
-		pmd++;
-	}
-
-	WARN_ON(page_count(pmd_page) != 1);
-}
-
-/**
- * kvm_free_stage2_pgd - free all stage-2 tables
- * @kvm:	The KVM struct pointer for the VM.
- *
- * Walks the level-1 page table pointed to by kvm->arch.pgd and frees all
- * underlying level-2 and level-3 tables before freeing the actual level-1 table
- * and setting the struct pointer to NULL.
- *
- * Note we don't need locking here as this is only called when the VM is
- * destroyed, which can only be done once.
- */
-void kvm_free_stage2_pgd(struct kvm *kvm)
-{
-	pgd_t *pgd;
-	pud_t *pud;
-	pmd_t *pmd;
-	unsigned long long i, addr;
-	struct page *pud_page;
-
-	if (kvm->arch.pgd == NULL)
-		return;
-
-	/*
-	 * We do this slightly different than other places, since we need more
-	 * than 32 bits and for instance pgd_addr_end converts to unsigned long.
-	 */
-	addr = 0;
-	for (i = 0; i < PTRS_PER_PGD2; i++) {
-		addr = i * (unsigned long long)PGDIR_SIZE;
-		pgd = kvm->arch.pgd + i;
-		pud = pud_offset(pgd, addr);
-		pud_page = virt_to_page(pud);
-
-		if (pud_none(*pud))
-			continue;
-
-		BUG_ON(pud_bad(*pud));
-
-		pmd = pmd_offset(pud, addr);
-		free_stage2_ptes(pmd, addr);
-		pmd_free(NULL, pmd);
-		put_page(pud_page);
-	}
-
-	WARN_ON(page_count(pud_page) != 1);
-	free_pages((unsigned long)kvm->arch.pgd, PGD2_ORDER);
-	kvm->arch.pgd = NULL;
-}
-
 static void clear_pud_entry(pud_t *pud)
 {
 	pmd_t *pmd_table = pmd_offset(pud, 0);
@@ -420,19 +332,19 @@ static bool pte_empty(pte_t *pte)
  * @start: The intermediate physical base address of the range to unmap
  * @size:  The size of the area to unmap
  *
- * Clear a range of stage-2 mappings, lowering the various ref-counts. Also
- * takes care of invalidating the TLBs.  Must be called while holding
- * mmu_lock, otherwise another faulting VCPU may come in and mess with things
- * behind our backs.
+ * Clear a range of stage-2 mappings, lowering the various ref-counts.  Must
+ * be called while holding mmu_lock (unless for freeing the stage2 pgd before
+ * destroying the VM), otherwise another faulting VCPU may come in and mess
+ * with things behind our backs.
  */
-static void unmap_stage2_range(struct kvm *kvm, phys_addr_t start, size_t size)
+static void unmap_stage2_range(struct kvm *kvm, phys_addr_t start, u64 size)
 {
 	pgd_t *pgd;
 	pud_t *pud;
 	pmd_t *pmd;
 	pte_t *pte;
 	phys_addr_t addr = start, end = start + size;
-	size_t range;
+	u64 range;
 
 	while (addr < end) {
 		pgd = kvm->arch.pgd + pgd_index(addr);
@@ -464,9 +376,29 @@ static void unmap_stage2_range(struct kvm *kvm, phys_addr_t start, size_t size)
 
 		addr += range;
 	}
-
-	kvm_tlb_flush_vmid(kvm);
 }
+
+/**
+ * kvm_free_stage2_pgd - free all stage-2 tables
+ * @kvm:	The KVM struct pointer for the VM.
+ *
+ * Walks the level-1 page table pointed to by kvm->arch.pgd and frees all
+ * underlying level-2 and level-3 tables before freeing the actual level-1 table
+ * and setting the struct pointer to NULL.
+ *
+ * Note we don't need locking here as this is only called when the VM is
+ * destroyed, which can only be done once.
+ */
+void kvm_free_stage2_pgd(struct kvm *kvm)
+{
+	if (kvm->arch.pgd == NULL)
+		return;
+
+	unmap_stage2_range(kvm, 0, KVM_PHYS_SIZE);
+	free_pages((unsigned long)kvm->arch.pgd, PGD2_ORDER);
+	kvm->arch.pgd = NULL;
+}
+
 
 static int stage2_set_pte(struct kvm *kvm, struct kvm_mmu_memory_cache *cache,
 			  phys_addr_t addr, const pte_t *new_pte, bool iomap)
@@ -734,6 +666,7 @@ static void handle_hva_to_gpa(struct kvm *kvm,
 static void kvm_unmap_hva_handler(struct kvm *kvm, gpa_t gpa, void *data)
 {
 	unmap_stage2_range(kvm, gpa, PAGE_SIZE);
+	kvm_tlb_flush_vmid(kvm);
 }
 
 int kvm_unmap_hva(struct kvm *kvm, unsigned long hva)
