@@ -180,7 +180,28 @@ static inline int vgic_irq_is_edge(struct vgic_dist *dist, int irq)
 	return vgic_bitmap_get_irq_val(&dist->irq_cfg, 0, irq);
 }
 
-static inline void kvm_vgic_vcpu_set_pending_irq(struct kvm_vcpu *vcpu, int irq)
+static inline int vgic_irq_is_enabled(struct kvm_vcpu *vcpu, int irq)
+{
+	struct vgic_dist *dist = &vcpu->kvm->arch.vgic;
+
+	return vgic_bitmap_get_irq_val(&dist->irq_enabled, vcpu->vcpu_id, irq);
+}
+
+static void vgic_dist_irq_set(struct kvm_vcpu *vcpu, int irq)
+{
+	struct vgic_dist *dist = &vcpu->kvm->arch.vgic;
+
+	vgic_bitmap_set_irq_val(&dist->irq_state, vcpu->vcpu_id, irq, 1);
+}
+
+static void vgic_dist_irq_clear(struct kvm_vcpu *vcpu, int irq)
+{
+	struct vgic_dist *dist = &vcpu->kvm->arch.vgic;
+
+	vgic_bitmap_set_irq_val(&dist->irq_state, vcpu->vcpu_id, irq, 0);
+}
+
+static inline void vgic_cpu_irq_set(struct kvm_vcpu *vcpu, int irq)
 {
 	if (irq < 32)
 		set_bit(irq, vcpu->arch.vgic_cpu.pending_percpu);
@@ -188,7 +209,7 @@ static inline void kvm_vgic_vcpu_set_pending_irq(struct kvm_vcpu *vcpu, int irq)
 		set_bit(irq - 32, vcpu->arch.vgic_cpu.pending_shared);
 }
 
-static inline void kvm_vgic_vcpu_clear_pending_irq(struct kvm_vcpu *vcpu, int irq)
+static inline void vgic_cpu_irq_clear(struct kvm_vcpu *vcpu, int irq)
 {
 	if (irq < 32)
 		clear_bit(irq, vcpu->arch.vgic_cpu.pending_percpu);
@@ -697,7 +718,7 @@ static void vgic_dispatch_sgi(struct kvm_vcpu *vcpu, u32 reg)
 	kvm_for_each_vcpu(c, vcpu, kvm) {
 		if (target_cpus & 1) {
 			/* Flag the SGI as pending */
-			vgic_bitmap_set_irq_val(&dist->irq_state, c, sgi, 1);
+			vgic_dist_irq_set(vcpu, sgi);
 			dist->irq_sgi_sources[c][sgi] |= 1 << vcpu_id;
 			kvm_debug("SGI%d from CPU%d to CPU%d\n", sgi, vcpu_id, c);
 		}
@@ -769,14 +790,12 @@ static void vgic_update_state(struct kvm *kvm)
 static void vgic_retire_disabled_irqs(struct kvm_vcpu *vcpu)
 {
 	struct vgic_cpu *vgic_cpu = &vcpu->arch.vgic_cpu;
-	struct vgic_dist *dist = &vcpu->kvm->arch.vgic;
 	int lr;
 
 	for_each_set_bit(lr, vgic_cpu->lr_used, vgic_cpu->nr_lr) {
 		int irq = vgic_cpu->vgic_lr[lr] & VGIC_LR_VIRTUALID;
 
-		if (!vgic_bitmap_get_irq_val(&dist->irq_enabled,
-					     vcpu->vcpu_id, irq)) {
+		if (!vgic_irq_is_enabled(vcpu, irq)) {
 			vgic_cpu->vgic_irq_lr_map[irq] = LR_EMPTY;
 			clear_bit(lr, vgic_cpu->lr_used);
 			vgic_cpu->vgic_lr[lr] &= ~VGIC_LR_STATE;
@@ -876,8 +895,8 @@ static void __kvm_vgic_sync_to_cpu(struct kvm_vcpu *vcpu)
 		}
 
 		if (!sources) {
-			vgic_bitmap_set_irq_val(&dist->irq_state, vcpu_id, i, 0);
-			kvm_vgic_vcpu_clear_pending_irq(vcpu, i);
+			vgic_dist_irq_clear(vcpu, i);
+			vgic_cpu_irq_clear(vcpu, i);
 		}
 
 		dist->irq_sgi_sources[vcpu_id][i] = sources;
@@ -890,8 +909,8 @@ static void __kvm_vgic_sync_to_cpu(struct kvm_vcpu *vcpu)
 			continue;
 		}
 
-		vgic_bitmap_set_irq_val(&dist->irq_state, vcpu_id, i, 0);
-		kvm_vgic_vcpu_clear_pending_irq(vcpu, i);
+		vgic_dist_irq_clear(vcpu, i);
+		vgic_cpu_irq_clear(vcpu, i);
 	}
 
 
@@ -908,8 +927,8 @@ static void __kvm_vgic_sync_to_cpu(struct kvm_vcpu *vcpu)
 
 		/* Immediate clear on edge, set active on level */
 		if (vgic_irq_is_edge(dist, irq)) {
-			vgic_bitmap_set_irq_val(&dist->irq_state, 0, irq, 0);
-			kvm_vgic_vcpu_clear_pending_irq(vcpu, irq);
+			vgic_dist_irq_clear(vcpu, irq);
+			vgic_cpu_irq_clear(vcpu, irq);
 		} else {
 			vgic_bitmap_set_irq_val(&dist->irq_active, 0, irq, 1);
 		}
@@ -1034,9 +1053,19 @@ static bool vgic_update_irq_state(struct kvm *kvm, int cpuid,
 		goto out;
 	}
 
-	vgic_bitmap_set_irq_val(&dist->irq_state, cpuid, irq_num, level);
+	if (irq_num >= 32)
+		cpuid = dist->irq_spi_cpu[irq_num - 32];
 
-	enabled = vgic_bitmap_get_irq_val(&dist->irq_enabled, cpuid, irq_num);
+	kvm_debug("Inject IRQ%d level %d CPU%d\n", irq_num, level, cpuid);
+
+	vcpu = kvm_get_vcpu(kvm, cpuid);
+
+	if (level)
+		vgic_dist_irq_set(vcpu, irq_num);
+	else
+		vgic_dist_irq_clear(vcpu, irq_num);
+
+	enabled = vgic_irq_is_enabled(vcpu, irq_num);
 
 	if (!enabled) {
 		ret = false;
@@ -1053,15 +1082,8 @@ static bool vgic_update_irq_state(struct kvm *kvm, int cpuid,
 		goto out;
 	}
 
-	if (irq_num >= 32)
-		cpuid = dist->irq_spi_cpu[irq_num - 32];
-
-	kvm_debug("Inject IRQ%d level %d CPU%d\n", irq_num, level, cpuid);
-
-	vcpu = kvm_get_vcpu(kvm, cpuid);
-
 	if (level) {
-		kvm_vgic_vcpu_set_pending_irq(vcpu, irq_num);
+		vgic_cpu_irq_set(vcpu, irq_num);
 		set_bit(cpuid, &dist->irq_pending_on_cpu);
 	}
 
@@ -1129,11 +1151,11 @@ static irqreturn_t vgic_maintenance_handler(int irq, void *data)
 			/* Any additionnal pending interrupt? */
 			if (vgic_bitmap_get_irq_val(&dist->irq_state,
 						    vcpu->vcpu_id, irq)) {
-				kvm_vgic_vcpu_set_pending_irq(vcpu, irq);
+				vgic_cpu_irq_set(vcpu, irq);
 				set_bit(vcpu->vcpu_id,
 					&dist->irq_pending_on_cpu);
 			} else {
-				kvm_vgic_vcpu_clear_pending_irq(vcpu, irq);
+				vgic_cpu_irq_clear(vcpu, irq);
 			}
 		}
 	}
