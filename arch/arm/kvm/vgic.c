@@ -94,6 +94,87 @@ static void vgic_dispatch_sgi(struct kvm_vcpu *vcpu, u32 reg);
 
 static u32 vgic_nr_lr;
 
+static inline u32 *vgic_bitmap_get_reg(struct vgic_bitmap *x,
+				       int cpuid, u32 offset)
+{
+	offset >>= 2;
+	BUG_ON(offset > (VGIC_NR_IRQS / 32));
+	if (!offset)
+		return x->percpu[cpuid].reg;
+	else
+		return x->shared.reg + offset - 1;
+}
+
+static inline int vgic_bitmap_get_irq_val(struct vgic_bitmap *x,
+					 int cpuid, int irq)
+{
+	if (irq < 32)
+		return test_bit(irq, x->percpu[cpuid].reg_ul);
+
+	return test_bit(irq - 32, x->shared.reg_ul);
+}
+
+static inline void vgic_bitmap_set_irq_val(struct vgic_bitmap *x,
+					   int cpuid, int irq, int val)
+{
+	unsigned long *reg;
+
+	if (irq < 32)
+		reg = x->percpu[cpuid].reg_ul;
+	else {
+		reg =  x->shared.reg_ul;
+		irq -= 32;
+	}
+
+	if (val)
+		set_bit(irq, reg);
+	else
+		clear_bit(irq, reg);
+}
+
+static inline unsigned long *vgic_bitmap_get_cpu_map(struct vgic_bitmap *x,
+						     int cpuid)
+{
+	if (unlikely(cpuid >= VGIC_MAX_CPUS))
+		return NULL;
+	return x->percpu[cpuid].reg_ul;
+}
+
+static inline unsigned long *vgic_bitmap_get_shared_map(struct vgic_bitmap *x)
+{
+	return x->shared.reg_ul;
+}
+
+static inline u32 *vgic_bytemap_get_reg(struct vgic_bytemap *x,
+					int cpuid, u32 offset)
+{
+	offset >>= 2;
+	BUG_ON(offset > (VGIC_NR_IRQS / 4));
+	if (offset < 4)
+		return x->percpu[cpuid].reg + offset;
+	else
+		return x->shared.reg + offset - 8;
+}
+
+static inline int vgic_bytemap_get_irq_val(struct vgic_bytemap *x,
+					   int cpuid, int irq)
+{
+	u32 *reg, shift;
+	shift = (irq & 3) * 8;
+	reg = vgic_bytemap_get_reg(x, cpuid, irq);
+	return (*reg >> shift) & 0xff;
+}
+
+static inline void vgic_bytemap_set_irq_val(struct vgic_bytemap *x,
+					    int cpuid, int irq, int val)
+{
+	u32 *reg, shift;
+	shift = (irq & 3) * 8;
+	reg = vgic_bytemap_get_reg(x, cpuid, irq);
+	*reg &= ~(0xff << shift);
+	*reg |= (val & 0xff) << shift;
+}
+
 static inline int vgic_irq_is_edge(struct vgic_dist *dist, int irq)
 {
 	return vgic_bitmap_get_irq_val(&dist->irq_cfg, 0, irq);
