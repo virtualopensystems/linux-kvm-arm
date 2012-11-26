@@ -1,5 +1,8 @@
 #include "guest.h"
+#include "guest-util.h"
 #include "mmio_test.h"
+
+__asm__(".arch_extension	virt");
 
 #define GOAL (1ULL << 30)
 
@@ -12,8 +15,8 @@ static unsigned long read_cc(void)
 
 static void hvc_exit(void)
 {
-	unsigned long long i, iterations = 32;
-	unsigned long long c2, c1, cycles;
+	unsigned long i, iterations = 32;
+	unsigned long c2, c1, cycles;
 
 	do {
 		iterations *= 2;
@@ -23,10 +26,12 @@ static void hvc_exit(void)
 			asm volatile("hvc #0");
 		c2 = read_cc();
 
+		if (c1 >= c2)
+			continue;
 		cycles = c2 - c1;
 	} while (cycles < GOAL);
 
-	printf("hvc exit %llu cycles over %llu iterations = %llu\n",
+	printf("hvc exit %u cycles over %u iterations = %u\n",
 	       cycles, iterations, cycles / iterations);
 }
 

@@ -43,3 +43,9 @@ void printf(const char *fmt, ...)
 	}
 	va_end(ap);
 }
+
+void __guest_div0(void)
+{
+	printf("division by 0\n");
+	fail();
+}
