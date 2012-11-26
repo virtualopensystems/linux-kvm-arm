@@ -2626,7 +2626,6 @@ SYSCALL_DEFINE4(rt_sigprocmask, int, how, sigset_t __user *, nset,
 }
 
 #ifdef CONFIG_COMPAT
-#ifdef CONFIG_GENERIC_COMPAT_RT_SIGPROCMASK
 COMPAT_SYSCALL_DEFINE4(rt_sigprocmask, int, how, compat_sigset_t __user *, nset,
 		compat_sigset_t __user *, oset, compat_size_t, sigsetsize)
 {
@@ -2664,7 +2663,6 @@ COMPAT_SYSCALL_DEFINE4(rt_sigprocmask, int, how, compat_sigset_t __user *, nset,
 #endif
 }
 #endif
-#endif
 
 static int do_sigpending(void *set, unsigned long sigsetsize)
 {
@@ -2697,7 +2695,6 @@ SYSCALL_DEFINE2(rt_sigpending, sigset_t __user *, uset, size_t, sigsetsize)
 }
 
 #ifdef CONFIG_COMPAT
-#ifdef CONFIG_GENERIC_COMPAT_RT_SIGPENDING
 COMPAT_SYSCALL_DEFINE2(rt_sigpending, compat_sigset_t __user *, uset,
 		compat_size_t, sigsetsize)
 {
@@ -2716,7 +2713,6 @@ COMPAT_SYSCALL_DEFINE2(rt_sigpending, compat_sigset_t __user *, uset,
 	return sys_rt_sigpending((sigset_t __user *)uset, sigsetsize);
 #endif
 }
-#endif
 #endif
 
 #ifndef HAVE_ARCH_COPY_SIGINFO_TO_USER
@@ -3027,7 +3023,6 @@ SYSCALL_DEFINE3(rt_sigqueueinfo, pid_t, pid, int, sig,
 }
 
 #ifdef CONFIG_COMPAT
-#ifdef CONFIG_GENERIC_COMPAT_RT_SIGQUEUEINFO
 COMPAT_SYSCALL_DEFINE3(rt_sigqueueinfo,
 			compat_pid_t, pid,
 			int, sig,
@@ -3039,7 +3034,6 @@ COMPAT_SYSCALL_DEFINE3(rt_sigqueueinfo,
 		return ret;
 	return do_rt_sigqueueinfo(pid, sig, &info);
 }
-#endif
 #endif
 
 static int do_rt_tgsigqueueinfo(pid_t tgid, pid_t pid, int sig, siginfo_t *info)
@@ -3197,12 +3191,10 @@ do_sigaltstack (const stack_t __user *uss, stack_t __user *uoss, unsigned long s
 out:
 	return error;
 }
-#ifdef CONFIG_GENERIC_SIGALTSTACK
 SYSCALL_DEFINE2(sigaltstack,const stack_t __user *,uss, stack_t __user *,uoss)
 {
 	return do_sigaltstack(uss, uoss, current_user_stack_pointer());
 }
-#endif
 
 int restore_altstack(const stack_t __user *uss)
 {
@@ -3220,7 +3212,6 @@ int __save_altstack(stack_t __user *uss, unsigned long sp)
 }
 
 #ifdef CONFIG_COMPAT
-#ifdef CONFIG_GENERIC_SIGALTSTACK
 COMPAT_SYSCALL_DEFINE2(sigaltstack,
 			const compat_stack_t __user *, uss_ptr,
 			compat_stack_t __user *, uoss_ptr)
@@ -3269,7 +3260,6 @@ int __compat_save_altstack(compat_stack_t __user *uss, unsigned long sp)
 		__put_user(sas_ss_flags(sp), &uss->ss_flags) |
 		__put_user(t->sas_ss_size, &uss->ss_size);
 }
-#endif
 #endif
 
 #ifdef __ARCH_WANT_SYS_SIGPENDING
@@ -3372,7 +3362,6 @@ out:
 	return ret;
 }
 #ifdef CONFIG_COMPAT
-#ifdef CONFIG_GENERIC_COMPAT_RT_SIGACTION
 COMPAT_SYSCALL_DEFINE4(rt_sigaction, int, sig,
 		const struct compat_sigaction __user *, act,
 		struct compat_sigaction __user *, oact,
@@ -3418,7 +3407,6 @@ COMPAT_SYSCALL_DEFINE4(rt_sigaction, int, sig,
 	}
 	return ret;
 }
-#endif
 #endif
 #endif /* !CONFIG_ODD_RT_SIGACTION */
 
