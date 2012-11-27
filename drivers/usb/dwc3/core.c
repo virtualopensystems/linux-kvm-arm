@@ -419,12 +419,9 @@ static int __devinit dwc3_probe(struct platform_device *pdev)
 	struct resource		*res;
 	struct dwc3		*dwc;
 	struct device		*dev = &pdev->dev;
-
 	int			ret = -ENOMEM;
-
 	void __iomem		*regs;
 	void			*mem;
-
 	u8			mode;
 
 	mem = devm_kzalloc(dev, sizeof(*dwc) + DWC3_ALIGN_MASK, GFP_KERNEL);
@@ -517,7 +514,10 @@ static int __devinit dwc3_probe(struct platform_device *pdev)
 		return ret;
 	}
 
-	mode = DWC3_MODE(dwc->hwparams.hwparams0);
+//	mode = DWC3_MODE(dwc->hwparams.hwparams0);
+	/* Putting controller in Host mode here */
+
+	mode = DWC3_MODE_HOST; /* Just a hack for time being */
 
 	switch (mode) {
 	case DWC3_MODE_DEVICE:

@@ -15,13 +15,41 @@
 #include <linux/of.h>
 #include <linux/platform_device.h>
 #include <linux/platform_data/usb-exynos.h>
+#include <linux/usb/phy.h>
+#include <linux/usb/samsung_usb_phy.h>
 #include <plat/usb-phy.h>
 
 struct exynos_ohci_hcd {
 	struct device *dev;
 	struct usb_hcd *hcd;
 	struct clk *clk;
+	struct usb_phy *phy;
+	struct exynos4_ohci_platdata *pdata;
 };
+
+static void exynos_ohci_phy_enable(struct exynos_ohci_hcd *exynos_ohci)
+{
+	struct platform_device *pdev = to_platform_device(exynos_ohci->dev);
+
+	if (exynos_ohci->phy) {
+		samsung_usbphy_set_type(exynos_ohci->phy, USB_PHY_TYPE_HOST);
+		usb_phy_init(exynos_ohci->phy);
+	} else if (exynos_ohci->pdata->phy_init) {
+		exynos_ohci->pdata->phy_init(pdev, USB_PHY_TYPE_HOST);
+	}
+}
+
+static void exynos_ohci_phy_disable(struct exynos_ohci_hcd *exynos_ohci)
+{
+	struct platform_device *pdev = to_platform_device(exynos_ohci->dev);
+
+	if (exynos_ohci->phy) {
+		samsung_usbphy_set_type(exynos_ohci->phy, USB_PHY_TYPE_HOST);
+		usb_phy_shutdown(exynos_ohci->phy);
+	} else if (exynos_ohci->pdata->phy_exit) {
+		exynos_ohci->pdata->phy_exit(pdev, USB_PHY_TYPE_HOST);
+	}
+}
 
 static int ohci_exynos_start(struct usb_hcd *hcd)
 {
@@ -76,11 +104,12 @@ static u64 ohci_exynos_dma_mask = DMA_BIT_MASK(32);
 
 static int __devinit exynos_ohci_probe(struct platform_device *pdev)
 {
-	struct exynos4_ohci_platdata *pdata;
+	struct exynos4_ohci_platdata *pdata = pdev->dev.platform_data;
 	struct exynos_ohci_hcd *exynos_ohci;
 	struct usb_hcd *hcd;
 	struct ohci_hcd *ohci;
 	struct resource *res;
+	struct usb_phy *phy;
 	int irq;
 	int err;
 
@@ -104,7 +133,19 @@ static int __devinit exynos_ohci_probe(struct platform_device *pdev)
 					GFP_KERNEL);
 	if (!exynos_ohci)
 		return -ENOMEM;
+	phy = devm_usb_get_phy(&pdev->dev, USB_PHY_TYPE_USB2);
 
+	if (IS_ERR_OR_NULL(phy)) {
+		/* Fallback to pdata */
+		if (!pdata) {
+			dev_err(&pdev->dev, "no platform data or transceiver defined\n");
+			return -EPROBE_DEFER;
+		} else {
+			exynos_ohci->pdata = pdata;
+		}
+	} else {
+		exynos_ohci->phy = phy;
+	}
 	exynos_ohci->dev = &pdev->dev;
 
 	hcd = usb_create_hcd(&exynos_ohci_hc_driver, &pdev->dev,
@@ -150,22 +191,21 @@ static int __devinit exynos_ohci_probe(struct platform_device *pdev)
 		goto fail_io;
 	}
 
-	if (pdata->phy_init)
-		pdata->phy_init(pdev, S5P_USB_PHY_HOST);
-
+	exynos_ohci_phy_enable(exynos_ohci);
 	ohci = hcd_to_ohci(hcd);
 	ohci_hcd_init(ohci);
 
 	err = usb_add_hcd(hcd, irq, IRQF_SHARED);
 	if (err) {
 		dev_err(&pdev->dev, "Failed to add USB HCD\n");
-		goto fail_io;
+		goto fail_add_hcd;
 	}
 
 	platform_set_drvdata(pdev, exynos_ohci);
 
 	return 0;
-
+fail_add_hcd:
+	exynos_ohci_phy_disable(exynos_ohci);
 fail_io:
 	clk_disable(exynos_ohci->clk);
 fail_clken:
@@ -177,15 +217,12 @@ fail_clk:
 
 static int __devexit exynos_ohci_remove(struct platform_device *pdev)
 {
-	struct exynos4_ohci_platdata *pdata = pdev->dev.platform_data;
 	struct exynos_ohci_hcd *exynos_ohci = platform_get_drvdata(pdev);
 	struct usb_hcd *hcd = exynos_ohci->hcd;
 
 	usb_remove_hcd(hcd);
 
-	if (pdata && pdata->phy_exit)
-		pdata->phy_exit(pdev, S5P_USB_PHY_HOST);
-
+	exynos_ohci_phy_disable(exynos_ohci);
 	clk_disable(exynos_ohci->clk);
 	clk_put(exynos_ohci->clk);
 
@@ -209,8 +246,6 @@ static int exynos_ohci_suspend(struct device *dev)
 	struct exynos_ohci_hcd *exynos_ohci = dev_get_drvdata(dev);
 	struct usb_hcd *hcd = exynos_ohci->hcd;
 	struct ohci_hcd *ohci = hcd_to_ohci(hcd);
-	struct platform_device *pdev = to_platform_device(dev);
-	struct exynos4_ohci_platdata *pdata = pdev->dev.platform_data;
 	unsigned long flags;
 	int rc = 0;
 
@@ -229,9 +264,7 @@ static int exynos_ohci_suspend(struct device *dev)
 
 	clear_bit(HCD_FLAG_HW_ACCESSIBLE, &hcd->flags);
 
-	if (pdata && pdata->phy_exit)
-		pdata->phy_exit(pdev, S5P_USB_PHY_HOST);
-
+	exynos_ohci_phy_disable(exynos_ohci);
 	clk_disable(exynos_ohci->clk);
 
 fail:
@@ -244,14 +277,10 @@ static int exynos_ohci_resume(struct device *dev)
 {
 	struct exynos_ohci_hcd *exynos_ohci = dev_get_drvdata(dev);
 	struct usb_hcd *hcd = exynos_ohci->hcd;
-	struct platform_device *pdev = to_platform_device(dev);
-	struct exynos4_ohci_platdata *pdata = pdev->dev.platform_data;
 
 	clk_enable(exynos_ohci->clk);
 
-	if (pdata && pdata->phy_init)
-		pdata->phy_init(pdev, S5P_USB_PHY_HOST);
-
+	exynos_ohci_phy_enable(exynos_ohci);
 	/* Mark hardware accessible again as we are out of D3 state by now */
 	set_bit(HCD_FLAG_HW_ACCESSIBLE, &hcd->flags);
 

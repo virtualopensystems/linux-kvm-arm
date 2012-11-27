@@ -11,7 +11,7 @@
 
 #include <linux/of_platform.h>
 #include <linux/serial_core.h>
-
+#include <linux/platform_data/samsung-usbphy.h>
 #include <asm/io.h>
 #include <asm/mach/arch.h>
 #include <asm/hardware/gic.h>
@@ -26,6 +26,11 @@
 #include <linux/platform_data/usb-ehci-s5p.h>
 
 #include "common.h"
+
+static struct samsung_usbphy_data exynos5_usbphy_pdata = {
+	.pmu_isolation = s5p_usb_phy_pmu_isolation,
+	.phy_cfg_sel = s5p_usb_phy_cfg_sel,
+};
 
 static struct exynos4_ohci_platdata smdk5250_ohci_pdata = {
 	.phy_init = s5p_usb_phy_init,
@@ -117,6 +122,8 @@ static const struct of_dev_auxdata exynos5250_auxdata_lookup[] __initconst = {
 				"exynos-gsc.2", NULL),
 	OF_DEV_AUXDATA("samsung,exynos5-gsc", EXYNOS5_PA_GSC3,
 				"exynos-gsc.3", NULL),
+	OF_DEV_AUXDATA("samsung,exynos5250-usbphy", EXYNOS5_PA_HSPHY,
+				"s3c-usbphy", &exynos5_usbphy_pdata),
 	OF_DEV_AUXDATA("samsung,exynos-ohci", 0x12120000,
 				"exynos-ohci", &smdk5250_ohci_pdata),
 	OF_DEV_AUXDATA("samsung,exynos-ehci", 0x12110000,

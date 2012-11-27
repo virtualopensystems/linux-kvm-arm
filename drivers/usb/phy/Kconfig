@@ -32,3 +32,10 @@ config MV_U3D_PHY
 	help
 	  Enable this to support Marvell USB 3.0 phy controller for Marvell
 	  SoC.
+
+config SAMSUNG_USBPHY
+	bool "Samsung USB PHY controller Driver"
+	select USB_OTG_UTILS
+	help
+	  Enable this to support Samsung USB phy controller for samsung
+	  SoCs.
