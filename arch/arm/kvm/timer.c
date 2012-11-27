@@ -28,6 +28,9 @@
 
 static struct timecounter *timecounter;
 static struct workqueue_struct *wqueue;
+static struct kvm_irq_level timer_irq = {
+	.level	= 1,
+};
 
 static cycle_t kvm_phys_timer_read(void)
 {
@@ -128,6 +131,7 @@ void kvm_timer_vcpu_init(struct kvm_vcpu *vcpu)
 	INIT_WORK(&timer->expired, kvm_timer_inject_irq_work);
 	hrtimer_init(&timer->timer, CLOCK_MONOTONIC, HRTIMER_MODE_ABS);
 	timer->timer.function = kvm_timer_expire;
+	timer->irq = &timer_irq;
 }
 
 static void kvm_timer_init_interrupt(void *info)
@@ -172,6 +176,8 @@ int kvm_timer_hyp_init(void)
 			ppi, err);
 		return err;
 	}
+
+	timer_irq.irq = ppi;
 
 	wqueue = create_singlethread_workqueue("kvm_arch_timer");
 	if (!wqueue) {
