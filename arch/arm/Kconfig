@@ -1179,7 +1179,22 @@ config ARM_TIMER_SP804
 	select CLKSRC_MMIO
 	select HAVE_SCHED_CLOCK
 
+config ARCH_FLATMEM_ENABLE
+	bool
+	depends on MMU
+	default y
+
+config ARCH_DISCONTIGMEM_ENABLE
+	bool
+	depends on MMU
+	default y
+
 source arch/arm/mm/Kconfig
+
+config NUMA_ALLOC_NODES
+	bool
+	depends on DISCONTIGMEM
+	default y
 
 config ARM_NR_BANKS
 	int
