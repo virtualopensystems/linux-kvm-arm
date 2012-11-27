@@ -436,8 +436,8 @@
 	isb
 
 	mrrc	p15, 3, r2, r3, c14	@ CNTV_CVAL
-	str	r3, [\vcpup, #VCPU_TIMER_CNTV_CVALH]
-	str	r2, [\vcpup, #VCPU_TIMER_CNTV_CVALL]
+	str	r2, [\vcpup, #VCPU_TIMER_CNTV_CVAL]
+	str	r3, [\vcpup, #(VCPU_TIMER_CNTV_CVAL + 4)]
 
 1:
 #endif
@@ -461,13 +461,13 @@
 	cmp	r2, #0
 	beq	1f
 
-	ldr	r3, [r4, #KVM_TIMER_CNTVOFF_H]
-	ldr	r2, [r4, #KVM_TIMER_CNTVOFF_L]
+	ldr	r2, [r4, #KVM_TIMER_CNTVOFF]
+	ldr	r3, [r4, #(KVM_TIMER_CNTVOFF + 4)]
 	mcrr	p15, 4, r2, r3, c14	@ CNTVOFF
 	isb
 
-	ldr	r3, [\vcpup, #VCPU_TIMER_CNTV_CVALH]
-	ldr	r2, [\vcpup, #VCPU_TIMER_CNTV_CVALL]
+	ldr	r2, [\vcpup, #VCPU_TIMER_CNTV_CVAL]
+	ldr	r3, [\vcpup, #(VCPU_TIMER_CNTV_CVAL + 4)]
 	mcrr	p15, 3, r2, r3, c14	@ CNTV_CVAL
 
 	ldr	r2, [\vcpup, #VCPU_TIMER_CNTV_CTL]
