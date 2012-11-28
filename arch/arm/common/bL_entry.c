@@ -31,6 +31,19 @@ void bL_set_entry_vector(unsigned cpu, unsigned cluster, void *ptr)
 			  __pa(&bL_entry_vectors[cluster][cpu + 1]));
 }
 
+extern unsigned long bL_entry_early_pokes[BL_NR_CLUSTERS][BL_CPUS_PER_CLUSTER][2];
+
+void bL_set_early_poke(unsigned cpu, unsigned cluster,
+		unsigned long poke_phys_addr, unsigned long poke_val)
+{
+	unsigned long *poke = &bL_entry_early_pokes[cluster][cpu][0];
+	poke[0] = poke_phys_addr;
+	poke[1] = poke_val;
+	smp_wmb();
+	__cpuc_flush_dcache_area((void *)poke, 8);
+	outer_clean_range(__pa(poke), __pa(poke + 2));
+}
+
 static const struct bL_platform_power_ops *platform_ops;
 
 int __init bL_platform_power_register(const struct bL_platform_power_ops *ops)

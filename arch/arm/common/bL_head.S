@@ -66,11 +66,18 @@ ENTRY(bL_entry_point)
 	 * position independent way.
 	 */
 	adr	r5, 3f
-	ldmia	r5, {r6, r7, r8, r11}
+	ldmia	r5, {r0, r6, r7, r8, r11}
+	add	r0, r5, r0			@ r0 = bL_entry_early_pokes
 	add	r6, r5, r6			@ r6 = bL_entry_vectors
 	ldr	r7, [r5, r7]			@ r7 = bL_power_up_setup_phys
 	ldr	r8, [r5, r8]			@ r8 = bL_sync_phys
 	add	r11, r5, r11			@ r11 = first_man_locks
+
+	@ Perform an early poke, if any
+	add	r0, r0, r4, lsl #3
+	ldmia	r0, {r0, r1}
+	teq	r0, #0
+	strne	r1, [r0]
 
 	mov	r0, #BL_SYNC_CLUSTER_SIZE
 	mla	r8, r0, r10, r8			@ r8 = bL_sync cluster base
@@ -185,7 +192,8 @@ bL_entry_gated:
 
 	.align	2
 
-3:	.word	bL_entry_vectors - .
+3:	.word	bL_entry_early_pokes - .
+	.word	bL_entry_vectors - 3b
 	.word	bL_power_up_setup_phys - 3b
 	.word	bL_sync_phys - 3b
 	.word	first_man_locks - 3b
@@ -226,6 +234,10 @@ first_man_locks:
 	.type	bL_entry_vectors, #object
 ENTRY(bL_entry_vectors)
 	.space	4 * BL_NR_CLUSTERS * BL_CPUS_PER_CLUSTER
+
+	.type	bL_entry_early_pokes, #object
+ENTRY(bL_entry_early_pokes)
+	.space	8 * BL_NR_CLUSTERS * BL_CPUS_PER_CLUSTER
 
 	.type	bL_power_up_setup_phys, #object
 ENTRY(bL_power_up_setup_phys)
