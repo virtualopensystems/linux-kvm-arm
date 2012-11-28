@@ -37,6 +37,27 @@ static cycle_t kvm_phys_timer_read(void)
 	return timecounter->cc->read(timecounter->cc);
 }
 
+static bool timer_is_armed(struct arch_timer_cpu *timer)
+{
+	return timer->armed;
+}
+
+static void timer_arm(struct arch_timer_cpu *timer, u64 ns)
+{
+	timer->armed = true;
+	hrtimer_start(&timer->timer, ktime_add_ns(ktime_get(), ns),
+		      HRTIMER_MODE_ABS);
+}
+
+static void timer_disarm(struct arch_timer_cpu *timer)
+{
+	if (timer_is_armed(timer)) {
+		hrtimer_cancel(&timer->timer);
+		cancel_work_sync(&timer->expired);
+		timer->armed = false;
+	}
+}
+
 static void kvm_timer_inject_irq(struct kvm_vcpu *vcpu)
 {
 	struct arch_timer_cpu *timer = &vcpu->arch.timer_cpu;
@@ -87,11 +108,7 @@ void kvm_timer_sync_to_cpu(struct kvm_vcpu *vcpu)
 	 * keep the background timer running, as we're about to
 	 * populate the CPU timer again.
 	 */
-	if (timer->armed) {
-		hrtimer_cancel(&timer->timer);
-		cancel_work_sync(&timer->expired);
-		timer->armed = false;
-	}
+	timer_disarm(timer);
 }
 
 void kvm_timer_sync_from_cpu(struct kvm_vcpu *vcpu)
@@ -107,7 +124,7 @@ void kvm_timer_sync_from_cpu(struct kvm_vcpu *vcpu)
 	cval = timer->cntv_cval;
 	now = kvm_phys_timer_read() - vcpu->kvm->arch.timer.cntvoff;
 
-	BUG_ON(timer->armed);
+	BUG_ON(timer_is_armed(timer));
 
 	if (cval <= now) {
 		/*
@@ -118,10 +135,8 @@ void kvm_timer_sync_from_cpu(struct kvm_vcpu *vcpu)
 		return;
 	}
 
-	timer->armed = true;
 	ns = cyclecounter_cyc2ns(timecounter->cc, cval - now);
-	hrtimer_start(&timer->timer, ktime_add_ns(ktime_get(), ns),
-		      HRTIMER_MODE_ABS);
+	timer_arm(timer, ns);
 }
 
 void kvm_timer_vcpu_init(struct kvm_vcpu *vcpu)
@@ -195,8 +210,7 @@ void kvm_timer_vcpu_terminate(struct kvm_vcpu *vcpu)
 {
 	struct arch_timer_cpu *timer = &vcpu->arch.timer_cpu;
 
-	hrtimer_cancel(&timer->timer);
-	cancel_work_sync(&timer->expired);
+	timer_disarm(timer);
 }
 
 int kvm_timer_init(struct kvm *kvm)
