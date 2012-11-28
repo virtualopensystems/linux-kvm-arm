@@ -151,9 +151,9 @@ static inline u32 *vgic_bytemap_get_reg(struct vgic_bytemap *x,
 	offset >>= 2;
 	BUG_ON(offset > (VGIC_NR_IRQS / 4));
 	if (offset < 4)
-		return x->percpu[cpuid].reg + offset;
+		return x->percpu[cpuid] + offset;
 	else
-		return x->shared.reg + offset - 8;
+		return x->shared + offset - 8;
 }
 
 static inline int vgic_bytemap_get_irq_val(struct vgic_bytemap *x,

@@ -60,14 +60,8 @@ struct vgic_bitmap {
 };
 
 struct vgic_bytemap {
-	union {
-		u32 reg[8];
-		unsigned long reg_ul[0];
-	} percpu[VGIC_MAX_CPUS];
-	union {
-		u32 reg[VGIC_NR_SHARED_IRQS  / 4];
-		unsigned long reg_ul[0];
-	} shared;
+	u32 percpu[VGIC_MAX_CPUS][8];
+	u32 shared[VGIC_NR_SHARED_IRQS  / 4];
 };
 
 struct vgic_dist {
