@@ -26,11 +26,6 @@ _mali_osk_errcode_t mali_utilization_init(void);
 void mali_utilization_term(void);
 
 /**
- * Should be called when a job is about to execute a job
- */
-void mali_utilization_core_start(void);
-
-/**
  * Should be called to suspend the utilization monitoring during
  * system suspend or device pm-runtime suspend
  */
@@ -41,11 +36,5 @@ void mali_utilization_suspend(void);
  * system resume or device pm-runtime resume
  */
 void mali_utilization_resume(void);
-
-/**
- * Should be called when a job has completed executing a job
- */
-void mali_utilization_core_end(void);
-
 
 #endif /* __MALI_KERNEL_DEVFREQ_H__ */

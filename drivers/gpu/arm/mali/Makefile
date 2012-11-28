@@ -77,7 +77,7 @@ OS_MEMORY_KERNEL_BUFFER_SIZE_IN_MB ?= 6
 USING_PROFILING ?= 0
 USING_INTERNAL_PROFILING ?= 0
 TIMESTAMP ?= default
-TARGET_PLATFORM ?= default
+TARGET_PLATFORM ?= mach-origen
 
 ifeq ($(USING_UMP),1)
 ifeq ($(USE_UMPV2),1)
@@ -109,7 +109,7 @@ DEFINES += -DMALI_OS_MEMORY_KERNEL_BUFFER_SIZE_IN_MB=$(OS_MEMORY_KERNEL_BUFFER_S
 ifneq ($(call submodule_enabled, $M, PMU),0)
         MALI_PLATFORM_FILE = platform/mali400-pmu/mali_platform.o
 else
-        MALI_PLATFORM_FILE = platform/$(TARGET_PLATFORM)/mali_platform.o
+        MALI_PLATFORM_FILE = platform/$(TARGET_PLATFORM)/mali_platform.o platform/$(TARGET_PLATFORM)/mali_devfreq.o
 endif
 
 DEFINES += -DUSING_MALI_PMM=$(USING_PMM)

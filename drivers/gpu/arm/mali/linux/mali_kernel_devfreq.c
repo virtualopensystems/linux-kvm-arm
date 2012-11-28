@@ -66,7 +66,6 @@ static int mali_get_dev_status(struct device *dev,
 	/* start a new period */
 	period_start_time = time_now;
 	_mali_osk_lock_signal(time_data_lock, _MALI_OSK_LOCKMODE_RW);
-
 	return 0;
 }
 
