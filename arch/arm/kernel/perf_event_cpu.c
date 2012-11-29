@@ -206,40 +206,40 @@ static struct arm_pmu *__devinit probe_current_pmu(void)
 	pr_info("probing PMU on CPU %d\n", cpu);
 
 	/* ARM Ltd CPUs. */
-	if (implementor == IMPLEMENTOR_ARM) {
+	if (implementor == ARM_CPU_IMP_ARM) {
 		switch (part_number) {
-		case PART_NUMBER_ARM1136:
-		case PART_NUMBER_ARM1156:
-		case PART_NUMBER_ARM1176:
+		case ARM_CPU_PART_ARM1136:
+		case ARM_CPU_PART_ARM1156:
+		case ARM_CPU_PART_ARM1176:
 			pmu = armv6pmu_init();
 			break;
-		case PART_NUMBER_ARM11MPCORE:
+		case ARM_CPU_PART_ARM11MPCORE:
 			pmu = armv6mpcore_pmu_init();
 			break;
-		case PART_NUMBER_CORTEX_A8:
+		case ARM_CPU_PART_CORTEX_A8:
 			pmu = armv7_a8_pmu_init();
 			break;
-		case PART_NUMBER_CORTEX_A9:
+		case ARM_CPU_PART_CORTEX_A9:
 			pmu = armv7_a9_pmu_init();
 			break;
-		case PART_NUMBER_CORTEX_A5:
+		case ARM_CPU_PART_CORTEX_A5:
 			pmu = armv7_a5_pmu_init();
 			break;
-		case PART_NUMBER_CORTEX_A15:
+		case ARM_CPU_PART_CORTEX_A15:
 			pmu = armv7_a15_pmu_init();
 			break;
-		case PART_NUMBER_CORTEX_A7:
+		case ARM_CPU_PART_CORTEX_A7:
 			pmu = armv7_a7_pmu_init();
 			break;
 		}
 	/* Intel CPUs [xscale]. */
-	} else if (implementor == IMPLEMENTOR_INTEL) {
+	} else if (implementor == ARM_CPU_IMP_INTEL) {
 		part_number = (cpuid >> 13) & 0x7;
 		switch (part_number) {
-		case PART_NUMBER_XSCALE1:
+		case ARM_CPU_PART_XSCALE1:
 			pmu = xscale1pmu_init();
 			break;
-		case PART_NUMBER_XSCALE2:
+		case ARM_CPU_PART_XSCALE2:
 			pmu = xscale2pmu_init();
 			break;
 		}
