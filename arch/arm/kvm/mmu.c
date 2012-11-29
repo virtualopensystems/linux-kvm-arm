@@ -33,8 +33,9 @@
 
 #include "trace.h"
 
+extern char  __hyp_idmap_text_start[], __hyp_idmap_text_end[];
+
 static DEFINE_MUTEX(kvm_hyp_pgd_mutex);
-static pgd_t *hyp_pgd;
 
 static void kvm_tlb_flush_vmid(struct kvm *kvm)
 {
@@ -725,15 +726,36 @@ unsigned long kvm_mmu_get_httbr(void)
 
 int kvm_mmu_init(void)
 {
-	hyp_pgd = kzalloc(PTRS_PER_PGD * sizeof(pgd_t), GFP_KERNEL);
-	if (!hyp_pgd)
-		return -ENOMEM;
-
-	hyp_idmap_setup(hyp_pgd);
-	return 0;
+	return hyp_pgd ? 0 : -ENOMEM;
 }
 
-void kvm_mmu_exit(void)
+/**
+ * kvm_clear_idmap - remove all idmaps from the hyp pgd
+ *
+ * Free the underlying pmds for all pgds in range and clear the pgds (but
+ * don't free them) afterwards.
+ */
+void kvm_clear_hyp_idmap(void)
 {
-	hyp_idmap_teardown(hyp_pgd);
+	unsigned long addr, end;
+	unsigned long next;
+	pgd_t *pgd = hyp_pgd;
+	pud_t *pud;
+	pmd_t *pmd;
+
+	addr = virt_to_phys(__hyp_idmap_text_start);
+	end = virt_to_phys(__hyp_idmap_text_end);
+
+	pgd += pgd_index(addr);
+	do {
+		next = pgd_addr_end(addr, end);
+		if (pgd_none_or_clear_bad(pgd))
+			continue;
+		pud = pud_offset(pgd, addr);
+		pmd = pmd_offset(pud, addr);
+
+		pud_clear(pud);
+		clean_pmd_entry(pmd);
+		pmd_free(NULL, (pmd_t *)((unsigned long)pmd & PAGE_MASK));
+	} while (pgd++, addr = next, addr < end);
 }

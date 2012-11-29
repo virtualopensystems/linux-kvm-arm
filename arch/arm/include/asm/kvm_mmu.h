@@ -34,5 +34,5 @@ void kvm_mmu_free_memory_caches(struct kvm_vcpu *vcpu);
 
 unsigned long kvm_mmu_get_httbr(void);
 int kvm_mmu_init(void);
-void kvm_mmu_exit(void);
+void kvm_clear_hyp_idmap(void);
 #endif /* __ARM_KVM_MMU_H__ */

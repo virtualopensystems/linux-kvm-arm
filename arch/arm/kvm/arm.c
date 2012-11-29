@@ -1004,7 +1004,7 @@ static int init_hyp_mode(void)
 	/*
 	 * Unmap the identity mapping
 	 */
-	kvm_mmu_exit();
+	kvm_clear_hyp_idmap();
 
 	/*
 	 * Map the Hyp-code called directly from the host
