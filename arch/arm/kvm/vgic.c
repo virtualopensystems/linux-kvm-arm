@@ -232,10 +232,9 @@ static inline void vgic_cpu_irq_clear(struct kvm_vcpu *vcpu, int irq)
  * (read,raz,write-ignored,setbit,clearbit,write)
  */
 static void vgic_reg_access(struct kvm_exit_mmio *mmio, u32 *reg,
-			    u32 offset, int mode)
+			    phys_addr_t offset, int mode)
 {
-	int word_offset = offset & 3;
-	int shift = word_offset * 8;
+	int shift = (offset & 3) * 8;
 	u32 mask;
 	u32 regval;
 
@@ -244,10 +243,10 @@ static void vgic_reg_access(struct kvm_exit_mmio *mmio, u32 *reg,
 	 * directly (ARM ARM B3.12.7 "Prioritization of aborts").
 	 */
 
-	mask = (~0U) >> (word_offset * 8);
-	if (reg)
+	mask = (~0U) >> shift;
+	if (reg) {
 		regval = *reg;
-	else {
+	} else {
 		BUG_ON(mode != (ACCESS_READ_RAZ | ACCESS_WRITE_IGNORED));
 		regval = 0;
 	}
@@ -284,7 +283,7 @@ static void vgic_reg_access(struct kvm_exit_mmio *mmio, u32 *reg,
 }
 
 static bool handle_mmio_misc(struct kvm_vcpu *vcpu,
-			     struct kvm_exit_mmio *mmio, u32 offset)
+			     struct kvm_exit_mmio *mmio, phys_addr_t offset)
 {
 	u32 reg;
 	u32 u32off = offset & 3;
@@ -319,7 +318,7 @@ static bool handle_mmio_misc(struct kvm_vcpu *vcpu,
 }
 
 static bool handle_mmio_raz_wi(struct kvm_vcpu *vcpu,
-			       struct kvm_exit_mmio *mmio, u32 offset)
+			       struct kvm_exit_mmio *mmio, phys_addr_t offset)
 {
 	vgic_reg_access(mmio, NULL, offset,
 			ACCESS_READ_RAZ | ACCESS_WRITE_IGNORED);
@@ -327,7 +326,8 @@ static bool handle_mmio_raz_wi(struct kvm_vcpu *vcpu,
 }
 
 static bool handle_mmio_set_enable_reg(struct kvm_vcpu *vcpu,
-				       struct kvm_exit_mmio *mmio, u32 offset)
+				       struct kvm_exit_mmio *mmio,
+				       phys_addr_t offset)
 {
 	u32 *reg = vgic_bitmap_get_reg(&vcpu->kvm->arch.vgic.irq_enabled,
 				       vcpu->vcpu_id, offset);
@@ -342,7 +342,8 @@ static bool handle_mmio_set_enable_reg(struct kvm_vcpu *vcpu,
 }
 
 static bool handle_mmio_clear_enable_reg(struct kvm_vcpu *vcpu,
-					 struct kvm_exit_mmio *mmio, u32 offset)
+					 struct kvm_exit_mmio *mmio,
+					 phys_addr_t offset)
 {
 	u32 *reg = vgic_bitmap_get_reg(&vcpu->kvm->arch.vgic.irq_enabled,
 				       vcpu->vcpu_id, offset);
@@ -359,7 +360,8 @@ static bool handle_mmio_clear_enable_reg(struct kvm_vcpu *vcpu,
 }
 
 static bool handle_mmio_set_pending_reg(struct kvm_vcpu *vcpu,
-					struct kvm_exit_mmio *mmio, u32 offset)
+					struct kvm_exit_mmio *mmio,
+					phys_addr_t offset)
 {
 	u32 *reg = vgic_bitmap_get_reg(&vcpu->kvm->arch.vgic.irq_state,
 				       vcpu->vcpu_id, offset);
@@ -374,7 +376,8 @@ static bool handle_mmio_set_pending_reg(struct kvm_vcpu *vcpu,
 }
 
 static bool handle_mmio_clear_pending_reg(struct kvm_vcpu *vcpu,
-					  struct kvm_exit_mmio *mmio, u32 offset)
+					  struct kvm_exit_mmio *mmio,
+					  phys_addr_t offset)
 {
 	u32 *reg = vgic_bitmap_get_reg(&vcpu->kvm->arch.vgic.irq_state,
 				       vcpu->vcpu_id, offset);
@@ -389,7 +392,8 @@ static bool handle_mmio_clear_pending_reg(struct kvm_vcpu *vcpu,
 }
 
 static bool handle_mmio_priority_reg(struct kvm_vcpu *vcpu,
-				     struct kvm_exit_mmio *mmio, u32 offset)
+				     struct kvm_exit_mmio *mmio,
+				     phys_addr_t offset)
 {
 	u32 *reg = vgic_bytemap_get_reg(&vcpu->kvm->arch.vgic.irq_priority,
 					vcpu->vcpu_id, offset);
@@ -455,7 +459,8 @@ static void vgic_set_target_reg(struct kvm *kvm, u32 val, int irq)
 }
 
 static bool handle_mmio_target_reg(struct kvm_vcpu *vcpu,
-				   struct kvm_exit_mmio *mmio, u32 offset)
+				   struct kvm_exit_mmio *mmio,
+				   phys_addr_t offset)
 {
 	u32 reg;
 
@@ -518,7 +523,7 @@ static u16 vgic_cfg_compress(u32 val)
  * two above functions to compress/expand the bits
  */
 static bool handle_mmio_cfg_reg(struct kvm_vcpu *vcpu,
-				struct kvm_exit_mmio *mmio, u32 offset)
+				struct kvm_exit_mmio *mmio, phys_addr_t offset)
 {
 	u32 val;
 	u32 *reg = vgic_bitmap_get_reg(&vcpu->kvm->arch.vgic.irq_cfg,
@@ -551,7 +556,7 @@ static bool handle_mmio_cfg_reg(struct kvm_vcpu *vcpu,
 }
 
 static bool handle_mmio_sgi_reg(struct kvm_vcpu *vcpu,
-				struct kvm_exit_mmio *mmio, u32 offset)
+				struct kvm_exit_mmio *mmio, phys_addr_t offset)
 {
 	u32 reg;
 	vgic_reg_access(mmio, &reg, offset,
@@ -565,12 +570,17 @@ static bool handle_mmio_sgi_reg(struct kvm_vcpu *vcpu,
 	return false;
 }
 
-/* All this should be handled by kvm_bus_io_*()... FIXME!!! */
+/*
+ * I would have liked to use the kvm_bus_io_*() API instead, but it
+ * cannot cope with banked registers (only the VM pointer is passed
+ * around, and we need the vcpu). One of these days, someone please
+ * fix it!
+ */
 struct mmio_range {
-	unsigned long base;
+	phys_addr_t base;
 	unsigned long len;
 	bool (*handle_mmio)(struct kvm_vcpu *vcpu, struct kvm_exit_mmio *mmio,
-			    u32 offset);
+			    phys_addr_t offset);
 };
 
 static const struct mmio_range vgic_ranges[] = {
@@ -640,10 +650,10 @@ static const struct mmio_range vgic_ranges[] = {
 static const
 struct mmio_range *find_matching_range(const struct mmio_range *ranges,
 				       struct kvm_exit_mmio *mmio,
-				       unsigned long base)
+				       phys_addr_t base)
 {
 	const struct mmio_range *r = ranges;
-	unsigned long addr = mmio->phys_addr - base;
+	phys_addr_t addr = mmio->phys_addr - base;
 
 	while (r->len) {
 		if (addr >= r->base &&
