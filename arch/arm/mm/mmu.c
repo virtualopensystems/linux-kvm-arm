@@ -63,9 +63,6 @@ pgprot_t pgprot_s2_device;
 
 EXPORT_SYMBOL(pgprot_user);
 EXPORT_SYMBOL(pgprot_kernel);
-EXPORT_SYMBOL(pgprot_hyp_device);
-EXPORT_SYMBOL(pgprot_s2);
-EXPORT_SYMBOL(pgprot_s2_device);
 
 struct cachepolicy {
 	const char	policy[16];
