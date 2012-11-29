@@ -108,10 +108,10 @@ static inline u32 *vgic_bitmap_get_reg(struct vgic_bitmap *x,
 static inline int vgic_bitmap_get_irq_val(struct vgic_bitmap *x,
 					 int cpuid, int irq)
 {
-	if (irq < 32)
+	if (irq < VGIC_NR_PRIVATE_IRQS)
 		return test_bit(irq, x->percpu[cpuid].reg_ul);
 
-	return test_bit(irq - 32, x->shared.reg_ul);
+	return test_bit(irq - VGIC_NR_PRIVATE_IRQS, x->shared.reg_ul);
 }
 
 static inline void vgic_bitmap_set_irq_val(struct vgic_bitmap *x,
@@ -119,11 +119,11 @@ static inline void vgic_bitmap_set_irq_val(struct vgic_bitmap *x,
 {
 	unsigned long *reg;
 
-	if (irq < 32)
+	if (irq < VGIC_NR_PRIVATE_IRQS)
 		reg = x->percpu[cpuid].reg_ul;
 	else {
 		reg =  x->shared.reg_ul;
-		irq -= 32;
+		irq -= VGIC_NR_PRIVATE_IRQS;
 	}
 
 	if (val)
@@ -203,18 +203,18 @@ static void vgic_dist_irq_clear(struct kvm_vcpu *vcpu, int irq)
 
 static inline void vgic_cpu_irq_set(struct kvm_vcpu *vcpu, int irq)
 {
-	if (irq < 32)
+	if (irq < VGIC_NR_PRIVATE_IRQS)
 		set_bit(irq, vcpu->arch.vgic_cpu.pending_percpu);
 	else
-		set_bit(irq - 32, vcpu->arch.vgic_cpu.pending_shared);
+		set_bit(irq - VGIC_NR_PRIVATE_IRQS, vcpu->arch.vgic_cpu.pending_shared);
 }
 
 static inline void vgic_cpu_irq_clear(struct kvm_vcpu *vcpu, int irq)
 {
-	if (irq < 32)
+	if (irq < VGIC_NR_PRIVATE_IRQS)
 		clear_bit(irq, vcpu->arch.vgic_cpu.pending_percpu);
 	else
-		clear_bit(irq - 32, vcpu->arch.vgic_cpu.pending_shared);
+		clear_bit(irq - VGIC_NR_PRIVATE_IRQS, vcpu->arch.vgic_cpu.pending_shared);
 }
 
 /**
@@ -404,9 +404,9 @@ static u32 vgic_get_target_reg(struct kvm *kvm, int irq)
 	u32 val = 0;
 
 	BUG_ON(irq & 3);
-	BUG_ON(irq < 32);
+	BUG_ON(irq < VGIC_NR_PRIVATE_IRQS);
 
-	irq -= 32;
+	irq -= VGIC_NR_PRIVATE_IRQS;
 
 	kvm_for_each_vcpu(c, vcpu, kvm) {
 		bmap = vgic_bitmap_get_shared_map(&dist->irq_spi_target[c]);
@@ -427,9 +427,9 @@ static void vgic_set_target_reg(struct kvm *kvm, u32 val, int irq)
 	u32 target;
 
 	BUG_ON(irq & 3);
-	BUG_ON(irq < 32);
+	BUG_ON(irq < VGIC_NR_PRIVATE_IRQS);
 
-	irq -= 32;
+	irq -= VGIC_NR_PRIVATE_IRQS;
 
 	/*
 	 * Pick the LSB in each byte. This ensures we target exactly
@@ -739,7 +739,7 @@ static int compute_pending_for_cpu(struct kvm_vcpu *vcpu)
 
 	pending = vgic_bitmap_get_cpu_map(&dist->irq_state, vcpu_id);
 	enabled = vgic_bitmap_get_cpu_map(&dist->irq_enabled, vcpu_id);
-	bitmap_and(pend_percpu, pending, enabled, 32);
+	bitmap_and(pend_percpu, pending, enabled, VGIC_NR_PRIVATE_IRQS);
 
 	pending = vgic_bitmap_get_shared_map(&dist->irq_state);
 	enabled = vgic_bitmap_get_shared_map(&dist->irq_enabled);
@@ -748,7 +748,7 @@ static int compute_pending_for_cpu(struct kvm_vcpu *vcpu)
 		   vgic_bitmap_get_shared_map(&dist->irq_spi_target[vcpu_id]),
 		   VGIC_NR_SHARED_IRQS);
 
-	return (find_first_bit(pend_percpu, 32) < 32 ||
+	return (find_first_bit(pend_percpu, VGIC_NR_PRIVATE_IRQS) < VGIC_NR_PRIVATE_IRQS ||
 		find_first_bit(pend_shared, VGIC_NR_SHARED_IRQS) < VGIC_NR_SHARED_IRQS);
 }
 
@@ -881,7 +881,7 @@ static void __kvm_vgic_sync_to_cpu(struct kvm_vcpu *vcpu)
 	}
 
 	/* SGIs */
-	for_each_set_bit(i, vgic_cpu->pending_percpu, 16) {
+	for_each_set_bit(i, vgic_cpu->pending_percpu, VGIC_NR_SGIS) {
 		unsigned long sources;
 
 		sources = dist->irq_sgi_sources[vcpu_id][i];
@@ -903,7 +903,7 @@ static void __kvm_vgic_sync_to_cpu(struct kvm_vcpu *vcpu)
 	}
 
 	/* PPIs */
-	for_each_set_bit_from(i, vgic_cpu->pending_percpu, 32) {
+	for_each_set_bit_from(i, vgic_cpu->pending_percpu, VGIC_NR_PRIVATE_IRQS) {
 		if (!vgic_queue_irq(vcpu, 0, i)) {
 			overflow = 1;
 			continue;
@@ -916,7 +916,7 @@ static void __kvm_vgic_sync_to_cpu(struct kvm_vcpu *vcpu)
 
 	/* SPIs */
 	for_each_set_bit(i, vgic_cpu->pending_shared, VGIC_NR_SHARED_IRQS) {
-		int irq = i + 32;
+		int irq = i + VGIC_NR_PRIVATE_IRQS;
 		if (vgic_bitmap_get_irq_val(&dist->irq_active, 0, irq))
 			continue; /* level interrupt, already queued */
 
@@ -1053,8 +1053,8 @@ static bool vgic_update_irq_state(struct kvm *kvm, int cpuid,
 		goto out;
 	}
 
-	if (irq_num >= 32)
-		cpuid = dist->irq_spi_cpu[irq_num - 32];
+	if (irq_num >= VGIC_NR_PRIVATE_IRQS)
+		cpuid = dist->irq_spi_cpu[irq_num - VGIC_NR_PRIVATE_IRQS];
 
 	kvm_debug("Inject IRQ%d level %d CPU%d\n", irq_num, level, cpuid);
 
@@ -1181,10 +1181,10 @@ int kvm_vgic_vcpu_init(struct kvm_vcpu *vcpu)
 		return -EBUSY;
 
 	for (i = 0; i < VGIC_NR_IRQS; i++) {
-		if (i < 16)
+		if (i < VGIC_NR_PPIS)
 			vgic_bitmap_set_irq_val(&dist->irq_enabled,
 						vcpu->vcpu_id, i, 1);
-		if (i < 32)
+		if (i < VGIC_NR_PRIVATE_IRQS)
 			vgic_bitmap_set_irq_val(&dist->irq_cfg,
 						vcpu->vcpu_id, i, 1);
 
@@ -1300,7 +1300,7 @@ int kvm_vgic_init(struct kvm *kvm)
 		goto out;
 	}
 
-	for (i = 32; i < VGIC_NR_IRQS; i += 4)
+	for (i = VGIC_NR_PRIVATE_IRQS; i < VGIC_NR_IRQS; i += 4)
 		vgic_set_target_reg(kvm, 0, i);
 
 	kvm_timer_init(kvm);

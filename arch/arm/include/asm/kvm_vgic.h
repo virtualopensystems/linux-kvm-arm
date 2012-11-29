@@ -27,7 +27,10 @@
 #include <linux/types.h>
 
 #define VGIC_NR_IRQS		128
-#define VGIC_NR_SHARED_IRQS	(VGIC_NR_IRQS - 32)
+#define VGIC_NR_SGIS		16
+#define VGIC_NR_PPIS		16
+#define VGIC_NR_PRIVATE_IRQS	(VGIC_NR_SGIS + VGIC_NR_PPIS)
+#define VGIC_NR_SHARED_IRQS	(VGIC_NR_IRQS - VGIC_NR_PRIVATE_IRQS)
 #define VGIC_MAX_CPUS		KVM_MAX_VCPUS
 
 /* Sanity checks... */
@@ -50,8 +53,8 @@
  */
 struct vgic_bitmap {
 	union {
-		u32 reg[1];
-		DECLARE_BITMAP(reg_ul, 32);
+		u32 reg[VGIC_NR_PRIVATE_IRQS / 32];
+		DECLARE_BITMAP(reg_ul, VGIC_NR_PRIVATE_IRQS);
 	} percpu[VGIC_MAX_CPUS];
 	union {
 		u32 reg[VGIC_NR_SHARED_IRQS / 32];
@@ -60,7 +63,7 @@ struct vgic_bitmap {
 };
 
 struct vgic_bytemap {
-	u32 percpu[VGIC_MAX_CPUS][8];
+	u32 percpu[VGIC_MAX_CPUS][VGIC_NR_PRIVATE_IRQS / 4];
 	u32 shared[VGIC_NR_SHARED_IRQS  / 4];
 };
 
@@ -112,7 +115,7 @@ struct vgic_cpu {
 	u8		vgic_irq_lr_map[VGIC_NR_IRQS];
 
 	/* Pending interrupts on this VCPU */
-	DECLARE_BITMAP(	pending_percpu, 32);
+	DECLARE_BITMAP(	pending_percpu, VGIC_NR_PRIVATE_IRQS);
 	DECLARE_BITMAP(	pending_shared, VGIC_NR_SHARED_IRQS);
 
 	/* Bitmap of used/free list registers */
