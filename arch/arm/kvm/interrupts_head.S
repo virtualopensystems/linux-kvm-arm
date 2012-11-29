@@ -272,6 +272,14 @@
 	str	r11, [\vcpup, #CP15_OFFSET(c6_IFAR)]
 	str	r12, [\vcpup, #CP15_OFFSET(c12_VBAR)]
 	.endif
+
+	mrc	p15, 0, r2, c14, c1, 0	@ CNTKCTL
+
+	.if \vcpu == 0
+	push	{r2}
+	.else
+	str	r2, [\vcpup, #CP15_OFFSET(c14_CNTKCTL)]
+	.endif
 .endm
 
 /* Reads cp15 registers from memory and writes them to hardware
@@ -280,6 +288,14 @@
  * @vcpup:  Register pointing to VCPU struct
  */
 .macro write_cp15_state vcpu=0, vcpup
+	.if \vcpu == 0
+	pop	{r2}
+	.else
+	ldr	r2, [\vcpup, #CP15_OFFSET(c14_CNTKCTL)]
+	.endif
+
+	mcr	p15, 0, r2, c14, c1, 0	@ CNTKCTL
+
 	.if \vcpu == 0
 	pop	{r2-r12}
 	.else
