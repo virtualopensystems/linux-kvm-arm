@@ -95,36 +95,56 @@ void show_mem(unsigned int filter)
 {
 	int free = 0, total = 0, reserved = 0;
 	int shared = 0, cached = 0, slab = 0, i;
-	struct meminfo * mi = &meminfo;
+	struct meminfo *mi = &meminfo;
+	struct memblock_region *reg;
 
 	printk("Mem-info:\n");
 	show_free_areas(filter);
 
 	for_each_bank (i, mi) {
 		struct membank *bank = &mi->bank[i];
-		unsigned int pfn1, pfn2;
-		struct page *page, *end;
+		unsigned int sbank, ebank;
 
-		pfn1 = bank_pfn_start(bank);
-		pfn2 = bank_pfn_end(bank);
+		sbank = bank_pfn_start(bank);
+		ebank = bank_pfn_end(bank);
 
-		page = pfn_to_page(pfn1);
-		end  = pfn_to_page(pfn2 - 1) + 1;
+		/* consider every memory block that intersects our memory bank */
+		for_each_memblock(memory, reg) {
+			struct page *page, *end;
+			unsigned int pfn1, pfn2;
+			unsigned int sblock = memblock_region_memory_base_pfn(reg);
+			unsigned int eblock = memblock_region_memory_end_pfn(reg);
 
-		do {
-			total++;
-			if (PageReserved(page))
-				reserved++;
-			else if (PageSwapCache(page))
-				cached++;
-			else if (PageSlab(page))
-				slab++;
-			else if (!page_count(page))
-				free++;
-			else
-				shared += page_count(page) - 1;
-			page++;
-		} while (page < end);
+			/* we're beyond the membank */
+			if (sblock >= ebank)
+				break;
+
+			/* we're not yet at the membank */
+			if (eblock <= sbank)
+				continue;
+
+			/* take the intersection between bank and block */
+			pfn1 = max(sblock, sbank);
+			pfn2 = min(eblock, ebank);
+
+			page = pfn_to_page(pfn1);
+			end = pfn_to_page(pfn2 - 1) + 1;
+
+			do {
+				total++;
+				if (PageReserved(page))
+					reserved++;
+				else if (PageSwapCache(page))
+					cached++;
+				else if (PageSlab(page))
+					slab++;
+				else if (!page_count(page))
+					free++;
+				else
+					shared += page_count(page) - 1;
+				page++;
+			} while (page < end);
+		}
 	}
 
 	printk("%d pages of RAM\n", total);
@@ -620,22 +640,41 @@ void __init mem_init(void)
 
 	for_each_bank(i, &meminfo) {
 		struct membank *bank = &meminfo.bank[i];
-		unsigned int pfn1, pfn2;
-		struct page *page, *end;
+		unsigned int sbank, ebank;
 
-		pfn1 = bank_pfn_start(bank);
-		pfn2 = bank_pfn_end(bank);
+		sbank = bank_pfn_start(bank);
+		ebank = bank_pfn_end(bank);
 
-		page = pfn_to_page(pfn1);
-		end  = pfn_to_page(pfn2 - 1) + 1;
+		/* consider every memory block that intersects our memory bank */
+		for_each_memblock(memory, reg) {
+			struct page *page, *end;
+			unsigned int pfn1, pfn2;
+			unsigned int sblock = memblock_region_memory_base_pfn(reg);
+			unsigned int eblock = memblock_region_memory_end_pfn(reg);
 
-		do {
-			if (PageReserved(page))
-				reserved_pages++;
-			else if (!page_count(page))
-				free_pages++;
-			page++;
-		} while (page < end);
+			/* we're beyond the membank */
+			if (sblock >= ebank)
+				break;
+
+			/* we're not yet at the membank */
+			if (eblock <= sbank)
+				continue;
+
+			/* take the intersection between bank and block */
+			pfn1 = max(sblock, sbank);
+			pfn2 = min(eblock, ebank);
+
+			page = pfn_to_page(pfn1);
+			end = pfn_to_page(pfn2 - 1) + 1;
+
+			do {
+				if (PageReserved(page))
+					reserved_pages++;
+				else if (!page_count(page))
+					free_pages++;
+				page++;
+			} while (page < end);
+		}
 	}
 
 	/*
