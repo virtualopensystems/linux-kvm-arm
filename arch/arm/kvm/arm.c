@@ -210,6 +210,12 @@ int kvm_dev_ioctl_check_extension(long ext)
 	case KVM_CAP_SET_DEVICE_ADDR:
 		r = 1;
 		break;
+	case KVM_CAP_NR_VCPUS:
+		r = num_online_cpus();
+		break;
+	case KVM_CAP_MAX_VCPUS:
+		r = KVM_MAX_VCPUS;
+		break;
 	default:
 		r = 0;
 		break;
@@ -834,7 +840,7 @@ long kvm_arch_vcpu_ioctl(struct file *filp,
 	case KVM_ARM_VCPU_INIT: {
 		struct kvm_vcpu_init init;
 
-		if (copy_from_user(&init, argp, sizeof init))
+		if (copy_from_user(&init, argp, sizeof(init)))
 			return -EFAULT;
 
 		return kvm_vcpu_set_target(vcpu, &init);
@@ -855,11 +861,11 @@ long kvm_arch_vcpu_ioctl(struct file *filp,
 		struct kvm_reg_list reg_list;
 		unsigned n;
 
-		if (copy_from_user(&reg_list, user_list, sizeof reg_list))
+		if (copy_from_user(&reg_list, user_list, sizeof(reg_list)))
 			return -EFAULT;
 		n = reg_list.n;
 		reg_list.n = kvm_arm_num_regs(vcpu);
-		if (copy_to_user(user_list, &reg_list, sizeof reg_list))
+		if (copy_to_user(user_list, &reg_list, sizeof(reg_list)))
 			return -EFAULT;
 		if (n < reg_list.n)
 			return -E2BIG;

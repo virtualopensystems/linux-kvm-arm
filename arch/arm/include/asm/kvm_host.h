@@ -93,7 +93,7 @@ struct kvm_vcpu_arch {
 	u32 midr;
 
 	/* Exception Information */
-	u32 hsr;		/* Hyp Syndrom Register */
+	u32 hsr;		/* Hyp Syndrome Register */
 	u32 hxfar;		/* Hyp Data/Inst Fault Address Register */
 	u32 hpfar;		/* Hyp IPA Fault Address Register */
 

@@ -28,6 +28,30 @@
 #define KVM_REG_SIZE(id)						\
 	(1U << (((id) & KVM_REG_SIZE_MASK) >> KVM_REG_SIZE_SHIFT))
 
+/* Valid for svc_regs, abt_regs, und_regs, irq_regs in struct kvm_regs */
+#define KVM_ARM_SVC_sp		svc_regs[0]
+#define KVM_ARM_SVC_lr		svc_regs[1]
+#define KVM_ARM_SVC_spsr	svc_regs[2]
+#define KVM_ARM_ABT_sp		abt_regs[0]
+#define KVM_ARM_ABT_lr		abt_regs[1]
+#define KVM_ARM_ABT_spsr	abt_regs[2]
+#define KVM_ARM_UND_sp		und_regs[0]
+#define KVM_ARM_UND_lr		und_regs[1]
+#define KVM_ARM_UND_spsr	und_regs[2]
+#define KVM_ARM_IRQ_sp		irq_regs[0]
+#define KVM_ARM_IRQ_lr		irq_regs[1]
+#define KVM_ARM_IRQ_spsr	irq_regs[2]
+
+/* Valid only for fiq_regs in struct kvm_regs */
+#define KVM_ARM_FIQ_r8		fiq_regs[0]
+#define KVM_ARM_FIQ_r9		fiq_regs[1]
+#define KVM_ARM_FIQ_r10		fiq_regs[2]
+#define KVM_ARM_FIQ_fp		fiq_regs[3]
+#define KVM_ARM_FIQ_ip		fiq_regs[4]
+#define KVM_ARM_FIQ_sp		fiq_regs[5]
+#define KVM_ARM_FIQ_lr		fiq_regs[6]
+#define KVM_ARM_FIQ_spsr	fiq_regs[7]
+
 struct kvm_regs {
 	struct pt_regs usr_regs;/* R0_usr - R14_usr, PC, CPSR */
 	__u32 svc_regs[3];	/* SP_svc, LR_svc, SPSR_svc */

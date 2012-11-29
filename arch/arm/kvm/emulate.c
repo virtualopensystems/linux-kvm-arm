@@ -25,7 +25,13 @@
 
 #include "trace.h"
 
-#define VCPU_NR_MODES 6
+#define VCPU_NR_MODES		6
+#define VCPU_REG_OFFSET_USR	0
+#define VCPU_REG_OFFSET_FIQ	1
+#define VCPU_REG_OFFSET_IRQ	2
+#define VCPU_REG_OFFSET_SVC	3
+#define VCPU_REG_OFFSET_ABT	4
+#define VCPU_REG_OFFSET_UND	5
 #define REG_OFFSET(_reg) \
 	(offsetof(struct kvm_regs, _reg) / sizeof(u32))
 
@@ -33,7 +39,7 @@
 
 static const unsigned long vcpu_reg_offsets[VCPU_NR_MODES][15] = {
 	/* USR/SYS Registers */
-	{
+	[VCPU_REG_OFFSET_USR] = {
 		USR_REG_OFFSET(0), USR_REG_OFFSET(1), USR_REG_OFFSET(2),
 		USR_REG_OFFSET(3), USR_REG_OFFSET(4), USR_REG_OFFSET(5),
 		USR_REG_OFFSET(6), USR_REG_OFFSET(7), USR_REG_OFFSET(8),
@@ -42,7 +48,7 @@ static const unsigned long vcpu_reg_offsets[VCPU_NR_MODES][15] = {
 	},
 
 	/* FIQ Registers */
-	{
+	[VCPU_REG_OFFSET_FIQ] = {
 		USR_REG_OFFSET(0), USR_REG_OFFSET(1), USR_REG_OFFSET(2),
 		USR_REG_OFFSET(3), USR_REG_OFFSET(4), USR_REG_OFFSET(5),
 		USR_REG_OFFSET(6), USR_REG_OFFSET(7),
@@ -56,7 +62,7 @@ static const unsigned long vcpu_reg_offsets[VCPU_NR_MODES][15] = {
 	},
 
 	/* IRQ Registers */
-	{
+	[VCPU_REG_OFFSET_IRQ] = {
 		USR_REG_OFFSET(0), USR_REG_OFFSET(1), USR_REG_OFFSET(2),
 		USR_REG_OFFSET(3), USR_REG_OFFSET(4), USR_REG_OFFSET(5),
 		USR_REG_OFFSET(6), USR_REG_OFFSET(7), USR_REG_OFFSET(8),
@@ -67,7 +73,7 @@ static const unsigned long vcpu_reg_offsets[VCPU_NR_MODES][15] = {
 	},
 
 	/* SVC Registers */
-	{
+	[VCPU_REG_OFFSET_SVC] = {
 		USR_REG_OFFSET(0), USR_REG_OFFSET(1), USR_REG_OFFSET(2),
 		USR_REG_OFFSET(3), USR_REG_OFFSET(4), USR_REG_OFFSET(5),
 		USR_REG_OFFSET(6), USR_REG_OFFSET(7), USR_REG_OFFSET(8),
@@ -78,7 +84,7 @@ static const unsigned long vcpu_reg_offsets[VCPU_NR_MODES][15] = {
 	},
 
 	/* ABT Registers */
-	{
+	[VCPU_REG_OFFSET_ABT] = {
 		USR_REG_OFFSET(0), USR_REG_OFFSET(1), USR_REG_OFFSET(2),
 		USR_REG_OFFSET(3), USR_REG_OFFSET(4), USR_REG_OFFSET(5),
 		USR_REG_OFFSET(6), USR_REG_OFFSET(7), USR_REG_OFFSET(8),
@@ -89,7 +95,7 @@ static const unsigned long vcpu_reg_offsets[VCPU_NR_MODES][15] = {
 	},
 
 	/* UND Registers */
-	{
+	[VCPU_REG_OFFSET_UND] = {
 		USR_REG_OFFSET(0), USR_REG_OFFSET(1), USR_REG_OFFSET(2),
 		USR_REG_OFFSET(3), USR_REG_OFFSET(4), USR_REG_OFFSET(5),
 		USR_REG_OFFSET(6), USR_REG_OFFSET(7), USR_REG_OFFSET(8),
@@ -115,15 +121,15 @@ u32 *vcpu_reg(struct kvm_vcpu *vcpu, u8 reg_num)
 		break;
 
 	case ABT_MODE:
-		mode = 4;
+		mode = VCPU_REG_OFFSET_ABT;
 		break;
 
 	case UND_MODE:
-		mode = 5;
+		mode = VCPU_REG_OFFSET_UND;
 		break;
 
 	case SYSTEM_MODE:
-		mode = 0;
+		mode = VCPU_REG_OFFSET_USR;
 		break;
 
 	default:
@@ -141,15 +147,15 @@ u32 *vcpu_spsr(struct kvm_vcpu *vcpu)
 	u32 mode = *vcpu_cpsr(vcpu) & MODE_MASK;
 	switch (mode) {
 	case SVC_MODE:
-		return &vcpu->arch.regs.svc_regs[2];
+		return &vcpu->arch.regs.KVM_ARM_SVC_spsr;
 	case ABT_MODE:
-		return &vcpu->arch.regs.abt_regs[2];
+		return &vcpu->arch.regs.KVM_ARM_ABT_spsr;
 	case UND_MODE:
-		return &vcpu->arch.regs.und_regs[2];
+		return &vcpu->arch.regs.KVM_ARM_UND_spsr;
 	case IRQ_MODE:
-		return &vcpu->arch.regs.irq_regs[2];
+		return &vcpu->arch.regs.KVM_ARM_IRQ_spsr;
 	case FIQ_MODE:
-		return &vcpu->arch.regs.fiq_regs[7];
+		return &vcpu->arch.regs.KVM_ARM_FIQ_spsr;
 	default:
 		BUG();
 	}
