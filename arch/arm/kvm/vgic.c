@@ -36,7 +36,8 @@
  *   something is pending
  * - VGIC pending interrupts are stored on the vgic.irq_state vgic
  *   bitmap (this bitmap is updated by both user land ioctls and guest
- *   mmio ops) and indicate the 'wire' state.
+ *   mmio ops, and other in-kernel peripherals such as the
+ *   arch. timers) and indicate the 'wire' state.
  * - Every time the bitmap changes, the irq_pending_on_cpu oracle is
  *   recalculated
  * - To calculate the oracle, we need info for each cpu from
@@ -1111,6 +1112,20 @@ out:
 	return ret;
 }
 
+/**
+ * kvm_vgic_inject_irq - Inject an IRQ from a device to the vgic
+ * @kvm:     The VM structure pointer
+ * @cpuid:   The CPU for PPIs
+ * @irq_num: The IRQ number that is assigned to the device
+ * @level:   Edge-triggered:  true:  to trigger the interrupt
+ * 			      false: to ignore the call
+ *	     Level-sensitive  true:  activates an interrupt
+ *			      false: deactivates an interrupt
+ *
+ * The GIC is not concerned with devices being active-LOW or active-HIGH for
+ * level-sensitive interrupts.  You can think of the level parameter as 1
+ * being HIGH and 0 bing LOW and all devices being active-HIGH.
+ */
 int kvm_vgic_inject_irq(struct kvm *kvm, int cpuid, unsigned int irq_num,
 			bool level)
 {
