@@ -175,9 +175,12 @@ static inline void vgic_bytemap_set_irq_val(struct vgic_bytemap *x,
 	*reg |= (val & 0xff) << shift;
 }
 
-static inline int vgic_irq_is_edge(struct vgic_dist *dist, int irq)
+#define VGIC_CFG_LEVEL	0
+#define VGIC_CFG_EDGE	1
+
+static inline bool vgic_irq_is_edge(struct vgic_dist *dist, int irq)
 {
-	return vgic_bitmap_get_irq_val(&dist->irq_cfg, 0, irq);
+	return vgic_bitmap_get_irq_val(&dist->irq_cfg, 0, irq) == VGIC_CFG_EDGE;
 }
 
 static inline int vgic_irq_is_enabled(struct kvm_vcpu *vcpu, int irq)
@@ -484,8 +487,12 @@ static u32 vgic_cfg_expand(u16 val)
 	u32 res = 0;
 	int i;
 
+	/*
+	 * Turn a 16bit value like abcd...mnop into a 32bit word
+	 * a0b0c0d0...m0n0o0p0, which is what the HW cfg register is.
+	 */
 	for (i = 0; i < 16; i++)
-		res |= ((val >> i) & 1) << (2 * i + 1);
+		res |= ((val >> i) & VGIC_CFG_EDGE) << (2 * i + 1);
 
 	return res;
 }
@@ -495,8 +502,12 @@ static u16 vgic_cfg_compress(u32 val)
 	u16 res = 0;
 	int i;
 
+	/*
+	 * Turn a 32bit word a0b0c0d0...m0n0o0p0 into 16bit value like
+	 * abcd...mnop which is what we really care about.
+	 */
 	for (i = 0; i < 16; i++)
-		res |= ((val >> (i * 2 + 1)) & 1) << i;
+		res |= ((val >> (i * 2 + 1)) & VGIC_CFG_EDGE) << i;
 
 	return res;
 }
@@ -1186,7 +1197,7 @@ int kvm_vgic_vcpu_init(struct kvm_vcpu *vcpu)
 						vcpu->vcpu_id, i, 1);
 		if (i < VGIC_NR_PRIVATE_IRQS)
 			vgic_bitmap_set_irq_val(&dist->irq_cfg,
-						vcpu->vcpu_id, i, 1);
+						vcpu->vcpu_id, i, VGIC_CFG_EDGE);
 
 		vgic_cpu->vgic_irq_lr_map[i] = LR_EMPTY;
 	}
