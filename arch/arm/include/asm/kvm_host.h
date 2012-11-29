@@ -104,6 +104,23 @@ struct kvm_vcpu_arch {
 	struct vgic_cpu vgic_cpu;
 	struct arch_timer_cpu timer_cpu;
 
+	u32 ws_ent_cc1;
+	u32 ws_ent_cc2;
+	u32 ws_ret_cc1;
+	u32 ws_ret_cc2;
+	u32 hyp_ent_cc1;
+	u32 hyp_ent_cc2;
+	u32 hyp_ret_cc1;
+	u32 hyp_ret_cc2;
+	u32 vgic_rest_cc1;
+	u32 vgic_rest_cc2;
+	u32 vgic_save_cc1;
+	u32 vgic_save_cc2;
+	u32 vfp_cc1;
+	u32 vfp_cc2;
+	u32 abt_cc1;
+	u32 abt_cc2;
+
 	/*
 	 * Anything that is not used directly from assembly code goes
 	 * here.
@@ -135,8 +152,17 @@ struct kvm_vm_stat {
 	u32 remote_tlb_flush;
 };
 
+#define CYCLE_STAT(_event) u32 _event; u32 _event ## _avg; u32 _event ## _dp;
+
 struct kvm_vcpu_stat {
 	u32 halt_wakeup;
+	u32 ws_datapoints;
+	CYCLE_STAT(ws_cycles);
+	CYCLE_STAT(hyp_ent_cycles);
+	CYCLE_STAT(hyp_ret_cycles);
+	CYCLE_STAT(vgic_cycles);
+	CYCLE_STAT(vfp_cycles);
+	CYCLE_STAT(abt_cycles);
 };
 
 struct kvm_vcpu_init;

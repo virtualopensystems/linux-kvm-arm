@@ -703,6 +703,65 @@ static void kvm_enable_hyp_ccount(void)
 		     [en] "r" (enable));
 }
 
+static u32 kvm_read_ccounter(void)
+{
+	u32 val;
+	asm volatile("mrc p15, 0, %[val], c9, c13, 0": [val] "=r" (val));
+	return val;
+}
+
+static void __calc_avg(struct kvm_vcpu *vcpu, u32 *oldavg,
+		       unsigned long cc1, unsigned long cc2,
+		       u32 *datapoints, u32 *sample)
+{
+	unsigned long newval, newavg;
+
+	if (cc1 >= cc2)
+		return;
+
+	newval = cc2 - cc1;
+	(*sample) = newval;
+	if (*datapoints == 0) {
+		*oldavg = newval;
+		return;
+	}
+	(*datapoints)++;
+	newavg = (((*oldavg) * (*datapoints - 1)) + newval) /
+		 (*datapoints);
+	*oldavg = newavg;
+}
+
+#define calc_avg(_stat) __calc_avg(vcpu, &vcpu->stat._stat ## _cycles_avg, \
+				   vcpu->arch._stat ## _cc1, \
+				   vcpu->arch._stat ## _cc2, \
+				   &vcpu->stat._stat ## _cycles_dp, \
+				   &vcpu->stat._stat ## _cycles)
+//#define calc_avg(_stat) (_stat)
+static void calc_ws_stats(struct kvm_vcpu *vcpu)
+{
+	unsigned long ws_cycles;
+	unsigned long vgic_rest_cycles, vgic_save_cycles, vgic_cycles;
+
+
+	ws_cycles = (vcpu->arch.ws_ent_cc2 - vcpu->arch.ws_ent_cc1) +
+		    (vcpu->arch.ws_ret_cc2 - vcpu->arch.ws_ret_cc1);
+	/* next line is a hack! */
+	__calc_avg(vcpu, &vcpu->stat.ws_cycles_avg, 0, ws_cycles,
+		   &vcpu->stat.ws_cycles_dp, &vcpu->stat.ws_cycles);
+
+	calc_avg(hyp_ent);
+	calc_avg(hyp_ret);
+
+	vgic_rest_cycles = vcpu->arch.vgic_rest_cc2 - vcpu->arch.vgic_rest_cc1;
+	vgic_save_cycles = vcpu->arch.vgic_save_cc2 - vcpu->arch.vgic_save_cc1;
+	vgic_cycles = vgic_rest_cycles + vgic_save_cycles;
+	__calc_avg(vcpu, &vcpu->stat.vgic_cycles_avg, 0, vgic_cycles,
+		   &vcpu->stat.vgic_cycles_dp, &vcpu->stat.vgic_cycles);
+
+	calc_avg(vfp);
+	calc_avg(abt);
+}
+
 /**
  * kvm_arch_vcpu_ioctl_run - the main VCPU run function to execute guest code
  * @vcpu:	The VCPU pointer
@@ -780,13 +839,21 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 			/* This means ignore, try again. */
 			ret = ARM_EXCEPTION_IRQ;
 		} else {
+			vcpu->arch.ws_ent_cc1 = kvm_read_ccounter();
+			vcpu->arch.hyp_ent_cc1 = vcpu->arch.ws_ent_cc1;
+
 			ret = kvm_call_hyp(__kvm_vcpu_run, vcpu);
+
+			vcpu->arch.ws_ret_cc2 = kvm_read_ccounter();
+			vcpu->arch.hyp_ret_cc2 = vcpu->arch.ws_ret_cc2;
+			calc_ws_stats(vcpu);
 		}
 
 		vcpu->mode = OUTSIDE_GUEST_MODE;
 		vcpu->arch.last_pcpu = smp_processor_id();
 		kvm_guest_exit();
-		trace_kvm_exit(*vcpu_pc(vcpu));
+		trace_kvm_exit(*vcpu_pc(vcpu),
+			       vcpu->arch.ws_ent_cc2 - vcpu->arch.ws_ent_cc1);
 		/*
 		 * We may have taken a host interrupt in HYP mode (ie
 		 * while executing the guest). This interrupt is still

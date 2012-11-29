@@ -25,18 +25,20 @@ TRACE_EVENT(kvm_entry,
 );
 
 TRACE_EVENT(kvm_exit,
-	TP_PROTO(unsigned long vcpu_pc),
-	TP_ARGS(vcpu_pc),
+	TP_PROTO(unsigned long vcpu_pc, unsigned long ws_cycles),
+	TP_ARGS(vcpu_pc, ws_cycles),
 
 	TP_STRUCT__entry(
 		__field(	unsigned long,	vcpu_pc		)
+		__field(	unsigned long,	ws_cycles		)
 	),
 
 	TP_fast_assign(
 		__entry->vcpu_pc		= vcpu_pc;
+		__entry->ws_cycles		= ws_cycles;
 	),
 
-	TP_printk("PC: 0x%08lx", __entry->vcpu_pc)
+	TP_printk("PC: 0x%08lx (cycles: %lu)", __entry->vcpu_pc, __entry->ws_cycles)
 );
 
 TRACE_EVENT(kvm_guest_fault,

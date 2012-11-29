@@ -13,6 +13,10 @@
  */
 vcpu	.req	r0		@ vcpu pointer always in r0
 
+.macro read_ccounter reg
+	mrc	p15, 0, \reg, c9, c13, 0	@ PMCCNTR
+.endm
+
 /* Clobbers {r2-r6} */
 .macro store_vfp_state vfp_base
 	@ The VFPFMRX and VFPFMXR macros are the VMRS and VMSR instructions
@@ -130,6 +134,9 @@ vcpu	.req	r0		@ vcpu pointer always in r0
 	mov	lr, r3
 	pop	{r4-r12}
 
+	read_ccounter	r2
+	str	r2, [vcpu, #VCPU_HYP_RET_CC1]
+
 	pop	{r2}
 	msr	ELR_hyp, r2
 .endm
@@ -185,6 +192,11 @@ vcpu	.req	r0		@ vcpu pointer always in r0
 	ldr	r3, [vcpu, #VCPU_USR_LR]
 	msr	SP_usr, r2
 	mov	lr, r3
+
+	@ get ws enter counter
+	read_ccounter	r1
+	str	r1, [vcpu, #VCPU_WS_ENT_CC2]
+
 	add	vcpu, vcpu, #(VCPU_USR_REGS)
 	ldm	vcpu, {r0-r12}
 .endm
@@ -604,3 +616,4 @@ vcpu	.req	r0		@ vcpu pointer always in r0
 .macro load_vcpu
 	mrc	p15, 4, vcpu, c13, c0, 2	@ HTPIDR
 .endm
+

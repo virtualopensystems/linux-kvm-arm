@@ -89,13 +89,21 @@ ENDPROC(__kvm_flush_vm_context)
  * int __kvm_vcpu_run(struct kvm_vcpu *vcpu)
  */
 ENTRY(__kvm_vcpu_run)
+	@ get hyp enter counter
+	read_ccounter	r1
+	str	r1, [vcpu, #VCPU_HYP_ENT_CC2]
+
 	@ Save the vcpu pointer
 	mcr	p15, 4, vcpu, c13, c0, 2	@ HTPIDR
 
 	save_host_regs
 
+	read_ccounter	r1
+	str	r1, [vcpu, #VCPU_VGIC_REST_CC1]
 	restore_vgic_state
 	restore_timer_state
+	read_ccounter	r1
+	str	r1, [vcpu, #VCPU_VGIC_REST_CC2]
 
 	@ Store hardware CP15 state and load guest state
 	read_cp15_state store_to_vcpu = 0
@@ -190,8 +198,12 @@ after_vfp_restore:
 	read_cp15_state store_to_vcpu = 1
 	write_cp15_state read_from_vcpu = 0
 
+	read_ccounter	r2
+	str	r2, [vcpu, #VCPU_VGIC_SAVE_CC1]
 	save_timer_state
 	save_vgic_state
+	read_ccounter	r2
+	str	r2, [vcpu, #VCPU_VGIC_SAVE_CC2]
 
 	restore_host_regs
 	clrex				@ Clear exclusive monitor
@@ -377,7 +389,10 @@ THUMB(	orr	lr, #1)
 
 guest_trap:
 	load_vcpu			@ Load VCPU pointer to r0
+	read_ccounter	r2
+	str	r2, [vcpu, #VCPU_WS_RET_CC1]
 	str	r1, [vcpu, #VCPU_HSR]
+
 
 	@ Check if we need the fault information
 	lsr	r1, r1, #HSR_EC_SHIFT
@@ -409,7 +424,14 @@ guest_trap:
 	cmp	r0, #FSC_PERM
 	tsteq	r1, #(1 << 7)		@ S1PTW
 	mrcne	p15, 4, r2, c6, c0, 4	@ HPFAR
+
+	@ load vcpu
+	mrcne	p15, 4, vcpu, c13, c0, 2	@ HTPIDR
 	bne	3f
+
+	load_vcpu
+	read_ccounter	r1
+	str	r1, [vcpu, #VCPU_ABT_CC1]
 
 	/* Resolve IPA using the xFAR */
 	mcr	p15, 0, r2, c7, c8, 0	@ ATS1CPR
@@ -421,7 +443,11 @@ guest_trap:
 	lsl	r2, r2, #4
 	orr	r2, r2, r1, lsl #24
 
-3:	load_vcpu			@ Load VCPU pointer to r0
+	load_vcpu
+	read_ccounter	r1
+	str	r1, [vcpu, #VCPU_ABT_CC2]
+
+3:	@load_vcpu			@ Load VCPU pointer to r0
 	str	r2, [r0, #VCPU_HPFAR]
 
 1:	mov	r1, #ARM_EXCEPTION_HVC
@@ -439,6 +465,8 @@ guest_trap:
 #ifdef CONFIG_VFPv3
 switch_to_guest_vfp:
 	load_vcpu			@ Load VCPU pointer to r0
+	read_ccounter	r2
+	str	r2, [vcpu, #VCPU_VFP_CC1]
 	push	{r3-r7}
 
 	@ NEON/VFP used.  Turn on VFP access.
@@ -452,6 +480,8 @@ switch_to_guest_vfp:
 	restore_vfp_state r7
 
 	pop	{r3-r7}
+	read_ccounter	r2
+	str	r2, [vcpu, #VCPU_VFP_CC2]
 	pop	{r0-r2}
 	eret
 #endif
@@ -461,6 +491,8 @@ hyp_irq:
 	push	{r0, r1, r2}
 	mov	r1, #ARM_EXCEPTION_IRQ
 	load_vcpu			@ Load VCPU pointer to r0
+	read_ccounter	r2
+	str	r2, [vcpu, #VCPU_WS_RET_CC1]
 	b	__kvm_vcpu_return
 
 	.align

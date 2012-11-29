@@ -28,10 +28,18 @@
 #include <asm/kvm_emulate.h>
 #include <asm/kvm_coproc.h>
 
-#define VM_STAT(x) { #x, offsetof(struct kvm, stat.x), KVM_STAT_VM }
+#define VM_STAT(x) { x, offsetof(struct kvm, stat.x), KVM_STAT_VM }
 #define VCPU_STAT(x) { #x, offsetof(struct kvm_vcpu, stat.x), KVM_STAT_VCPU }
 
+#define AVG_STAT(_x) VCPU_STAT(_x), VCPU_STAT(_x ## _avg)
+
 struct kvm_stats_debugfs_item debugfs_entries[] = {
+	AVG_STAT(ws_cycles),
+	AVG_STAT(hyp_ent_cycles),
+	AVG_STAT(hyp_ret_cycles),
+	AVG_STAT(vgic_cycles),
+	AVG_STAT(vfp_cycles),
+	AVG_STAT(abt_cycles),
 	{ NULL }
 };
 
