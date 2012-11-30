@@ -405,9 +405,14 @@ int kvm_arch_vcpu_in_guest_mode(struct kvm_vcpu *v)
 	return v->mode == IN_GUEST_MODE;
 }
 
-static void reset_vm_context(void *info)
+/* Just ensure a guest exit from a particular CPU */
+static void exit_vm_noop(void *info)
 {
-	kvm_call_hyp(__kvm_flush_vm_context);
+}
+
+void force_vm_exit(const cpumask_t *mask)
+{
+	smp_call_function_many(mask, exit_vm_noop, NULL, true);
 }
 
 /**
@@ -445,17 +450,33 @@ static void update_vttbr(struct kvm *kvm)
 
 	spin_lock(&kvm_vmid_lock);
 
+	/*
+	 * We need to re-check the vmid_gen here to ensure that if another vcpu
+	 * already allocated a valid vmid for this vm, then this vcpu should
+	 * use the same vmid.
+	 */
+	if (!need_new_vmid_gen(kvm)) {
+		spin_unlock(&kvm_vmid_lock);
+		return;
+	}
+
 	/* First user of a new VMID generation? */
 	if (unlikely(kvm_next_vmid == 0)) {
 		atomic64_inc(&kvm_vmid_gen);
 		kvm_next_vmid = 1;
 
 		/*
-		 * On SMP we know no other CPUs can use this CPU's or
-		 * each other's VMID since the kvm_vmid_lock blocks
-		 * them from reentry to the guest.
+		 * On SMP we know no other CPUs can use this CPU's or each
+		 * other's VMID after force_vm_exit returns since the
+		 * kvm_vmid_lock blocks them from reentry to the guest.
 		 */
-		on_each_cpu(reset_vm_context, NULL, 1);
+		force_vm_exit(cpu_all_mask);
+		/*
+		 * Now broadcast TLB + ICACHE invalidation over the inner
+		 * shareable domain to make sure all data structures are
+		 * clean.
+		 */
+		kvm_call_hyp(__kvm_flush_vm_context);
 	}
 
 	kvm->arch.vmid_gen = atomic64_read(&kvm_vmid_gen);

@@ -63,14 +63,18 @@ ENTRY(__kvm_tlb_flush_vmid)
 ENDPROC(__kvm_tlb_flush_vmid)
 
 /********************************************************************
- * Flush TLBs and instruction caches of current CPU for all VMIDs
+ * Flush TLBs and instruction caches of all CPUs inside the inner-shareable
+ * domain, for all VMIDs
  *
  * void __kvm_flush_vm_context(void);
  */
 ENTRY(__kvm_flush_vm_context)
 	mov	r0, #0			@ rn parameter for c15 flushes is SBZ
-	mcr     p15, 4, r0, c8, c7, 4   @ Invalidate Non-secure Non-Hyp TLB
-	mcr     p15, 0, r0, c7, c5, 0   @ Invalidate instruction caches
+
+	/* Invalidate NS Non-Hyp TLB Inner Shareable (TLBIALLNSNHIS) */
+	mcr     p15, 4, r0, c8, c3, 4
+	/* Invalidate instruction caches Inner Shareable (ICIALLUIS) */
+	mcr     p15, 0, r0, c7, c1, 0
 	dsb
 	isb				@ Not necessary if followed by eret
 
