@@ -101,6 +101,14 @@ struct vexpress_spc_drvdata {
 	void __iomem *baseaddr;
 	uint32_t a15_clusid;
 	int irq;
+	uint32_t cur_rsp_mask;
+	uint32_t cur_rsp_stat;
+#define A15_OPP			0
+#define A7_OPP			1
+#define COMMS_OPP		2
+#define STAT_COMPLETE(type)	((1 << 0) << (type << 2))
+#define STAT_ERR(type)		((1 << 1) << (type << 2))
+#define RESPONSE_MASK(type)	(STAT_COMPLETE(type) | STAT_ERR(type))
 	struct semaphore lock;
 	struct completion done;
 	uint32_t freqs[MAX_CLUSTERS][MAX_OPPS];
@@ -271,17 +279,36 @@ static int vexpress_spc_find_perf_index(int cluster, u32 freq)
 	return idx;
 }
 
+static int vexpress_spc_waitforcompletion(int req_type)
+{
+	int ret;
+
+	if (!wait_for_completion_interruptible_timeout(&info->done,
+					usecs_to_jiffies(TIME_OUT_US)))
+		ret = -ETIMEDOUT;
+	else
+		ret = info->cur_rsp_stat & STAT_COMPLETE(req_type) ? 0 : -EIO;
+	return ret;
+}
+
 int vexpress_spc_set_performance(int cluster, u32 freq)
 {
-	u32 perf_cfg_reg = 0;
-	u32 perf_stat_reg = 0;
-	int ret = 0, perf;
+	u32 perf_cfg_reg, perf_stat_reg;
+	int ret, perf, req_type;
 
 	if (IS_ERR_OR_NULL(info))
 		return -ENXIO;
 
-	perf_cfg_reg = cluster != info->a15_clusid ? PERF_LVL_A7 : PERF_LVL_A15;
-	perf_stat_reg = cluster != info->a15_clusid ? PERF_REQ_A7 : PERF_REQ_A15;
+	if (cluster != info->a15_clusid) {
+		req_type = A7_OPP;
+		perf_cfg_reg = PERF_LVL_A7;
+		perf_stat_reg = PERF_REQ_A7;
+	} else {
+		req_type = A15_OPP;
+		perf_cfg_reg = PERF_LVL_A15;
+		perf_stat_reg = PERF_REQ_A15;
+	}
+
 	perf = vexpress_spc_find_perf_index(cluster, freq);
 
 	if (perf >= MAX_OPPS)
@@ -292,16 +319,17 @@ int vexpress_spc_set_performance(int cluster, u32 freq)
 
 	init_completion(&info->done);
 
+	info->cur_rsp_mask = RESPONSE_MASK(req_type);
+
 	writel(perf, info->baseaddr + perf_cfg_reg);
 
-	if (!wait_for_completion_interruptible_timeout(&info->done,
-				usecs_to_jiffies(TIME_OUT_US))) {
-		ret = -ETIMEDOUT;
-	}
+	ret = vexpress_spc_waitforcompletion(req_type);
+
+	info->cur_rsp_mask = 0;
 
 	up(&info->lock);
-	return ret;
 
+	return ret;
 }
 EXPORT_SYMBOL_GPL(vexpress_spc_set_performance);
 
@@ -516,10 +544,12 @@ EXPORT_SYMBOL_GPL(vexpress_spc_check_loaded);
 irqreturn_t vexpress_spc_irq_handler(int irq, void *data)
 {
 	struct vexpress_spc_drvdata *drv_data = data;
+	uint32_t status = readl_relaxed(drv_data->baseaddr + PWC_STATUS);
 
-	readl_relaxed(drv_data->baseaddr + PWC_STATUS);
-
-	complete(&drv_data->done);
+	if (info->cur_rsp_mask & status) {
+		info->cur_rsp_stat = status;
+		complete(&drv_data->done);
+	}
 
 	return IRQ_HANDLED;
 }
@@ -533,14 +563,17 @@ static int read_sys_cfg(int func, int offset, uint32_t *data)
 
 	init_completion(&info->done);
 
+	info->cur_rsp_mask = RESPONSE_MASK(COMMS_OPP);
+
 	/* Set the control value */
 	writel(SYS_CFG_START | func | offset >> 2, info->baseaddr + COMMS);
 
-	if (!wait_for_completion_interruptible_timeout(&info->done,
-				usecs_to_jiffies(TIME_OUT_US)))
-		ret = -ETIMEDOUT;
-	else
+	ret = vexpress_spc_waitforcompletion(COMMS_OPP);
+
+	if (!ret)
 		*data = readl(info->baseaddr + SYS_CFG_RDATA);
+
+	info->cur_rsp_mask = 0;
 
 	up(&info->lock);
 
