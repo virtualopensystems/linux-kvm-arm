@@ -719,8 +719,9 @@ void kvm_mmu_free_memory_caches(struct kvm_vcpu *vcpu)
 	mmu_free_memory_cache(&vcpu->arch.mmu_page_cache);
 }
 
-unsigned long kvm_mmu_get_httbr(void)
+phys_addr_t kvm_mmu_get_httbr(void)
 {
+	VM_BUG_ON(!virt_addr_valid(hyp_pgd));
 	return virt_to_phys(hyp_pgd);
 }
 

@@ -928,7 +928,7 @@ long kvm_arch_vm_ioctl(struct file *filp,
 
 static void cpu_init_hyp_mode(void *vector)
 {
-	unsigned long pgd_ptr;
+	unsigned long long pgd_ptr;
 	unsigned long hyp_stack_ptr;
 	unsigned long stack_page;
 	unsigned long vector_ptr;
@@ -936,7 +936,7 @@ static void cpu_init_hyp_mode(void *vector)
 	/* Switch from the HYP stub to our own HYP init vector */
 	__hyp_set_vectors((unsigned long)vector);
 
-	pgd_ptr = kvm_mmu_get_httbr();
+	pgd_ptr = (unsigned long long)kvm_mmu_get_httbr();
 	stack_page = __get_cpu_var(kvm_arm_hyp_stack_page);
 	hyp_stack_ptr = stack_page + PAGE_SIZE;
 	vector_ptr = (unsigned long)__kvm_hyp_vector;
@@ -947,14 +947,16 @@ static void cpu_init_hyp_mode(void *vector)
 	 * list accordingly.
 	 */
 	asm volatile (
-		"mov	r0, %[pgd_ptr]\n\t"
-		"mov	r1, %[hyp_stack_ptr]\n\t"
-		"mov	r2, %[vector_ptr]\n\t"
+		"mov	r0, %[pgd_ptr_low]\n\t"
+		"mov	r1, %[pgd_ptr_high]\n\t"
+		"mov	r2, %[hyp_stack_ptr]\n\t"
+		"mov	r3, %[vector_ptr]\n\t"
 		"hvc	#0\n\t" : :
-		[pgd_ptr] "r" (pgd_ptr),
+		[pgd_ptr_low] "r" ((unsigned long)(pgd_ptr & 0xffffffff)),
+		[pgd_ptr_high] "r" ((unsigned long)(pgd_ptr >> 32ULL)),
 		[hyp_stack_ptr] "r" (hyp_stack_ptr),
 		[vector_ptr] "r" (vector_ptr) :
-		"r0", "r1", "r2", "r12");
+		"r0", "r1", "r2", "r3", "r12");
 }
 
 /**

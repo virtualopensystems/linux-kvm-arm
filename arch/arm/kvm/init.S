@@ -25,14 +25,14 @@
 /********************************************************************
  * Hypervisor initialization
  *   - should be called with:
- *       r0 = Hypervisor pgd pointer
- *       r1 = top of Hyp stack (kernel VA)
- *       r2 = pointer to hyp vectors
+ *       r0,r1 = Hypervisor pgd pointer
+ *       r2 = top of Hyp stack (kernel VA)
+ *       r3 = pointer to hyp vectors
  */
 
 	.text
 	.pushsection    .hyp.idmap.text,"ax"
-	.align 12
+	.align 5
 __kvm_hyp_init:
 	.globl __kvm_hyp_init
 
@@ -47,17 +47,8 @@ __kvm_hyp_init:
 	W(b)	.
 
 __do_hyp_init:
-	@ Set the sp to end of this page and push data for later use
-ARM(	add	r12, pc, #(__kvm_init_sp - .)	)
-ARM(	sub	r12, r12, #8			)
-THUMB(	adr	r12, __kvm_init_sp		)
-	mov	sp, r12
-	push	{r1, r2}
-
-	@ Set the HTTBR to point to the hypervisor PGD pointer passed to
-	@ function and set the upper bits equal to the kernel PGD.
-	mrrc	p15, 1, r1, r2, c2
-	mcrr	p15, 4, r0, r2, c2
+	@ Set the HTTBR to point to the hypervisor PGD pointer passed
+	mcrr	p15, 4, r0, r1, c2
 
 	@ Set the HTCR and VTCR to the same shareability and cacheability
 	@ settings as the non-secure TTBCR and with T0SZ == 0.
@@ -70,8 +61,8 @@ THUMB(	adr	r12, __kvm_init_sp		)
 	mcr	p15, 4, r0, c2, c0, 2	@ HTCR
 
 	mrc	p15, 4, r1, c2, c1, 2	@ VTCR
-	ldr	r2, =VTCR_MASK
-	bic	r1, r1, r2
+	ldr	r12, =VTCR_MASK
+	bic	r1, r1, r12
 	bic	r0, r0, #(~VTCR_HTCR_SH)	@ clear non-reusable HTCR bits
 	orr	r1, r0, r1
 	orr	r1, r1, #(KVM_VTCR_SL0 | KVM_VTCR_T0SZ | KVM_VTCR_S)
@@ -108,19 +99,15 @@ THUMB(	adr	r12, __kvm_init_sp		)
 	isb
 
 	@ Set stack pointer and return to the kernel
-	pop	{r1, r2}
-	mov	sp, r1
+	mov	sp, r2
 
 	@ Set HVBAR to point to the HYP vectors
-	mcr	p15, 4, r2, c12, c0, 0	@ HVBAR
+	mcr	p15, 4, r3, c12, c0, 0	@ HVBAR
 
 	eret
 
 	.ltorg
 
-	.align 12
-
-	__kvm_init_sp:
 	.globl __kvm_hyp_init_end
 __kvm_hyp_init_end:
 
