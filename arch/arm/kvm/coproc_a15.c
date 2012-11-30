@@ -24,8 +24,6 @@
 #include <asm/kvm_coproc.h>
 #include <linux/init.h>
 
-#define MPIDR_CPUID    0x3
-
 static void reset_mpidr(struct kvm_vcpu *vcpu, const struct coproc_reg *r)
 {
 	/*
@@ -35,8 +33,8 @@ static void reset_mpidr(struct kvm_vcpu *vcpu, const struct coproc_reg *r)
 	 * revealing the underlying hardware properties is likely to
 	 * be the best choice).
 	 */
-	vcpu->arch.cp15[c0_MPIDR] = (read_cpuid_mpidr() & ~MPIDR_CPUID)
-		| (vcpu->vcpu_id & MPIDR_CPUID);
+	vcpu->arch.cp15[c0_MPIDR] = (read_cpuid_mpidr() & ~MPIDR_LEVEL_MASK)
+		| (vcpu->vcpu_id & MPIDR_LEVEL_MASK);
 }
 
 #include "coproc.h"
