@@ -248,6 +248,7 @@ static int __init xen_init_events(void)
 }
 postcore_initcall(xen_init_events);
 
+
 /* In the hypervisor.S file. */
 EXPORT_SYMBOL_GPL(HYPERVISOR_event_channel_op);
 EXPORT_SYMBOL_GPL(HYPERVISOR_grant_table_op);
