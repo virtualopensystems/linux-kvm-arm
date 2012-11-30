@@ -261,7 +261,7 @@ int create_hyp_io_mappings(void *from, void *to, phys_addr_t addr)
  * kvm_alloc_stage2_pgd - allocate level-1 table for stage-2 translation.
  * @kvm:	The KVM struct pointer for the VM.
  *
- * Allocates the 1st level table only of size defined by PGD2_ORDER (can
+ * Allocates the 1st level table only of size defined by S2_PGD_ORDER (can
  * support either full 40-bit input addresses or limited to 32-bit input
  * addresses). Clears the allocated pages.
  *
@@ -277,15 +277,15 @@ int kvm_alloc_stage2_pgd(struct kvm *kvm)
 		return -EINVAL;
 	}
 
-	pgd = (pgd_t *)__get_free_pages(GFP_KERNEL, PGD2_ORDER);
+	pgd = (pgd_t *)__get_free_pages(GFP_KERNEL, S2_PGD_ORDER);
 	if (!pgd)
 		return -ENOMEM;
 
 	/* stage-2 pgd must be aligned to its size */
-	VM_BUG_ON((unsigned long)pgd & (PGD2_SIZE - 1));
+	VM_BUG_ON((unsigned long)pgd & (S2_PGD_SIZE - 1));
 
-	memset(pgd, 0, PTRS_PER_PGD2 * sizeof(pgd_t));
-	clean_dcache_area(pgd, PTRS_PER_PGD2 * sizeof(pgd_t));
+	memset(pgd, 0, PTRS_PER_S2_PGD * sizeof(pgd_t));
+	clean_dcache_area(pgd, PTRS_PER_S2_PGD * sizeof(pgd_t));
 	kvm->arch.pgd = pgd;
 
 	return 0;
@@ -396,7 +396,7 @@ void kvm_free_stage2_pgd(struct kvm *kvm)
 		return;
 
 	unmap_stage2_range(kvm, 0, KVM_PHYS_SIZE);
-	free_pages((unsigned long)kvm->arch.pgd, PGD2_ORDER);
+	free_pages((unsigned long)kvm->arch.pgd, S2_PGD_ORDER);
 	kvm->arch.pgd = NULL;
 }
 

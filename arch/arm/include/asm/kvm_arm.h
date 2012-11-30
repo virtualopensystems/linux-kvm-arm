@@ -127,15 +127,15 @@
 
 /*
  * The architecture supports 40-bit IPA as input to the 2nd stage translations
- * and PTRS_PER_PGD2 becomes 1024, because each entry covers 1GB of address
+ * and PTRS_PER_S2_PGD becomes 1024, because each entry covers 1GB of address
  * space.
  */
 #define KVM_PHYS_SHIFT	(40)
 #define KVM_PHYS_SIZE	(1ULL << KVM_PHYS_SHIFT)
 #define KVM_PHYS_MASK	(KVM_PHYS_SIZE - 1ULL)
-#define PTRS_PER_PGD2	(1ULL << (KVM_PHYS_SHIFT - 30))
-#define PGD2_ORDER	get_order(PTRS_PER_PGD2 * sizeof(pgd_t))
-#define PGD2_SIZE	(1 << PGD2_ORDER)
+#define PTRS_PER_S2_PGD	(1ULL << (KVM_PHYS_SHIFT - 30))
+#define S2_PGD_ORDER	get_order(PTRS_PER_S2_PGD * sizeof(pgd_t))
+#define S2_PGD_SIZE	(1 << S2_PGD_ORDER)
 
 /* Virtualization Translation Control Register (VTCR) bits */
 #define VTCR_SH0	(3 << 12)
