@@ -2177,8 +2177,8 @@ specific device.
 ARM divides the id field into two parts, a device id and an address type id
 specific to the individual device.
 
-  bits:  | 31    ...    16 | 15    ...    0 |
-  field: |     device id   |  addr type id  |
+  bits:  | 63        ...       32 | 31    ...    16 | 15    ...    0 |
+  field: |        0x00000000      |     device id   |  addr type id  |
 
 ARM currently only require this when using the in-kernel GIC support for the
 hardware vGIC features, using KVM_ARM_DEVICE_VGIC_V2 as the device id.  When
