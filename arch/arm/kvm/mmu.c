@@ -128,38 +128,33 @@ void free_hyp_pmds(void)
 	mutex_unlock(&kvm_hyp_pgd_mutex);
 }
 
-/*
- * Create a HYP pte mapping.
- *
- * If pfn_base is NULL, we map kernel pages into HYP with the virtual
- * address. Otherwise, this is considered an I/O mapping and we map
- * the physical region starting at *pfn_base to [start, end[.
- */
 static void create_hyp_pte_mappings(pmd_t *pmd, unsigned long start,
-				    unsigned long end, unsigned long *pfn_base)
+				    unsigned long end)
 {
 	pte_t *pte;
 	unsigned long addr;
-	pgprot_t prot;
-
-	if (pfn_base)
-		prot = PAGE_HYP_DEVICE;
-	else
-		prot = PAGE_HYP;
+	struct page *page;
 
 	for (addr = start & PAGE_MASK; addr < end; addr += PAGE_SIZE) {
 		pte = pte_offset_kernel(pmd, addr);
-		if (pfn_base) {
-			BUG_ON(pfn_valid(*pfn_base));
-			kvm_set_pte(pte, pfn_pte(*pfn_base, prot));
-			(*pfn_base)++;
-		} else {
-			struct page *page;
-			BUG_ON(!virt_addr_valid(addr));
-			page = virt_to_page(addr);
-			kvm_set_pte(pte, mk_pte(page, prot));
-		}
+		BUG_ON(!virt_addr_valid(addr));
+		page = virt_to_page(addr);
+		kvm_set_pte(pte, mk_pte(page, PAGE_HYP));
+	}
+}
 
+static void create_hyp_io_pte_mappings(pmd_t *pmd, unsigned long start,
+				       unsigned long end,
+				       unsigned long *pfn_base)
+{
+	pte_t *pte;
+	unsigned long addr;
+
+	for (addr = start & PAGE_MASK; addr < end; addr += PAGE_SIZE) {
+		pte = pte_offset_kernel(pmd, addr);
+		BUG_ON(pfn_valid(*pfn_base));
+		kvm_set_pte(pte, pfn_pte(*pfn_base, PAGE_HYP_DEVICE));
+		(*pfn_base)++;
 	}
 }
 
@@ -185,7 +180,17 @@ static int create_hyp_pmd_mappings(pud_t *pud, unsigned long start,
 		}
 
 		next = pmd_addr_end(addr, end);
-		create_hyp_pte_mappings(pmd, addr, next, pfn_base);
+
+		/*
+		 * If pfn_base is NULL, we map kernel pages into HYP with the
+		 * virtual address. Otherwise, this is considered an I/O
+		 * mapping and we map the physical region starting at
+		 * *pfn_base to [start, end[.
+		 */
+		if (!pfn_base)
+			create_hyp_pte_mappings(pmd, addr, next);
+		else
+			create_hyp_io_pte_mappings(pmd, addr, next, pfn_base);
 	}
 
 	return 0;
