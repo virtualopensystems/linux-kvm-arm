@@ -14,6 +14,7 @@
 #include <linux/io.h>
 #include <linux/spinlock.h>
 #include <linux/errno.h>
+#include <linux/of_address.h>
 #include <linux/vexpress.h>
 #include <linux/arm-cci.h>
 
@@ -21,8 +22,6 @@
 #include <asm/proc-fns.h>
 #include <asm/cacheflush.h>
 
-
-#define DCSCB_PHYS_BASE	0x60000000
 
 #define RST_HOLD0	0x0
 #define RST_HOLD1	0x4
@@ -223,12 +222,16 @@ extern void dcscb_power_up_setup(void);
 
 static int __init dcscb_init(void)
 {
+	struct device_node *node;
 	unsigned int cfg;
 	int ret;
 
-	dcscb_base = ioremap(DCSCB_PHYS_BASE, 0x1000);
+	node = of_find_compatible_node(NULL, NULL, "arm,dcscb");
+	if (!node)
+		return -ENODEV;
+	dcscb_base= of_iomap(node, 0);
 	if (!dcscb_base)
-		return -ENOMEM;
+		return -EINVAL;
 	cfg = readl_relaxed(dcscb_base + DCS_CFG_R);
 	dcscb_cluster_cpu_mask[0] = (1 << (((cfg >> 16) >> (0 << 2)) & 0xf)) - 1;
 	dcscb_cluster_cpu_mask[1] = (1 << (((cfg >> 16) >> (1 << 2)) & 0xf)) - 1;
