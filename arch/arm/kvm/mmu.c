@@ -497,11 +497,14 @@ static void coherent_icache_guest_page(struct kvm *kvm, gfn_t gfn)
 	/*
 	 * If we are going to insert an instruction page and the icache is
 	 * either VIPT or PIPT, there is a potential problem where the host
-	 * (or another VM) may have used this page at the same virtual address
-	 * as this guest, and we read incorrect data from the icache.  If
-	 * we're using a PIPT cache, we can invalidate just that page, but if
-	 * we are using a VIPT cache we need to invalidate the entire icache -
-	 * damn shame - as written in the ARM ARM (DDI 0406C - Page B3-1384)
+	 * (or another VM) may have used the same page as this guest, and we
+	 * read incorrect data from the icache.  If we're using a PIPT cache,
+	 * we can invalidate just that page, but if we are using a VIPT cache
+	 * we need to invalidate the entire icache - damn shame - as written
+	 * in the ARM ARM (DDI 0406C.b - Page B3-1393).
+	 *
+	 * VIVT caches are tagged using both the ASID and the VMID and doesn't
+	 * need any kind of flushing (DDI 0406C.b - Page B3-1392).
 	 */
 	if (icache_is_pipt()) {
 		unsigned long hva = gfn_to_hva(kvm, gfn);
@@ -514,7 +517,7 @@ static void coherent_icache_guest_page(struct kvm *kvm, gfn_t gfn)
 
 static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
 			  gfn_t gfn, struct kvm_memory_slot *memslot,
-			  bool is_iabt, unsigned long fault_status)
+			  unsigned long fault_status)
 {
 	pte_t new_pte;
 	pfn_t pfn;
@@ -523,13 +526,7 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
 	unsigned long mmu_seq;
 	struct kvm_mmu_memory_cache *memcache = &vcpu->arch.mmu_page_cache;
 
-	if (is_iabt)
-		write_fault = false;
-	else if ((vcpu->arch.hsr & HSR_ISV) && !(vcpu->arch.hsr & HSR_WNR))
-		write_fault = false;
-	else
-		write_fault = true;
-
+	write_fault = kvm_is_write_fault(vcpu->arch.hsr);
 	if (fault_status == FSC_PERM && !write_fault) {
 		kvm_err("Unexpected L2 read permission error\n");
 		return -EFAULT;
@@ -541,6 +538,15 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
 		return ret;
 
 	mmu_seq = vcpu->kvm->mmu_notifier_seq;
+	/*
+	 * Ensure the read of mmu_notifier_seq happens before we call
+	 * gfn_to_pfn_prot (which calls get_user_pages), so that we don't risk
+	 * the page we just got a reference to gets unmapped before we have a
+	 * chance to grab the mmu_lock, which ensure that if the page gets
+	 * unmapped afterwards, the call to kvm_unmap_hva will take it away
+	 * from us again properly. This smp_rmb() interacts with the smp_wmb()
+	 * in kvm_mmu_notifier_invalidate_<page|range_end>.
+	 */
 	smp_rmb();
 
 	pfn = gfn_to_pfn_prot(vcpu->kvm, gfn, write_fault, &writable);
@@ -627,8 +633,7 @@ int kvm_handle_guest_abort(struct kvm_vcpu *vcpu, struct kvm_run *run)
 		return -EINVAL;
 	}
 
-	ret = user_mem_abort(vcpu, fault_ipa, gfn, memslot,
-			     is_iabt, fault_status);
+	ret = user_mem_abort(vcpu, fault_ipa, gfn, memslot, fault_status);
 	return ret ? ret : 1;
 }
 
