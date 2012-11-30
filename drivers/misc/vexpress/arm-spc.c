@@ -92,7 +92,12 @@
 #define A7_PART_NO              0x7
 
 #define DRIVER_NAME	"SPC"
-#define TIME_OUT_US	3000
+/*
+ * Even though the SPC takes max 3-5 ms to complete any OPP/COMMS
+ * operation, the operation could start just before jiffie is about
+ * to be incremented. So setting timeout value of 20ms = 2jiffies@100Hz
+ */
+#define TIME_OUT_US	20000
 
 #define MAX_OPPS	8
 #define MAX_CLUSTERS	2
