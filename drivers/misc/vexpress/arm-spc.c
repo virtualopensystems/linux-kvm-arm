@@ -32,6 +32,8 @@
 #include <asm/outercache.h>
 
 #define SCC_CFGREG6             0x018
+#define SCC_CFGREG19            0x120
+#define SCC_CFGREG20            0x124
 #define A15_CONF		0x400
 #define SNOOP_CTL_A15		0x404
 #define A7_CONF			0x500
@@ -63,11 +65,28 @@
 #define A15_RESET_STAT		0xB60
 #define A7_RESET_STAT		0xB64
 #define A15_BX_ADDR0            0xB68
+#define SYS_CFG_WDATA		0xB70
+#define SYS_CFG_RDATA		0xB74
 #define A7_BX_ADDR0             0xB78
+#define SPC_CONTROL		0xC00
+#define SPC_LATENCY		0xC04
+#define A15_PERFVAL_BASE	0xC10
+#define A7_PERFVAL_BASE		0xC30
 
 #define A15_STANDBYWFIL2_MSK    (1 << 2)
 #define A7_STANDBYWFIL2_MSK     (1 << 6)
 #define GBL_WAKEUP_INT_MSK      (0x3 << 10)
+
+#define SYS_CFG_START		(1 << 31)
+#define SYS_CFG_SCC		(6 << 20)
+#define SYS_CFG_STAT		(14 << 20)
+
+#define CLKF_SHIFT		16
+#define CLKF_MASK		0x1FFF
+#define CLKR_SHIFT		0
+#define CLKR_MASK		0x3F
+#define CLKOD_SHIFT		8
+#define CLKOD_MASK		0xF
 
 #define A15_PART_NO             0xF
 #define A7_PART_NO              0x7
@@ -75,12 +94,16 @@
 #define DRIVER_NAME	"SPC"
 #define TIME_OUT_US	3000
 
+#define MAX_OPPS	8
+#define MAX_CLUSTERS	2
+
 struct vexpress_spc_drvdata {
 	void __iomem *baseaddr;
 	uint32_t a15_clusid;
 	int irq;
 	struct semaphore lock;
 	struct completion done;
+	uint32_t freqs[MAX_CLUSTERS][MAX_OPPS];
 };
 
 static struct vexpress_spc_drvdata *info;
@@ -485,6 +508,68 @@ irqreturn_t vexpress_spc_irq_handler(int irq, void *data)
 	return IRQ_HANDLED;
 }
 
+static int read_sys_cfg(int func, int offset, uint32_t *data)
+{
+	int ret;
+
+	if (down_timeout(&info->lock, usecs_to_jiffies(TIME_OUT_US)))
+		return -ETIME;
+
+	init_completion(&info->done);
+
+	/* Set the control value */
+	writel(SYS_CFG_START | func | offset >> 2, info->baseaddr + COMMS);
+
+	if (!wait_for_completion_interruptible_timeout(&info->done,
+				usecs_to_jiffies(TIME_OUT_US)))
+		ret = -ETIMEDOUT;
+	else
+		*data = readl(info->baseaddr + SYS_CFG_RDATA);
+
+	up(&info->lock);
+
+	return ret;
+}
+
+/*
+ * Based on the firmware documentation, this is always fixed to 20
+ * All the 4 OSC: A15 PLL0/1, A7 PLL0/1 must be programmed same
+ * values for both control and value registers.
+ * This function uses A15 PLL 0 registers to compute multiple factor
+ * F out = F in * (CLKF + 1) / ((CLKOD + 1) * (CLKR + 1))
+ */
+static inline int __get_mult_factor(void)
+{
+	int i_div, o_div, f_div;
+	uint32_t tmp;
+
+	tmp = readl(info->baseaddr + SCC_CFGREG19);
+	f_div = (tmp >> CLKF_SHIFT) & CLKF_MASK;
+
+	tmp = readl(info->baseaddr + SCC_CFGREG20);
+	o_div = (tmp >> CLKOD_SHIFT) & CLKOD_MASK;
+	i_div = (tmp >> CLKR_SHIFT) & CLKR_MASK;
+
+	return (f_div + 1) / ((o_div + 1) * (i_div + 1));
+}
+
+static int vexpress_spc_populate_opps(uint32_t cluster)
+{
+	uint32_t data = 0, off, ret, j;
+	int mult_fact = __get_mult_factor();
+
+	off = cluster != info->a15_clusid ? A7_PERFVAL_BASE : A15_PERFVAL_BASE;
+	for (j = 0; j < MAX_OPPS; j++, off += 4) {
+		ret = read_sys_cfg(SYS_CFG_SCC, off, &data);
+		if (!ret)
+			info->freqs[cluster][j] = (data & 0xFFFFF) * mult_fact;
+		else
+			break;
+	}
+
+	return ret;
+}
+
 static int __init vexpress_spc_early_init(void)
 {
 	struct device_node *node = of_find_compatible_node(NULL, NULL,
@@ -527,6 +612,16 @@ static int __init vexpress_spc_early_init(void)
 	}
 
 	info->a15_clusid = readl_relaxed(info->baseaddr + A15_CONF) & 0xf;
+
+	if (vexpress_spc_populate_opps(0) || vexpress_spc_populate_opps(1)) {
+		if (info->irq)
+			free_irq(info->irq, info);
+		iounmap(info->baseaddr);
+		kfree(info);
+		pr_err("failed to build OPP table\n");
+		return -ENODEV;
+	}
+
 	/*
 	 * Multi-cluster systems may need this data when non-coherent, during
 	 * cluster power-up/power-down. Make sure it reaches main memory:
