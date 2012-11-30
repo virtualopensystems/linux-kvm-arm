@@ -77,8 +77,9 @@
 
 struct vexpress_spc_drvdata {
 	void __iomem *baseaddr;
-	struct semaphore lock;
+	uint32_t a15_clusid;
 	int irq;
+	struct semaphore lock;
 	struct completion done;
 };
 
@@ -103,15 +104,12 @@ EXPORT_SYMBOL_GPL(vexpress_spc_get_clusterid);
 
 void vexpress_spc_write_bxaddr_reg(int cluster, int cpu, u32 val)
 {
-	u32 a15_clusid;
 	void __iomem *baseaddr;
 
 	if (IS_ERR_OR_NULL(info))
 		return;
 
-	a15_clusid = readl_relaxed(info->baseaddr + A15_CONF) & 0xf;
-
-	if (cluster != a15_clusid)
+	if (cluster != info->a15_clusid)
 		baseaddr = info->baseaddr + A7_BX_ADDR0 + (cpu << 2);
 	else
 		baseaddr = info->baseaddr + A15_BX_ADDR0 + (cpu << 2);
@@ -127,15 +125,13 @@ EXPORT_SYMBOL_GPL(vexpress_spc_write_bxaddr_reg);
 
 int vexpress_spc_get_nb_cpus(int cluster)
 {
-	u32 a15_clusid;
 	u32 val;
 
 	if (IS_ERR_OR_NULL(info))
 		return -ENXIO;
 
-	a15_clusid = readl_relaxed(info->baseaddr + A15_CONF) & 0xf;
 	val = readl_relaxed(info->baseaddr + SYS_INFO);
-	val = (cluster != a15_clusid) ? (val >> 20) : (val >> 16);
+	val = (cluster != info->a15_clusid) ? (val >> 20) : (val >> 16);
 
 	return (val & 0xf);
 }
@@ -145,15 +141,13 @@ EXPORT_SYMBOL_GPL(vexpress_spc_get_nb_cpus);
 int vexpress_spc_standbywfil2_status(int cluster)
 {
 	u32 standbywfi_stat;
-	u32 a15_clusid;
 
 	if (IS_ERR_OR_NULL(info))
 		BUG();
 
-	a15_clusid = readl_relaxed(info->baseaddr + A15_CONF) & 0xf;
 	standbywfi_stat = readl_relaxed(info->baseaddr + STANDBYWFI_STAT);
 
-	if (cluster != a15_clusid)
+	if (cluster != info->a15_clusid)
 		return standbywfi_stat & A7_STANDBYWFIL2_MSK;
 	else
 		return standbywfi_stat & A15_STANDBYWFIL2_MSK;
@@ -163,16 +157,14 @@ EXPORT_SYMBOL_GPL(vexpress_spc_standbywfil2_status);
 
 int vexpress_spc_standbywfi_status(int cluster, int cpu)
 {
-	u32 a15_clusid;
 	u32 standbywfi_stat;
 
 	if (IS_ERR_OR_NULL(info))
 		BUG();
 
-	a15_clusid = readl_relaxed(info->baseaddr + A15_CONF) & 0xf;
 	standbywfi_stat = readl_relaxed(info->baseaddr + STANDBYWFI_STAT);
 
-	if (cluster != a15_clusid)
+	if (cluster != info->a15_clusid)
 		return standbywfi_stat & ((1 << cpu) << 3);
 	else
 		return standbywfi_stat & (1 << cpu);
@@ -182,14 +174,11 @@ EXPORT_SYMBOL_GPL(vexpress_spc_standbywfi_status);
 
 u32 vexpress_spc_read_rststat_reg(int cluster)
 {
-	u32 a15_clusid = 0;
 
 	if (IS_ERR_OR_NULL(info))
 		BUG();
 
-	a15_clusid = readl_relaxed(info->baseaddr + A15_CONF) & 0xf;
-
-	if (cluster != a15_clusid)
+	if (cluster != info->a15_clusid)
 		return readl_relaxed(info->baseaddr + A7_RESET_STAT);
 	else
 		return readl_relaxed(info->baseaddr + A15_RESET_STAT);
@@ -199,14 +188,11 @@ EXPORT_SYMBOL_GPL(vexpress_spc_read_rststat_reg);
 
 u32 vexpress_spc_read_rsthold_reg(int cluster)
 {
-	u32 a15_clusid = 0;
 
 	if (IS_ERR_OR_NULL(info))
 		BUG();
 
-	a15_clusid = readl_relaxed(info->baseaddr + A15_CONF) & 0xf;
-
-	if (cluster != a15_clusid)
+	if (cluster != info->a15_clusid)
 		return readl_relaxed(info->baseaddr + A7_RESET_HOLD);
 	else
 		return readl_relaxed(info->baseaddr + A15_RESET_HOLD);
@@ -216,14 +202,11 @@ EXPORT_SYMBOL_GPL(vexpress_spc_read_rsthold_reg);
 
 void vexpress_spc_write_rsthold_reg(int cluster, u32 value)
 {
-	u32 a15_clusid = 0;
 
 	if (IS_ERR_OR_NULL(info))
 		BUG();
 
-	a15_clusid = readl_relaxed(info->baseaddr + A15_CONF) & 0xf;
-
-	if (cluster != a15_clusid)
+	if (cluster != info->a15_clusid)
 		writel_relaxed(value, info->baseaddr + A7_RESET_HOLD);
 	else
 		writel_relaxed(value, info->baseaddr + A15_RESET_HOLD);
@@ -234,13 +217,11 @@ EXPORT_SYMBOL_GPL(vexpress_spc_write_rsthold_reg);
 int vexpress_spc_get_performance(int cluster, int *perf)
 {
 	u32 perf_cfg_reg = 0;
-	u32 a15_clusid = 0;
 
 	if (IS_ERR_OR_NULL(info))
 		return -ENXIO;
 
-	a15_clusid = readl_relaxed(info->baseaddr + A15_CONF) & 0xf;
-	perf_cfg_reg = cluster != a15_clusid ? PERF_LVL_A7 : PERF_LVL_A15;
+	perf_cfg_reg = cluster != info->a15_clusid ? PERF_LVL_A7 : PERF_LVL_A15;
 
 	if (down_timeout(&info->lock, usecs_to_jiffies(TIME_OUT_US)))
 		return -ETIME;
@@ -256,15 +237,13 @@ int vexpress_spc_set_performance(int cluster, int perf)
 {
 	u32 perf_cfg_reg = 0;
 	u32 perf_stat_reg = 0;
-	u32 a15_clusid = 0;
 	int ret = 0;
 
 	if (IS_ERR_OR_NULL(info))
 		return -ENXIO;
 
-	a15_clusid = readl_relaxed(info->baseaddr + A15_CONF) & 0xf;
-	perf_cfg_reg = cluster != a15_clusid ? PERF_LVL_A7 : PERF_LVL_A15;
-	perf_stat_reg = cluster != a15_clusid ? PERF_REQ_A7 : PERF_REQ_A15;
+	perf_cfg_reg = cluster != info->a15_clusid ? PERF_LVL_A7 : PERF_LVL_A15;
+	perf_stat_reg = cluster != info->a15_clusid ? PERF_REQ_A7 : PERF_REQ_A15;
 
 	if (perf < 0 || perf > 7)
 		return -EINVAL;
@@ -308,15 +287,14 @@ EXPORT_SYMBOL_GPL(vexpress_spc_set_global_wakeup_intr);
 
 int vexpress_spc_set_cpu_wakeup_irq(u32 cpu, u32 cluster, u32 set)
 {
-	u32 a15_clusid = 0, mask = 0;
+	u32 mask = 0;
 	u32 wake_int_mask_reg = 0;
 
 	if (IS_ERR_OR_NULL(info))
 		return -ENXIO;
 
-	a15_clusid = readl_relaxed(info->baseaddr + A15_CONF) & 0xf;
 	mask = 1 << cpu;
-	if (a15_clusid != cluster)
+	if (info->a15_clusid != cluster)
 		mask <<= 4;
 
 	wake_int_mask_reg = readl(info->baseaddr + WAKE_INT_MASK);
@@ -359,11 +337,9 @@ EXPORT_SYMBOL_GPL(vexpress_spc_get_wake_intr);
 void vexpress_spc_powerdown_enable(int cluster, int enable)
 {
 	u32 pwdrn_reg = 0;
-	u32 a15_clusid = 0;
 
 	if (!IS_ERR_OR_NULL(info)) {
-		a15_clusid = readl_relaxed(info->baseaddr + A15_CONF) & 0xf;
-		pwdrn_reg = cluster != a15_clusid ? A7_PWRDN_EN : A15_PWRDN_EN;
+		pwdrn_reg = cluster != info->a15_clusid ? A7_PWRDN_EN : A15_PWRDN_EN;
 		writel(!!enable, info->baseaddr + pwdrn_reg);
 		dsb();
 		while (readl(info->baseaddr + pwdrn_reg) != !!enable);
@@ -375,14 +351,12 @@ EXPORT_SYMBOL_GPL(vexpress_spc_powerdown_enable);
 void vexpress_spc_adb400_pd_enable(int cluster, int enable)
 {
 	u32 pwdrn_reg = 0;
-	u32 a15_clusid = 0;
 	u32 val = enable ? 0xF : 0x0;	/* all adb bridges ?? */
 
 	if (IS_ERR_OR_NULL(info))
 		return;
 
-	a15_clusid = readl_relaxed(info->baseaddr + A15_CONF) & 0xf;
-	pwdrn_reg = cluster != a15_clusid ? A7_PWRDNREQ : A15_PWRDNREQ;
+	pwdrn_reg = cluster != info->a15_clusid ? A7_PWRDNREQ : A15_PWRDNREQ;
 
 	writel(val, info->baseaddr + pwdrn_reg);
 	return;
@@ -393,15 +367,13 @@ void vexpress_scc_ctl_snoops(int cluster, int enable)
 {
 	u32 val;
 	u32 snoop_reg = 0;
-	u32 a15_clusid = 0;
 	u32 or = 0;
 
 	if (IS_ERR_OR_NULL(info))
 		return;
 
-	a15_clusid = readl_relaxed(info->baseaddr + A15_CONF) & 0xf;
-	snoop_reg = cluster != a15_clusid ? SNOOP_CTL_A7 : SNOOP_CTL_A15;
-	or = cluster != a15_clusid ? 0x2000 : 0x180;
+	snoop_reg = cluster != info->a15_clusid ? SNOOP_CTL_A7 : SNOOP_CTL_A15;
+	or = cluster != info->a15_clusid ? 0x2000 : 0x180;
 
 	val = readl_relaxed(info->baseaddr + snoop_reg);
 	if (enable) {
@@ -419,14 +391,10 @@ EXPORT_SYMBOL_GPL(vexpress_scc_ctl_snoops);
 
 u32 vexpress_scc_read_rststat(int cluster)
 {
-	u32 a15_clusid = 0;
-
 	if (IS_ERR_OR_NULL(info))
 		BUG();
 
-	a15_clusid = readl_relaxed(info->baseaddr + A15_CONF) & 0xf;
-
-	if (cluster != a15_clusid)
+	if (cluster != info->a15_clusid)
 		return (readl_relaxed(info->baseaddr + SCC_CFGREG6) >> 16) & 0x7;
 	else
 		return (readl_relaxed(info->baseaddr + SCC_CFGREG6) >> 2) & 0x3;
@@ -437,14 +405,11 @@ void vexpress_spc_wfi_cpureset(int cluster, int cpu, int enable)
 {
 	u32 rsthold_reg, prst_shift;
 	u32 val;
-	u32 a15_clusid = 0;
 
 	if (IS_ERR_OR_NULL(info))
 		return;
 
-	a15_clusid = readl_relaxed(info->baseaddr + A15_CONF) & 0xf;
-
-	if (cluster != a15_clusid) {
+	if (cluster != info->a15_clusid) {
 		rsthold_reg = A7_RESET_HOLD;
 		prst_shift = 3;
 	} else {
@@ -465,14 +430,11 @@ void vexpress_spc_wfi_cluster_reset(int cluster, int enable)
 {
 	u32 rsthold_reg, shift;
 	u32 val;
-	u32 a15_clusid = 0;
 
 	if (IS_ERR_OR_NULL(info))
 		return;
 
-	a15_clusid = readl_relaxed(info->baseaddr + A15_CONF) & 0xf;
-
-	if (cluster != a15_clusid) {
+	if (cluster != info->a15_clusid) {
 		rsthold_reg = A7_RESET_HOLD;
 		shift = 6;
 	} else {
@@ -493,16 +455,14 @@ int vexpress_spc_wfi_cpustat(int cluster)
 {
 	u32 rststat_reg;
 	u32 val;
-	u32 a15_clusid = 0;
 
 	if (IS_ERR_OR_NULL(info))
 		return 0;
 
-	a15_clusid = readl_relaxed(info->baseaddr + A15_CONF) & 0xf;
 	rststat_reg = STANDBYWFI_STAT;
 
 	val = readl_relaxed(info->baseaddr + rststat_reg);
-	return cluster != a15_clusid ? ((val & 0x38) >> 3) : (val & 0x3);
+	return cluster != info->a15_clusid ? ((val & 0x38) >> 3) : (val & 0x3);
 }
 EXPORT_SYMBOL_GPL(vexpress_spc_wfi_cpustat);
 
@@ -566,6 +526,7 @@ static int __init vexpress_spc_early_init(void)
 		}
 	}
 
+	info->a15_clusid = readl_relaxed(info->baseaddr + A15_CONF) & 0xf;
 	/*
 	 * Multi-cluster systems may need this data when non-coherent, during
 	 * cluster power-up/power-down. Make sure it reaches main memory:
