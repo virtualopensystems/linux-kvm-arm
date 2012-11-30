@@ -221,11 +221,6 @@ static bool copy_from_guest_va(struct kvm_vcpu *vcpu,
 	return true;
 }
 
-/* Just ensure we're not running the guest. */
-static void do_nothing(void *info)
-{
-}
-
 /*
  * We have to be very careful copying memory from a running (ie. SMP) guest.
  * Another CPU may remap the page (eg. swap out a userspace text page) as we
@@ -257,8 +252,9 @@ static bool copy_current_insn(struct kvm_vcpu *vcpu, unsigned long *instr)
 	/* Kick out any which are still running. */
 	kvm_for_each_vcpu(i, v, vcpu->kvm) {
 		/* Guest could exit now, making cpu wrong. That's OK. */
-		if (kvm_vcpu_exiting_guest_mode(v) == IN_GUEST_MODE)
-			smp_call_function_single(v->cpu, do_nothing, NULL, 1);
+		if (kvm_vcpu_exiting_guest_mode(v) == IN_GUEST_MODE) {
+			force_vm_exit(get_cpu_mask(v->cpu));
+		}
 	}
 
 
