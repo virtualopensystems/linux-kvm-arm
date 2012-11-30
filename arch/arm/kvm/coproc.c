@@ -591,6 +591,7 @@ static u32 get_ccsidr(u32 csselr)
 	local_irq_disable();
 	/* Put value into CSSELR */
 	asm volatile("mcr p15, 2, %0, c0, c0, 0" : : "r" (csselr));
+	isb();
 	/* Read result out of CCSIDR */
 	asm volatile("mrc p15, 1, %0, c0, c0, 0" : "=r" (ccsidr));
 	local_irq_enable();
