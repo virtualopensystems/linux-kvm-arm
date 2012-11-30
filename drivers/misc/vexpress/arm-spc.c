@@ -31,8 +31,12 @@
 #include <asm/memory.h>
 #include <asm/outercache.h>
 
+#define SCC_CFGREG6             0x018
+#define A15_CONF		0x400
 #define SNOOP_CTL_A15		0x404
+#define A7_CONF			0x500
 #define SNOOP_CTL_A7		0x504
+#define SYS_INFO		0x700
 #define PERF_LVL_A15		0xB00
 #define PERF_REQ_A15		0xB04
 #define PERF_LVL_A7		0xB08
@@ -58,10 +62,8 @@
 #define A7_RESET_HOLD		0xB5c
 #define A15_RESET_STAT		0xB60
 #define A7_RESET_STAT		0xB64
-#define A15_CONF		0x400
-#define A7_CONF			0x500
-#define SYS_INFO		0x700
-#define SCC_CFGREG6             0x018
+#define A15_BX_ADDR0            0xB68
+#define A7_BX_ADDR0             0xB78
 
 #define A15_STANDBYWFIL2_MSK    (1 << 2)
 #define A7_STANDBYWFIL2_MSK     (1 << 6)
@@ -69,9 +71,6 @@
 
 #define A15_PART_NO             0xF
 #define A7_PART_NO              0x7
-
-#define A15_BX_ADDR0            0xB68
-#define A7_BX_ADDR0             0xB78
 
 #define DRIVER_NAME	"SPC"
 #define TIME_OUT_US	3000
