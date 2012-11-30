@@ -237,9 +237,10 @@ void vexpress_spc_write_rsthold_reg(int cluster, u32 value)
 
 EXPORT_SYMBOL_GPL(vexpress_spc_write_rsthold_reg);
 
-int vexpress_spc_get_performance(int cluster, int *perf)
+int vexpress_spc_get_performance(int cluster, u32 *freq)
 {
 	u32 perf_cfg_reg = 0;
+	int perf;
 
 	if (IS_ERR_OR_NULL(info))
 		return -ENXIO;
@@ -248,7 +249,11 @@ int vexpress_spc_get_performance(int cluster, int *perf)
 
 	if (down_timeout(&info->lock, usecs_to_jiffies(TIME_OUT_US)))
 		return -ETIME;
-	*perf = readl(info->baseaddr + perf_cfg_reg);
+
+	perf = readl(info->baseaddr + perf_cfg_reg);
+
+	*freq = info->freqs[cluster][perf];
+
 	up(&info->lock);
 
 	return 0;
@@ -256,19 +261,30 @@ int vexpress_spc_get_performance(int cluster, int *perf)
 }
 EXPORT_SYMBOL_GPL(vexpress_spc_get_performance);
 
-int vexpress_spc_set_performance(int cluster, int perf)
+static int vexpress_spc_find_perf_index(int cluster, u32 freq)
+{
+	int idx;
+	/* Hash function would be ideal, based on hashtable in v3.8?? */
+	for (idx = 0; idx < MAX_OPPS; idx++)
+		if (info->freqs[cluster][idx] == freq)
+			break;
+	return idx;
+}
+
+int vexpress_spc_set_performance(int cluster, u32 freq)
 {
 	u32 perf_cfg_reg = 0;
 	u32 perf_stat_reg = 0;
-	int ret = 0;
+	int ret = 0, perf;
 
 	if (IS_ERR_OR_NULL(info))
 		return -ENXIO;
 
 	perf_cfg_reg = cluster != info->a15_clusid ? PERF_LVL_A7 : PERF_LVL_A15;
 	perf_stat_reg = cluster != info->a15_clusid ? PERF_REQ_A7 : PERF_REQ_A15;
+	perf = vexpress_spc_find_perf_index(cluster, freq);
 
-	if (perf < 0 || perf > 7)
+	if (perf >= MAX_OPPS)
 		return -EINVAL;
 
 	if (down_timeout(&info->lock, usecs_to_jiffies(TIME_OUT_US)))
