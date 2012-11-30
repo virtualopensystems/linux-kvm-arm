@@ -538,14 +538,6 @@ int vexpress_spc_wfi_cpustat(int cluster)
 }
 EXPORT_SYMBOL_GPL(vexpress_spc_wfi_cpustat);
 
-static bool vexpress_spc_loaded;
-
-bool vexpress_spc_check_loaded(void)
-{
-	return vexpress_spc_loaded;
-}
-EXPORT_SYMBOL_GPL(vexpress_spc_check_loaded);
-
 irqreturn_t vexpress_spc_irq_handler(int irq, void *data)
 {
 	struct vexpress_spc_drvdata *drv_data = data;
@@ -624,10 +616,12 @@ static int vexpress_spc_populate_opps(uint32_t cluster)
 	return ret;
 }
 
-static int __init vexpress_spc_early_init(void)
+static int vexpress_spc_init(void)
 {
 	struct device_node *node = of_find_compatible_node(NULL, NULL,
 							"arm,spc");
+	if (!node)
+		return -ENODEV;
 
 	info = kzalloc(sizeof(*info), GFP_KERNEL);
 	if (!info) {
@@ -635,9 +629,7 @@ static int __init vexpress_spc_early_init(void)
 		return -ENOMEM;
 	}
 
-	if (node)
-		info->baseaddr = of_iomap(node, 0);
-
+	info->baseaddr = of_iomap(node, 0);
 	if (WARN_ON(!info->baseaddr)) {
 		kfree(info);
 		return -EIO;
@@ -684,9 +676,29 @@ static int __init vexpress_spc_early_init(void)
 	outer_clean_range(virt_to_phys(info), virt_to_phys(info + 1));
 
 	pr_info("vexpress_spc loaded at %p\n", info->baseaddr);
-	vexpress_spc_loaded = true;
-
 	return 0;
+}
+
+static int vexpress_spc_load_result = -EAGAIN;
+static DEFINE_MUTEX(vexpress_spc_loading);
+
+bool vexpress_spc_check_loaded(void)
+{
+	if (vexpress_spc_load_result != -EAGAIN)
+		return (vexpress_spc_load_result == 0);
+
+	mutex_lock(&vexpress_spc_loading);
+	if (vexpress_spc_load_result == -EAGAIN)
+		vexpress_spc_load_result = vexpress_spc_init();
+	mutex_unlock(&vexpress_spc_loading);
+	return (vexpress_spc_load_result == 0);
+}
+EXPORT_SYMBOL_GPL(vexpress_spc_check_loaded);
+
+static int __init vexpress_spc_early_init(void)
+{
+	vexpress_spc_check_loaded();
+	return vexpress_spc_load_result;
 }
 
 early_initcall(vexpress_spc_early_init);
