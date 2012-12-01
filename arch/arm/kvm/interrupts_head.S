@@ -488,8 +488,9 @@ vcpu	.req	r0		@ vcpu pointer always in r0
 	isb
 
 	mrrc	p15, 3, r2, r3, c14	@ CNTV_CVAL
-	str	r2, [vcpu, #VCPU_TIMER_CNTV_CVAL]
-	str	r3, [vcpu, #(VCPU_TIMER_CNTV_CVAL + 4)]
+	add	vcpu, vcpu, #VCPU_TIMER_CNTV_CVAL
+	strd	r2, r3, [vcpu]
+	sub	vcpu, vcpu, #VCPU_TIMER_CNTV_CVAL
 
 1:
 #endif
@@ -524,8 +525,9 @@ vcpu	.req	r0		@ vcpu pointer always in r0
 	mcrr	p15, 4, r2, r3, c14	@ CNTVOFF
 	isb
 
-	ldr	r2, [vcpu, #VCPU_TIMER_CNTV_CVAL]
-	ldr	r3, [vcpu, #(VCPU_TIMER_CNTV_CVAL + 4)]
+	add	vcpu, vcpu, #VCPU_TIMER_CNTV_CVAL
+	ldrd	r2, r3, [vcpu]
+	sub	vcpu, vcpu, #VCPU_TIMER_CNTV_CVAL
 	mcrr	p15, 3, r2, r3, c14	@ CNTV_CVAL
 
 	ldr	r2, [vcpu, #VCPU_TIMER_CNTV_CTL]
