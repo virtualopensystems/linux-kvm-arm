@@ -199,47 +199,45 @@ static struct arm_pmu *__devinit probe_current_pmu(void)
 {
 	struct arm_pmu *pmu = NULL;
 	int cpu = get_cpu();
-	unsigned long cpuid = read_cpuid_id();
-	unsigned long implementor = (cpuid & 0xFF000000) >> 24;
-	unsigned long part_number = (cpuid & 0xFFF0);
+	unsigned long implementor = read_cpuid_implementor();
+	unsigned long part_number = read_cpuid_part_number();
 
 	pr_info("probing PMU on CPU %d\n", cpu);
 
 	/* ARM Ltd CPUs. */
-	if (0x41 == implementor) {
+	if (implementor == ARM_CPU_IMP_ARM) {
 		switch (part_number) {
-		case 0xB360:	/* ARM1136 */
-		case 0xB560:	/* ARM1156 */
-		case 0xB760:	/* ARM1176 */
+		case ARM_CPU_PART_ARM1136:
+		case ARM_CPU_PART_ARM1156:
+		case ARM_CPU_PART_ARM1176:
 			pmu = armv6pmu_init();
 			break;
-		case 0xB020:	/* ARM11mpcore */
+		case ARM_CPU_PART_ARM11MPCORE:
 			pmu = armv6mpcore_pmu_init();
 			break;
-		case 0xC080:	/* Cortex-A8 */
+		case ARM_CPU_PART_CORTEX_A8:
 			pmu = armv7_a8_pmu_init();
 			break;
-		case 0xC090:	/* Cortex-A9 */
+		case ARM_CPU_PART_CORTEX_A9:
 			pmu = armv7_a9_pmu_init();
 			break;
-		case 0xC050:	/* Cortex-A5 */
+		case ARM_CPU_PART_CORTEX_A5:
 			pmu = armv7_a5_pmu_init();
 			break;
-		case 0xC0F0:	/* Cortex-A15 */
+		case ARM_CPU_PART_CORTEX_A15:
 			pmu = armv7_a15_pmu_init();
 			break;
-		case 0xC070:	/* Cortex-A7 */
+		case ARM_CPU_PART_CORTEX_A7:
 			pmu = armv7_a7_pmu_init();
 			break;
 		}
 	/* Intel CPUs [xscale]. */
-	} else if (0x69 == implementor) {
-		part_number = (cpuid >> 13) & 0x7;
-		switch (part_number) {
-		case 1:
+	} else if (implementor == ARM_CPU_IMP_INTEL) {
+		switch (xscale_cpu_arch_version()) {
+		case ARM_CPU_XSCALE_ARCH_V1:
 			pmu = xscale1pmu_init();
 			break;
-		case 2:
+		case ARM_CPU_XSCALE_ARCH_V2:
 			pmu = xscale2pmu_init();
 			break;
 		}
