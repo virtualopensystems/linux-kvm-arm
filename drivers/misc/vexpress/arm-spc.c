@@ -117,6 +117,7 @@ struct vexpress_spc_drvdata {
 	struct semaphore lock;
 	struct completion done;
 	uint32_t freqs[MAX_CLUSTERS][MAX_OPPS];
+	int freqs_cnt[MAX_CLUSTERS];
 };
 
 static struct vexpress_spc_drvdata *info;
@@ -278,7 +279,7 @@ static int vexpress_spc_find_perf_index(int cluster, u32 freq)
 {
 	int idx;
 	/* Hash function would be ideal, based on hashtable in v3.8?? */
-	for (idx = 0; idx < MAX_OPPS; idx++)
+	for (idx = 0; idx < info->freqs_cnt[cluster]; idx++)
 		if (info->freqs[cluster][idx] == freq)
 			break;
 	return idx;
@@ -613,8 +614,17 @@ static int vexpress_spc_populate_opps(uint32_t cluster)
 			break;
 	}
 
+	info->freqs_cnt[cluster] = j;
 	return ret;
 }
+
+unsigned int *vexpress_spc_get_freq_table(uint32_t cluster, int *count)
+{
+
+	*count = info->freqs_cnt[cluster];
+	return info->freqs[cluster];
+}
+EXPORT_SYMBOL_GPL(vexpress_spc_get_freq_table);
 
 static int vexpress_spc_init(void)
 {

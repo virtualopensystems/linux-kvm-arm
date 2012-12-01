@@ -15,6 +15,7 @@
 #define _LINUX_VEXPRESS_H
 
 #include <linux/device.h>
+#include <linux/err.h>
 
 #define VEXPRESS_SITE_MB		0
 #define VEXPRESS_SITE_DB1		1
@@ -139,6 +140,7 @@ extern int vexpress_spc_standbywfi_status(int cluster, int cpu);
 extern int vexpress_spc_standbywfil2_status(int cluster);
 extern int vexpress_spc_set_cpu_wakeup_irq(u32 cpu, u32 cluster, u32 set);
 extern int vexpress_spc_set_global_wakeup_intr(u32 set);
+extern unsigned int *vexpress_spc_get_freq_table(uint32_t cluster, int *count);
 extern int vexpress_spc_get_performance(int cluster, u32 *freq);
 extern int vexpress_spc_set_performance(int cluster, u32 freq);
 extern int vexpress_spc_wfi_cpustat(int cluster);
@@ -199,6 +201,11 @@ static inline void vexpress_spc_write_rsthold_reg(int cluster, u32 value)
 static inline u32 vexpress_scc_read_rststat(int cluster)
 {
 	return 0;
+}
+
+static inline unsigned int *vexpress_spc_get_freq_table(uint32_t cluster, int *count)
+{
+	return ERR_PTR(-ENOSYS);
 }
 
 static inline int vexpress_spc_get_performance(int cluster, u32 *freq)
