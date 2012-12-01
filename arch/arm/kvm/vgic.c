@@ -92,19 +92,18 @@ static void vgic_dispatch_sgi(struct kvm_vcpu *vcpu, u32 reg);
 
 static u32 vgic_nr_lr;
 
-static inline u32 *vgic_bitmap_get_reg(struct vgic_bitmap *x,
-				       int cpuid, u32 offset)
+static u32 *vgic_bitmap_get_reg(struct vgic_bitmap *x,
+				int cpuid, u32 offset)
 {
 	offset >>= 2;
-	BUG_ON(offset > (VGIC_NR_IRQS / 32));
 	if (!offset)
 		return x->percpu[cpuid].reg;
 	else
 		return x->shared.reg + offset - 1;
 }
 
-static inline int vgic_bitmap_get_irq_val(struct vgic_bitmap *x,
-					 int cpuid, int irq)
+static int vgic_bitmap_get_irq_val(struct vgic_bitmap *x,
+				   int cpuid, int irq)
 {
 	if (irq < VGIC_NR_PRIVATE_IRQS)
 		return test_bit(irq, x->percpu[cpuid].reg_ul);
@@ -112,14 +111,14 @@ static inline int vgic_bitmap_get_irq_val(struct vgic_bitmap *x,
 	return test_bit(irq - VGIC_NR_PRIVATE_IRQS, x->shared.reg_ul);
 }
 
-static inline void vgic_bitmap_set_irq_val(struct vgic_bitmap *x,
-					   int cpuid, int irq, int val)
+static void vgic_bitmap_set_irq_val(struct vgic_bitmap *x, int cpuid,
+				    int irq, int val)
 {
 	unsigned long *reg;
 
-	if (irq < VGIC_NR_PRIVATE_IRQS)
+	if (irq < VGIC_NR_PRIVATE_IRQS) {
 		reg = x->percpu[cpuid].reg_ul;
-	else {
+	} else {
 		reg =  x->shared.reg_ul;
 		irq -= VGIC_NR_PRIVATE_IRQS;
 	}
@@ -130,21 +129,19 @@ static inline void vgic_bitmap_set_irq_val(struct vgic_bitmap *x,
 		clear_bit(irq, reg);
 }
 
-static inline unsigned long *vgic_bitmap_get_cpu_map(struct vgic_bitmap *x,
-						     int cpuid)
+static unsigned long *vgic_bitmap_get_cpu_map(struct vgic_bitmap *x, int cpuid)
 {
 	if (unlikely(cpuid >= VGIC_MAX_CPUS))
 		return NULL;
 	return x->percpu[cpuid].reg_ul;
 }
 
-static inline unsigned long *vgic_bitmap_get_shared_map(struct vgic_bitmap *x)
+static unsigned long *vgic_bitmap_get_shared_map(struct vgic_bitmap *x)
 {
 	return x->shared.reg_ul;
 }
 
-static inline u32 *vgic_bytemap_get_reg(struct vgic_bytemap *x,
-					int cpuid, u32 offset)
+static u32 *vgic_bytemap_get_reg(struct vgic_bytemap *x, int cpuid, u32 offset)
 {
 	offset >>= 2;
 	BUG_ON(offset > (VGIC_NR_IRQS / 4));
@@ -154,8 +151,8 @@ static inline u32 *vgic_bytemap_get_reg(struct vgic_bytemap *x,
 		return x->shared + offset - 8;
 }
 
-static inline int vgic_bytemap_get_irq_val(struct vgic_bytemap *x,
-					   int cpuid, int irq)
+static int __attribute__ ((unused))
+vgic_bytemap_get_irq_val(struct vgic_bytemap *x, int cpuid, int irq)
 {
 	u32 *reg, shift;
 	shift = (irq & 3) * 8;
@@ -163,8 +160,9 @@ static inline int vgic_bytemap_get_irq_val(struct vgic_bytemap *x,
 	return (*reg >> shift) & 0xff;
 }
 
-static inline void vgic_bytemap_set_irq_val(struct vgic_bytemap *x,
-					    int cpuid, int irq, int val)
+static void __attribute__ ((unused))
+vgic_bytemap_set_irq_val(struct vgic_bytemap *x, int cpuid,
+			 int irq, int val)
 {
 	u32 *reg, shift;
 	shift = (irq & 3) * 8;
@@ -176,12 +174,12 @@ static inline void vgic_bytemap_set_irq_val(struct vgic_bytemap *x,
 #define VGIC_CFG_LEVEL	0
 #define VGIC_CFG_EDGE	1
 
-static inline bool vgic_irq_is_edge(struct vgic_dist *dist, int irq)
+static bool vgic_irq_is_edge(struct vgic_dist *dist, int irq)
 {
 	return vgic_bitmap_get_irq_val(&dist->irq_cfg, 0, irq) == VGIC_CFG_EDGE;
 }
 
-static inline int vgic_irq_is_enabled(struct kvm_vcpu *vcpu, int irq)
+static int vgic_irq_is_enabled(struct kvm_vcpu *vcpu, int irq)
 {
 	struct vgic_dist *dist = &vcpu->kvm->arch.vgic;
 
@@ -202,20 +200,22 @@ static void vgic_dist_irq_clear(struct kvm_vcpu *vcpu, int irq)
 	vgic_bitmap_set_irq_val(&dist->irq_state, vcpu->vcpu_id, irq, 0);
 }
 
-static inline void vgic_cpu_irq_set(struct kvm_vcpu *vcpu, int irq)
+static void vgic_cpu_irq_set(struct kvm_vcpu *vcpu, int irq)
 {
 	if (irq < VGIC_NR_PRIVATE_IRQS)
 		set_bit(irq, vcpu->arch.vgic_cpu.pending_percpu);
 	else
-		set_bit(irq - VGIC_NR_PRIVATE_IRQS, vcpu->arch.vgic_cpu.pending_shared);
+		set_bit(irq - VGIC_NR_PRIVATE_IRQS,
+			vcpu->arch.vgic_cpu.pending_shared);
 }
 
-static inline void vgic_cpu_irq_clear(struct kvm_vcpu *vcpu, int irq)
+static void vgic_cpu_irq_clear(struct kvm_vcpu *vcpu, int irq)
 {
 	if (irq < VGIC_NR_PRIVATE_IRQS)
 		clear_bit(irq, vcpu->arch.vgic_cpu.pending_percpu);
 	else
-		clear_bit(irq - VGIC_NR_PRIVATE_IRQS, vcpu->arch.vgic_cpu.pending_shared);
+		clear_bit(irq - VGIC_NR_PRIVATE_IRQS,
+			  vcpu->arch.vgic_cpu.pending_shared);
 }
 
 /**
@@ -284,12 +284,12 @@ static bool handle_mmio_misc(struct kvm_vcpu *vcpu,
 			     struct kvm_exit_mmio *mmio, phys_addr_t offset)
 {
 	u32 reg;
-	u32 u32off = offset & 3;
+	u32 word_offset = offset & 3;
 
 	switch (offset & ~3) {
 	case 0:			/* CTLR */
 		reg = vcpu->kvm->arch.vgic.enabled;
-		vgic_reg_access(mmio, &reg, u32off,
+		vgic_reg_access(mmio, &reg, word_offset,
 				ACCESS_READ_VALUE | ACCESS_WRITE_VALUE);
 		if (mmio->is_write) {
 			vcpu->kvm->arch.vgic.enabled = reg & 1;
@@ -301,13 +301,13 @@ static bool handle_mmio_misc(struct kvm_vcpu *vcpu,
 	case 4:			/* TYPER */
 		reg  = (atomic_read(&vcpu->kvm->online_vcpus) - 1) << 5;
 		reg |= (VGIC_NR_IRQS >> 5) - 1;
-		vgic_reg_access(mmio, &reg, u32off,
+		vgic_reg_access(mmio, &reg, word_offset,
 				ACCESS_READ_VALUE | ACCESS_WRITE_IGNORED);
 		break;
 
 	case 8:			/* IIDR */
 		reg = 0x4B00043B;
-		vgic_reg_access(mmio, &reg, u32off,
+		vgic_reg_access(mmio, &reg, word_offset,
 				ACCESS_READ_VALUE | ACCESS_WRITE_IGNORED);
 		break;
 	}
@@ -400,6 +400,9 @@ static bool handle_mmio_priority_reg(struct kvm_vcpu *vcpu,
 	return false;
 }
 
+#define GICD_ITARGETSR_SIZE	32
+#define GICD_CPUTARGETS_BITS	8
+#define GICD_IRQS_PER_ITARGETSR	(GICD_ITARGETSR_SIZE / GICD_CPUTARGETS_BITS)
 static u32 vgic_get_target_reg(struct kvm *kvm, int irq)
 {
 	struct vgic_dist *dist = &kvm->arch.vgic;
@@ -408,14 +411,11 @@ static u32 vgic_get_target_reg(struct kvm *kvm, int irq)
 	unsigned long *bmap;
 	u32 val = 0;
 
-	BUG_ON(irq & 3);
-	BUG_ON(irq < VGIC_NR_PRIVATE_IRQS);
-
 	irq -= VGIC_NR_PRIVATE_IRQS;
 
 	kvm_for_each_vcpu(c, vcpu, kvm) {
 		bmap = vgic_bitmap_get_shared_map(&dist->irq_spi_target[c]);
-		for (i = 0; i < 4; i++)
+		for (i = 0; i < GICD_IRQS_PER_ITARGETSR; i++)
 			if (test_bit(irq + i, bmap))
 				val |= 1 << (c + i * 8);
 	}
@@ -441,8 +441,8 @@ static void vgic_set_target_reg(struct kvm *kvm, u32 val, int irq)
 	 * one vcpu per IRQ. If the byte is null, assume we target
 	 * CPU0.
 	 */
-	for (i = 0; i < 4; i++) {
-		int shift = i * 8;
+	for (i = 0; i < GICD_IRQS_PER_ITARGETSR; i++) {
+		int shift = i * GICD_CPUTARGETS_BITS;
 		target = ffs((val >> shift) & 0xffU);
 		target = target ? (target - 1) : 0;
 		dist->irq_spi_cpu[irq + i] = target;
@@ -954,9 +954,9 @@ static void __kvm_vgic_sync_to_cpu(struct kvm_vcpu *vcpu)
 	}
 
 epilog:
-	if (overflow)
+	if (overflow) {
 		vgic_cpu->vgic_hcr |= VGIC_HCR_UIE;
-	else {
+	} else {
 		vgic_cpu->vgic_hcr &= ~VGIC_HCR_UIE;
 		/*
 		 * We're about to run this VCPU, and we've consumed
@@ -1118,13 +1118,13 @@ out:
  * @cpuid:   The CPU for PPIs
  * @irq_num: The IRQ number that is assigned to the device
  * @level:   Edge-triggered:  true:  to trigger the interrupt
- * 			      false: to ignore the call
+ *			      false: to ignore the call
  *	     Level-sensitive  true:  activates an interrupt
  *			      false: deactivates an interrupt
  *
  * The GIC is not concerned with devices being active-LOW or active-HIGH for
  * level-sensitive interrupts.  You can think of the level parameter as 1
- * being HIGH and 0 bing LOW and all devices being active-HIGH.
+ * being HIGH and 0 being LOW and all devices being active-HIGH.
  */
 int kvm_vgic_inject_irq(struct kvm *kvm, int cpuid, unsigned int irq_num,
 			bool level)
