@@ -3,6 +3,14 @@
 #define VCPU_USR_LR		(VCPU_USR_REG(14))
 #define CP15_OFFSET(_cp15_reg_idx) (VCPU_CP15 + (_cp15_reg_idx * 4))
 
+/*
+ * Many of these macros need to access the VCPU structure, which is always
+ * held in r0. These macros should never clobber r1, as it is used to hold the
+ * exception code on the return path (except of course the macro that switches
+ * all the registers before the final jump to the VM).
+ */
+vcpu	.req	r0		@ vcpu pointer always in r0
+
 /* Clobbers {r2-r6} */
 .macro store_vfp_state vfp_base
 	@ The VFPFMRX and VFPFMXR macros are the VMRS and VMSR instructions
@@ -56,6 +64,10 @@
 	push	{r2, r3, r4}
 .endm
 
+/*
+ * Store all host persistent registers on the stack.
+ * Clobbers all registers, in all modes, except r0 and r1.
+ */
 .macro save_host_regs
 	/* Hyp regs. Only ELR_hyp (SPSR_hyp already saved) */
 	mrs	r2, ELR_hyp
@@ -91,6 +103,10 @@
 	msr	SPSR_\mode, r4
 .endm
 
+/*
+ * Restore all host registers from the stack.
+ * Clobbers all registers, in all modes, except r0 and r1.
+ */
 .macro restore_host_regs
 	pop	{r2-r9}
 	msr	r8_fiq, r2
@@ -119,11 +135,13 @@
 /*
  * Restore SP, LR and SPSR for a given mode. offset is the offset of
  * this mode's registers from the VCPU base.
- * r0: VCPU address
+ *
+ * Assumes vcpu pointer in vcpu reg
+ *
  * Clobbers r1, r2, r3, r4.
  */
 .macro restore_guest_regs_mode mode, offset
-	add	r1, r0, \offset
+	add	r1, vcpu, \offset
 	ldm	r1, {r2, r3, r4}
 	msr	SP_\mode, r2
 	msr	LR_\mode, r3
@@ -131,8 +149,10 @@
 .endm
 
 /*
- * Restore all guest registers.
- * r0: VCPU address
+ * Restore all guest registers from the vcpu struct.
+ *
+ * Assumes vcpu pointer in vcpu reg
+ *
  * Clobbers *all* registers.
  */
 .macro restore_guest_regs
@@ -141,7 +161,7 @@
 	restore_guest_regs_mode und, #VCPU_UND_REGS
 	restore_guest_regs_mode irq, #VCPU_IRQ_REGS
 
-	add	r1, r0, #VCPU_FIQ_REGS
+	add	r1, vcpu, #VCPU_FIQ_REGS
 	ldm	r1, {r2-r9}
 	msr	r8_fiq, r2
 	msr	r9_fiq, r3
@@ -153,28 +173,30 @@
 	msr	SPSR_fiq, r9
 
 	@ Load return state
-	ldr	r2, [r0, #VCPU_PC]
-	ldr	r3, [r0, #VCPU_CPSR]
+	ldr	r2, [vcpu, #VCPU_PC]
+	ldr	r3, [vcpu, #VCPU_CPSR]
 	msr	ELR_hyp, r2
 	msr	SPSR_cxsf, r3
 
 	@ Load user registers
-	ldr	r2, [r0, #VCPU_USR_SP]
-	ldr	r3, [r0, #VCPU_USR_LR]
+	ldr	r2, [vcpu, #VCPU_USR_SP]
+	ldr	r3, [vcpu, #VCPU_USR_LR]
 	msr	SP_usr, r2
 	mov	lr, r3
-	add	r0, r0, #(VCPU_USR_REGS)
-	ldm	r0, {r0-r12}
+	add	vcpu, vcpu, #(VCPU_USR_REGS)
+	ldm	vcpu, {r0-r12}
 .endm
 
 /*
  * Save SP, LR and SPSR for a given mode. offset is the offset of
  * this mode's registers from the VCPU base.
- * r1: VCPU address
+ *
+ * Assumes vcpu pointer in vcpu reg
+ *
  * Clobbers r2, r3, r4, r5.
  */
 .macro save_guest_regs_mode mode, offset
-	add	r2, r1, \offset
+	add	r2, vcpu, \offset
 	mrs	r3, SP_\mode
 	mrs	r4, LR_\mode
 	mrs	r5, SPSR_\mode
@@ -182,28 +204,30 @@
 .endm
 
 /*
- * Save all guest registers
- * r1: VCPU address
+ * Save all guest registers to the vcpu struct
  * Expects guest's r0, r1, r2 on the stack.
+ *
+ * Assumes vcpu pointer in vcpu reg
+ *
  * Clobbers r2, r3, r4, r5.
  */
 .macro save_guest_regs
 	@ Store usr registers
-	add	r2, r1, #VCPU_USR_REG(3)
+	add	r2, vcpu, #VCPU_USR_REG(3)
 	stm	r2, {r3-r12}
-	add	r2, r1, #VCPU_USR_REG(0)
+	add	r2, vcpu, #VCPU_USR_REG(0)
 	pop	{r3, r4, r5}		@ r0, r1, r2
 	stm	r2, {r3, r4, r5}
 	mrs	r2, SP_usr
 	mov	r3, lr
-	str	r2, [r1, #VCPU_USR_SP]
-	str	r3, [r1, #VCPU_USR_LR]
+	str	r2, [vcpu, #VCPU_USR_SP]
+	str	r3, [vcpu, #VCPU_USR_LR]
 
 	@ Store return state
 	mrs	r2, ELR_hyp
 	mrs	r3, spsr
-	str	r2, [r1, #VCPU_PC]
-	str	r3, [r1, #VCPU_CPSR]
+	str	r2, [vcpu, #VCPU_PC]
+	str	r3, [vcpu, #VCPU_CPSR]
 
 	@ Store other guest registers
 	save_guest_regs_mode svc, #VCPU_SVC_REGS
@@ -213,11 +237,14 @@
 .endm
 
 /* Reads cp15 registers from hardware and stores them in memory
- * @vcpu:   If 0, registers are written in-order to the stack,
- * 	    otherwise to the VCPU struct pointed to by vcpup
- * @vcpup:  Register pointing to VCPU struct
+ * @store_to_vcpu: If 0, registers are written in-order to the stack,
+ * 		   otherwise to the VCPU struct pointed to by vcpup
+ *
+ * Assumes vcpu pointer in vcpu reg
+ *
+ * Clobbers r2 - r12
  */
-.macro read_cp15_state vcpu=0, vcpup
+.macro read_cp15_state store_to_vcpu
 	mrc	p15, 0, r2, c1, c0, 0	@ SCTLR
 	mrc	p15, 0, r3, c1, c0, 2	@ CPACR
 	mrc	p15, 0, r4, c2, c0, 2	@ TTBCR
@@ -228,21 +255,21 @@
 	mrc	p15, 0, r11, c10, c2, 1	@ NMRR
 	mrc	p15, 2, r12, c0, c0, 0	@ CSSELR
 
-	.if \vcpu == 0
+	.if \store_to_vcpu == 0
 	push	{r2-r12}		@ Push CP15 registers
 	.else
-	str	r2, [\vcpup, #CP15_OFFSET(c1_SCTLR)]
-	str	r3, [\vcpup, #CP15_OFFSET(c1_CPACR)]
-	str	r4, [\vcpup, #CP15_OFFSET(c2_TTBCR)]
-	str	r5, [\vcpup, #CP15_OFFSET(c3_DACR)]
-	add	\vcpup, \vcpup, #CP15_OFFSET(c2_TTBR0)
-	strd	r6, r7, [\vcpup]
-	add	\vcpup, \vcpup, #CP15_OFFSET(c2_TTBR1) - CP15_OFFSET(c2_TTBR0)
-	strd	r8, r9, [\vcpup]
-	sub	\vcpup, \vcpup, #CP15_OFFSET(c2_TTBR1)
-	str	r10, [\vcpup, #CP15_OFFSET(c10_PRRR)]
-	str	r11, [\vcpup, #CP15_OFFSET(c10_NMRR)]
-	str	r12, [\vcpup, #CP15_OFFSET(c0_CSSELR)]
+	str	r2, [vcpu, #CP15_OFFSET(c1_SCTLR)]
+	str	r3, [vcpu, #CP15_OFFSET(c1_CPACR)]
+	str	r4, [vcpu, #CP15_OFFSET(c2_TTBCR)]
+	str	r5, [vcpu, #CP15_OFFSET(c3_DACR)]
+	add	vcpu, vcpu, #CP15_OFFSET(c2_TTBR0)
+	strd	r6, r7, [vcpu]
+	add	vcpu, vcpu, #CP15_OFFSET(c2_TTBR1) - CP15_OFFSET(c2_TTBR0)
+	strd	r8, r9, [vcpu]
+	sub	vcpu, vcpu, #CP15_OFFSET(c2_TTBR1)
+	str	r10, [vcpu, #CP15_OFFSET(c10_PRRR)]
+	str	r11, [vcpu, #CP15_OFFSET(c10_NMRR)]
+	str	r12, [vcpu, #CP15_OFFSET(c0_CSSELR)]
 	.endif
 
 	mrc	p15, 0, r2, c13, c0, 1	@ CID
@@ -257,59 +284,61 @@
 	mrc	p15, 0, r11, c6, c0, 2	@ IFAR
 	mrc	p15, 0, r12, c12, c0, 0	@ VBAR
 
-	.if \vcpu == 0
+	.if \store_to_vcpu == 0
 	push	{r2-r12}		@ Push CP15 registers
 	.else
-	str	r2, [\vcpup, #CP15_OFFSET(c13_CID)]
-	str	r3, [\vcpup, #CP15_OFFSET(c13_TID_URW)]
-	str	r4, [\vcpup, #CP15_OFFSET(c13_TID_URO)]
-	str	r5, [\vcpup, #CP15_OFFSET(c13_TID_PRIV)]
-	str	r6, [\vcpup, #CP15_OFFSET(c5_DFSR)]
-	str	r7, [\vcpup, #CP15_OFFSET(c5_IFSR)]
-	str	r8, [\vcpup, #CP15_OFFSET(c5_ADFSR)]
-	str	r9, [\vcpup, #CP15_OFFSET(c5_AIFSR)]
-	str	r10, [\vcpup, #CP15_OFFSET(c6_DFAR)]
-	str	r11, [\vcpup, #CP15_OFFSET(c6_IFAR)]
-	str	r12, [\vcpup, #CP15_OFFSET(c12_VBAR)]
+	str	r2, [vcpu, #CP15_OFFSET(c13_CID)]
+	str	r3, [vcpu, #CP15_OFFSET(c13_TID_URW)]
+	str	r4, [vcpu, #CP15_OFFSET(c13_TID_URO)]
+	str	r5, [vcpu, #CP15_OFFSET(c13_TID_PRIV)]
+	str	r6, [vcpu, #CP15_OFFSET(c5_DFSR)]
+	str	r7, [vcpu, #CP15_OFFSET(c5_IFSR)]
+	str	r8, [vcpu, #CP15_OFFSET(c5_ADFSR)]
+	str	r9, [vcpu, #CP15_OFFSET(c5_AIFSR)]
+	str	r10, [vcpu, #CP15_OFFSET(c6_DFAR)]
+	str	r11, [vcpu, #CP15_OFFSET(c6_IFAR)]
+	str	r12, [vcpu, #CP15_OFFSET(c12_VBAR)]
 	.endif
 
 	mrc	p15, 0, r2, c14, c1, 0	@ CNTKCTL
 
-	.if \vcpu == 0
+	.if \store_to_vcpu == 0
 	push	{r2}
 	.else
-	str	r2, [\vcpup, #CP15_OFFSET(c14_CNTKCTL)]
+	str	r2, [vcpu, #CP15_OFFSET(c14_CNTKCTL)]
 	.endif
 .endm
 
-/* Reads cp15 registers from memory and writes them to hardware
- * @vcpu:   If 0, registers are read in-order from the stack,
- * 	    otherwise from the VCPU struct pointed to by vcpup
- * @vcpup:  Register pointing to VCPU struct
+/*
+ * Reads cp15 registers from memory and writes them to hardware
+ * @read_from_vcpu: If 0, registers are read in-order from the stack,
+ *		    otherwise from the VCPU struct pointed to by vcpup
+ *
+ * Assumes vcpu pointer in vcpu reg
  */
-.macro write_cp15_state vcpu=0, vcpup
-	.if \vcpu == 0
+.macro write_cp15_state read_from_vcpu
+	.if \read_from_vcpu == 0
 	pop	{r2}
 	.else
-	ldr	r2, [\vcpup, #CP15_OFFSET(c14_CNTKCTL)]
+	ldr	r2, [vcpu, #CP15_OFFSET(c14_CNTKCTL)]
 	.endif
 
 	mcr	p15, 0, r2, c14, c1, 0	@ CNTKCTL
 
-	.if \vcpu == 0
+	.if \read_from_vcpu == 0
 	pop	{r2-r12}
 	.else
-	ldr	r2, [\vcpup, #CP15_OFFSET(c13_CID)]
-	ldr	r3, [\vcpup, #CP15_OFFSET(c13_TID_URW)]
-	ldr	r4, [\vcpup, #CP15_OFFSET(c13_TID_URO)]
-	ldr	r5, [\vcpup, #CP15_OFFSET(c13_TID_PRIV)]
-	ldr	r6, [\vcpup, #CP15_OFFSET(c5_DFSR)]
-	ldr	r7, [\vcpup, #CP15_OFFSET(c5_IFSR)]
-	ldr	r8, [\vcpup, #CP15_OFFSET(c5_ADFSR)]
-	ldr	r9, [\vcpup, #CP15_OFFSET(c5_AIFSR)]
-	ldr	r10, [\vcpup, #CP15_OFFSET(c6_DFAR)]
-	ldr	r11, [\vcpup, #CP15_OFFSET(c6_IFAR)]
-	ldr	r12, [\vcpup, #CP15_OFFSET(c12_VBAR)]
+	ldr	r2, [vcpu, #CP15_OFFSET(c13_CID)]
+	ldr	r3, [vcpu, #CP15_OFFSET(c13_TID_URW)]
+	ldr	r4, [vcpu, #CP15_OFFSET(c13_TID_URO)]
+	ldr	r5, [vcpu, #CP15_OFFSET(c13_TID_PRIV)]
+	ldr	r6, [vcpu, #CP15_OFFSET(c5_DFSR)]
+	ldr	r7, [vcpu, #CP15_OFFSET(c5_IFSR)]
+	ldr	r8, [vcpu, #CP15_OFFSET(c5_ADFSR)]
+	ldr	r9, [vcpu, #CP15_OFFSET(c5_AIFSR)]
+	ldr	r10, [vcpu, #CP15_OFFSET(c6_DFAR)]
+	ldr	r11, [vcpu, #CP15_OFFSET(c6_IFAR)]
+	ldr	r12, [vcpu, #CP15_OFFSET(c12_VBAR)]
 	.endif
 
 	mcr	p15, 0, r2, c13, c0, 1	@ CID
@@ -324,21 +353,21 @@
 	mcr	p15, 0, r11, c6, c0, 2	@ IFAR
 	mcr	p15, 0, r12, c12, c0, 0	@ VBAR
 
-	.if \vcpu == 0
+	.if \read_from_vcpu == 0
 	pop	{r2-r12}
 	.else
-	ldr	r2, [\vcpup, #CP15_OFFSET(c1_SCTLR)]
-	ldr	r3, [\vcpup, #CP15_OFFSET(c1_CPACR)]
-	ldr	r4, [\vcpup, #CP15_OFFSET(c2_TTBCR)]
-	ldr	r5, [\vcpup, #CP15_OFFSET(c3_DACR)]
-	add	\vcpup, \vcpup, #CP15_OFFSET(c2_TTBR0)
-	ldrd	r6, r7, [\vcpup]
-	add	\vcpup, \vcpup, #CP15_OFFSET(c2_TTBR1) - CP15_OFFSET(c2_TTBR0)
-	ldrd	r8, r9, [\vcpup]
-	sub	\vcpup, \vcpup, #CP15_OFFSET(c2_TTBR1)
-	ldr	r10, [\vcpup, #CP15_OFFSET(c10_PRRR)]
-	ldr	r11, [\vcpup, #CP15_OFFSET(c10_NMRR)]
-	ldr	r12, [\vcpup, #CP15_OFFSET(c0_CSSELR)]
+	ldr	r2, [vcpu, #CP15_OFFSET(c1_SCTLR)]
+	ldr	r3, [vcpu, #CP15_OFFSET(c1_CPACR)]
+	ldr	r4, [vcpu, #CP15_OFFSET(c2_TTBCR)]
+	ldr	r5, [vcpu, #CP15_OFFSET(c3_DACR)]
+	add	vcpu, vcpu, #CP15_OFFSET(c2_TTBR0)
+	ldrd	r6, r7, [vcpu]
+	add	vcpu, vcpu, #CP15_OFFSET(c2_TTBR1) - CP15_OFFSET(c2_TTBR0)
+	ldrd	r8, r9, [vcpu]
+	sub	vcpu, vcpu, #CP15_OFFSET(c2_TTBR1)
+	ldr	r10, [vcpu, #CP15_OFFSET(c10_PRRR)]
+	ldr	r11, [vcpu, #CP15_OFFSET(c10_NMRR)]
+	ldr	r12, [vcpu, #CP15_OFFSET(c0_CSSELR)]
 	.endif
 
 	mcr	p15, 0, r2, c1, c0, 0	@ SCTLR
@@ -354,18 +383,19 @@
 
 /*
  * Save the VGIC CPU state into memory
- * @vcpup: Register pointing to VCPU struct
+ *
+ * Assumes vcpu pointer in vcpu reg
  */
-.macro save_vgic_state	vcpup
+.macro save_vgic_state
 #ifdef CONFIG_KVM_ARM_VGIC
 	/* Get VGIC VCTRL base into r2 */
-	ldr	r2, [\vcpup, #VCPU_KVM]
+	ldr	r2, [vcpu, #VCPU_KVM]
 	ldr	r2, [r2, #KVM_VGIC_VCTRL]
 	cmp	r2, #0
 	beq	2f
 
 	/* Compute the address of struct vgic_cpu */
-	add	r11, \vcpup, #VCPU_VGIC_CPU
+	add	r11, vcpu, #VCPU_VGIC_CPU
 
 	/* Save all interesting registers */
 	ldr	r3, [r2, #GICH_HCR]
@@ -400,18 +430,19 @@
 
 /*
  * Restore the VGIC CPU state from memory
- * @vcpup: Register pointing to VCPU struct
+ *
+ * Assumes vcpu pointer in vcpu reg
  */
-.macro restore_vgic_state	vcpup
+.macro restore_vgic_state
 #ifdef CONFIG_KVM_ARM_VGIC
 	/* Get VGIC VCTRL base into r2 */
-	ldr	r2, [\vcpup, #VCPU_KVM]
+	ldr	r2, [vcpu, #VCPU_KVM]
 	ldr	r2, [r2, #KVM_VGIC_VCTRL]
 	cmp	r2, #0
 	beq	2f
 
 	/* Compute the address of struct vgic_cpu */
-	add	r11, \vcpup, #VCPU_VGIC_CPU
+	add	r11, vcpu, #VCPU_VGIC_CPU
 
 	/* We only restore a minimal set of registers */
 	ldr	r3, [r11, #VGIC_CPU_HCR]
@@ -437,22 +468,28 @@
 #define CNTHCTL_PL1PCTEN	(1 << 0)
 #define CNTHCTL_PL1PCEN		(1 << 1)
 
-.macro save_timer_state	vcpup
+/*
+ * Save the timer state onto the VCPU and allow physical timer/counter access
+ * for the host.
+ *
+ * Assumes vcpu pointer in vcpu reg
+ */
+.macro save_timer_state
 #ifdef CONFIG_KVM_ARM_TIMER
-	ldr	r4, [\vcpup, #VCPU_KVM]
+	ldr	r4, [vcpu, #VCPU_KVM]
 	ldr	r2, [r4, #KVM_TIMER_ENABLED]
 	cmp	r2, #0
 	beq	1f
 
 	mrc	p15, 0, r2, c14, c3, 1	@ CNTV_CTL
-	str	r2, [\vcpup, #VCPU_TIMER_CNTV_CTL]
+	str	r2, [vcpu, #VCPU_TIMER_CNTV_CTL]
 	bic	r2, #1			@ Clear ENABLE
 	mcr	p15, 0, r2, c14, c3, 1	@ CNTV_CTL
 	isb
 
 	mrrc	p15, 3, r2, r3, c14	@ CNTV_CVAL
-	str	r2, [\vcpup, #VCPU_TIMER_CNTV_CVAL]
-	str	r3, [\vcpup, #(VCPU_TIMER_CNTV_CVAL + 4)]
+	str	r2, [vcpu, #VCPU_TIMER_CNTV_CVAL]
+	str	r3, [vcpu, #(VCPU_TIMER_CNTV_CVAL + 4)]
 
 1:
 #endif
@@ -462,7 +499,13 @@
 	mcr	p15, 4, r2, c14, c1, 0	@ CNTHCTL
 .endm
 
-.macro restore_timer_state vcpup
+/*
+ * Load the timer state from the VCPU and deny physical timer/counter access
+ * for the host.
+ *
+ * Assumes vcpu pointer in vcpu reg
+ */
+.macro restore_timer_state
 	@ Disallow physical timer access for the guest
 	@ Physical counter access is allowed
 	mrc	p15, 4, r2, c14, c1, 0	@ CNTHCTL
@@ -471,7 +514,7 @@
 	mcr	p15, 4, r2, c14, c1, 0	@ CNTHCTL
 
 #ifdef CONFIG_KVM_ARM_TIMER
-	ldr	r4, [\vcpup, #VCPU_KVM]
+	ldr	r4, [vcpu, #VCPU_KVM]
 	ldr	r2, [r4, #KVM_TIMER_ENABLED]
 	cmp	r2, #0
 	beq	1f
@@ -481,11 +524,11 @@
 	mcrr	p15, 4, r2, r3, c14	@ CNTVOFF
 	isb
 
-	ldr	r2, [\vcpup, #VCPU_TIMER_CNTV_CVAL]
-	ldr	r3, [\vcpup, #(VCPU_TIMER_CNTV_CVAL + 4)]
+	ldr	r2, [vcpu, #VCPU_TIMER_CNTV_CVAL]
+	ldr	r3, [vcpu, #(VCPU_TIMER_CNTV_CVAL + 4)]
 	mcrr	p15, 3, r2, r3, c14	@ CNTV_CVAL
 
-	ldr	r2, [\vcpup, #VCPU_TIMER_CNTV_CTL]
+	ldr	r2, [vcpu, #VCPU_TIMER_CNTV_CTL]
 	and	r2, r2, #3
 	mcr	p15, 0, r2, c14, c3, 1	@ CNTV_CTL
 	isb
@@ -493,12 +536,15 @@
 #endif
 .endm
 
+.equ vmentry,	0
+.equ vmexit,	1
+
 /* Configures the HSTR (Hyp System Trap Register) on entry/return
  * (hardware reset value is 0) */
-.macro set_hstr entry
+.macro set_hstr operation
 	mrc	p15, 4, r2, c1, c1, 3
 	ldr	r3, =HSTR_T(15)
-	.if \entry == 1
+	.if \operation == vmentry
 	orr	r2, r2, r3		@ Trap CR{15}
 	.else
 	bic	r2, r2, r3		@ Don't trap any CRx accesses
@@ -508,10 +554,10 @@
 
 /* Configures the HCPTR (Hyp Coprocessor Trap Register) on entry/return
  * (hardware reset value is 0). Keep previous value in r2. */
-.macro set_hcptr entry, mask
+.macro set_hcptr operation, mask
 	mrc	p15, 4, r2, c1, c1, 2
 	ldr	r3, =\mask
-	.if \entry == 1
+	.if \operation == vmentry
 	orr	r3, r2, r3		@ Trap coproc-accesses defined in mask
 	.else
 	bic	r3, r2, r3		@ Don't trap defined coproc-accesses
@@ -521,10 +567,10 @@
 
 /* Configures the HDCR (Hyp Debug Configuration Register) on entry/return
  * (hardware reset value is 0) */
-.macro set_hdcr entry
+.macro set_hdcr operation
 	mrc	p15, 4, r2, c1, c1, 1
 	ldr	r3, =(HDCR_TPM|HDCR_TPMCR)
-	.if \entry == 1
+	.if \operation == vmentry
 	orr	r2, r2, r3		@ Trap some perfmon accesses
 	.else
 	bic	r2, r2, r3		@ Don't trap any perfmon accesses
@@ -533,13 +579,13 @@
 .endm
 
 /* Enable/Disable: stage-2 trans., trap interrupts, trap wfi, trap smc */
-.macro configure_hyp_role entry, vcpu_ptr
+.macro configure_hyp_role operation
 	mrc	p15, 4, r2, c1, c1, 0	@ HCR
 	bic	r2, r2, #HCR_VIRT_EXCP_MASK
 	ldr	r3, =HCR_GUEST_MASK
-	.if \entry == 1
+	.if \operation == vmentry
 	orr	r2, r2, r3
-	ldr	r3, [\vcpu_ptr, #VCPU_IRQ_LINES]
+	ldr	r3, [vcpu, #VCPU_IRQ_LINES]
 	orr	r2, r2, r3
 	.else
 	bic	r2, r2, r3
@@ -547,6 +593,6 @@
 	mcr	p15, 4, r2, c1, c1, 0
 .endm
 
-.macro load_vcpu reg
-	mrc	p15, 4, \reg, c13, c0, 2	@ HTPIDR
+.macro load_vcpu
+	mrc	p15, 4, vcpu, c13, c0, 2	@ HTPIDR
 .endm

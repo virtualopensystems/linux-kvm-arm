@@ -90,16 +90,16 @@ ENDPROC(__kvm_flush_vm_context)
  */
 ENTRY(__kvm_vcpu_run)
 	@ Save the vcpu pointer
-	mcr	p15, 4, r0, c13, c0, 2	@ HTPIDR
+	mcr	p15, 4, vcpu, c13, c0, 2	@ HTPIDR
 
 	save_host_regs
 
-	restore_vgic_state r0
-	restore_timer_state r0
+	restore_vgic_state
+	restore_timer_state
 
 	@ Store hardware CP15 state and load guest state
-	read_cp15_state
-	write_cp15_state 1, r0
+	read_cp15_state store_to_vcpu = 0
+	write_cp15_state read_from_vcpu = 1
 
 	@ If the host kernel has not been configured with VFPv3 support,
 	@ then it is safer if we deny guests from using it as well.
@@ -112,28 +112,28 @@ ENTRY(__kvm_vcpu_run)
 #endif
 
 	@ Configure Hyp-role
-	configure_hyp_role 1, r0
+	configure_hyp_role vmentry
 
 	@ Trap coprocessor CRx accesses
-	set_hstr 1
-	set_hcptr 1, (HCPTR_TTA | HCPTR_TCP(10) | HCPTR_TCP(11))
-	set_hdcr 1
+	set_hstr vmentry
+	set_hcptr vmentry, (HCPTR_TTA | HCPTR_TCP(10) | HCPTR_TCP(11))
+	set_hdcr vmentry
 
 	@ Write configured ID register into MIDR alias
-	ldr	r1, [r0, #VCPU_MIDR]
+	ldr	r1, [vcpu, #VCPU_MIDR]
 	mcr	p15, 4, r1, c0, c0, 0
 
 	@ Write guest view of MPIDR into VMPIDR
-	ldr	r1, [r0, #CP15_OFFSET(c0_MPIDR)]
+	ldr	r1, [vcpu, #CP15_OFFSET(c0_MPIDR)]
 	mcr	p15, 4, r1, c0, c0, 5
 
 	@ Set up guest memory translation
-	ldr	r1, [r0, #VCPU_KVM]
+	ldr	r1, [vcpu, #VCPU_KVM]
 	add	r1, r1, #KVM_VTTBR
 	ldrd	r2, r3, [r1]
 	mcrr	p15, 6, r2, r3, c2	@ Write VTTBR
 
-	@ At this point, r0 must contain the pointer to the VCPU
+	@ We're all done, just restore the GPRs and go to the guest
 	restore_guest_regs
 	clrex				@ Clear exclusive monitor
 	eret
@@ -141,9 +141,9 @@ ENTRY(__kvm_vcpu_run)
 __kvm_vcpu_return:
 	/*
 	 * return convention:
-	 * vcpu r0, r1, r2 saved on the stack
-	 * r0: exception code
-	 * r1: vcpu pointer
+	 * guest r0, r1, r2 saved on the stack
+	 * r0: vcpu pointer
+	 * r1: exception code
 	 */
 	save_guest_regs
 
@@ -153,9 +153,9 @@ __kvm_vcpu_return:
 	mcrr	p15, 6, r2, r3, c2	@ Write VTTBR
 
 	@ Don't trap coprocessor accesses for host kernel
-	set_hstr 0
-	set_hdcr 0
-	set_hcptr 0, (HCPTR_TTA | HCPTR_TCP(10) | HCPTR_TCP(11))
+	set_hstr vmexit
+	set_hdcr vmexit
+	set_hcptr vmexit, (HCPTR_TTA | HCPTR_TCP(10) | HCPTR_TCP(11))
 
 #ifdef CONFIG_VFPv3
 	@ Save floating point registers we if let guest use them.
@@ -163,9 +163,9 @@ __kvm_vcpu_return:
 	bne	after_vfp_restore
 
 	@ Switch VFP/NEON hardware state to the host's
-	add	r7, r1, #VCPU_VFP_GUEST
+	add	r7, vcpu, #VCPU_VFP_GUEST
 	store_vfp_state r7
-	add	r7, r1, #VCPU_VFP_HOST
+	add	r7, vcpu, #VCPU_VFP_HOST
 	ldr	r7, [r7]
 	restore_vfp_state r7
 
@@ -176,7 +176,7 @@ after_vfp_restore:
 #endif
 
 	@ Reset Hyp-role
-	configure_hyp_role 0, r1
+	configure_hyp_role vmexit
 
 	@ Let host read hardware MIDR
 	mrc	p15, 0, r2, c0, c0, 0
@@ -187,14 +187,15 @@ after_vfp_restore:
 	mcr	p15, 4, r2, c0, c0, 5
 
 	@ Store guest CP15 state and restore host state
-	read_cp15_state 1, r1
-	write_cp15_state
+	read_cp15_state store_to_vcpu = 1
+	write_cp15_state read_from_vcpu = 0
 
-	save_timer_state r1
-	save_vgic_state	r1
+	save_timer_state
+	save_vgic_state
 
 	restore_host_regs
 	clrex				@ Clear exclusive monitor
+	mov	r0, r1			@ Return the return code
 	bx	lr			@ return to IOCTL
 
 
@@ -218,8 +219,8 @@ ENTRY(__kvm_va_to_pa)
 	orr	r1, r1, r2
 
 	@ This swaps too many registers, but we're in the slow path anyway.
-	read_cp15_state
-	write_cp15_state 1, r0
+	read_cp15_state store_to_vcpu = 0
+	write_cp15_state read_from_vcpu = 1
 
 	ands	r2, r1, #1
 	bic	r1, r1, r2
@@ -228,8 +229,8 @@ ENTRY(__kvm_va_to_pa)
 	isb
 
 	@ Restore host state.
-	read_cp15_state 1, r0
-	write_cp15_state
+	read_cp15_state store_to_vcpu = 1
+	write_cp15_state read_from_vcpu = 0
 
 	mrrc	p15, 0, r0, r1, c7	@ PAR
 	pop	{r4-r12}
@@ -277,20 +278,20 @@ ENTRY(kvm_call_hyp)
 	ands	r1, r1, #0xff
 	beq	99f
 
-	load_vcpu	r1		@ Load VCPU pointer
+	load_vcpu			@ Load VCPU pointer
 	.if \exception_code == ARM_EXCEPTION_DATA_ABORT
 	mrc	p15, 4, r2, c5, c2, 0	@ HSR
-	mrc	p15, 4, r0, c6, c0, 0	@ HDFAR
-	str	r2, [r1, #VCPU_HSR]
-	str	r0, [r1, #VCPU_HxFAR]
+	mrc	p15, 4, r1, c6, c0, 0	@ HDFAR
+	str	r2, [r0, #VCPU_HSR]
+	str	r1, [r0, #VCPU_HxFAR]
 	.endif
 	.if \exception_code == ARM_EXCEPTION_PREF_ABORT
 	mrc	p15, 4, r2, c5, c2, 0	@ HSR
-	mrc	p15, 4, r0, c6, c0, 2	@ HIFAR
-	str	r2, [r1, #VCPU_HSR]
-	str	r0, [r1, #VCPU_HxFAR]
+	mrc	p15, 4, r1, c6, c0, 2	@ HIFAR
+	str	r2, [r0, #VCPU_HSR]
+	str	r1, [r0, #VCPU_HxFAR]
 	.endif
-	mov	r0, #\exception_code
+	mov	r1, #\exception_code
 	b	__kvm_vcpu_return
 
 	@ We were in the host already. Let's craft a panic-ing return to SVC.
@@ -351,20 +352,20 @@ hyp_hvc:
 	push	{r0, r1, r2}
 
 	@ Check syndrome register
-	mrc	p15, 4, r0, c5, c2, 0	@ HSR
-	lsr	r1, r0, #HSR_EC_SHIFT
+	mrc	p15, 4, r1, c5, c2, 0	@ HSR
+	lsr	r0, r1, #HSR_EC_SHIFT
 #ifdef CONFIG_VFPv3
-	cmp	r1, #HSR_EC_CP_0_13
+	cmp	r0, #HSR_EC_CP_0_13
 	beq	switch_to_guest_vfp
 #endif
-	cmp	r1, #HSR_EC_HVC
+	cmp	r0, #HSR_EC_HVC
 	bne	guest_trap		@ Not HVC instr.
 
 	/*
 	 * Let's check if the HVC came from VMID 0 and allow simple
 	 * switch to Hyp mode
 	 */
-	mrrc    p15, 6, r1, r2, c2
+	mrrc    p15, 6, r0, r2, c2
 	lsr     r2, r2, #16
 	and     r2, r2, #0xff
 	cmp     r2, #0
@@ -391,19 +392,19 @@ THUMB(	orr	lr, #1)
 	eret
 
 guest_trap:
-	load_vcpu	r1		@ Load VCPU pointer
-	str	r0, [r1, #VCPU_HSR]
+	load_vcpu			@ Load VCPU pointer to r0
+	str	r1, [vcpu, #VCPU_HSR]
 
 	@ Check if we need the fault information
-	lsr	r0, r0, #HSR_EC_SHIFT
-	cmp	r0, #HSR_EC_IABT
+	lsr	r1, r1, #HSR_EC_SHIFT
+	cmp	r1, #HSR_EC_IABT
 	mrceq	p15, 4, r2, c6, c0, 2	@ HIFAR
 	beq	2f
-	cmp	r0, #HSR_EC_DABT
+	cmp	r1, #HSR_EC_DABT
 	bne	1f
 	mrc	p15, 4, r2, c6, c0, 0	@ HDFAR
 
-2:	str	r2, [r1, #VCPU_HxFAR]
+2:	str	r2, [vcpu, #VCPU_HxFAR]
 
 	/*
 	 * B3.13.5 Reporting exceptions taken to the Non-secure PL2 mode:
@@ -436,10 +437,10 @@ guest_trap:
 	lsl	r2, r2, #4
 	orr	r2, r2, r1, lsl #24
 
-3:	load_vcpu	r1
-	str	r2, [r1, #VCPU_HPFAR]
+3:	load_vcpu			@ Load VCPU pointer to r0
+	str	r2, [r0, #VCPU_HPFAR]
 
-1:	mov	r0, #ARM_EXCEPTION_HVC
+1:	mov	r1, #ARM_EXCEPTION_HVC
 	b	__kvm_vcpu_return
 
 4:	pop	{r0, r1, r2}		@ Failed translation, return to guest
@@ -453,11 +454,11 @@ guest_trap:
  */
 #ifdef CONFIG_VFPv3
 switch_to_guest_vfp:
-	load_vcpu	r0		@ Load VCPU pointer
+	load_vcpu			@ Load VCPU pointer to r0
 	push	{r3-r7}
 
 	@ NEON/VFP used.  Turn on VFP access.
-	set_hcptr 0, (HCPTR_TCP(10) | HCPTR_TCP(11))
+	set_hcptr vmexit, (HCPTR_TCP(10) | HCPTR_TCP(11))
 
 	@ Switch VFP/NEON hardware state to the guest's
 	add	r7, r0, #VCPU_VFP_HOST
@@ -474,8 +475,8 @@ switch_to_guest_vfp:
 	.align
 hyp_irq:
 	push	{r0, r1, r2}
-	mov	r0, #ARM_EXCEPTION_IRQ
-	load_vcpu	r1		@ Load VCPU pointer
+	mov	r1, #ARM_EXCEPTION_IRQ
+	load_vcpu			@ Load VCPU pointer to r0
 	b	__kvm_vcpu_return
 
 	.align
