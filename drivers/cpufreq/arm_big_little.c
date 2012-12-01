@@ -21,17 +21,20 @@
 
 #include <linux/cpufreq.h>
 #include <linux/cpumask.h>
+#include <linux/export.h>
 #include <linux/module.h>
 #include <linux/of_platform.h>
 #include <linux/slab.h>
 #include <linux/types.h>
 #include <linux/vexpress.h>
 #include <asm/topology.h>
+#include "arm_big_little.h"
 
 #define MAX_CLUSTERS	2
 
+static struct cpufreq_arm_bl_ops *arm_bl_ops;
 static struct cpufreq_frequency_table *freq_table[MAX_CLUSTERS];
-static atomic_t freq_table_users = ATOMIC_INIT(0);
+static atomic_t cluster_usage[MAX_CLUSTERS] = {ATOMIC_INIT(0), ATOMIC_INIT(0)};
 
 /*
  * Functions to get the current status.
@@ -111,86 +114,54 @@ static unsigned int bl_cpufreq_get(unsigned int cpu)
 }
 
 /* translate the integer array into cpufreq_frequency_table entries */
-static inline void _cpufreq_copy_table_from_array(u32 *table,
-			struct cpufreq_frequency_table *freq_table, int size)
+struct cpufreq_frequency_table *
+arm_bl_copy_table_from_array(unsigned int *table, int count)
 {
 	int i;
-	for (i = 0; i < size; i++) {
+
+	struct cpufreq_frequency_table *freq_table;
+
+	freq_table = kmalloc(sizeof(*freq_table) * (count + 1), GFP_KERNEL);
+	if (!freq_table)
+		return NULL;
+
+	for (i = 0; i < count; i++) {
 		freq_table[i].index = i;
-		freq_table[i].frequency = table[i] / 1000; /* in kHZ */
+		freq_table[i].frequency = table[i]; /* in kHZ */
 	}
-	freq_table[i].index = size;
+
+	freq_table[i].index = count;
 	freq_table[i].frequency = CPUFREQ_TABLE_END;
+
+	return freq_table;
 }
 
-static int bl_cpufreq_of_init(void)
+void arm_bl_free_freq_table(u32 cluster)
 {
-	u32 cpu_opp_num;
-	struct cpufreq_frequency_table *freqtable[MAX_CLUSTERS];
-	u32 *cpu_freqs;
-	int ret = 0, cluster_id = 0, len;
-	struct device_node *cluster = NULL;
-	const struct property *pp;
-	const u32 *hwid;
-
-	while ((cluster = of_find_node_by_name(cluster, "cluster"))) {
-		hwid = of_get_property(cluster, "reg", &len);
-		if (hwid && len == 4)
-			cluster_id = be32_to_cpup(hwid);
-
-		pp = of_find_property(cluster, "freqs", NULL);
-		if (!pp)
-			return -EINVAL;
-		cpu_opp_num = pp->length / sizeof(u32);
-		if (!cpu_opp_num)
-			return -ENODATA;
-
-		cpu_freqs = kzalloc(sizeof(u32) * cpu_opp_num, GFP_KERNEL);
-		freqtable[cluster_id] =
-			kzalloc(sizeof(struct cpufreq_frequency_table) *
-						(cpu_opp_num + 1), GFP_KERNEL);
-		if (!cpu_freqs || !freqtable[cluster_id]) {
-			ret = -ENOMEM;
-			goto free_mem;
-		}
-		of_property_read_u32_array(cluster, "freqs",
-							cpu_freqs, cpu_opp_num);
-		_cpufreq_copy_table_from_array(cpu_freqs,
-				freqtable[cluster_id], cpu_opp_num);
-		freq_table[cluster_id] = freqtable[cluster_id];
-
-		kfree(cpu_freqs);
-	}
-	return ret;
-free_mem:
-	while (cluster_id >= 0)
-		kfree(freqtable[cluster_id--]);
-	kfree(cpu_freqs);
-	return ret;
+	kfree(freq_table[cluster]);
 }
 
 /* Per-CPU initialization */
 static int bl_cpufreq_init(struct cpufreq_policy *policy)
 {
-	int result = 0;
 	u32 cur_cluster = cpu_to_cluster(policy->cpu);
+	int result = -ENODATA;
+	int count;
 
-	if (atomic_inc_return(&freq_table_users) == 1)
-		result = bl_cpufreq_of_init();
-
-	if (freq_table[cur_cluster] == NULL)
-		result = -ENODATA;
-
-	if (result) {
-		atomic_dec_return(&freq_table_users);
-		pr_err("CPUFreq - CPU %d failed to initialize\n", policy->cpu);
-		return result;
+	if (atomic_inc_return(&cluster_usage[cur_cluster]) == 1) {
+		freq_table[cur_cluster] = arm_bl_ops->get_freq_tbl(cur_cluster,
+				&count);
+		if (!freq_table[cur_cluster])
+			goto atomic_dec;
 	}
 
 	result = cpufreq_frequency_table_cpuinfo(policy,
 			freq_table[cur_cluster]);
-	if (result)
-		return result;
+	if (result) {
+		if (atomic_read(&cluster_usage[cur_cluster]) == 1)
+			goto put_table;
+		goto atomic_dec;
+	}
 
 	cpufreq_frequency_table_get_attr(freq_table[cur_cluster], policy->cpu);
 
@@ -204,8 +175,27 @@ static int bl_cpufreq_init(struct cpufreq_policy *policy)
 	cpumask_copy(policy->cpus, topology_core_cpumask(policy->cpu));
 	cpumask_copy(policy->related_cpus, policy->cpus);
 
-	pr_info("CPUFreq for CPU %d initialized\n", policy->cpu);
+	pr_info("CPU %d initialized\n", policy->cpu);
+	return 0;
+
+put_table:
+	arm_bl_ops->put_freq_tbl(cur_cluster);
+atomic_dec:
+	atomic_dec_return(&cluster_usage[cur_cluster]);
+	pr_err("CPU %d failed to initialize\n", policy->cpu);
 	return result;
+}
+
+static int bl_cpufreq_exit(struct cpufreq_policy *policy)
+{
+	u32 cur_cluster = cpu_to_cluster(policy->cpu);
+
+	if (!atomic_dec_return(&cluster_usage[cur_cluster])) {
+		arm_bl_ops->put_freq_tbl(cur_cluster);
+		freq_table[cur_cluster] = NULL;
+	}
+
+	return 0;
 }
 
 /* Export freq_table to sysfs */
@@ -221,14 +211,41 @@ static struct cpufreq_driver bl_cpufreq_driver = {
 	.target	= bl_cpufreq_set_target,
 	.get	= bl_cpufreq_get,
 	.init	= bl_cpufreq_init,
+	.exit	= bl_cpufreq_exit,
 	.attr	= bl_cpufreq_attr,
+};
+
+/* All platforms using this driver must have their entry here */
+static struct of_device_id bl_of_match[] = {
+	{
+		.compatible = "arm,vexpress,v2p-ca15,tc2",
+		.data = vexpress_bl_get_ops
+	},
+	{},
 };
 
 static int __init bl_cpufreq_modinit(void)
 {
-	if (!vexpress_spc_check_loaded()) {
-		pr_info("vexpress cpufreq not initialised because no SPC found\n");
+	int i, size = ARRAY_SIZE(bl_of_match);
+	struct cpufreq_arm_bl_ops *(*bl_get_ops)(void) = NULL;
+
+	for (i = 0; i < size; i++) {
+		if (of_machine_is_compatible(bl_of_match[i].compatible)) {
+			bl_get_ops = bl_of_match[i].data;
+			break;
+		}
+	}
+
+	if (!bl_get_ops) {
+		pr_err("No platform matched, exiting\n");
 		return -ENODEV;
+	}
+
+	arm_bl_ops = bl_get_ops();
+	if (!arm_bl_ops || !arm_bl_ops->get_freq_tbl) {
+		pr_err("Invalid ops returned by platform: %s\n",
+				bl_of_match[i].compatible);
+		return -EINVAL;
 	}
 
 	return cpufreq_register_driver(&bl_cpufreq_driver);
@@ -238,6 +255,7 @@ module_init(bl_cpufreq_modinit);
 static void __exit bl_cpufreq_modexit(void)
 {
 	cpufreq_unregister_driver(&bl_cpufreq_driver);
+	arm_bl_ops = NULL;
 }
 module_exit(bl_cpufreq_modexit);
 

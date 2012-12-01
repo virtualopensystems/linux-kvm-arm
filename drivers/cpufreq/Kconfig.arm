@@ -85,8 +85,13 @@ config ARM_SPEAR_CPUFREQ
 	  This adds the CPUFreq driver support for SPEAr SOCs.
 
 config ARM_BIG_LITTLE_CPUFREQ
-	tristate "CPUfreq driver for ARM big LITTLE CPUs"
+	tristate
 	depends on ARM_CPU_TOPOLOGY
+
+config ARM_VEXPRESS_BL_CPUFREQ
+	tristate "ARM Vexpress big LITTLE CPUfreq driver"
+	select ARM_BIG_LITTLE_CPUFREQ
+	depends on ARM_SPC
 	help
-	  This enables the CPUfreq driver for ARM big.LITTLE platforms.
+	  This enables the CPUfreq driver for ARM Vexpress big.LITTLE platform.
 	  If in doubt, say N.
