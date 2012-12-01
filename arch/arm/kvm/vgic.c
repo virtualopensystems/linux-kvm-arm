@@ -1230,11 +1230,28 @@ static bool vgic_ioaddr_overlap(struct kvm *kvm)
 	phys_addr_t cpu = kvm->arch.vgic.vgic_cpu_base;
 
 	if (IS_VGIC_ADDR_UNDEF(dist) || IS_VGIC_ADDR_UNDEF(cpu))
-		return false;
+		return 0;
 	if ((dist <= cpu && dist + VGIC_DIST_SIZE > cpu) ||
 	    (cpu <= dist && cpu + VGIC_CPU_SIZE > dist))
-		return true;
-	return false;
+		return -EBUSY;
+	return 0;
+}
+
+static int vgic_ioaddr_assign(struct kvm *kvm, phys_addr_t *ioaddr,
+			      phys_addr_t addr, phys_addr_t size)
+{
+	int ret;
+
+	if (!IS_VGIC_ADDR_UNDEF(*ioaddr))
+		return -EEXIST;
+	if (addr + size < addr)
+		return -EINVAL;
+
+	ret = vgic_ioaddr_overlap(kvm);
+	if (ret)
+		return ret;
+	*ioaddr = addr;
+	return ret;
 }
 
 int kvm_vgic_set_addr(struct kvm *kvm, unsigned long type, u64 addr)
@@ -1251,27 +1268,15 @@ int kvm_vgic_set_addr(struct kvm *kvm, unsigned long type, u64 addr)
 	mutex_lock(&kvm->lock);
 	switch (type) {
 	case KVM_VGIC_V2_ADDR_TYPE_DIST:
-		if (!IS_VGIC_ADDR_UNDEF(vgic->vgic_dist_base))
-			return -EEXIST;
-		if (addr + VGIC_DIST_SIZE < addr)
-			return -EINVAL;
-		kvm->arch.vgic.vgic_dist_base = addr;
+		r = vgic_ioaddr_assign(kvm, &vgic->vgic_dist_base,
+				       addr, VGIC_DIST_SIZE);
 		break;
 	case KVM_VGIC_V2_ADDR_TYPE_CPU:
-		if (!IS_VGIC_ADDR_UNDEF(vgic->vgic_cpu_base))
-			return -EEXIST;
-		if (addr + VGIC_CPU_SIZE < addr)
-			return -EINVAL;
-		kvm->arch.vgic.vgic_cpu_base = addr;
+		r = vgic_ioaddr_assign(kvm, &vgic->vgic_cpu_base,
+				       addr, VGIC_CPU_SIZE);
 		break;
 	default:
 		r = -ENODEV;
-	}
-
-	if (vgic_ioaddr_overlap(kvm)) {
-		kvm->arch.vgic.vgic_dist_base = VGIC_ADDR_UNDEF;
-		kvm->arch.vgic.vgic_cpu_base = VGIC_ADDR_UNDEF;
-		r = -EINVAL;
 	}
 
 	mutex_unlock(&kvm->lock);
