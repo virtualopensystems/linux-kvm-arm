@@ -19,6 +19,7 @@
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
+#include <linux/clk.h>
 #include <linux/cpufreq.h>
 #include <linux/cpumask.h>
 #include <linux/export.h>
@@ -26,13 +27,13 @@
 #include <linux/of_platform.h>
 #include <linux/slab.h>
 #include <linux/types.h>
-#include <linux/vexpress.h>
 #include <asm/topology.h>
 #include "arm_big_little.h"
 
 #define MAX_CLUSTERS	2
 
 static struct cpufreq_arm_bl_ops *arm_bl_ops;
+static struct clk *clk[MAX_CLUSTERS];
 static struct cpufreq_frequency_table *freq_table[MAX_CLUSTERS];
 static atomic_t cluster_usage[MAX_CLUSTERS] = {ATOMIC_INIT(0), ATOMIC_INIT(0)};
 
@@ -44,6 +45,13 @@ static atomic_t cluster_usage[MAX_CLUSTERS] = {ATOMIC_INIT(0), ATOMIC_INIT(0)};
 static int cpu_to_cluster(int cpu)
 {
 	return topology_physical_package_id(cpu);
+}
+
+static unsigned int bl_cpufreq_get(unsigned int cpu)
+{
+	u32 cur_cluster = cpu_to_cluster(cpu);
+
+	return clk_get_rate(clk[cur_cluster]) / 1000;
 }
 
 /* Validate policy frequency range */
@@ -66,8 +74,7 @@ static int bl_cpufreq_set_target(struct cpufreq_policy *policy,
 	/* ASSUMPTION: The cpu can't be hotplugged in this function */
 	cur_cluster = cpu_to_cluster(policy->cpu);
 
-	if (vexpress_spc_get_performance(cur_cluster, &freqs.old))
-		return -EIO;
+	freqs.old = bl_cpufreq_get(policy->cpu);
 
 	/* Determine valid target frequency using freq_table */
 	cpufreq_frequency_table_target(policy, freq_table[cur_cluster],
@@ -84,9 +91,9 @@ static int bl_cpufreq_set_target(struct cpufreq_policy *policy,
 	for_each_cpu(freqs.cpu, policy->cpus)
 		cpufreq_notify_transition(&freqs, CPUFREQ_PRECHANGE);
 
-	ret = vexpress_spc_set_performance(cur_cluster, freqs.new);
+	ret = clk_set_rate(clk[cur_cluster], freqs.new * 1000);
 	if (ret) {
-		pr_err("Error %d while setting required OPP\n", ret);
+		pr_err("clk_set_rate failed: %d\n", ret);
 		return ret;
 	}
 
@@ -96,21 +103,6 @@ static int bl_cpufreq_set_target(struct cpufreq_policy *policy,
 		cpufreq_notify_transition(&freqs, CPUFREQ_POSTCHANGE);
 
 	return ret;
-}
-
-/* Get current clock frequency */
-static unsigned int bl_cpufreq_get(unsigned int cpu)
-{
-	u32 freq = 0;
-	u32 cur_cluster = cpu_to_cluster(cpu);
-
-	/*
-	 * Read current clock rate with vexpress_spc call
-	 */
-	if (vexpress_spc_get_performance(cur_cluster, &freq))
-		return -EIO;
-
-	return freq;
 }
 
 /* translate the integer array into cpufreq_frequency_table entries */
@@ -135,32 +127,71 @@ arm_bl_copy_table_from_array(unsigned int *table, int count)
 
 	return freq_table;
 }
+EXPORT_SYMBOL_GPL(arm_bl_copy_table_from_array);
 
 void arm_bl_free_freq_table(u32 cluster)
 {
 	kfree(freq_table[cluster]);
+}
+EXPORT_SYMBOL_GPL(arm_bl_free_freq_table);
+
+static void put_cluster_clk_and_freq_table(u32 cluster)
+{
+	if (!atomic_dec_return(&cluster_usage[cluster])) {
+		clk_put(clk[cluster]);
+		clk[cluster] = NULL;
+		arm_bl_ops->put_freq_tbl(cluster);
+		freq_table[cluster] = NULL;
+		pr_debug("%s: cluster: %d\n", __func__, cluster);
+	}
+}
+
+static int get_cluster_clk_and_freq_table(u32 cluster)
+{
+	char name[9] = "cluster";
+	int count;
+
+	if (atomic_inc_return(&cluster_usage[cluster]) != 1)
+		return 0;
+
+	freq_table[cluster] = arm_bl_ops->get_freq_tbl(cluster, &count);
+	if (!freq_table[cluster])
+		goto atomic_dec;
+
+	name[7] = cluster + '0';
+	clk[cluster] = clk_get(NULL, name);
+	if (!IS_ERR_OR_NULL(clk[cluster])) {
+		pr_debug("%s: clk: %p & freq table: %p, cluster: %d\n",
+				__func__, clk[cluster], freq_table[cluster],
+				cluster);
+		return 0;
+	}
+
+	arm_bl_ops->put_freq_tbl(cluster);
+
+atomic_dec:
+	atomic_dec(&cluster_usage[cluster]);
+	pr_err("%s: Failed to get data for cluster: %d\n", __func__, cluster);
+	return -ENODATA;
 }
 
 /* Per-CPU initialization */
 static int bl_cpufreq_init(struct cpufreq_policy *policy)
 {
 	u32 cur_cluster = cpu_to_cluster(policy->cpu);
-	int result = -ENODATA;
-	int count;
+	int result;
 
-	if (atomic_inc_return(&cluster_usage[cur_cluster]) == 1) {
-		freq_table[cur_cluster] = arm_bl_ops->get_freq_tbl(cur_cluster,
-				&count);
-		if (!freq_table[cur_cluster])
-			goto atomic_dec;
-	}
+	result = get_cluster_clk_and_freq_table(cur_cluster);
+	if (result)
+		return result;
 
 	result = cpufreq_frequency_table_cpuinfo(policy,
 			freq_table[cur_cluster]);
 	if (result) {
-		if (atomic_read(&cluster_usage[cur_cluster]) == 1)
-			goto put_table;
-		goto atomic_dec;
+		pr_err("CPU %d, cluster: %d invalid freq table\n", policy->cpu,
+				cur_cluster);
+		put_cluster_clk_and_freq_table(cur_cluster);
+		return result;
 	}
 
 	cpufreq_frequency_table_get_attr(freq_table[cur_cluster], policy->cpu);
@@ -177,23 +208,12 @@ static int bl_cpufreq_init(struct cpufreq_policy *policy)
 
 	pr_info("CPU %d initialized\n", policy->cpu);
 	return 0;
-
-put_table:
-	arm_bl_ops->put_freq_tbl(cur_cluster);
-atomic_dec:
-	atomic_dec_return(&cluster_usage[cur_cluster]);
-	pr_err("CPU %d failed to initialize\n", policy->cpu);
-	return result;
 }
 
 static int bl_cpufreq_exit(struct cpufreq_policy *policy)
 {
-	u32 cur_cluster = cpu_to_cluster(policy->cpu);
-
-	if (!atomic_dec_return(&cluster_usage[cur_cluster])) {
-		arm_bl_ops->put_freq_tbl(cur_cluster);
-		freq_table[cur_cluster] = NULL;
-	}
+	put_cluster_clk_and_freq_table(cpu_to_cluster(policy->cpu));
+	pr_debug("%s: Exited, cpu: %d\n", __func__, policy->cpu);
 
 	return 0;
 }
