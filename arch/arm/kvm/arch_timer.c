@@ -42,6 +42,7 @@ static bool timer_is_armed(struct arch_timer_cpu *timer)
 	return timer->armed;
 }
 
+/* timer_arm: as in "arm the timer", not as in ARM the company */
 static void timer_arm(struct arch_timer_cpu *timer, u64 ns)
 {
 	timer->armed = true;
