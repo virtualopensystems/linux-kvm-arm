@@ -68,9 +68,6 @@
 #define VGIC_ADDR_UNDEF		(-1)
 #define IS_VGIC_ADDR_UNDEF(_x)  ((_x) == VGIC_ADDR_UNDEF)
 
-#define VGIC_DIST_SIZE		0x1000
-#define VGIC_CPU_SIZE		0x2000
-
 /* Physical address of vgic virtual cpu interface */
 static phys_addr_t vgic_vcpu_base;
 
@@ -685,7 +682,7 @@ bool vgic_handle_mmio(struct kvm_vcpu *vcpu, struct kvm_run *run,
 
 	if (!irqchip_in_kernel(vcpu->kvm) ||
 	    mmio->phys_addr < base ||
-	    (mmio->phys_addr + mmio->len) > (base + VGIC_DIST_SIZE))
+	    (mmio->phys_addr + mmio->len) > (base + KVM_VGIC_V2_DIST_SIZE))
 		return false;
 
 	range = find_matching_range(vgic_ranges, mmio, base);
@@ -1315,7 +1312,7 @@ int kvm_vgic_init(struct kvm *kvm)
 	}
 
 	ret = kvm_phys_addr_ioremap(kvm, kvm->arch.vgic.vgic_cpu_base,
-				    vgic_vcpu_base, VGIC_CPU_SIZE);
+				    vgic_vcpu_base, KVM_VGIC_V2_CPU_SIZE);
 	if (ret) {
 		kvm_err("Unable to remap VGIC CPU to VCPU\n");
 		goto out;
@@ -1360,8 +1357,8 @@ static bool vgic_ioaddr_overlap(struct kvm *kvm)
 
 	if (IS_VGIC_ADDR_UNDEF(dist) || IS_VGIC_ADDR_UNDEF(cpu))
 		return 0;
-	if ((dist <= cpu && dist + VGIC_DIST_SIZE > cpu) ||
-	    (cpu <= dist && cpu + VGIC_CPU_SIZE > dist))
+	if ((dist <= cpu && dist + KVM_VGIC_V2_DIST_SIZE > cpu) ||
+	    (cpu <= dist && cpu + KVM_VGIC_V2_CPU_SIZE > dist))
 		return -EBUSY;
 	return 0;
 }
@@ -1398,11 +1395,11 @@ int kvm_vgic_set_addr(struct kvm *kvm, unsigned long type, u64 addr)
 	switch (type) {
 	case KVM_VGIC_V2_ADDR_TYPE_DIST:
 		r = vgic_ioaddr_assign(kvm, &vgic->vgic_dist_base,
-				       addr, VGIC_DIST_SIZE);
+				       addr, KVM_VGIC_V2_DIST_SIZE);
 		break;
 	case KVM_VGIC_V2_ADDR_TYPE_CPU:
 		r = vgic_ioaddr_assign(kvm, &vgic->vgic_cpu_base,
-				       addr, VGIC_CPU_SIZE);
+				       addr, KVM_VGIC_V2_CPU_SIZE);
 		break;
 	default:
 		r = -ENODEV;
