@@ -114,12 +114,9 @@ config ARM_HIGHBANK_CPUFREQ
 
 	  If in doubt, say N.
 
-config ARM_VEXPRESS_BL_CPUFREQ
-	tristate "CPUfreq driver for ARM Vexpress big.LITTLE CPUs"
-	depends on ARCH_VEXPRESS && CPU_FREQ
+config ARM_BIG_LITTLE_CPUFREQ
+	tristate "CPUfreq driver for ARM big LITTLE CPUs"
 	depends on ARM_CPU_TOPOLOGY
 	help
-	  This enables the CPUfreq driver for ARM Vexpress big.LITTLE
-	  platform.
-
+	  This enables the CPUfreq driver for ARM big.LITTLE platforms.
 	  If in doubt, say N.
