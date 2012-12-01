@@ -1558,6 +1558,8 @@ static struct shared_info *xen_hvm_shared_info;
 static unsigned long xen_hvm_sip_phys;
 static int xen_major, xen_minor;
 
+/* Use a pfn in RAM, may move to MMIO before kexec.
+ * This function also called for PVH dom0 */
 static void xen_hvm_connect_shared_info(unsigned long pfn)
 {
 	struct xen_add_to_physmap xatp;
@@ -1614,7 +1616,7 @@ static void __init xen_hvm_init_shared_info(void)
 
 static void __init init_hvm_pv_info(void)
 {
-	uint32_t eax, ebx, ecx, edx, pages, msr, base;
+	uint32_t ecx, edx, pages, msr, base;
 	u64 pfn;
 
 	base = xen_cpuid_base();
