@@ -948,9 +948,9 @@ static int xuartps_probe(struct platform_device *pdev)
 	struct clk *clk;
 
 	clk = of_clk_get(pdev->dev.of_node, 0);
-	if (!clk) {
+	if (IS_ERR(clk)) {
 		dev_err(&pdev->dev, "no clock specified\n");
-		return -ENODEV;
+		return PTR_ERR(clk);
 	}
 
 	rc = clk_prepare_enable(clk);
