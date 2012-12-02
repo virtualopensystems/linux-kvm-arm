@@ -199,7 +199,6 @@ static struct arm_pmu *__devinit probe_current_pmu(void)
 {
 	struct arm_pmu *pmu = NULL;
 	int cpu = get_cpu();
-	unsigned long cpuid = read_cpuid_id();
 	unsigned long implementor = read_cpuid_implementor();
 	unsigned long part_number = read_cpuid_part_number();
 
@@ -234,12 +233,11 @@ static struct arm_pmu *__devinit probe_current_pmu(void)
 		}
 	/* Intel CPUs [xscale]. */
 	} else if (implementor == ARM_CPU_IMP_INTEL) {
-		part_number = (cpuid >> 13) & 0x7;
-		switch (part_number) {
-		case ARM_CPU_PART_XSCALE1:
+		switch (xscale_cpu_arch_version()) {
+		case ARM_CPU_XSCALE_ARCH_V1:
 			pmu = xscale1pmu_init();
 			break;
-		case ARM_CPU_PART_XSCALE2:
+		case ARM_CPU_XSCALE_ARCH_V2:
 			pmu = xscale2pmu_init();
 			break;
 		}

@@ -2182,8 +2182,8 @@ specific to the individual device.
   field: |        0x00000000      |     device id   |  addr type id  |
 
 ARM currently only require this when using the in-kernel GIC support for the
-hardware vGIC features, using KVM_ARM_DEVICE_VGIC_V2 as the device id.  When
-setting the base address for the guest's mapping of the vGIC virtual CPU
+hardware VGIC features, using KVM_ARM_DEVICE_VGIC_V2 as the device id.  When
+setting the base address for the guest's mapping of the VGIC virtual CPU
 and distributor interface, the ioctl must be called after calling
 KVM_CREATE_IRQCHIP, but before calling KVM_RUN on any of the VCPUs.  Calling
 this ioctl twice for any of the base addresses will return -EEXIST.

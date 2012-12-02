@@ -89,7 +89,6 @@ static struct device_node *vgic_node;
 static void vgic_update_state(struct kvm *kvm);
 static void vgic_kick_vcpus(struct kvm *kvm);
 static void vgic_dispatch_sgi(struct kvm_vcpu *vcpu, u32 reg);
-
 static u32 vgic_nr_lr;
 
 static u32 *vgic_bitmap_get_reg(struct vgic_bitmap *x,
@@ -750,6 +749,7 @@ static int compute_pending_for_cpu(struct kvm_vcpu *vcpu)
 {
 	struct vgic_dist *dist = &vcpu->kvm->arch.vgic;
 	unsigned long *pending, *enabled, *pend_percpu, *pend_shared;
+	unsigned long pending_private, pending_shared;
 	int vcpu_id;
 
 	vcpu_id = vcpu->vcpu_id;
@@ -767,8 +767,10 @@ static int compute_pending_for_cpu(struct kvm_vcpu *vcpu)
 		   vgic_bitmap_get_shared_map(&dist->irq_spi_target[vcpu_id]),
 		   VGIC_NR_SHARED_IRQS);
 
-	return (find_first_bit(pend_percpu, VGIC_NR_PRIVATE_IRQS) < VGIC_NR_PRIVATE_IRQS ||
-		find_first_bit(pend_shared, VGIC_NR_SHARED_IRQS) < VGIC_NR_SHARED_IRQS);
+	pending_private = find_first_bit(pend_percpu, VGIC_NR_PRIVATE_IRQS);
+	pending_shared = find_first_bit(pend_shared, VGIC_NR_SHARED_IRQS);
+	return (pending_private < VGIC_NR_PRIVATE_IRQS ||
+		pending_shared < VGIC_NR_SHARED_IRQS);
 }
 
 /*

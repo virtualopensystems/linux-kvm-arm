@@ -80,7 +80,7 @@ struct kvm_vcpu *kvm_arm_get_running_vcpu(void)
 }
 
 /**
- * kvm_arm_get_running_vcpus - get the per-CPU array on currently running vcpus.
+ * kvm_arm_get_running_vcpus - get the per-CPU array of currently running vcpus.
  */
 struct kvm_vcpu __percpu **kvm_get_running_vcpus(void)
 {
@@ -209,7 +209,6 @@ int kvm_dev_ioctl_check_extension(long ext)
 		break;
 	case KVM_CAP_SET_DEVICE_ADDR:
 		r = 1;
-		break;
 	case KVM_CAP_NR_VCPUS:
 		r = num_online_cpus();
 		break;
@@ -288,6 +287,11 @@ free_vcpu:
 	kmem_cache_free(kvm_vcpu_cache, vcpu);
 out:
 	return ERR_PTR(err);
+}
+
+int kvm_arch_vcpu_postcreate(struct kvm_vcpu *vcpu)
+{
+	return 0;
 }
 
 void kvm_arch_vcpu_free(struct kvm_vcpu *vcpu)
@@ -809,20 +813,17 @@ int kvm_vm_ioctl_irq_line(struct kvm *kvm, struct kvm_irq_level *irq_level)
 
 	trace_kvm_irq_line(irq_type, vcpu_idx, irq_num, irq_level->level);
 
-	if (irq_type == KVM_ARM_IRQ_TYPE_CPU ||
-	    irq_type == KVM_ARM_IRQ_TYPE_PPI) {
+	switch (irq_type) {
+	case KVM_ARM_IRQ_TYPE_CPU:
+		if (irqchip_in_kernel(kvm))
+			return -ENXIO;
+
 		if (vcpu_idx >= nrcpus)
 			return -EINVAL;
 
 		vcpu = kvm_get_vcpu(kvm, vcpu_idx);
 		if (!vcpu)
 			return -EINVAL;
-	}
-
-	switch (irq_type) {
-	case KVM_ARM_IRQ_TYPE_CPU:
-		if (irqchip_in_kernel(kvm))
-			return -ENXIO;
 
 		if (irq_num > KVM_ARM_IRQ_CPU_FIQ)
 			return -EINVAL;
@@ -832,6 +833,13 @@ int kvm_vm_ioctl_irq_line(struct kvm *kvm, struct kvm_irq_level *irq_level)
 	case KVM_ARM_IRQ_TYPE_PPI:
 		if (!irqchip_in_kernel(kvm))
 			return -ENXIO;
+
+		if (vcpu_idx >= nrcpus)
+			return -EINVAL;
+
+		vcpu = kvm_get_vcpu(kvm, vcpu_idx);
+		if (!vcpu)
+			return -EINVAL;
 
 		if (irq_num < 16 || irq_num > 31)
 			return -EINVAL;
@@ -1082,8 +1090,7 @@ static int init_hyp_mode(void)
 	/*
 	 * Init HYP view of VGIC
 	 */
-	err = kvm_vgic_hyp_init();
-	if (!err)
+	if (!kvm_vgic_hyp_init())
 		vgic_present = true;
 
 	/*

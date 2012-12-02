@@ -37,6 +37,7 @@ static struct kvm_regs a15_regs_reset = {
 	.usr_regs.ARM_cpsr = SVC_MODE | PSR_A_BIT | PSR_I_BIT | PSR_F_BIT,
 };
 
+
 /*******************************************************************************
  * Exported reset function
  */

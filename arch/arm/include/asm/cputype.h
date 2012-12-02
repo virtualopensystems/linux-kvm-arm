@@ -77,8 +77,10 @@ extern unsigned int processor_id;
 #define ARM_CPU_PART_CORTEX_A15		0xC0F0
 #define ARM_CPU_PART_CORTEX_A7		0xC070
 
-#define ARM_CPU_PART_XSCALE1		0x1
-#define ARM_CPU_PART_XSCALE2		0x2
+#define ARM_CPU_XSCALE_ARCH_MASK	0xe000
+#define ARM_CPU_XSCALE_ARCH_V1		0x2000
+#define ARM_CPU_XSCALE_ARCH_V2		0x4000
+#define ARM_CPU_XSCALE_ARCH_V3		0x6000
 
 /*
  * The CPU ID never changes at run time, so we might as well tell the
@@ -98,6 +100,11 @@ static inline unsigned int __attribute_const__ read_cpuid_implementor(void)
 static inline unsigned int __attribute_const__ read_cpuid_part_number(void)
 {
 	return (read_cpuid_id() & 0xFFF0);
+}
+
+static inline unsigned int __attribute_const__ xscale_cpu_arch_version(void)
+{
+	return read_cpuid_part_number() &ARM_CPU_XSCALE_ARCH_MASK;
 }
 
 static inline unsigned int __attribute_const__ read_cpuid_cachetype(void)
