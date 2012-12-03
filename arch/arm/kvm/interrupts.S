@@ -303,7 +303,7 @@ THUMB(	orr	r2, r2, #PSR_T_BIT	)
 	mrs	r1, ELR_hyp
 	ldr	r2, =BSYM(panic)
 	msr	ELR_hyp, r2
-	ldr	r0, \panic_str
+	ldr	r0, =\panic_str
 	eret
 .endm
 
@@ -485,6 +485,11 @@ hyp_fiq:
 
 	.ltorg
 
+__kvm_hyp_code_end:
+	.globl	__kvm_hyp_code_end
+
+	.section ".rodata"
+
 und_die_str:
 	.ascii	"unexpected undefined exception in Hyp mode at: %#08x"
 pabt_die_str:
@@ -494,5 +499,3 @@ dabt_die_str:
 svc_die_str:
 	.ascii	"unexpected HVC/SVC trap in Hyp mode at: %#08x"
 
-__kvm_hyp_code_end:
-	.globl	__kvm_hyp_code_end
