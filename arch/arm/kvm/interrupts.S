@@ -282,14 +282,14 @@ ENTRY(kvm_call_hyp)
 	.if \exception_code == ARM_EXCEPTION_DATA_ABORT
 	mrc	p15, 4, r2, c5, c2, 0	@ HSR
 	mrc	p15, 4, r1, c6, c0, 0	@ HDFAR
-	str	r2, [r0, #VCPU_HSR]
-	str	r1, [r0, #VCPU_HxFAR]
+	str	r2, [vcpu, #VCPU_HSR]
+	str	r1, [vcpu, #VCPU_HxFAR]
 	.endif
 	.if \exception_code == ARM_EXCEPTION_PREF_ABORT
 	mrc	p15, 4, r2, c5, c2, 0	@ HSR
 	mrc	p15, 4, r1, c6, c0, 2	@ HIFAR
-	str	r2, [r0, #VCPU_HSR]
-	str	r1, [r0, #VCPU_HxFAR]
+	str	r2, [vcpu, #VCPU_HSR]
+	str	r1, [vcpu, #VCPU_HxFAR]
 	.endif
 	mov	r1, #\exception_code
 	b	__kvm_vcpu_return
