@@ -431,7 +431,6 @@ static int samsung_exynos5_usbphy3_enable(struct samsung_usbphy *sphy)
 	u32 phybatchg;
 	u32 phytest;
 	u32 phyclkrst;
-	printk(KERN_ALERT "*****Inside samsung_exynos5_usbphy3_enable*****\n");
 	/* Reset USB 3.0 PHY */
 	writel(0x0, regs + EXYNOS5_DRD_PHYREG0);
 
@@ -510,7 +509,6 @@ static void samsung_exynos5_usbphy_enable(struct samsung_usbphy *sphy)
 		dev_info(sphy->dev, "Already power on PHY\n");
 		return;
 	}
-	printk(KERN_ALERT "*****Inside samsung_exynos5_usbphy_enable*****\n");
 	/* Selecting Host/OTG mode; After reset USB2.0PHY_CFG: HOST */
 	if (sphy->plat && sphy->plat->phy_cfg_sel)
 		sphy->plat->phy_cfg_sel(sphy->dev, USB_PHY_TYPE_HOST);
@@ -670,7 +668,6 @@ static int samsung_usbphy3_init(struct usb_phy *phy3)
 		dev_err(sphy->dev, "Not a valid cpu_type for USB 3.0\n");
 		return -ENODEV;
 	}
-	printk(KERN_ALERT "******Inside samsung_usbphy3_init*******\n");
 	/* setting default phy-type for USB 3.0 */
 	samsung_usbphy_set_type(&sphy->phy3, USB_PHY_TYPE_DRD);
 
@@ -792,7 +789,6 @@ static int samsung_usbphy_init(struct usb_phy *phy)
 
 	sphy = phy_to_sphy(phy);
 
-	printk(KERN_ALERT "******Inside samsung_usbphy_init******\n");
 	/* Enable the phy clock */
 	ret = clk_prepare_enable(sphy->clk);
 	if (ret) {
