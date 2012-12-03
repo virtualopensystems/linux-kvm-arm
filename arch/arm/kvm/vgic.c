@@ -151,26 +151,6 @@ static u32 *vgic_bytemap_get_reg(struct vgic_bytemap *x, int cpuid, u32 offset)
 		return x->shared + offset - 8;
 }
 
-static int __attribute__ ((unused))
-vgic_bytemap_get_irq_val(struct vgic_bytemap *x, int cpuid, int irq)
-{
-	u32 *reg, shift;
-	shift = (irq & 3) * 8;
-	reg = vgic_bytemap_get_reg(x, cpuid, irq);
-	return (*reg >> shift) & 0xff;
-}
-
-static void __attribute__ ((unused))
-vgic_bytemap_set_irq_val(struct vgic_bytemap *x, int cpuid,
-			 int irq, int val)
-{
-	u32 *reg, shift;
-	shift = (irq & 3) * 8;
-	reg = vgic_bytemap_get_reg(x, cpuid, irq);
-	*reg &= ~(0xff << shift);
-	*reg |= (val & 0xff) << shift;
-}
-
 #define VGIC_CFG_LEVEL	0
 #define VGIC_CFG_EDGE	1
 
