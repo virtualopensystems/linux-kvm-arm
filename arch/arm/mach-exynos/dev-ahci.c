@@ -240,7 +240,7 @@ static struct resource exynos4_ahci_resource[] = {
 	[1] = DEFINE_RES_IRQ(EXYNOS4_IRQ_SATA),
 };
 
-static u64 exynos4_ahci_dmamask = DMA_BIT_MASK(32);
+static u64 exynos4_ahci_dmamask = DMA_BIT_MASK(64);
 
 struct platform_device exynos4_device_ahci = {
 	.name		= "ahci",
@@ -250,6 +250,6 @@ struct platform_device exynos4_device_ahci = {
 	.dev		= {
 		.platform_data		= &exynos4_ahci_pdata,
 		.dma_mask		= &exynos4_ahci_dmamask,
-		.coherent_dma_mask	= DMA_BIT_MASK(32),
+		.coherent_dma_mask	= DMA_BIT_MASK(64),
 	},
 };
