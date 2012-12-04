@@ -828,7 +828,14 @@ static int ax_probe(struct platform_device *pdev)
 	struct ei_device *ei_local;
 	struct ax_device *ax;
 	struct resource *irq, *mem, *mem2;
+#ifndef CONFIG_ARM_LPAE
+	/* LPAE breaks this code as __aeabi_uldivmod for 64-bit
+	 * is not supported in lib1funcs.s yet
+	 */
 	resource_size_t mem_size, mem2_size = 0;
+#else
+	u32 mem_size, mem2_size = 0;
+#endif
 	int ret = 0;
 
 	dev = ax__alloc_ei_netdev(sizeof(struct ax_device));
