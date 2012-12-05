@@ -101,7 +101,12 @@ static void tc2_pm_down(u64 residency)
 		    (!residency || residency > 5000)) {
 			vexpress_spc_powerdown_enable(cluster, 1);
 			vexpress_spc_set_global_wakeup_intr(1);
-			BUG_ON(__bL_cluster_state(cluster) != CLUSTER_UP);
+			//BUG_ON(__bL_cluster_state(cluster) != CLUSTER_UP);
+			if (__bL_cluster_state(cluster) != CLUSTER_UP) {
+				pr_crit("%s: last man but __bL_cluster_state(%d) returned %d\n",
+					__func__, cluster, __bL_cluster_state(cluster));
+				BUG();
+			}
 			last_man = true;
 		}
 	} else if (tc2_pm_use_count[cpu][cluster] == 1) {
