@@ -25,7 +25,7 @@ static struct resource exynos4_ohci_resource[] = {
 	[1] = DEFINE_RES_IRQ(IRQ_USB_HOST),
 };
 
-static u64 exynos4_ohci_dma_mask = DMA_BIT_MASK(32);
+static u64 exynos4_ohci_dma_mask = DMA_BIT_MASK(64);
 
 struct platform_device exynos4_device_ohci = {
 	.name		= "exynos-ohci",
@@ -34,7 +34,7 @@ struct platform_device exynos4_device_ohci = {
 	.resource	= exynos4_ohci_resource,
 	.dev		= {
 		.dma_mask		= &exynos4_ohci_dma_mask,
-		.coherent_dma_mask	= DMA_BIT_MASK(32),
+		.coherent_dma_mask	= DMA_BIT_MASK(64),
 	}
 };
 
