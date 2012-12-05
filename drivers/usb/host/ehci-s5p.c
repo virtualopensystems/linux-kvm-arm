@@ -131,7 +131,7 @@ static void s5p_setup_vbus_gpio(struct platform_device *pdev)
 		dev_err(&pdev->dev, "can't request ehci vbus gpio %d", gpio);
 }
 
-static u64 ehci_s5p_dma_mask = DMA_BIT_MASK(32);
+static u64 ehci_s5p_dma_mask = DMA_BIT_MASK(64);
 
 static int s5p_ehci_probe(struct platform_device *pdev)
 {
@@ -152,7 +152,7 @@ static int s5p_ehci_probe(struct platform_device *pdev)
 	if (!pdev->dev.dma_mask)
 		pdev->dev.dma_mask = &ehci_s5p_dma_mask;
 	if (!pdev->dev.coherent_dma_mask)
-		pdev->dev.coherent_dma_mask = DMA_BIT_MASK(32);
+		pdev->dev.coherent_dma_mask = DMA_BIT_MASK(64);
 
 	s5p_setup_vbus_gpio(pdev);
 
