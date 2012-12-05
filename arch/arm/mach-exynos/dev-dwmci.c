@@ -47,7 +47,7 @@ static struct dw_mci_board exynos4_dwci_pdata = {
 	.get_bus_wd			= exynos4_dwmci_get_bus_wd,
 };
 
-static u64 exynos4_dwmci_dmamask = DMA_BIT_MASK(32);
+static u64 exynos4_dwmci_dmamask = DMA_BIT_MASK(64);
 
 struct platform_device exynos4_device_dwmci = {
 	.name		= "dw_mmc",
@@ -56,7 +56,7 @@ struct platform_device exynos4_device_dwmci = {
 	.resource	= exynos4_dwmci_resource,
 	.dev		= {
 		.dma_mask		= &exynos4_dwmci_dmamask,
-		.coherent_dma_mask	= DMA_BIT_MASK(32),
+		.coherent_dma_mask	= DMA_BIT_MASK(64),
 		.platform_data	= &exynos4_dwci_pdata,
 	},
 };
