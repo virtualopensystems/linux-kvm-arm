@@ -435,6 +435,8 @@ static int dwc3_probe(struct platform_device *pdev)
 	dwc->regs	= regs;
 	dwc->regs_size	= resource_size(res);
 	dwc->dev	= dev;
+	/* set the dma coherent mask */
+	dwc->dev->coherent_dma_mask = DMA_BIT_MASK(64);
 
 	if (!strncmp("super", maximum_speed, 5))
 		dwc->maximum_speed = DWC3_DCFG_SUPERSPEED;
