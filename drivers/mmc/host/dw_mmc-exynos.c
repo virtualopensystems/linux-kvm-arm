@@ -16,6 +16,7 @@
 #include <linux/mmc/dw_mmc.h>
 #include <linux/of.h>
 #include <linux/of_gpio.h>
+#include <linux/dma-mapping.h>
 
 #include "dw_mmc.h"
 #include "dw_mmc-pltfm.h"
@@ -232,6 +233,8 @@ int dw_mci_exynos_probe(struct platform_device *pdev)
 
 	match = of_match_node(dw_mci_exynos_match, pdev->dev.of_node);
 	drv_data = match->data;
+	/* set the dma coherent mask */
+	pdev->dev.coherent_dma_mask = DMA_BIT_MASK(64);
 	return dw_mci_pltfm_register(pdev, drv_data);
 }
 
