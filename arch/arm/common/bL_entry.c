@@ -267,19 +267,25 @@ extern unsigned long bL_power_up_setup_phys;
 
 int __init bL_cluster_sync_init(void (*power_up_setup)(void))
 {
-	unsigned int i, mpidr, this_cluster;
+	unsigned int i, j, mpidr, this_cluster;
 
 	BUILD_BUG_ON(BL_SYNC_CLUSTER_SIZE * BL_NR_CLUSTERS != sizeof bL_sync);
 	bL_sync_phys = virt_to_phys(&bL_sync);
+	BUG_ON(bL_sync_phys & (__CACHE_WRITEBACK_GRANULE - 1));
 	sync_mem(&bL_sync_phys);
 
 	/*
 	 * Set initial CPU and cluster states.
 	 * Only one cluster is assumed to be active at this point.
 	 */
+	for (i = 0; i < BL_NR_CLUSTERS; i++) {
+		bL_sync.clusters[i].cluster = CLUSTER_DOWN;
+		bL_sync.clusters[i].inbound = INBOUND_NOT_COMING_UP;
+		for (j = 0; j < BL_CPUS_PER_CLUSTER; j++)
+			bL_sync.clusters[this_cluster].cpus[i].cpu = CPU_DOWN;
+	}
 	asm ("mrc p15, 0, %0, c0, c0, 5" : "=r" (mpidr));
 	this_cluster = (mpidr >> 8) & 0xf;
-	memset(&bL_sync, 0, sizeof bL_sync);
 	for_each_online_cpu(i)
 		bL_sync.clusters[this_cluster].cpus[i].cpu = CPU_UP;
 	bL_sync.clusters[this_cluster].cluster = CLUSTER_UP;

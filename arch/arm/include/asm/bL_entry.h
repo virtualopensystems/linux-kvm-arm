@@ -16,17 +16,17 @@
 #define BL_NR_CLUSTERS		2
 
 /* Definitions for bL_cluster_sync_struct */
-#define CPU_DOWN		0
-#define CPU_COMING_UP		1
-#define CPU_UP			2
-#define CPU_GOING_DOWN		3
+#define CPU_DOWN		0x11
+#define CPU_COMING_UP		0x12
+#define CPU_UP			0x13
+#define CPU_GOING_DOWN		0x14
 
-#define CLUSTER_DOWN		0
-#define CLUSTER_UP		1
-#define CLUSTER_GOING_DOWN	2
+#define CLUSTER_DOWN		0x21
+#define CLUSTER_UP		0x22
+#define CLUSTER_GOING_DOWN	0x23
 
-#define INBOUND_NOT_COMING_UP	0
-#define INBOUND_COMING_UP	1
+#define INBOUND_NOT_COMING_UP	0x31
+#define INBOUND_COMING_UP	0x32
 
 /* This is a complete guess. */
 #define __CACHE_WRITEBACK_ORDER	6
