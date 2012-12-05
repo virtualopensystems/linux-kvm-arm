@@ -100,7 +100,7 @@ static const struct hc_driver exynos_ohci_hc_driver = {
 	.start_port_reset	= ohci_start_port_reset,
 };
 
-static u64 ohci_exynos_dma_mask = DMA_BIT_MASK(32);
+static u64 ohci_exynos_dma_mask = DMA_BIT_MASK(64);
 
 static int __devinit exynos_ohci_probe(struct platform_device *pdev)
 {
@@ -127,7 +127,7 @@ static int __devinit exynos_ohci_probe(struct platform_device *pdev)
 	if (!pdev->dev.dma_mask)
 		pdev->dev.dma_mask = &ohci_exynos_dma_mask;
 	if (!pdev->dev.coherent_dma_mask)
-		pdev->dev.coherent_dma_mask = DMA_BIT_MASK(32);
+		pdev->dev.coherent_dma_mask = DMA_BIT_MASK(64);
 
 	exynos_ohci = devm_kzalloc(&pdev->dev, sizeof(struct exynos_ohci_hcd),
 					GFP_KERNEL);
