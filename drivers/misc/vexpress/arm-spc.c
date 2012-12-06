@@ -673,7 +673,9 @@ static int vexpress_spc_init(void)
 	 * cluster power-up/power-down. Make sure it reaches main memory:
 	 */
 	__cpuc_flush_dcache_area(info, sizeof *info);
+	__cpuc_flush_dcache_area(&info, sizeof info);
 	outer_clean_range(virt_to_phys(info), virt_to_phys(info + 1));
+	outer_clean_range(virt_to_phys(&info), virt_to_phys(&info + 1));
 
 	pr_info("vexpress_spc loaded at %p\n", info->baseaddr);
 	return 0;
