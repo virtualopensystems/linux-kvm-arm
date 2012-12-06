@@ -470,7 +470,9 @@ static int cci_driver_probe(struct platform_device *pdev)
 	 * cluster power-up/power-down. Make sure it reaches main memory:
 	 */
 	__cpuc_flush_dcache_area(info, sizeof *info);
+	__cpuc_flush_dcache_area(&info, sizeof info);
 	outer_clean_range(virt_to_phys(info), virt_to_phys(info + 1));
+	outer_clean_range(virt_to_phys(&info), virt_to_phys(&info + 1));
 
 	platform_set_drvdata(pdev, info);
 
@@ -527,7 +529,7 @@ static void __exit cci_exit(void)
 	platform_driver_unregister(&cci_platform_driver);
 }
 
-arch_initcall(cci_init);
+core_initcall(cci_init);
 module_exit(cci_exit);
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("CCI support");
