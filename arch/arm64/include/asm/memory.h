@@ -90,6 +90,11 @@
 #define MT_NORMAL_NC		3
 #define MT_NORMAL		4
 
+/*
+ * Default memory type for Stage-2 translation
+ */
+#define MT_S2_NORMAL		0xf
+
 #ifndef __ASSEMBLY__
 
 extern phys_addr_t		memstart_addr;
