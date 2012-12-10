@@ -625,6 +625,9 @@ static int __devinit fnic_probe(struct pci_dev *pdev,
 	}
 	fnic->state = FNIC_IN_FC_MODE;
 
+	atomic_set(&fnic->in_flight, 0);
+	fnic->state_flags = FNIC_FLAGS_NONE;
+
 	/* Enable hardware stripping of vlan header on ingress */
 	fnic_set_nic_config(fnic, 0, 0, 0, 0, 0, 0, 1);
 
