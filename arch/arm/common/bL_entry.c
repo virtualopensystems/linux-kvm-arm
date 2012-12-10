@@ -106,6 +106,21 @@ void bL_cpu_power_down(void)
 	BUG();
 }
 
+void bL_cpu_suspend(u64 expected_residency)
+{
+	phys_reset_t phys_reset;
+
+	BUG_ON(!platform_ops);
+	BUG_ON(!irqs_disabled());
+
+	/* Very similar to bL_cpu_power_down() */
+	setup_mm_for_reboot();
+	platform_ops->suspend(expected_residency);
+	phys_reset = (phys_reset_t)(unsigned long)virt_to_phys(cpu_reset);
+	phys_reset(virt_to_phys(bL_entry_point));
+	BUG();
+}
+
 int bL_cpu_powered_up(void)
 {
 	if (!platform_ops)

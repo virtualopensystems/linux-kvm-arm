@@ -109,6 +109,28 @@ int bL_cpu_power_up(unsigned int cpu, unsigned int cluster);
 void bL_cpu_power_down(void);
 
 /**
+ * bL_cpu_suspend - bring the calling CPU in a suspended state
+ *
+ * @expected_residency: duration in microseconds the CPU is expected
+ *			to remain suspended, or 0 if unknown/infinity.
+ *
+ * The calling CPU is suspended.  The expected residency argument is used
+ * as a hint by the platform specific backend to implement the appropriate
+ * sleep state level according to the knowledge it has on wake-up latency
+ * for the given hardware.
+ *
+ * If this CPU is found to be the "last man standing" in the cluster
+ * then the cluster may be prepared for power-down too, if the expected
+ * residency makes it worthwhile.
+ *
+ * This must be called with interrupts disabled.
+ *
+ * This does not return.  Re-entry in the kernel is expected via
+ * bL_entry_point.
+ */
+void bL_cpu_suspend(u64 expected_residency);
+
+/**
  * bL_cpu_powered_up - housekeeping workafter a CPU has been powered up
  *
  * This lets the platform specific backend code perform needed housekeeping
@@ -125,6 +147,7 @@ int bL_cpu_powered_up(void);
 struct bL_platform_power_ops {
 	int (*power_up)(unsigned int cpu, unsigned int cluster);
 	void (*power_down)(void);
+	void (*suspend)(u64);
 	void (*powered_up)(void);
 };
 
