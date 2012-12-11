@@ -76,4 +76,100 @@
 		reg = <0x100C0000 0x100>;
 		interrupts = <2 4>;
 	};
+
+	sysmmu-mfcL {
+		mmuname = "mfc_l";
+		reg = <0x13620000 0x1000>;
+		compatible = "samsung,exynos-sysmmu";
+		interrupt-parent = <&combiner>;
+		interrupts = <5 5>;
+	};
+
+	sysmmu-mfcR {
+		mmuname = "mfc_r";
+		reg = <0x13630000 0x1000>;
+		compatible = "samsung,exynos-sysmmu";
+		interrupt-parent = <&combiner>;
+		interrupts = <5 6>;
+	};
+
+	sysmmu-tv {
+		mmuname = "tv";
+		reg = <0x13E20000 0x1000>;
+		compatible = "samsung,exynos-sysmmu";
+		interrupt-parent = <&combiner>;
+		interrupts = <5 4>;
+	};
+
+	sysmmu-fimc0 {
+		mmuname = "fimc0";
+		reg = <0x11A20000 0x1000>;
+		compatible = "samsung,exynos-sysmmu";
+		interrupt-parent = <&combiner>;
+		interrupts = <4 2>;
+	};
+
+	sysmmu-fimc1 {
+		mmuname = "fimc1";
+		reg = <0x11A30000 0x1000>;
+		compatible = "samsung,exynos-sysmmu";
+		interrupt-parent = <&combiner>;
+		interrupts = <4 3>;
+	};
+
+	sysmmu-fimc2 {
+		mmuname = "fimc2";
+		reg = <0x11A40000 0x1000>;
+		compatible = "samsung,exynos-sysmmu";
+		interrupt-parent = <&combiner>;
+		interrupts = <4 4>;
+	};
+
+	sysmmu-fimc3 {
+		mmuname = "fimc3";
+		reg = <0x11A50000 0x1000>;
+		compatible = "samsung,exynos-sysmmu";
+		interrupt-parent = <&combiner>;
+		interrupts = <4 5>;
+	};
+
+	sysmmu-jpeg {
+		mmuname = "jpeg";
+		reg = <0x11A60000 0x1000>;
+		compatible = "samsung,exynos-sysmmu";
+		interrupt-parent = <&combiner>;
+		interrupts = <4 6>;
+	};
+
+	sysmmu-g2d {
+		mmuname = "g2d";
+		reg = <0x12A20000 0x1000>;
+		compatible = "samsung,exynos-sysmmu";
+		interrupt-parent = <&combiner>;
+		interrupts = <4 7>;
+	};
+
+	sysmmu-rotator {
+		mmuname = "rotator";
+		reg = <0x12A30000 0x1000>;
+		compatible = "samsung,exynos-sysmmu";
+		interrupt-parent = <&combiner>;
+		interrupts = <5 0>;
+	};
+
+	sysmmu-fimd0 {
+		mmuname = "fimd0";
+		reg = <0x11E20000 0x1000>;
+		compatible = "samsung,exynos-sysmmu";
+		interrupt-parent = <&combiner>;
+		interrupts = <5 2>;
+	};
+
+	sysmmu-fimd1 {
+		mmuname = "fimd1";
+		reg = <0x12220000 0x1000>;
+		compatible = "samsung,exynos-sysmmu";
+		interrupt-parent = <&combiner>;
+		interrupts = <5 3>;
+	};
 };
