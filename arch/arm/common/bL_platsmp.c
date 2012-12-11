@@ -63,6 +63,11 @@ static int bL_cpu_disable(unsigned int cpu)
 
 static void __ref bL_cpu_die(unsigned int cpu)
 {
+	unsigned int mpidr, pcpu, pcluster;
+	asm ("mrc p15, 0, %0, c0, c0, 5" : "=r" (mpidr));
+	pcpu = mpidr & 0xff;
+	pcluster = (mpidr >> 8) & 0xff;
+	bL_set_entry_vector(pcpu, pcluster, NULL);
 	bL_cpu_power_down();
 }
 
