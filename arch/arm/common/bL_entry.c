@@ -282,7 +282,7 @@ int __init bL_cluster_sync_init(void (*power_up_setup)(void))
 		bL_sync.clusters[i].cluster = CLUSTER_DOWN;
 		bL_sync.clusters[i].inbound = INBOUND_NOT_COMING_UP;
 		for (j = 0; j < BL_CPUS_PER_CLUSTER; j++)
-			bL_sync.clusters[this_cluster].cpus[i].cpu = CPU_DOWN;
+			bL_sync.clusters[i].cpus[j].cpu = CPU_DOWN;
 	}
 	asm ("mrc p15, 0, %0, c0, c0, 5" : "=r" (mpidr));
 	this_cluster = (mpidr >> 8) & 0xf;
