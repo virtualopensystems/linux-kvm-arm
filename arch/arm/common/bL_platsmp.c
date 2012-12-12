@@ -68,6 +68,7 @@ static void __ref bL_cpu_die(unsigned int cpu)
 	pcpu = mpidr & 0xff;
 	pcluster = (mpidr >> 8) & 0xff;
 	bL_set_entry_vector(pcpu, pcluster, NULL);
+	gic_cpu_if_down();
 	bL_cpu_power_down();
 }
 
