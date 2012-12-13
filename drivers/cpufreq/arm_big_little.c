@@ -83,10 +83,12 @@ static int bl_cpufreq_set_target(struct cpufreq_policy *policy,
 
 	freqs.cpu = policy->cpu;
 
+	pr_debug("%s: cpu: %d, cluster: %d, oldfreq: %d, target freq: %d, new freq: %d\n",
+			__func__, cpu, cur_cluster, freqs.old, target_freq,
+			freqs.new);
+
 	if (freqs.old == freqs.new)
 		return 0;
-
-	pr_debug("Requested Freq %d cpu %d\n", freqs.new, cpu);
 
 	for_each_cpu(freqs.cpu, policy->cpus)
 		cpufreq_notify_transition(&freqs, CPUFREQ_PRECHANGE);
@@ -113,11 +115,14 @@ arm_bl_copy_table_from_array(unsigned int *table, int count)
 
 	struct cpufreq_frequency_table *freq_table;
 
+	pr_debug("%s: table: %p, count: %d\n", __func__, table, count);
+
 	freq_table = kmalloc(sizeof(*freq_table) * (count + 1), GFP_KERNEL);
 	if (!freq_table)
 		return NULL;
 
 	for (i = 0; i < count; i++) {
+		pr_debug("%s: index: %d, freq: %d\n", __func__, i, table[i]);
 		freq_table[i].index = i;
 		freq_table[i].frequency = table[i]; /* in kHZ */
 	}
@@ -131,6 +136,8 @@ EXPORT_SYMBOL_GPL(arm_bl_copy_table_from_array);
 
 void arm_bl_free_freq_table(u32 cluster)
 {
+	pr_debug("%s: free freq table\n", __func__);
+
 	kfree(freq_table[cluster]);
 }
 EXPORT_SYMBOL_GPL(arm_bl_free_freq_table);
