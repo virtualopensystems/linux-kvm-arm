@@ -1586,7 +1586,7 @@ config HAVE_ARM_TWD
 
 config BIG_LITTLE
 	bool "big.LITTLE support (Experimental)"
-	depends on CPU_V7 && EXPERIMENTAL
+	depends on CPU_V7 && SMP && EXPERIMENTAL
 	help
 	  This option enables support for the big.LITTLE architecture.
 
