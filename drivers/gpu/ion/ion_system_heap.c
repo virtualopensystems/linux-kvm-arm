@@ -78,8 +78,10 @@ static struct page *alloc_buffer_page(struct ion_system_heap *heap,
 		page = alloc_pages(gfp_flags, order);
 		if (!page)
 			return 0;
-		__dma_page_cpu_to_dev(page, 0, PAGE_SIZE << order,
-				      DMA_BIDIRECTIONAL);
+		dma_sync_single_for_device(NULL,
+					pfn_to_dma(NULL, page_to_pfn(page)),
+					PAGE_SIZE << order,
+					DMA_BIDIRECTIONAL);
 	}
 	if (!page)
 		return 0;
