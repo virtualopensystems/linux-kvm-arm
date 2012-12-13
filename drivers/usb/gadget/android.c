@@ -373,6 +373,17 @@ static int functionfs_check_dev_callback(const char *dev_name)
 }
 
 
+static void *functionfs_acquire_dev_callback(const char *dev_name)
+{
+	return 0;
+}
+
+static void functionfs_release_dev_callback(struct ffs_data *ffs_data)
+{
+}
+
+
+
 struct adb_data {
 	bool opened;
 	bool enabled;
