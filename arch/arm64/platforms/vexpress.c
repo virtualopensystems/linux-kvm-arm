@@ -140,8 +140,16 @@ static struct clcd_panel xvga_panel = {
 	.mode		= {
 		.name		= "XVGA",
 		.refresh	= 60,
+		/*
 		.xres		= 1024,
 		.yres		= 768,
+		*/
+		/*
+		.xres		= 800,
+		.yres		= 600,
+		*/
+		.xres		= 640,
+		.yres		= 480,
 		.pixclock	= 15384,
 		.left_margin	= 168,
 		.right_margin	= 8,
