@@ -16,6 +16,7 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
  */
 
+#include <linux/cpu.h>
 #include <linux/of_irq.h>
 #include <linux/kvm.h>
 #include <linux/kvm_host.h>
@@ -152,11 +153,30 @@ void kvm_timer_vcpu_init(struct kvm_vcpu *vcpu)
 
 static void kvm_timer_init_interrupt(void *info)
 {
-	unsigned int *irqp = info;
-
-	enable_percpu_irq(*irqp, 0);
+	enable_percpu_irq(timer_irq.irq, 0);
 }
 
+
+static int kvm_timer_cpu_notify(struct notifier_block *self,
+				unsigned long action, void *cpu)
+{
+	switch (action) {
+	case CPU_STARTING:
+	case CPU_STARTING_FROZEN:
+		kvm_timer_init_interrupt(NULL);
+		break;
+	case CPU_DYING:
+	case CPU_DYING_FROZEN:
+		disable_percpu_irq(timer_irq.irq);
+		break;
+	}
+
+	return NOTIFY_OK;
+}
+
+static struct notifier_block kvm_timer_cpu_nb = {
+	.notifier_call = kvm_timer_cpu_notify,
+};
 
 static const struct of_device_id arch_timer_of_match[] = {
 	{ .compatible	= "arm,armv7-timer",	},
@@ -195,16 +215,25 @@ int kvm_timer_hyp_init(void)
 
 	timer_irq.irq = ppi;
 
+	err = register_cpu_notifier(&kvm_timer_cpu_nb);
+	if (err) {
+		kvm_err("Cannot register timer CPU notifier\n");
+		goto out;
+	}
+
 	wqueue = create_singlethread_workqueue("kvm_arch_timer");
 	if (!wqueue) {
-		free_percpu_irq(ppi, kvm_get_running_vcpus());
-		return -ENOMEM;
+		err = -ENOMEM;
+		goto out;
 	}
 
 	kvm_info("%s IRQ%d\n", np->name, ppi);
-	on_each_cpu(kvm_timer_init_interrupt, &ppi, 1);
+	on_each_cpu(kvm_timer_init_interrupt, NULL, 1);
 
 	return 0;
+out:
+	free_percpu_irq(ppi, kvm_get_running_vcpus());
+	return err;
 }
 
 void kvm_timer_vcpu_terminate(struct kvm_vcpu *vcpu)
