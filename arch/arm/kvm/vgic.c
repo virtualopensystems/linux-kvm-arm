@@ -16,6 +16,7 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
  */
 
+#include <linux/cpu.h>
 #include <linux/kvm.h>
 #include <linux/kvm_host.h>
 #include <linux/interrupt.h>
@@ -91,6 +92,8 @@ static void vgic_update_state(struct kvm *kvm);
 static void vgic_kick_vcpus(struct kvm *kvm);
 static void vgic_dispatch_sgi(struct kvm_vcpu *vcpu, u32 reg);
 static u32 vgic_nr_lr;
+
+static unsigned int vgic_maint_irq;
 
 static u32 *vgic_bitmap_get_reg(struct vgic_bitmap *x,
 				int cpuid, u32 offset)
@@ -1273,15 +1276,33 @@ int kvm_vgic_vcpu_init(struct kvm_vcpu *vcpu)
 
 static void vgic_init_maintenance_interrupt(void *info)
 {
-	unsigned int *irqp = info;
-
-	enable_percpu_irq(*irqp, 0);
+	enable_percpu_irq(vgic_maint_irq, 0);
 }
+
+static int vgic_cpu_notify(struct notifier_block *self,
+			   unsigned long action, void *cpu)
+{
+	switch (action) {
+	case CPU_STARTING:
+	case CPU_STARTING_FROZEN:
+		vgic_init_maintenance_interrupt(NULL);
+		break;
+	case CPU_DYING:
+	case CPU_DYING_FROZEN:
+		disable_percpu_irq(vgic_maint_irq);
+		break;
+	}
+
+	return NOTIFY_OK;
+}
+
+static struct notifier_block vgic_cpu_nb = {
+	.notifier_call = vgic_cpu_notify,
+};
 
 int kvm_vgic_hyp_init(void)
 {
 	int ret;
-	unsigned int irq;
 	struct resource vctrl_res;
 	struct resource vcpu_res;
 
@@ -1289,15 +1310,21 @@ int kvm_vgic_hyp_init(void)
 	if (!vgic_node)
 		return -ENODEV;
 
-	irq = irq_of_parse_and_map(vgic_node, 0);
-	if (!irq)
+	vgic_maint_irq = irq_of_parse_and_map(vgic_node, 0);
+	if (!vgic_irq)
 		return -ENXIO;
 
-	ret = request_percpu_irq(irq, vgic_maintenance_handler,
+	ret = request_percpu_irq(vgic_maint_irq, vgic_maintenance_handler,
 				 "vgic", kvm_get_running_vcpus());
 	if (ret) {
-		kvm_err("Cannot register interrupt %d\n", irq);
+		kvm_err("Cannot register interrupt %d\n", vgic_maint_irq);
 		return ret;
+	}
+
+	ret = register_cpu_notifier(&vgic_cpu_nb);
+	if (ret) {
+		kvm_err("Cannot register vgic CPU notifier\n");
+		goto out_free_irq;
 	}
 
 	ret = of_address_to_resource(vgic_node, 2, &vctrl_res);
@@ -1324,8 +1351,9 @@ int kvm_vgic_hyp_init(void)
 		goto out_unmap;
 	}
 
-	kvm_info("%s@%llx IRQ%d\n", vgic_node->name, vctrl_res.start, irq);
-	on_each_cpu(vgic_init_maintenance_interrupt, &irq, 1);
+	kvm_info("%s@%llx IRQ%d\n", vgic_node->name,
+		 vctrl_res.start, vgic_maint_irq);
+	on_each_cpu(vgic_init_maintenance_interrupt, NULL, 1);
 
 	if (of_address_to_resource(vgic_node, 3, &vcpu_res)) {
 		kvm_err("Cannot obtain VCPU resource\n");
@@ -1339,7 +1367,7 @@ int kvm_vgic_hyp_init(void)
 out_unmap:
 	iounmap(vgic_vctrl_base);
 out_free_irq:
-	free_percpu_irq(irq, kvm_get_running_vcpus());
+	free_percpu_irq(vgic_maint_irq, kvm_get_running_vcpus());
 
 	return ret;
 }
