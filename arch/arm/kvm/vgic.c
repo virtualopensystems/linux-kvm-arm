@@ -1126,12 +1126,28 @@ static void vgic_kick_vcpus(struct kvm *kvm)
 	}
 }
 
+static int vgic_validate_injection(struct kvm_vcpu *vcpu, int irq, int level)
+{
+	int is_edge = vgic_irq_is_edge(vcpu, irq);
+	int state = vgic_dist_irq_is_pending(vcpu, irq);
+
+	/*
+	 * Only inject an interrupt if:
+	 * - edge triggered and we have a rising edge
+	 * - level triggered and we change level
+	 */
+	if (is_edge)
+		return level > state;
+	else
+		return level != state;
+}
+
 static bool vgic_update_irq_state(struct kvm *kvm, int cpuid,
 				  unsigned int irq_num, bool level)
 {
 	struct vgic_dist *dist = &kvm->arch.vgic;
 	struct kvm_vcpu *vcpu;
-	int is_edge, is_level, state;
+	int is_edge, is_level;
 	int enabled;
 	bool ret = true;
 
@@ -1140,14 +1156,8 @@ static bool vgic_update_irq_state(struct kvm *kvm, int cpuid,
 	vcpu = kvm_get_vcpu(kvm, cpuid);
 	is_edge = vgic_irq_is_edge(vcpu, irq_num);
 	is_level = !is_edge;
-	state = vgic_dist_irq_is_pending(vcpu, irq_num);
 
-	/*
-	 * Only inject an interrupt if:
-	 * - level triggered and we change level
-	 * - edge triggered and we have a rising edge
-	 */
-	if ((is_level && !(state ^ level)) || (is_edge && (state || !level))) {
+	if (!vgic_validate_injection(vcpu, irq_num, level)) {
 		ret = false;
 		goto out;
 	}
