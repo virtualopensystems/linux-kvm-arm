@@ -940,7 +940,7 @@ long kvm_arch_vm_ioctl(struct file *filp,
 		if (vgic_present)
 			return kvm_vgic_create(kvm);
 		else
-			return -EINVAL;
+			return -ENXIO;
 	}
 #endif
 	case KVM_SET_DEVICE_ADDRESS: {
