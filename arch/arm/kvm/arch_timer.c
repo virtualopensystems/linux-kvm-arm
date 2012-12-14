@@ -202,7 +202,8 @@ int kvm_timer_hyp_init(void)
 	ppi = irq_of_parse_and_map(np, 2);
 	if (!ppi) {
 		kvm_err("kvm_arch_timer: no virtual timer interrupt\n");
-		return -EINVAL;
+		err = -EINVAL;
+		goto out;
 	}
 
 	err = request_percpu_irq(ppi, kvm_arch_timer_handler,
@@ -210,7 +211,7 @@ int kvm_timer_hyp_init(void)
 	if (err) {
 		kvm_err("kvm_arch_timer: can't request interrupt %d (%d)\n",
 			ppi, err);
-		return err;
+		goto out;
 	}
 
 	timer_irq.irq = ppi;
@@ -218,21 +219,23 @@ int kvm_timer_hyp_init(void)
 	err = register_cpu_notifier(&kvm_timer_cpu_nb);
 	if (err) {
 		kvm_err("Cannot register timer CPU notifier\n");
-		goto out;
+		goto out_free;
 	}
 
 	wqueue = create_singlethread_workqueue("kvm_arch_timer");
 	if (!wqueue) {
 		err = -ENOMEM;
-		goto out;
+		goto out_free;
 	}
 
 	kvm_info("%s IRQ%d\n", np->name, ppi);
 	on_each_cpu(kvm_timer_init_interrupt, NULL, 1);
 
-	return 0;
-out:
+	goto out;
+out_free:
 	free_percpu_irq(ppi, kvm_get_running_vcpus());
+out:
+	of_node_put(np);
 	return err;
 }
 
