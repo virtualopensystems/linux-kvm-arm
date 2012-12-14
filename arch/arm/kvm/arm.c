@@ -193,11 +193,9 @@ int kvm_dev_ioctl_check_extension(long ext)
 {
 	int r;
 	switch (ext) {
-#ifdef CONFIG_KVM_ARM_VGIC
 	case KVM_CAP_IRQCHIP:
 		r = vgic_present;
 		break;
-#endif
 	case KVM_CAP_USER_MEMORY:
 	case KVM_CAP_SYNC_MMU:
 	case KVM_CAP_DESTROY_MEMORY_REGION_WORKS:
@@ -829,7 +827,6 @@ int kvm_vm_ioctl_irq_line(struct kvm *kvm, struct kvm_irq_level *irq_level)
 			return -EINVAL;
 
 		return vcpu_interrupt_line(vcpu, irq_num, level);
-#ifdef CONFIG_KVM_ARM_VGIC
 	case KVM_ARM_IRQ_TYPE_PPI:
 		if (!irqchip_in_kernel(kvm))
 			return -ENXIO;
@@ -853,7 +850,6 @@ int kvm_vm_ioctl_irq_line(struct kvm *kvm, struct kvm_irq_level *irq_level)
 			return -EINVAL;
 
 		return kvm_vgic_inject_irq(kvm, 0, irq_num, level);
-#endif
 	}
 
 	return -EINVAL;
@@ -935,14 +931,12 @@ long kvm_arch_vm_ioctl(struct file *filp,
 	void __user *argp = (void __user *)arg;
 
 	switch (ioctl) {
-#ifdef CONFIG_KVM_ARM_VGIC
 	case KVM_CREATE_IRQCHIP: {
 		if (vgic_present)
 			return kvm_vgic_create(kvm);
 		else
 			return -ENXIO;
 	}
-#endif
 	case KVM_SET_DEVICE_ADDRESS: {
 		struct kvm_device_address dev_addr;
 
@@ -1090,8 +1084,13 @@ static int init_hyp_mode(void)
 	/*
 	 * Init HYP view of VGIC
 	 */
-	if (!kvm_vgic_hyp_init())
+	err = kvm_vgic_hyp_init();
+	if (err)
+		goto out_free_vfp;
+
+#ifdef CONFIG_KVM_ARM_VGIC
 		vgic_present = true;
+#endif
 
 	/*
 	 * Init HYP architected timer support
