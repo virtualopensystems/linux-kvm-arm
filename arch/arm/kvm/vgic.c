@@ -153,9 +153,11 @@ static u32 *vgic_bytemap_get_reg(struct vgic_bytemap *x, int cpuid, u32 offset)
 #define VGIC_CFG_LEVEL	0
 #define VGIC_CFG_EDGE	1
 
-static bool vgic_irq_is_edge(struct vgic_dist *dist, int irq)
+static bool vgic_irq_is_edge(struct kvm_vcpu *vcpu, int irq)
 {
-	return vgic_bitmap_get_irq_val(&dist->irq_cfg, 0, irq) == VGIC_CFG_EDGE;
+	struct vgic_dist *dist = &vcpu->kvm->arch.vgic;
+
+	return vgic_bitmap_get_irq_val(&dist->irq_cfg, vcpu->vcpu_id, irq) == VGIC_CFG_EDGE;
 }
 
 static int vgic_irq_is_enabled(struct kvm_vcpu *vcpu, int irq)
@@ -163,6 +165,29 @@ static int vgic_irq_is_enabled(struct kvm_vcpu *vcpu, int irq)
 	struct vgic_dist *dist = &vcpu->kvm->arch.vgic;
 
 	return vgic_bitmap_get_irq_val(&dist->irq_enabled, vcpu->vcpu_id, irq);
+}
+
+static int vgic_irq_is_active(struct kvm_vcpu *vcpu, int irq)
+{
+	struct vgic_dist *dist = &vcpu->kvm->arch.vgic;
+
+	return vgic_bitmap_get_irq_val(&dist->irq_active, vcpu->vcpu_id, irq);
+}
+
+static void vgic_irq_set_active(struct kvm_vcpu *vcpu, int irq)
+{
+	struct vgic_dist *dist = &vcpu->kvm->arch.vgic;
+
+	vgic_bitmap_set_irq_val(&dist->irq_active, vcpu->vcpu_id, irq, 1);
+	atomic_inc(&vcpu->arch.vgic_cpu.irq_active_count);
+}
+
+static void vgic_irq_clear_active(struct kvm_vcpu *vcpu, int irq)
+{
+	struct vgic_dist *dist = &vcpu->kvm->arch.vgic;
+
+	vgic_bitmap_set_irq_val(&dist->irq_active, vcpu->vcpu_id, irq, 0);
+	atomic_dec(&vcpu->arch.vgic_cpu.irq_active_count);
 }
 
 static void vgic_dist_irq_set(struct kvm_vcpu *vcpu, int irq)
@@ -811,8 +836,7 @@ static void vgic_retire_disabled_irqs(struct kvm_vcpu *vcpu)
 static bool vgic_queue_irq(struct kvm_vcpu *vcpu, u8 sgi_source_id, int irq)
 {
 	struct vgic_cpu *vgic_cpu = &vcpu->arch.vgic_cpu;
-	struct vgic_dist *dist = &vcpu->kvm->arch.vgic;
-	int lr, is_level;
+	int lr;
 
 	/* Sanitize the input... */
 	BUG_ON(sgi_source_id & ~7);
@@ -822,7 +846,6 @@ static bool vgic_queue_irq(struct kvm_vcpu *vcpu, u8 sgi_source_id, int irq)
 	kvm_debug("Queue IRQ%d\n", irq);
 
 	lr = vgic_cpu->vgic_irq_lr_map[irq];
-	is_level = !vgic_irq_is_edge(dist, irq);
 
 	/* Do we have an active interrupt for the same CPUID? */
 	if (lr != LR_EMPTY &&
@@ -830,11 +853,8 @@ static bool vgic_queue_irq(struct kvm_vcpu *vcpu, u8 sgi_source_id, int irq)
 		kvm_debug("LR%d piggyback for IRQ%d %x\n", lr, irq, vgic_cpu->vgic_lr[lr]);
 		BUG_ON(!test_bit(lr, vgic_cpu->lr_used));
 		vgic_cpu->vgic_lr[lr] |= VGIC_LR_PENDING_BIT;
-		if (is_level) {
-			vgic_cpu->vgic_lr[lr] |= VGIC_LR_EOI;
-			atomic_inc(&vgic_cpu->irq_active_count);
-		}
-		return true;
+
+		goto out;
 	}
 
 	/* Try to use another LR for this interrupt */
@@ -845,15 +865,66 @@ static bool vgic_queue_irq(struct kvm_vcpu *vcpu, u8 sgi_source_id, int irq)
 
 	kvm_debug("LR%d allocated for IRQ%d %x\n", lr, irq, sgi_source_id);
 	vgic_cpu->vgic_lr[lr] = MK_LR_PEND(sgi_source_id, irq);
-	if (is_level) {
-		vgic_cpu->vgic_lr[lr] |= VGIC_LR_EOI;
-		atomic_inc(&vgic_cpu->irq_active_count);
-	}
-
 	vgic_cpu->vgic_irq_lr_map[irq] = lr;
 	set_bit(lr, vgic_cpu->lr_used);
 
+out:
+	if (!vgic_irq_is_edge(vcpu, irq))
+		vgic_cpu->vgic_lr[lr] |= VGIC_LR_EOI;
+
 	return true;
+}
+
+static bool vgic_queue_sgi(struct kvm_vcpu *vcpu, int irq)
+{
+	struct vgic_dist *dist = &vcpu->kvm->arch.vgic;
+	unsigned long sources;
+	int vcpu_id = vcpu->vcpu_id;
+	int c;
+
+	sources = dist->irq_sgi_sources[vcpu_id][irq];
+
+	for_each_set_bit(c, &sources, VGIC_MAX_CPUS) {
+		if (vgic_queue_irq(vcpu, c, irq))
+			clear_bit(c, &sources);
+	}
+
+	dist->irq_sgi_sources[vcpu_id][irq] = sources;
+
+	/*
+	 * If the sources bitmap has been cleared it means that we
+	 * could queue all the SGIs onto link registers (see the
+	 * clear_bit above), and therefore we are done with them in
+	 * our emulated gic and can get rid of them.
+	 */
+	if (!sources) {
+		vgic_dist_irq_clear(vcpu, irq);
+		vgic_cpu_irq_clear(vcpu, irq);
+		return true;
+	}
+
+	return false;
+}
+
+static bool vgic_queue_hwirq(struct kvm_vcpu *vcpu, int irq)
+{
+	struct vgic_dist *dist = &vcpu->kvm->arch.vgic;
+
+	if (vgic_bitmap_get_irq_val(&dist->irq_active, vcpu->vcpu_id, irq))
+		return true; /* level interrupt, already queued */
+
+	if (vgic_queue_irq(vcpu, 0, irq)) {
+		if (vgic_irq_is_edge(vcpu, irq)) {
+			vgic_dist_irq_clear(vcpu, irq);
+			vgic_cpu_irq_clear(vcpu, irq);
+		} else {
+			vgic_irq_set_active(vcpu, irq);
+		}
+
+		return true;
+	}
+
+	return false;
 }
 
 /*
@@ -864,7 +935,7 @@ static void __kvm_vgic_sync_to_cpu(struct kvm_vcpu *vcpu)
 {
 	struct vgic_cpu *vgic_cpu = &vcpu->arch.vgic_cpu;
 	struct vgic_dist *dist = &vcpu->kvm->arch.vgic;
-	int i, c, vcpu_id;
+	int i, vcpu_id;
 	int overflow = 0;
 
 	vcpu_id = vcpu->vcpu_id;
@@ -883,62 +954,20 @@ static void __kvm_vgic_sync_to_cpu(struct kvm_vcpu *vcpu)
 
 	/* SGIs */
 	for_each_set_bit(i, vgic_cpu->pending_percpu, VGIC_NR_SGIS) {
-		unsigned long sources;
-
-		sources = dist->irq_sgi_sources[vcpu_id][i];
-		for_each_set_bit(c, &sources, 8) {
-			if (!vgic_queue_irq(vcpu, c, i)) {
-				overflow = 1;
-				continue;
-			}
-
-			clear_bit(c, &sources);
-		}
-
-		/*
-		 * If the sources bitmap has been cleared it means that we
-		 * could queue all the SGIs onto link registers (see the
-		 * clear_bit above), and therefore we are done with them in
-		 * our emulated gic and can get rid of them.
-		 */
-		if (!sources) {
-			vgic_dist_irq_clear(vcpu, i);
-			vgic_cpu_irq_clear(vcpu, i);
-		}
-
-		dist->irq_sgi_sources[vcpu_id][i] = sources;
+		if (!vgic_queue_sgi(vcpu, i))
+			overflow = 1;
 	}
 
 	/* PPIs */
 	for_each_set_bit_from(i, vgic_cpu->pending_percpu, VGIC_NR_PRIVATE_IRQS) {
-		if (!vgic_queue_irq(vcpu, 0, i)) {
+		if (!vgic_queue_hwirq(vcpu, i))
 			overflow = 1;
-			continue;
-		}
-
-		vgic_dist_irq_clear(vcpu, i);
-		vgic_cpu_irq_clear(vcpu, i);
 	}
-
 
 	/* SPIs */
 	for_each_set_bit(i, vgic_cpu->pending_shared, VGIC_NR_SHARED_IRQS) {
-		int irq = i + VGIC_NR_PRIVATE_IRQS;
-		if (vgic_bitmap_get_irq_val(&dist->irq_active, 0, irq))
-			continue; /* level interrupt, already queued */
-
-		if (!vgic_queue_irq(vcpu, 0, irq)) {
+		if (!vgic_queue_hwirq(vcpu, i + VGIC_NR_PRIVATE_IRQS))
 			overflow = 1;
-			continue;
-		}
-
-		/* Immediate clear on edge, set active on level */
-		if (vgic_irq_is_edge(dist, irq)) {
-			vgic_dist_irq_clear(vcpu, irq);
-			vgic_cpu_irq_clear(vcpu, irq);
-		} else {
-			vgic_bitmap_set_irq_val(&dist->irq_active, 0, irq, 1);
-		}
 	}
 
 epilog:
@@ -1046,7 +1075,8 @@ static bool vgic_update_irq_state(struct kvm *kvm, int cpuid,
 
 	spin_lock(&dist->lock);
 
-	is_edge = vgic_irq_is_edge(dist, irq_num);
+	vcpu = kvm_get_vcpu(kvm, cpuid);
+	is_edge = vgic_irq_is_edge(vcpu, irq_num);
 	is_level = !is_edge;
 	state = vgic_bitmap_get_irq_val(&dist->irq_state, cpuid, irq_num);
 
@@ -1060,12 +1090,12 @@ static bool vgic_update_irq_state(struct kvm *kvm, int cpuid,
 		goto out;
 	}
 
-	if (irq_num >= VGIC_NR_PRIVATE_IRQS)
+	if (irq_num >= VGIC_NR_PRIVATE_IRQS) {
 		cpuid = dist->irq_spi_cpu[irq_num - VGIC_NR_PRIVATE_IRQS];
+		vcpu = kvm_get_vcpu(kvm, cpuid);
+	}
 
 	kvm_debug("Inject IRQ%d level %d CPU%d\n", irq_num, level, cpuid);
-
-	vcpu = kvm_get_vcpu(kvm, cpuid);
 
 	if (level)
 		vgic_dist_irq_set(vcpu, irq_num);
@@ -1079,8 +1109,7 @@ static bool vgic_update_irq_state(struct kvm *kvm, int cpuid,
 		goto out;
 	}
 
-	if (is_level && vgic_bitmap_get_irq_val(&dist->irq_active,
-						cpuid, irq_num)) {
+	if (is_level && vgic_irq_is_active(vcpu, irq_num)) {
 		/*
 		 * Level interrupt in progress, will be picked up
 		 * when EOId.
@@ -1161,10 +1190,7 @@ static irqreturn_t vgic_maintenance_handler(int irq, void *data)
 				 vgic_cpu->nr_lr) {
 			irq = vgic_cpu->vgic_lr[lr] & VGIC_LR_VIRTUALID;
 
-			vgic_bitmap_set_irq_val(&dist->irq_active,
-						vcpu->vcpu_id, irq, 0);
-			atomic_dec(&vgic_cpu->irq_active_count);
-			smp_mb();
+			vgic_irq_clear_active(vcpu, irq);
 			vgic_cpu->vgic_lr[lr] &= ~VGIC_LR_EOI;
 			writel_relaxed(vgic_cpu->vgic_lr[lr],
 				       dist->vctrl_base + GICH_LR0 + (lr << 2));
