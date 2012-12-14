@@ -180,7 +180,6 @@ static void vgic_irq_set_active(struct kvm_vcpu *vcpu, int irq)
 	struct vgic_dist *dist = &vcpu->kvm->arch.vgic;
 
 	vgic_bitmap_set_irq_val(&dist->irq_active, vcpu->vcpu_id, irq, 1);
-	atomic_inc(&vcpu->arch.vgic_cpu.irq_active_count);
 }
 
 static void vgic_irq_clear_active(struct kvm_vcpu *vcpu, int irq)
@@ -188,7 +187,13 @@ static void vgic_irq_clear_active(struct kvm_vcpu *vcpu, int irq)
 	struct vgic_dist *dist = &vcpu->kvm->arch.vgic;
 
 	vgic_bitmap_set_irq_val(&dist->irq_active, vcpu->vcpu_id, irq, 0);
-	atomic_dec(&vcpu->arch.vgic_cpu.irq_active_count);
+}
+
+static int vgic_dist_irq_is_pending(struct kvm_vcpu *vcpu, int irq)
+{
+	struct vgic_dist *dist = &vcpu->kvm->arch.vgic;
+
+	return vgic_bitmap_get_irq_val(&dist->irq_state, vcpu->vcpu_id, irq);
 }
 
 static void vgic_dist_irq_set(struct kvm_vcpu *vcpu, int irq)
@@ -987,6 +992,58 @@ epilog:
 	}
 }
 
+static bool vgic_process_maintenance(struct kvm_vcpu *vcpu)
+{
+	struct vgic_cpu *vgic_cpu = &vcpu->arch.vgic_cpu;
+	bool level_pending = false;
+
+	kvm_debug("MISR = %08x\n", vgic_cpu->vgic_misr);
+
+	/*
+	 * We do not need to take the distributor lock here, since the only
+	 * action we perform is clearing the irq_active_bit for an EOIed
+	 * level interrupt.  There is a potential race with
+	 * the queuing of an interrupt in __kvm_sync_to_cpu(), where we check
+	 * if the interrupt is already active. Two possibilities:
+	 *
+	 * - The queuing is occurring on the same vcpu: cannot happen,
+	 *   as we're already in the context of this vcpu, and
+	 *   executing the handler
+	 * - The interrupt has been migrated to another vcpu, and we
+	 *   ignore this interrupt for this run. Big deal. It is still
+	 *   pending though, and will get considered when this vcpu
+	 *   exits.
+	 */
+	if (vgic_cpu->vgic_misr & VGIC_MISR_EOI) {
+		/*
+		 * Some level interrupts have been EOIed. Clear their
+		 * active bit.
+		 */
+		int lr, irq;
+
+		for_each_set_bit(lr, (unsigned long *)vgic_cpu->vgic_eisr,
+				 vgic_cpu->nr_lr) {
+			irq = vgic_cpu->vgic_lr[lr] & VGIC_LR_VIRTUALID;
+
+			vgic_irq_clear_active(vcpu, irq);
+			vgic_cpu->vgic_lr[lr] &= ~VGIC_LR_EOI;
+
+			/* Any additional pending interrupt? */
+			if (vgic_dist_irq_is_pending(vcpu, irq)) {
+				vgic_cpu_irq_set(vcpu, irq);
+				level_pending = true;
+			} else {
+				vgic_cpu_irq_clear(vcpu, irq);
+			}
+		}
+	}
+
+	if (vgic_cpu->vgic_misr & VGIC_MISR_U)
+		vgic_cpu->vgic_hcr &= ~VGIC_HCR_UIE;
+
+	return level_pending;
+}
+
 /*
  * Sync back the VGIC state after a guest run. We do not really touch
  * the distributor here (the irq_pending_on_cpu bit is safe to set),
@@ -997,6 +1054,9 @@ static void __kvm_vgic_sync_from_cpu(struct kvm_vcpu *vcpu)
 	struct vgic_cpu *vgic_cpu = &vcpu->arch.vgic_cpu;
 	struct vgic_dist *dist = &vcpu->kvm->arch.vgic;
 	int lr, pending;
+	bool level_pending;
+
+	level_pending = vgic_process_maintenance(vcpu);
 
 	/* Clear mappings for empty LRs */
 	for_each_set_bit(lr, (unsigned long *)vgic_cpu->vgic_elrsr,
@@ -1015,10 +1075,8 @@ static void __kvm_vgic_sync_from_cpu(struct kvm_vcpu *vcpu)
 	/* Check if we still have something up our sleeve... */
 	pending = find_first_zero_bit((unsigned long *)vgic_cpu->vgic_elrsr,
 				      vgic_cpu->nr_lr);
-	if (pending < vgic_cpu->nr_lr) {
+	if (level_pending || pending < vgic_cpu->nr_lr)
 		set_bit(vcpu->vcpu_id, &dist->irq_pending_on_cpu);
-		smp_mb();
-	}
 }
 
 void kvm_vgic_sync_to_cpu(struct kvm_vcpu *vcpu)
@@ -1080,7 +1138,7 @@ static bool vgic_update_irq_state(struct kvm *kvm, int cpuid,
 	vcpu = kvm_get_vcpu(kvm, cpuid);
 	is_edge = vgic_irq_is_edge(vcpu, irq_num);
 	is_level = !is_edge;
-	state = vgic_bitmap_get_irq_val(&dist->irq_state, cpuid, irq_num);
+	state = vgic_dist_irq_is_pending(vcpu, irq_num);
 
 	/*
 	 * Only inject an interrupt if:
@@ -1156,64 +1214,12 @@ int kvm_vgic_inject_irq(struct kvm *kvm, int cpuid, unsigned int irq_num,
 
 static irqreturn_t vgic_maintenance_handler(int irq, void *data)
 {
-	struct kvm_vcpu *vcpu = *(struct kvm_vcpu **)data;
-	struct vgic_dist *dist;
-	struct vgic_cpu *vgic_cpu;
-
-	if (WARN(!vcpu,
-		 "VGIC interrupt on CPU %d with no vcpu\n", smp_processor_id()))
-		return IRQ_HANDLED;
-
-	vgic_cpu = &vcpu->arch.vgic_cpu;
-	dist = &vcpu->kvm->arch.vgic;
-	kvm_debug("MISR = %08x\n", vgic_cpu->vgic_misr);
-
 	/*
-	 * We do not need to take the distributor lock here, since the only
-	 * action we perform is clearing the irq_active_bit for an EOIed
-	 * level interrupt.  There is a potential race with
-	 * the queuing of an interrupt in __kvm_sync_to_cpu(), where we check
-	 * if the interrupt is already active. Two possibilities:
-	 *
-	 * - The queuing is occuring on the same vcpu: cannot happen, as we're
-	 *   already in the context of this vcpu, and executing the handler
-	 * - The interrupt has been migrated to another vcpu, and we ignore
-	 *   this interrupt for this run. Big deal. It is still pending though,
-	 *   and will get considered when this vcpu exits.
+	 * We cannot rely on the vgic maintenance interrupt to be
+	 * delivered synchronously. This means we can only use it to
+	 * exit the VM, and we perform the handling of EOIed
+	 * interrupts on the exit path (see vgic_process_maintenance).
 	 */
-	if (vgic_cpu->vgic_misr & VGIC_MISR_EOI) {
-		/*
-		 * Some level interrupts have been EOIed. Clear their
-		 * active bit.
-		 */
-		int lr, irq;
-
-		for_each_set_bit(lr, (unsigned long *)vgic_cpu->vgic_eisr,
-				 vgic_cpu->nr_lr) {
-			irq = vgic_cpu->vgic_lr[lr] & VGIC_LR_VIRTUALID;
-
-			vgic_irq_clear_active(vcpu, irq);
-			vgic_cpu->vgic_lr[lr] &= ~VGIC_LR_EOI;
-			writel_relaxed(vgic_cpu->vgic_lr[lr],
-				       dist->vctrl_base + GICH_LR0 + (lr << 2));
-
-			/* Any additionnal pending interrupt? */
-			if (vgic_bitmap_get_irq_val(&dist->irq_state,
-						    vcpu->vcpu_id, irq)) {
-				vgic_cpu_irq_set(vcpu, irq);
-				set_bit(vcpu->vcpu_id,
-					&dist->irq_pending_on_cpu);
-			} else {
-				vgic_cpu_irq_clear(vcpu, irq);
-			}
-		}
-	}
-
-	if (vgic_cpu->vgic_misr & VGIC_MISR_U) {
-		vgic_cpu->vgic_hcr &= ~VGIC_HCR_UIE;
-		writel_relaxed(vgic_cpu->vgic_hcr, dist->vctrl_base + GICH_HCR);
-	}
-
 	return IRQ_HANDLED;
 }
 

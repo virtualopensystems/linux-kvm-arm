@@ -416,6 +416,10 @@ vcpu	.req	r0		@ vcpu pointer always in r0
 	str	r9, [r11, #(VGIC_CPU_ELRSR + 4)]
 	str	r10, [r11, #VGIC_CPU_APR]
 
+	/* Clear GICH_HCR */
+	mov	r5, #0
+	str	r5, [r2, #GICH_HCR]
+
 	/* Save list registers */
 	add	r2, r2, #GICH_LR0
 	add	r3, r11, #VGIC_CPU_LR
