@@ -663,9 +663,12 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 	if (unlikely(vcpu->arch.target < 0))
 		return -ENOEXEC;
 
-	/* Initalize the VGIC before running a vcpu the first time on this VM */
-	if (unlikely(irqchip_in_kernel(vcpu->kvm) &&
-		     !vgic_initialized(vcpu->kvm))) {
+	/*
+	 * Initialize the VGIC before running a vcpu the first time on
+	 * this VM.
+	 */
+	if (irqchip_in_kernel(vcpu->kvm) &&
+	    unlikely(!vgic_initialized(vcpu->kvm))) {
 		ret = kvm_vgic_init(vcpu->kvm);
 		if (ret)
 			return ret;
