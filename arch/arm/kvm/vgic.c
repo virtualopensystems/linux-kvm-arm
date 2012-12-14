@@ -895,6 +895,12 @@ static void __kvm_vgic_sync_to_cpu(struct kvm_vcpu *vcpu)
 			clear_bit(c, &sources);
 		}
 
+		/*
+		 * If the sources bitmap has been cleared it means that we
+		 * could queue all the SGIs onto link registers (see the
+		 * clear_bit above), and therefore we are done with them in
+		 * our emulated gic and can get rid of them.
+		 */
 		if (!sources) {
 			vgic_dist_irq_clear(vcpu, i);
 			vgic_cpu_irq_clear(vcpu, i);
