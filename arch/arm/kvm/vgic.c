@@ -1410,7 +1410,7 @@ out:
 
 int kvm_vgic_create(struct kvm *kvm)
 {
-	int ret;
+	int ret = 0;
 
 	mutex_lock(&kvm->lock);
 
@@ -1424,7 +1424,6 @@ int kvm_vgic_create(struct kvm *kvm)
 	kvm->arch.vgic.vgic_dist_base = VGIC_ADDR_UNDEF;
 	kvm->arch.vgic.vgic_cpu_base = VGIC_ADDR_UNDEF;
 
-	ret = 0;
 out:
 	mutex_unlock(&kvm->lock);
 	return ret;
