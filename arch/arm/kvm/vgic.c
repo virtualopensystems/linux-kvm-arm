@@ -1311,14 +1311,16 @@ int kvm_vgic_hyp_init(void)
 		return -ENODEV;
 
 	vgic_maint_irq = irq_of_parse_and_map(vgic_node, 0);
-	if (!vgic_irq)
-		return -ENXIO;
+	if (!vgic_maint_irq) {
+		ret = -ENXIO;
+		goto out;
+	}
 
 	ret = request_percpu_irq(vgic_maint_irq, vgic_maintenance_handler,
 				 "vgic", kvm_get_running_vcpus());
 	if (ret) {
 		kvm_err("Cannot register interrupt %d\n", vgic_maint_irq);
-		return ret;
+		goto out;
 	}
 
 	ret = register_cpu_notifier(&vgic_cpu_nb);
@@ -1362,13 +1364,14 @@ int kvm_vgic_hyp_init(void)
 	}
 	vgic_vcpu_base = vcpu_res.start;
 
-	return 0;
+	goto out;
 
 out_unmap:
 	iounmap(vgic_vctrl_base);
 out_free_irq:
 	free_percpu_irq(vgic_maint_irq, kvm_get_running_vcpus());
-
+out:
+	of_node_put(vgic_node);
 	return ret;
 }
 
