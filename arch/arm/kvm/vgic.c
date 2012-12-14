@@ -86,6 +86,7 @@ static struct device_node *vgic_node;
 #define ACCESS_WRITE_VALUE	(3 << 1)
 #define ACCESS_WRITE_MASK(x)	((x) & (3 << 1))
 
+static void vgic_retire_disabled_irqs(struct kvm_vcpu *vcpu);
 static void vgic_update_state(struct kvm *kvm);
 static void vgic_kick_vcpus(struct kvm *kvm);
 static void vgic_dispatch_sgi(struct kvm_vcpu *vcpu, u32 reg);
@@ -354,6 +355,7 @@ static bool handle_mmio_clear_enable_reg(struct kvm_vcpu *vcpu,
 	if (mmio->is_write) {
 		if (offset < 4) /* Force SGI enabled */
 			*reg |= 0xffff;
+		vgic_retire_disabled_irqs(vcpu);
 		vgic_update_state(vcpu->kvm);
 		return true;
 	}
@@ -825,6 +827,8 @@ static void vgic_retire_disabled_irqs(struct kvm_vcpu *vcpu)
 			vgic_cpu->vgic_irq_lr_map[irq] = LR_EMPTY;
 			clear_bit(lr, vgic_cpu->lr_used);
 			vgic_cpu->vgic_lr[lr] &= ~VGIC_LR_STATE;
+			if (vgic_irq_is_active(vcpu, irq))
+				vgic_irq_clear_active(vcpu, irq);
 		}
 	}
 }
@@ -939,8 +943,6 @@ static void __kvm_vgic_sync_to_cpu(struct kvm_vcpu *vcpu)
 	int overflow = 0;
 
 	vcpu_id = vcpu->vcpu_id;
-
-	vgic_retire_disabled_irqs(vcpu);
 
 	/*
 	 * We may not have any pending interrupt, or the interrupts
