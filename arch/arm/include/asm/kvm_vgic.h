@@ -25,6 +25,7 @@
 #include <linux/irqreturn.h>
 #include <linux/spinlock.h>
 #include <linux/types.h>
+#include <asm/hardware/gic.h>
 
 #define VGIC_NR_IRQS		128
 #define VGIC_NR_SGIS		16
@@ -49,7 +50,7 @@
 /*
  * The GIC distributor registers describing interrupts have two parts:
  * - 32 per-CPU interrupts (SGI + PPI)
- * - a bunch of shared interrups (SPI)
+ * - a bunch of shared interrupts (SPI)
  */
 struct vgic_bitmap {
 	union {
@@ -134,19 +135,6 @@ struct vgic_cpu {
 	u32		vgic_lr[64];	/* A15 has only 4... */
 #endif
 };
-
-#define VGIC_HCR_EN		(1 << 0)
-#define VGIC_HCR_UIE		(1 << 1)
-
-#define VGIC_LR_VIRTUALID	(0x3ff << 0)
-#define VGIC_LR_PHYSID_CPUID	(7 << 10)
-#define VGIC_LR_STATE		(3 << 28)
-#define VGIC_LR_PENDING_BIT	(1 << 28)
-#define VGIC_LR_ACTIVE_BIT	(1 << 29)
-#define VGIC_LR_EOI		(1 << 19)
-
-#define VGIC_MISR_EOI		(1 << 0)
-#define VGIC_MISR_U		(1 << 1)
 
 #define LR_EMPTY	0xff
 
