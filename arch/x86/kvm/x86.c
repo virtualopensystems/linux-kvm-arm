@@ -831,6 +831,7 @@ static u32 msrs_to_save[] = {
 static unsigned num_msrs_to_save;
 
 static const u32 emulated_msrs[] = {
+	MSR_IA32_TSC_ADJUST,
 	MSR_IA32_TSCDEADLINE,
 	MSR_IA32_MISC_ENABLE,
 	MSR_IA32_MCG_STATUS,
@@ -890,9 +891,9 @@ EXPORT_SYMBOL_GPL(kvm_enable_efer_bits);
  * Returns 0 on success, non-0 otherwise.
  * Assumes vcpu_load() was already called.
  */
-int kvm_set_msr(struct kvm_vcpu *vcpu, u32 msr_index, u64 data)
+int kvm_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr)
 {
-	return kvm_x86_ops->set_msr(vcpu, msr_index, data);
+	return kvm_x86_ops->set_msr(vcpu, msr);
 }
 
 /*
@@ -900,7 +901,12 @@ int kvm_set_msr(struct kvm_vcpu *vcpu, u32 msr_index, u64 data)
  */
 static int do_set_msr(struct kvm_vcpu *vcpu, unsigned index, u64 *data)
 {
-	return kvm_set_msr(vcpu, index, *data);
+	struct msr_data msr;
+
+	msr.data = *data;
+	msr.index = index;
+	msr.host_initiated = true;
+	return kvm_set_msr(vcpu, &msr);
 }
 
 #ifdef CONFIG_X86_64
@@ -1130,13 +1136,20 @@ void kvm_track_tsc_matching(struct kvm_vcpu *vcpu)
 #endif
 }
 
-void kvm_write_tsc(struct kvm_vcpu *vcpu, u64 data)
+static void update_ia32_tsc_adjust_msr(struct kvm_vcpu *vcpu, s64 offset)
+{
+	u64 curr_offset = kvm_x86_ops->read_tsc_offset(vcpu);
+	vcpu->arch.ia32_tsc_adjust_msr += offset - curr_offset;
+}
+
+void kvm_write_tsc(struct kvm_vcpu *vcpu, struct msr_data *msr)
 {
 	struct kvm *kvm = vcpu->kvm;
 	u64 offset, ns, elapsed;
 	unsigned long flags;
 	s64 usdiff;
 	bool matched;
+	u64 data = msr->data;
 
 	raw_spin_lock_irqsave(&kvm->arch.tsc_write_lock, flags);
 	offset = kvm_x86_ops->compute_tsc_offset(vcpu, data);
@@ -1216,6 +1229,8 @@ void kvm_write_tsc(struct kvm_vcpu *vcpu, u64 data)
 	vcpu->arch.this_tsc_nsec = kvm->arch.cur_tsc_nsec;
 	vcpu->arch.this_tsc_write = kvm->arch.cur_tsc_write;
 
+	if (guest_cpuid_has_tsc_adjust(vcpu) && !msr->host_initiated)
+		update_ia32_tsc_adjust_msr(vcpu, offset);
 	kvm_x86_ops->write_tsc_offset(vcpu, offset);
 	raw_spin_unlock_irqrestore(&kvm->arch.tsc_write_lock, flags);
 
@@ -1857,9 +1872,11 @@ static void record_steal_time(struct kvm_vcpu *vcpu)
 		&vcpu->arch.st.steal, sizeof(struct kvm_steal_time));
 }
 
-int kvm_set_msr_common(struct kvm_vcpu *vcpu, u32 msr, u64 data)
+int kvm_set_msr_common(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 {
 	bool pr = false;
+	u32 msr = msr_info->index;
+	u64 data = msr_info->data;
 
 	switch (msr) {
 	case MSR_EFER:
@@ -1909,6 +1926,15 @@ int kvm_set_msr_common(struct kvm_vcpu *vcpu, u32 msr, u64 data)
 		return kvm_x2apic_msr_write(vcpu, msr, data);
 	case MSR_IA32_TSCDEADLINE:
 		kvm_set_lapic_tscdeadline_msr(vcpu, data);
+		break;
+	case MSR_IA32_TSC_ADJUST:
+		if (guest_cpuid_has_tsc_adjust(vcpu)) {
+			if (!msr_info->host_initiated) {
+				u64 adj = data - vcpu->arch.ia32_tsc_adjust_msr;
+				kvm_x86_ops->adjust_tsc_offset(vcpu, adj, true);
+			}
+			vcpu->arch.ia32_tsc_adjust_msr = data;
+		}
 		break;
 	case MSR_IA32_MISC_ENABLE:
 		vcpu->arch.ia32_misc_enable_msr = data;
@@ -2269,6 +2295,9 @@ int kvm_get_msr_common(struct kvm_vcpu *vcpu, u32 msr, u64 *pdata)
 	case MSR_IA32_TSCDEADLINE:
 		data = kvm_get_lapic_tscdeadline_msr(vcpu);
 		break;
+	case MSR_IA32_TSC_ADJUST:
+		data = (u64)vcpu->arch.ia32_tsc_adjust_msr;
+		break;
 	case MSR_IA32_MISC_ENABLE:
 		data = vcpu->arch.ia32_misc_enable_msr;
 		break;
@@ -2489,7 +2518,7 @@ int kvm_dev_ioctl_check_extension(long ext)
 		r = KVM_MAX_VCPUS;
 		break;
 	case KVM_CAP_NR_MEMSLOTS:
-		r = KVM_MEMORY_SLOTS;
+		r = KVM_USER_MEM_SLOTS;
 		break;
 	case KVM_CAP_PV_MMU:	/* obsolete */
 		r = 0;
@@ -2977,6 +3006,7 @@ long kvm_arch_vcpu_ioctl(struct file *filp,
 		break;
 	}
 	case KVM_SET_LAPIC: {
+		r = -EINVAL;
 		if (!vcpu->arch.apic)
 			goto out;
 		u.lapic = memdup_user(argp, sizeof(*u.lapic));
@@ -3405,7 +3435,7 @@ int kvm_vm_ioctl_get_dirty_log(struct kvm *kvm, struct kvm_dirty_log *log)
 	mutex_lock(&kvm->slots_lock);
 
 	r = -EINVAL;
-	if (log->slot >= KVM_MEMORY_SLOTS)
+	if (log->slot >= KVM_USER_MEM_SLOTS)
 		goto out;
 
 	memslot = id_to_memslot(kvm->memslots, log->slot);
@@ -4524,7 +4554,12 @@ static int emulator_get_msr(struct x86_emulate_ctxt *ctxt,
 static int emulator_set_msr(struct x86_emulate_ctxt *ctxt,
 			    u32 msr_index, u64 data)
 {
-	return kvm_set_msr(emul_to_vcpu(ctxt), msr_index, data);
+	struct msr_data msr;
+
+	msr.data = data;
+	msr.index = msr_index;
+	msr.host_initiated = false;
+	return kvm_set_msr(emul_to_vcpu(ctxt), &msr);
 }
 
 static int emulator_read_pmc(struct x86_emulate_ctxt *ctxt,
@@ -6386,11 +6421,15 @@ int kvm_arch_vcpu_setup(struct kvm_vcpu *vcpu)
 int kvm_arch_vcpu_postcreate(struct kvm_vcpu *vcpu)
 {
 	int r;
+	struct msr_data msr;
 
 	r = vcpu_load(vcpu);
 	if (r)
 		return r;
-	kvm_write_tsc(vcpu, 0);
+	msr.data = 0x0;
+	msr.index = MSR_IA32_TSC;
+	msr.host_initiated = true;
+	kvm_write_tsc(vcpu, &msr);
 	vcpu_put(vcpu);
 
 	return r;
@@ -6432,6 +6471,10 @@ static int kvm_vcpu_reset(struct kvm_vcpu *vcpu)
 	vcpu->arch.apf.halted = false;
 
 	kvm_pmu_reset(vcpu);
+
+	memset(vcpu->arch.regs, 0, sizeof(vcpu->arch.regs));
+	vcpu->arch.regs_avail = ~0;
+	vcpu->arch.regs_dirty = ~0;
 
 	return kvm_x86_ops->vcpu_reset(vcpu);
 }
@@ -6601,10 +6644,17 @@ int kvm_arch_vcpu_init(struct kvm_vcpu *vcpu)
 	if (!zalloc_cpumask_var(&vcpu->arch.wbinvd_dirty_mask, GFP_KERNEL))
 		goto fail_free_mce_banks;
 
+	r = fx_init(vcpu);
+	if (r)
+		goto fail_free_wbinvd_dirty_mask;
+
+	vcpu->arch.ia32_tsc_adjust_msr = 0x0;
 	kvm_async_pf_hash_reset(vcpu);
 	kvm_pmu_init(vcpu);
 
 	return 0;
+fail_free_wbinvd_dirty_mask:
+	free_cpumask_var(vcpu->arch.wbinvd_dirty_mask);
 fail_free_mce_banks:
 	kfree(vcpu->arch.mce_banks);
 fail_free_lapic:
@@ -6789,13 +6839,13 @@ int kvm_arch_prepare_memory_region(struct kvm *kvm,
 				struct kvm_memory_slot *memslot,
 				struct kvm_memory_slot old,
 				struct kvm_userspace_memory_region *mem,
-				int user_alloc)
+				bool user_alloc)
 {
 	int npages = memslot->npages;
 	int map_flags = MAP_PRIVATE | MAP_ANONYMOUS;
 
 	/* Prevent internal slot pages from being moved by fork()/COW. */
-	if (memslot->id >= KVM_MEMORY_SLOTS)
+	if (memslot->id >= KVM_USER_MEM_SLOTS)
 		map_flags = MAP_SHARED | MAP_ANONYMOUS;
 
 	/*To keep backward compatibility with older userspace,
@@ -6825,7 +6875,7 @@ int kvm_arch_prepare_memory_region(struct kvm *kvm,
 void kvm_arch_commit_memory_region(struct kvm *kvm,
 				struct kvm_userspace_memory_region *mem,
 				struct kvm_memory_slot old,
-				int user_alloc)
+				bool user_alloc)
 {
 
 	int nr_mmu_pages = 0, npages = mem->memory_size >> PAGE_SHIFT;

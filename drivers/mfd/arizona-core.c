@@ -272,6 +272,7 @@ static struct mfd_cell early_devs[] = {
 static struct mfd_cell wm5102_devs[] = {
 	{ .name = "arizona-extcon" },
 	{ .name = "arizona-gpio" },
+	{ .name = "arizona-haptics" },
 	{ .name = "arizona-micsupp" },
 	{ .name = "arizona-pwm" },
 	{ .name = "wm5102-codec" },
@@ -280,12 +281,13 @@ static struct mfd_cell wm5102_devs[] = {
 static struct mfd_cell wm5110_devs[] = {
 	{ .name = "arizona-extcon" },
 	{ .name = "arizona-gpio" },
+	{ .name = "arizona-haptics" },
 	{ .name = "arizona-micsupp" },
 	{ .name = "arizona-pwm" },
 	{ .name = "wm5110-codec" },
 };
 
-int __devinit arizona_dev_init(struct arizona *arizona)
+int arizona_dev_init(struct arizona *arizona)
 {
 	struct device *dev = arizona->dev;
 	const char *type_name;
@@ -561,7 +563,7 @@ err_early:
 }
 EXPORT_SYMBOL_GPL(arizona_dev_init);
 
-int __devexit arizona_dev_exit(struct arizona *arizona)
+int arizona_dev_exit(struct arizona *arizona)
 {
 	mfd_remove_devices(arizona->dev);
 	arizona_free_irq(arizona, ARIZONA_IRQ_UNDERCLOCKED, arizona);

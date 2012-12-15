@@ -266,12 +266,12 @@ static inline int kvm_vcpu_exiting_guest_mode(struct kvm_vcpu *vcpu)
 struct kvm_memory_slot {
 	gfn_t base_gfn;
 	unsigned long npages;
-	unsigned long flags;
 	unsigned long *dirty_bitmap;
 	struct kvm_arch_memory_slot arch;
 	unsigned long userspace_addr;
-	int user_alloc;
-	int id;
+	u32 flags;
+	short id;
+	bool user_alloc;
 };
 
 static inline unsigned long kvm_dirty_bitmap_bytes(struct kvm_memory_slot *memslot)
@@ -313,8 +313,12 @@ struct kvm_irq_routing_table {};
 
 #endif
 
+#ifndef KVM_PRIVATE_MEM_SLOTS
+#define KVM_PRIVATE_MEM_SLOTS 0
+#endif
+
 #ifndef KVM_MEM_SLOTS_NUM
-#define KVM_MEM_SLOTS_NUM (KVM_MEMORY_SLOTS + KVM_PRIVATE_MEM_SLOTS)
+#define KVM_MEM_SLOTS_NUM (KVM_USER_MEM_SLOTS + KVM_PRIVATE_MEM_SLOTS)
 #endif
 
 /*
@@ -326,7 +330,7 @@ struct kvm_memslots {
 	u64 generation;
 	struct kvm_memory_slot memslots[KVM_MEM_SLOTS_NUM];
 	/* The mapping table from slot id to the index in memslots[]. */
-	int id_to_index[KVM_MEM_SLOTS_NUM];
+	short id_to_index[KVM_MEM_SLOTS_NUM];
 };
 
 struct kvm {
@@ -447,10 +451,10 @@ id_to_memslot(struct kvm_memslots *slots, int id)
 
 int kvm_set_memory_region(struct kvm *kvm,
 			  struct kvm_userspace_memory_region *mem,
-			  int user_alloc);
+			  bool user_alloc);
 int __kvm_set_memory_region(struct kvm *kvm,
 			    struct kvm_userspace_memory_region *mem,
-			    int user_alloc);
+			    bool user_alloc);
 void kvm_arch_free_memslot(struct kvm_memory_slot *free,
 			   struct kvm_memory_slot *dont);
 int kvm_arch_create_memslot(struct kvm_memory_slot *slot, unsigned long npages);
@@ -458,11 +462,11 @@ int kvm_arch_prepare_memory_region(struct kvm *kvm,
 				struct kvm_memory_slot *memslot,
 				struct kvm_memory_slot old,
 				struct kvm_userspace_memory_region *mem,
-				int user_alloc);
+				bool user_alloc);
 void kvm_arch_commit_memory_region(struct kvm *kvm,
 				struct kvm_userspace_memory_region *mem,
 				struct kvm_memory_slot old,
-				int user_alloc);
+				bool user_alloc);
 bool kvm_largepages_enabled(void);
 void kvm_disable_largepages(void);
 /* flush all memory translations */
@@ -549,7 +553,7 @@ int kvm_vm_ioctl_get_dirty_log(struct kvm *kvm,
 int kvm_vm_ioctl_set_memory_region(struct kvm *kvm,
 				   struct
 				   kvm_userspace_memory_region *mem,
-				   int user_alloc);
+				   bool user_alloc);
 int kvm_vm_ioctl_irq_line(struct kvm *kvm, struct kvm_irq_level *irq_level);
 long kvm_arch_vm_ioctl(struct file *filp,
 		       unsigned int ioctl, unsigned long arg);
@@ -682,6 +686,7 @@ void kvm_get_intr_delivery_bitmask(struct kvm_ioapic *ioapic,
 				   unsigned long *deliver_bitmask);
 #endif
 int kvm_set_irq(struct kvm *kvm, int irq_source_id, u32 irq, int level);
+int kvm_set_irq_inatomic(struct kvm *kvm, int irq_source_id, u32 irq, int level);
 int kvm_set_msi(struct kvm_kernel_irq_routing_entry *irq_entry, struct kvm *kvm,
 		int irq_source_id, int level);
 void kvm_notify_acked_irq(struct kvm *kvm, unsigned irqchip, unsigned pin);
@@ -742,7 +747,11 @@ static inline int kvm_deassign_device(struct kvm *kvm,
 static inline void kvm_guest_enter(void)
 {
 	BUG_ON(preemptible());
-	vtime_account(current);
+	/*
+	 * This is running in ioctl context so we can avoid
+	 * the call to vtime_account() with its unnecessary idle check.
+	 */
+	vtime_account_system_irqsafe(current);
 	current->flags |= PF_VCPU;
 	/* KVM does not hold any references to rcu protected data when it
 	 * switches CPU into a guest mode. In fact switching to a guest mode
@@ -756,7 +765,11 @@ static inline void kvm_guest_enter(void)
 
 static inline void kvm_guest_exit(void)
 {
-	vtime_account(current);
+	/*
+	 * This is running in ioctl context so we can avoid
+	 * the call to vtime_account() with its unnecessary idle check.
+	 */
+	vtime_account_system_irqsafe(current);
 	current->flags &= ~PF_VCPU;
 }
 
@@ -889,10 +902,20 @@ static inline void kvm_free_irq_routing(struct kvm *kvm) {}
 #ifdef CONFIG_HAVE_KVM_EVENTFD
 
 void kvm_eventfd_init(struct kvm *kvm);
+int kvm_ioeventfd(struct kvm *kvm, struct kvm_ioeventfd *args);
+
+#ifdef CONFIG_HAVE_KVM_IRQCHIP
 int kvm_irqfd(struct kvm *kvm, struct kvm_irqfd *args);
 void kvm_irqfd_release(struct kvm *kvm);
 void kvm_irq_routing_update(struct kvm *, struct kvm_irq_routing_table *);
-int kvm_ioeventfd(struct kvm *kvm, struct kvm_ioeventfd *args);
+#else
+static inline int kvm_irqfd(struct kvm *kvm, struct kvm_irqfd *args)
+{
+	return -EINVAL;
+}
+
+static inline void kvm_irqfd_release(struct kvm *kvm) {}
+#endif
 
 #else
 
