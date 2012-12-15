@@ -479,6 +479,7 @@ vcpu	.req	r0		@ vcpu pointer always in r0
  * for the host.
  *
  * Assumes vcpu pointer in vcpu reg
+ * Clobbers r2-r4
  */
 .macro save_timer_state
 #ifdef CONFIG_KVM_ARM_TIMER
@@ -494,9 +495,10 @@ vcpu	.req	r0		@ vcpu pointer always in r0
 	isb
 
 	mrrc	p15, 3, r2, r3, c14	@ CNTV_CVAL
-	add	vcpu, vcpu, #VCPU_TIMER_CNTV_CVAL
+	ldr	r4, =VCPU_TIMER_CNTV_CVAL
+	add	vcpu, vcpu, r4
 	strd	r2, r3, [vcpu]
-	sub	vcpu, vcpu, #VCPU_TIMER_CNTV_CVAL
+	sub	vcpu, vcpu, r4
 
 1:
 #endif
@@ -511,6 +513,7 @@ vcpu	.req	r0		@ vcpu pointer always in r0
  * for the host.
  *
  * Assumes vcpu pointer in vcpu reg
+ * Clobbers r2-r4
  */
 .macro restore_timer_state
 	@ Disallow physical timer access for the guest
@@ -531,9 +534,10 @@ vcpu	.req	r0		@ vcpu pointer always in r0
 	mcrr	p15, 4, r2, r3, c14	@ CNTVOFF
 	isb
 
-	add	vcpu, vcpu, #VCPU_TIMER_CNTV_CVAL
+	ldr	r4, =VCPU_TIMER_CNTV_CVAL
+	add	vcpu, vcpu, r4
 	ldrd	r2, r3, [vcpu]
-	sub	vcpu, vcpu, #VCPU_TIMER_CNTV_CVAL
+	sub	vcpu, vcpu, r4
 	mcrr	p15, 3, r2, r3, c14	@ CNTV_CVAL
 
 	ldr	r2, [vcpu, #VCPU_TIMER_CNTV_CTL]
