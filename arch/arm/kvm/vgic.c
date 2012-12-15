@@ -160,8 +160,10 @@ static u32 *vgic_bytemap_get_reg(struct vgic_bytemap *x, int cpuid, u32 offset)
 static bool vgic_irq_is_edge(struct kvm_vcpu *vcpu, int irq)
 {
 	struct vgic_dist *dist = &vcpu->kvm->arch.vgic;
+	int irq_val;
 
-	return vgic_bitmap_get_irq_val(&dist->irq_cfg, vcpu->vcpu_id, irq) == VGIC_CFG_EDGE;
+	irq_val = vgic_bitmap_get_irq_val(&dist->irq_cfg, vcpu->vcpu_id, irq);
+	return irq_val == VGIC_CFG_EDGE;
 }
 
 static int vgic_irq_is_enabled(struct kvm_vcpu *vcpu, int irq)
@@ -864,7 +866,8 @@ static bool vgic_queue_irq(struct kvm_vcpu *vcpu, u8 sgi_source_id, int irq)
 	/* Do we have an active interrupt for the same CPUID? */
 	if (lr != LR_EMPTY &&
 	    (LR_CPUID(vgic_cpu->vgic_lr[lr]) == sgi_source_id)) {
-		kvm_debug("LR%d piggyback for IRQ%d %x\n", lr, irq, vgic_cpu->vgic_lr[lr]);
+		kvm_debug("LR%d piggyback for IRQ%d %x\n",
+			  lr, irq, vgic_cpu->vgic_lr[lr]);
 		BUG_ON(!test_bit(lr, vgic_cpu->lr_used));
 		vgic_cpu->vgic_lr[lr] |= GICH_LR_PENDING_BIT;
 
@@ -924,7 +927,7 @@ static bool vgic_queue_hwirq(struct kvm_vcpu *vcpu, int irq)
 {
 	struct vgic_dist *dist = &vcpu->kvm->arch.vgic;
 
-	if (vgic_bitmap_get_irq_val(&dist->irq_active, vcpu->vcpu_id, irq))
+	if (vgic_irq_is_active(vcpu, irq))
 		return true; /* level interrupt, already queued */
 
 	if (vgic_queue_irq(vcpu, 0, irq)) {

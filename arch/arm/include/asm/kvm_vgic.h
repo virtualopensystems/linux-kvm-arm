@@ -215,11 +215,6 @@ static inline bool vgic_initialized(struct kvm *kvm)
 {
 	return true;
 }
-
-static inline int vgic_active_irq(struct kvm_vcpu *vcpu)
-{
-	return 0;
-}
 #endif
 
 #endif
