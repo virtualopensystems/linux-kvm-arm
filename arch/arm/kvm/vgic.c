@@ -925,8 +925,6 @@ static bool vgic_queue_sgi(struct kvm_vcpu *vcpu, int irq)
 
 static bool vgic_queue_hwirq(struct kvm_vcpu *vcpu, int irq)
 {
-	struct vgic_dist *dist = &vcpu->kvm->arch.vgic;
-
 	if (vgic_irq_is_active(vcpu, irq))
 		return true; /* level interrupt, already queued */
 

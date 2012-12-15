@@ -190,7 +190,7 @@ static inline void kvm_vgic_sync_to_cpu(struct kvm_vcpu *vcpu) {}
 static inline void kvm_vgic_sync_from_cpu(struct kvm_vcpu *vcpu) {}
 
 static inline int kvm_vgic_inject_irq(struct kvm *kvm, int cpuid,
-				      const struct kvm_irq_level *irq)
+				      unsigned int irq_num, bool level)
 {
 	return 0;
 }
