@@ -165,7 +165,8 @@ void __bL_cpu_down(unsigned int cpu, unsigned int cluster)
 {
 	dsb();
 	bL_sync.clusters[cluster].cpus[cpu].cpu = CPU_DOWN;
-	dsb_sev();
+	sync_mem(&bL_sync.clusters[cluster].cpus[cpu].cpu);
+	sev();
 }
 
 /*
@@ -180,14 +181,7 @@ void __bL_outbound_leave_critical(unsigned int cluster, int state)
 {
 	dsb();
 	bL_sync.clusters[cluster].cluster = state;
-
-	if (state == CLUSTER_UP)
-		sync_mem(&bL_sync.clusters[cluster].cluster);
-	else if (state == CLUSTER_DOWN)
-		dsb();
-	else
-		BUG();
-
+	sync_mem(&bL_sync.clusters[cluster].cluster);
 	sev();
 }
 
