@@ -23,6 +23,7 @@
 #include <asm/cacheflush.h>
 #include <asm/cputype.h>
 #include <asm/cp15.h>
+#include <asm/psci.h>
 
 
 #define RST_HOLD0	0x0
@@ -217,6 +218,12 @@ static int __init dcscb_init(void)
 	struct device_node *node;
 	unsigned int cfg;
 	int ret;
+
+	ret = psci_probe();
+	if (!ret) {
+		pr_debug("psci found. Aborting native init\n");
+		return -ENODEV;
+	}
 
 	node = of_find_compatible_node(NULL, NULL, "arm,rtsm,dcscb");
 	if (!node)
