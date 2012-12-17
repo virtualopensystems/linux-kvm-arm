@@ -5,7 +5,7 @@ DESTDIR		:=
 
 turbostat : turbostat.c
 CFLAGS +=	-Wall
-CFLAGS +=	-I../../../../arch/x86/include/
+CFLAGS +=	-I../../../../arch/x86/include/uapi/
 
 %: %.c
 	@mkdir -p $(BUILD_OUTPUT)
