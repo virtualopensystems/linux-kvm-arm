@@ -737,7 +737,12 @@ phys_addr_t kvm_mmu_get_httbr(void)
 
 int kvm_mmu_init(void)
 {
-	return hyp_pgd ? 0 : -ENOMEM;
+	if (!hyp_pgd) {
+		kvm_err("Hyp mode PGD not allocated\n");
+		return -ENOMEM;
+	}
+
+	return 0;
 }
 
 /**
