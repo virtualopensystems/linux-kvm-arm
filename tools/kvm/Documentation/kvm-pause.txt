@@ -1,0 +1,16 @@
+lkvm-pause(1)
+================
+
+NAME
+----
+lkvm-pause - Pause the virtual machine
+
+SYNOPSIS
+--------
+[verse]
+'lkvm pause [instance]'
+
+DESCRIPTION
+-----------
+The command pauses a virtual machine.
+For a list of running instances see 'lkvm list'.
