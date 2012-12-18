@@ -1308,11 +1308,14 @@ int kvm_vgic_hyp_init(void)
 	struct resource vcpu_res;
 
 	vgic_node = of_find_compatible_node(NULL, NULL, "arm,cortex-a15-gic");
-	if (!vgic_node)
+	if (!vgic_node) {
+		kvm_err("error: no compatible vgic node in DT\n");
 		return -ENODEV;
+	}
 
 	vgic_maint_irq = irq_of_parse_and_map(vgic_node, 0);
 	if (!vgic_maint_irq) {
+		kvm_err("error getting vgic maintenance irq from DT\n");
 		ret = -ENXIO;
 		goto out;
 	}
