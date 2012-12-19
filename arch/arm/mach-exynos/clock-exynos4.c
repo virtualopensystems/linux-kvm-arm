@@ -30,6 +30,18 @@
 #include "common.h"
 #include "clock-exynos4.h"
 
+/* For vpll  */
+struct vpll_div_data {
+	u32 rate;
+	u32 pdiv;
+	u32 mdiv;
+	u32 sdiv;
+	u32 k;
+	u32 mfr;
+	u32 mrr;
+	u32 vsel;
+};
+
 #ifdef CONFIG_PM_SLEEP
 static struct sleep_save exynos4_clock_save[] = {
 	SAVE_ITEM(EXYNOS4_CLKSRC_AUDSS),
@@ -123,6 +135,11 @@ static struct clk dummy_apb_pclk = {
 static struct clk exynos4_clk_xxti = {
 	.name		= "xxti",
 };
+
+static int exynos4_clk_ip_g3d_ctrl(struct clk *clk, int enable)
+{
+	return s5p_gatectrl(EXYNOS4_CLKGATE_IP_G3D, clk, enable);
+}
 
 static int exynos4_clksrc_mask_top_ctrl(struct clk *clk, int enable)
 {
@@ -935,6 +952,52 @@ static struct clksrc_sources exynos4_clkset_mout_mfc = {
 	.nr_sources	= ARRAY_SIZE(exynos4_clkset_mout_mfc_list),
 };
 
+static struct clk *exynos4_clkset_mout_g3d0_list[] = {
+	[0] = &exynos4_clk_mout_mpll.clk,
+	[1] = &exynos4_clk_sclk_apll.clk,
+};
+
+static struct clksrc_sources exynos4_clkset_mout_g3d0 = {
+	.sources	= exynos4_clkset_mout_g3d0_list,
+	.nr_sources	= ARRAY_SIZE(exynos4_clkset_mout_g3d0_list),
+};
+
+static struct clksrc_clk exynos4_clk_mout_g3d0 = {
+	.clk	= {
+		.name		= "mout_g3d0",
+	},
+	.sources = &exynos4_clkset_mout_g3d0,
+	.reg_src = { .reg = EXYNOS4_CLKSRC_G3D, .shift = 0, .size = 1 },
+};
+
+static struct clk *exynos4_clkset_mout_g3d1_list[] = {
+	[0] = &exynos4_clk_mout_epll.clk,
+	[1] = &exynos4_clk_sclk_vpll.clk,
+};
+
+static struct clksrc_sources exynos4_clkset_mout_g3d1 = {
+	.sources	= exynos4_clkset_mout_g3d1_list,
+	.nr_sources	= ARRAY_SIZE(exynos4_clkset_mout_g3d1_list),
+};
+
+static struct clksrc_clk exynos4_clk_mout_g3d1 = {
+	.clk	= {
+		.name		= "mout_g3d1",
+	},
+	.sources = &exynos4_clkset_mout_g3d1,
+	.reg_src = { .reg = EXYNOS4_CLKSRC_G3D, .shift = 4, .size = 1 },
+};
+
+static struct clk *exynos4_clkset_mout_g3d_list[] = {
+	[0] = &exynos4_clk_mout_g3d0.clk,
+	[1] = &exynos4_clk_mout_g3d1.clk,
+};
+
+static struct clksrc_sources exynos4_clkset_mout_g3d = {
+	.sources	= exynos4_clkset_mout_g3d_list,
+	.nr_sources	= ARRAY_SIZE(exynos4_clkset_mout_g3d_list),
+};
+
 static struct clk *exynos4_clkset_sclk_dac_list[] = {
 	[0] = &exynos4_clk_sclk_vpll.clk,
 	[1] = &exynos4_clk_sclk_hdmiphy,
@@ -1163,6 +1226,15 @@ static struct clksrc_clk exynos4_clksrcs[] = {
 		.reg_div = { .reg = EXYNOS4_CLKDIV_MFC, .shift = 0, .size = 4 },
 	}, {
 		.clk	= {
+			.name		= "sclk_g3d",
+			.enable		= exynos4_clk_ip_g3d_ctrl,
+			.ctrlbit	= (1 << 0),
+		},
+		.sources = &exynos4_clkset_mout_g3d,
+		.reg_src = { .reg = EXYNOS4_CLKSRC_G3D, .shift = 8, .size = 1 },
+		.reg_div = { .reg = EXYNOS4_CLKDIV_G3D, .shift = 0, .size = 4 },
+	}, {
+		.clk	= {
 			.name		= "ciu",
 			.parent		= &exynos4_clk_dout_mmc4.clk,
 			.enable		= exynos4_clksrc_mask_fsys_ctrl,
@@ -1360,6 +1432,8 @@ static struct clksrc_clk *exynos4_sysclks[] = {
 	&exynos4_clk_dout_mmc4,
 	&exynos4_clk_mout_mfc0,
 	&exynos4_clk_mout_mfc1,
+	&exynos4_clk_mout_g3d0,
+	&exynos4_clk_mout_g3d1,
 };
 
 static struct clk *exynos4_clk_cdev[] = {
@@ -1494,9 +1568,16 @@ static struct clk_ops exynos4_fout_apll_ops = {
 	.get_rate = exynos4_fout_apll_get_rate,
 };
 
-static u32 exynos4_vpll_div[][8] = {
-	{  54000000, 3, 53, 3, 1024, 0, 17, 0 },
-	{ 108000000, 3, 53, 2, 1024, 0, 17, 0 },
+static struct vpll_div_data exynos4_vpll_div[] = {
+	{54000000, 2, 72, 4, 0, 0, 0, 0},
+	{108000000, 2, 72, 3, 0, 0, 0, 0},
+	{160000000, 3, 160, 3, 0, 0, 0, 0},
+	{266000000, 3, 133, 2, 0, 0, 0, 0},
+	{275000000, 2, 92, 2, 43692, 0, 0, 0},
+	{300000000, 2, 100, 2, 0, 0, 0, 0},
+	{333000000, 2, 111, 2, 0, 0, 0, 0},
+	{350000000, 3, 175, 2, 0, 0, 0, 0},
+	{440000000, 3, 110, 1, 0, 0, 0, 0},
 };
 
 static unsigned long exynos4_vpll_get_rate(struct clk *clk)
@@ -1506,7 +1587,7 @@ static unsigned long exynos4_vpll_get_rate(struct clk *clk)
 
 static int exynos4_vpll_set_rate(struct clk *clk, unsigned long rate)
 {
-	unsigned int vpll_con0, vpll_con1 = 0;
+	unsigned int vpll_con0, vpll_con1;
 	unsigned int i;
 
 	/* Return if nothing changed */
@@ -1514,25 +1595,22 @@ static int exynos4_vpll_set_rate(struct clk *clk, unsigned long rate)
 		return 0;
 
 	vpll_con0 = __raw_readl(EXYNOS4_VPLL_CON0);
-	vpll_con0 &= ~(0x1 << 27 |					\
-			PLL90XX_MDIV_MASK << PLL46XX_MDIV_SHIFT |	\
-			PLL90XX_PDIV_MASK << PLL46XX_PDIV_SHIFT |	\
-			PLL90XX_SDIV_MASK << PLL46XX_SDIV_SHIFT);
+	vpll_con0 &= ~(PLL36XX_MDIV_MASK << PLL36XX_MDIV_SHIFT |	\
+		       PLL36XX_PDIV_MASK << PLL36XX_PDIV_SHIFT |	\
+		       PLL36XX_SDIV_MASK << PLL36XX_SDIV_SHIFT);
 
 	vpll_con1 = __raw_readl(EXYNOS4_VPLL_CON1);
-	vpll_con1 &= ~(PLL46XX_MRR_MASK << PLL46XX_MRR_SHIFT |	\
-			PLL46XX_MFR_MASK << PLL46XX_MFR_SHIFT |	\
-			PLL4650C_KDIV_MASK << PLL46XX_KDIV_SHIFT);
+	vpll_con1 &= ~(0xffff << 0);
 
 	for (i = 0; i < ARRAY_SIZE(exynos4_vpll_div); i++) {
-		if (exynos4_vpll_div[i][0] == rate) {
-			vpll_con0 |= exynos4_vpll_div[i][1] << PLL46XX_PDIV_SHIFT;
-			vpll_con0 |= exynos4_vpll_div[i][2] << PLL46XX_MDIV_SHIFT;
-			vpll_con0 |= exynos4_vpll_div[i][3] << PLL46XX_SDIV_SHIFT;
-			vpll_con1 |= exynos4_vpll_div[i][4] << PLL46XX_KDIV_SHIFT;
-			vpll_con1 |= exynos4_vpll_div[i][5] << PLL46XX_MFR_SHIFT;
-			vpll_con1 |= exynos4_vpll_div[i][6] << PLL46XX_MRR_SHIFT;
-			vpll_con0 |= exynos4_vpll_div[i][7] << 27;
+		if (exynos4_vpll_div[i].rate == rate) {
+			vpll_con0 |= exynos4_vpll_div[i].pdiv <<
+							PLL36XX_PDIV_SHIFT;
+			vpll_con0 |= exynos4_vpll_div[i].mdiv <<
+							PLL36XX_MDIV_SHIFT;
+			vpll_con0 |= exynos4_vpll_div[i].sdiv <<
+							PLL36XX_SDIV_SHIFT;
+			vpll_con1 |= exynos4_vpll_div[i].k << 0;
 			break;
 		}
 	}
@@ -1546,11 +1624,8 @@ static int exynos4_vpll_set_rate(struct clk *clk, unsigned long rate)
 	__raw_writel(vpll_con0, EXYNOS4_VPLL_CON0);
 	__raw_writel(vpll_con1, EXYNOS4_VPLL_CON1);
 
-	/* Wait for VPLL lock */
-	while (!(__raw_readl(EXYNOS4_VPLL_CON0) & (1 << PLL46XX_LOCKED_SHIFT)))
-		continue;
-
 	clk->rate = rate;
+
 	return 0;
 }
 
