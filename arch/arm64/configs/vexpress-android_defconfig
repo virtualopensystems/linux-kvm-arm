@@ -259,7 +259,7 @@ CONFIG_CROSS_MEMORY_ATTACH=y
 #
 # Boot options
 #
-CONFIG_CMDLINE="console=ttyAMA0 video=ambafb loglevel=8"
+CONFIG_CMDLINE="console=ttyAMA0 androidboot.console=ttyAMA0 video=ambafb loglevel=8"
 CONFIG_CMDLINE_FORCE=y
 
 #
