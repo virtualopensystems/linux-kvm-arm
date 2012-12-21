@@ -23,6 +23,7 @@
 #include <linux/types.h>
 
 struct cpufreq_arm_bl_ops {
+	char name[CPUFREQ_NAME_LEN];
 	struct cpufreq_frequency_table *(*get_freq_tbl)(u32 cluster, int *count);
 	void (*put_freq_tbl)(u32 cluster);
 };
@@ -31,13 +32,7 @@ struct cpufreq_frequency_table *
 arm_bl_copy_table_from_array(unsigned int *table, int count);
 void arm_bl_free_freq_table(u32 cluster);
 
-#if defined(CONFIG_ARM_VEXPRESS_BL_CPUFREQ) || defined(CONFIG_ARM_VEXPRESS_BL_CPUFREQ_MODULE)
-struct cpufreq_arm_bl_ops *vexpress_bl_get_ops(void);
-#else
-static struct cpufreq_arm_bl_ops *vexpress_bl_get_ops(void)
-{
-	return NULL;
-}
-#endif
+int bl_cpufreq_register(struct cpufreq_arm_bl_ops *ops);
+void bl_cpufreq_unregister(struct cpufreq_arm_bl_ops *ops);
 
 #endif /* CPUFREQ_ARM_BIG_LITTLE_H */
