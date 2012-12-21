@@ -54,6 +54,9 @@ obj-$(CONFIG_ARM_OMAP2PLUS_CPUFREQ)     += omap-cpufreq.o
 obj-$(CONFIG_ARM_SPEAR_CPUFREQ)		+= spear-cpufreq.o
 obj-$(CONFIG_ARM_BIG_LITTLE_CPUFREQ)	+= arm_big_little.o
 obj-$(CONFIG_ARM_VEXPRESS_BL_CPUFREQ)	+= vexpress_big_little.o
+#Keep DT_BL_CPUFREQ as the last entry in all big LITTLE drivers, so that it is
+#probed last.
+obj-$(CONFIG_ARM_DT_BL_CPUFREQ)	+= arm_dt_big_little.o
 
 ##################################################################################
 # PowerPC platform drivers
