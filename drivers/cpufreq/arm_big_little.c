@@ -23,7 +23,6 @@
 #include <linux/cpufreq.h>
 #include <linux/cpumask.h>
 #include <linux/export.h>
-#include <linux/module.h>
 #include <linux/of_platform.h>
 #include <linux/slab.h>
 #include <linux/types.h>
@@ -242,49 +241,47 @@ static struct cpufreq_driver bl_cpufreq_driver = {
 	.attr	= bl_cpufreq_attr,
 };
 
-/* All platforms using this driver must have their entry here */
-static struct of_device_id bl_of_match[] = {
-	{
-		.compatible = "arm,vexpress,v2p-ca15,tc2",
-		.data = vexpress_bl_get_ops
-	},
-	{},
-};
-
-static int __init bl_cpufreq_modinit(void)
+int bl_cpufreq_register(struct cpufreq_arm_bl_ops *ops)
 {
-	int i, size = ARRAY_SIZE(bl_of_match);
-	struct cpufreq_arm_bl_ops *(*bl_get_ops)(void) = NULL;
+	int ret;
 
-	for (i = 0; i < size; i++) {
-		if (of_machine_is_compatible(bl_of_match[i].compatible)) {
-			bl_get_ops = bl_of_match[i].data;
-			break;
-		}
+	if (arm_bl_ops) {
+		pr_debug("%s: Already registered: %s, exiting\n", __func__,
+				arm_bl_ops->name);
+		return -EBUSY;
 	}
 
-	if (!bl_get_ops) {
-		pr_err("No platform matched, exiting\n");
+	if (!ops || !strlen(ops->name) || !ops->get_freq_tbl) {
+		pr_err("%s: Invalid arm_bl_ops, exiting\n", __func__);
 		return -ENODEV;
 	}
 
-	arm_bl_ops = bl_get_ops();
-	if (!arm_bl_ops || !arm_bl_ops->get_freq_tbl) {
-		pr_err("Invalid ops returned by platform: %s\n",
-				bl_of_match[i].compatible);
-		return -EINVAL;
+	arm_bl_ops = ops;
+
+	ret = cpufreq_register_driver(&bl_cpufreq_driver);
+	if (ret) {
+		pr_info("%s: Failed registering platform driver: %s, err: %d\n",
+				__func__, ops->name, ret);
+		arm_bl_ops = NULL;
+	} else {
+		pr_info("%s: Registered platform driver: %s\n", __func__,
+				ops->name);
 	}
 
-	return cpufreq_register_driver(&bl_cpufreq_driver);
+	return ret;
 }
-module_init(bl_cpufreq_modinit);
+EXPORT_SYMBOL_GPL(bl_cpufreq_register);
 
-static void __exit bl_cpufreq_modexit(void)
+void bl_cpufreq_unregister(struct cpufreq_arm_bl_ops *ops)
 {
+	if (arm_bl_ops != ops) {
+		pr_info("%s: Registered with: %s, can't unregister, exiting\n",
+				__func__, arm_bl_ops->name);
+	}
+
 	cpufreq_unregister_driver(&bl_cpufreq_driver);
+	pr_info("%s: Un-registered platform driver: %s\n", __func__,
+			arm_bl_ops->name);
 	arm_bl_ops = NULL;
 }
-module_exit(bl_cpufreq_modexit);
-
-MODULE_DESCRIPTION("ARM big LITTLE platforms cpufreq driver");
-MODULE_LICENSE("GPL");
+EXPORT_SYMBOL_GPL(bl_cpufreq_unregister);

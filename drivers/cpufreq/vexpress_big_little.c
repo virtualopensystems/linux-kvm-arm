@@ -24,6 +24,7 @@
 
 #include <linux/cpufreq.h>
 #include <linux/export.h>
+#include <linux/module.h>
 #include <linux/types.h>
 #include <linux/vexpress.h>
 #include "arm_big_little.h"
@@ -47,17 +48,27 @@ static void vexpress_put_freq_tbl(u32 cluster)
 }
 
 static struct cpufreq_arm_bl_ops vexpress_bl_ops = {
+	.name	= "vexpress-bl",
 	.get_freq_tbl = vexpress_get_freq_tbl,
 	.put_freq_tbl = vexpress_put_freq_tbl,
 };
 
-struct cpufreq_arm_bl_ops *vexpress_bl_get_ops(void)
+static int vexpress_bl_init(void)
 {
 	if (!vexpress_spc_check_loaded()) {
-		pr_info("No SPC found\n");
-		return NULL;
+		pr_info("%s: No SPC found\n", __func__);
+		return -ENOENT;
 	}
 
-	return &vexpress_bl_ops;
+	return bl_cpufreq_register(&vexpress_bl_ops);
 }
-EXPORT_SYMBOL_GPL(vexpress_bl_get_ops);
+module_init(vexpress_bl_init);
+
+static void vexpress_bl_exit(void)
+{
+	return bl_cpufreq_unregister(&vexpress_bl_ops);
+}
+module_exit(vexpress_bl_exit);
+
+MODULE_DESCRIPTION("ARM Vexpress big LITTLE cpufreq driver");
+MODULE_LICENSE("GPL");
