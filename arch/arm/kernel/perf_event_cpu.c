@@ -201,7 +201,6 @@ static struct platform_device_id __devinitdata cpu_pmu_plat_device_ids[] = {
 static int __devinit probe_current_pmu(struct arm_pmu *pmu)
 {
 	int cpu = get_cpu();
-	unsigned long cpuid = read_cpuid_id();
 	unsigned long implementor = read_cpuid_implementor();
 	unsigned long part_number = read_cpuid_part_number();
 	int ret = -ENODEV;

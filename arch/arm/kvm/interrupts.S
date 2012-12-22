@@ -498,4 +498,3 @@ dabt_die_str:
 	.ascii	"unexpected data abort in Hyp mode at: %#08x"
 svc_die_str:
 	.ascii	"unexpected HVC/SVC trap in Hyp mode at: %#08x"
-

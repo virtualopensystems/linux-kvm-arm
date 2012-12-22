@@ -72,8 +72,8 @@ extern unsigned int processor_id;
 #define ARM_CPU_PART_ARM1176		0xB760
 #define ARM_CPU_PART_ARM11MPCORE	0xB020
 #define ARM_CPU_PART_CORTEX_A8		0xC080
-#define ARM_CPU_PART_CORTEX_A9 		0xC090
-#define ARM_CPU_PART_CORTEX_A5 		0xC050
+#define ARM_CPU_PART_CORTEX_A9		0xC090
+#define ARM_CPU_PART_CORTEX_A5		0xC050
 #define ARM_CPU_PART_CORTEX_A15		0xC0F0
 #define ARM_CPU_PART_CORTEX_A7		0xC070
 
@@ -99,12 +99,12 @@ static inline unsigned int __attribute_const__ read_cpuid_implementor(void)
 
 static inline unsigned int __attribute_const__ read_cpuid_part_number(void)
 {
-	return (read_cpuid_id() & 0xFFF0);
+	return read_cpuid_id() & 0xFFF0;
 }
 
 static inline unsigned int __attribute_const__ xscale_cpu_arch_version(void)
 {
-	return read_cpuid_part_number() &ARM_CPU_XSCALE_ARCH_MASK;
+	return read_cpuid_part_number() & ARM_CPU_XSCALE_ARCH_MASK;
 }
 
 static inline unsigned int __attribute_const__ read_cpuid_cachetype(void)
