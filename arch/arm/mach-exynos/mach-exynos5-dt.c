@@ -139,6 +139,8 @@ static const struct of_dev_auxdata exynos5250_auxdata_lookup[] __initconst = {
 			"exynos-sysmmu.13", NULL), /* FIMC-LITE1 */
 	OF_DEV_AUXDATA("samsung,exynos-sysmmu", 0x10A60000,
 			"exynos-sysmmu.14", NULL), /* G2D */
+	OF_DEV_AUXDATA("samsung,exynos-dwc3", 0x12000000,
+				"exynos-dwc3", NULL),
 	{},
 };
 
