@@ -34,6 +34,7 @@ config ARM64
 	select CLONE_BACKWARDS
 	select GENERIC_SIGALTSTACK
 	select GENERIC_COMPAT_RT_SIGPROCMASK
+	select GENERIC_COMPAT_RT_SIGPENDING
 	help
 	  ARM 64-bit (AArch64) Linux support.
 
