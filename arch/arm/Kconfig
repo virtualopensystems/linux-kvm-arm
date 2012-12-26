@@ -56,6 +56,7 @@ config ARM
 	select HAVE_MOD_ARCH_SPECIFIC if ARM_UNWIND
 	select MODULES_USE_ELF_REL
 	select CLONE_BACKWARDS
+	select HAVE_MEMBLOCK_NODE_MAP
 	help
 	  The ARM series is a line of low-power-consumption RISC chip designs
 	  licensed by ARM Ltd and targeted at embedded applications and
@@ -1191,9 +1192,34 @@ config ARCH_DISCONTIGMEM_ENABLE
 
 source arch/arm/mm/Kconfig
 
+config NUMA
+	bool "NUMA Support (EXPERIMENTAL)"
+	depends on MMU && !FLATMEM && EXPERIMENTAL
+	help
+	  Say Y to compile the kernel to support NUMA (Non-Uniform Memory
+	  Access). At the moment, one has to specify the number of nodes using
+	  the commandline:
+	  numa=fake=x,[size0],[size1],...,[sizeN-1],[usetopology]
+	  where x is the number of nodes, and sizeY is the size of node Y in
+	  bytes (one can suffix m or g for megabytes or gigabytes). If no sizes
+	  are specified, the memory is distributed roughly evenly between nodes.
+	  If "usetopology" is specified, the "topology_physical_package_id" is
+	  used to assign CPUs to nodes (so for instance on the TC2, the A7s are
+	  grouped together in one node and the A15s are grouped together in
+	  another node).
+
+config NODES_SHIFT
+	int "Maximum NUMA Nodes (as a power of 2)" if NUMA
+	range 1 10
+	default "1"
+	depends on NEED_MULTIPLE_NODES
+	---help---
+	  Specify the maximum number of NUMA Nodes available on the target
+	  system.  Increases memory reserved to accommodate various tables.
+
 config NUMA_ALLOC_NODES
 	bool
-	depends on DISCONTIGMEM
+	depends on DISCONTIGMEM || NUMA
 	default y
 
 config ARM_NR_BANKS

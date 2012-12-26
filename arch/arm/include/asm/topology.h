@@ -68,6 +68,21 @@ static inline int cluster_to_logical_mask(unsigned int socket_id,
 
 #endif
 
+#ifdef CONFIG_NUMA
+
+static inline int cpu_to_node(int cpu)
+{
+	return numa_cpu_lookup_table[cpu];
+}
+
+#define cpumask_of_node(node) ((node) == -1 ?				\
+			       cpu_all_mask :				\
+			       node_to_cpumask_map[node])
+
+#define parent_node(node)	(node)
+
+#endif /* CONFIG_NUMA */
+
 #include <asm-generic/topology.h>
 
 #endif /* _ASM_ARM_TOPOLOGY_H */
