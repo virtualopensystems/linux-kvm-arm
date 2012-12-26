@@ -4606,7 +4606,6 @@ int xhci_gen_setup(struct usb_hcd *hcd, xhci_get_quirks_t get_quirks)
 	struct device		*dev = hcd->self.controller;
 	int			retval;
 	u32			temp;
-
 	/* Accept arbitrarily long scatter-gather lists */
 	hcd->self.sg_tablesize = ~0;
 	/* XHCI controllers don't stop the ep queue on short packets :| */
@@ -4699,7 +4698,6 @@ MODULE_LICENSE("GPL");
 static int __init xhci_hcd_init(void)
 {
 	int retval;
-
 	retval = xhci_register_pci();
 	if (retval < 0) {
 		printk(KERN_DEBUG "Problem registering PCI driver.");

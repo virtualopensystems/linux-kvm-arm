@@ -87,6 +87,11 @@
 		interrupts = <0 96 0>;
 	};
 
+	usbphy {
+		compatible = "samsung,exynos5250-usbphy";
+		reg = <0x12130000 0x100>, <0x12100000 0x100>;
+	};
+
 	usb@12000000 {
 		compatible = "samsung,exynos-dwc3";
 		reg = <0x12000000 0x10000>;
@@ -280,6 +285,7 @@
 		#address-cells = <1>;
 		#size-cells = <0>;
 	};
+
 
 	amba {
 		#address-cells = <1>;

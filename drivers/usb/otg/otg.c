@@ -28,10 +28,8 @@ static struct usb_phy *__usb_find_phy(struct list_head *list,
 	list_for_each_entry(phy, list, head) {
 		if (phy->type != type)
 			continue;
-
 		return phy;
 	}
-
 	return ERR_PTR(-ENODEV);
 }
 
@@ -65,7 +63,6 @@ struct usb_phy *devm_usb_get_phy(struct device *dev, enum usb_phy_type type)
 	ptr = devres_alloc(devm_usb_phy_release, sizeof(*ptr), GFP_KERNEL);
 	if (!ptr)
 		return NULL;
-
 	phy = usb_get_phy(type);
 	if (!IS_ERR(phy)) {
 		*ptr = phy;

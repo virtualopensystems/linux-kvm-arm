@@ -17,6 +17,7 @@
 
 #include <asm/mach/arch.h>
 #include <asm/hardware/gic.h>
+
 #include <mach/map.h>
 #include <mach/regs-pmu.h>
 
@@ -25,6 +26,17 @@
 #include <plat/mfc.h>
 
 #include "common.h"
+
+#include <plat/regs-srom.h>
+#include <plat/devs.h>
+#include <plat/usb-phy.h>
+
+#include <linux/platform_data/samsung-usbphy.h>
+
+static struct samsung_usbphy_data exynos5_usbphy_pdata = {
+	.pmu_isolation = s5p_usb_phy_pmu_isolation,
+	.phy_cfg_sel = s5p_usb_phy_cfg_sel,
+};
 
 /*
  * The following lookup table is used to override device names when devices
@@ -104,6 +116,8 @@ static const struct of_dev_auxdata exynos5250_auxdata_lookup[] __initconst = {
 	OF_DEV_AUXDATA("samsung,mfc-v6", 0x11000000, "s5p-mfc-v6", NULL),
 	OF_DEV_AUXDATA("samsung,exynos5250-tmu", 0x10060000,
 				"exynos-tmu", NULL),
+	OF_DEV_AUXDATA("samsung,exynos5250-usbphy", EXYNOS5_PA_HSPHY,
+				"s3c-usbphy", &exynos5_usbphy_pdata),
 	OF_DEV_AUXDATA("samsung,exynos-dwc3", EXYNOS5_PA_DRD,
 				"exynos-dwc3", NULL),
 	{},

@@ -43,6 +43,7 @@ static int dwc3_exynos_register_phys(struct dwc3_exynos *exynos)
 	memset(&pdata, 0x00, sizeof(pdata));
 
 	pdev = platform_device_alloc("nop_usb_xceiv", 0);
+
 	if (!pdev)
 		return -ENOMEM;
 
@@ -50,6 +51,7 @@ static int dwc3_exynos_register_phys(struct dwc3_exynos *exynos)
 	pdata.type = USB_PHY_TYPE_USB2;
 
 	ret = platform_device_add_data(exynos->usb2_phy, &pdata, sizeof(pdata));
+
 	if (ret)
 		goto err1;
 
