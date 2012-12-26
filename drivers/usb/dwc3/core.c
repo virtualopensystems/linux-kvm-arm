@@ -482,7 +482,9 @@ static int dwc3_probe(struct platform_device *pdev)
 		goto err0;
 	}
 
-	mode = DWC3_MODE(dwc->hwparams.hwparams0);
+	//mode = DWC3_MODE(dwc->hwparams.hwparams0);
+	/* Putting controller in Host mode here */
+	mode = DWC3_MODE_HOST; /* Just a hack for time being */
 
 	switch (mode) {
 	case DWC3_MODE_DEVICE:
