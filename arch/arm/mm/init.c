@@ -269,56 +269,31 @@ void __init setup_dma_zone(struct machine_desc *mdesc)
 static void __init arm_bootmem_free(unsigned long min, unsigned long max_low,
 	unsigned long max_high)
 {
-	unsigned long zone_size[MAX_NR_ZONES], zhole_size[MAX_NR_ZONES];
-	struct memblock_region *reg;
+	unsigned long max_zone_pfns[MAX_NR_ZONES];
 
+	/*
+	 * On NUMA systems we register a CPU notifier, split the memory between
+	 * the nodes and bring them online before free_area_init_nodes).
+	 *
+	 * Otherwise, we put all memory into node 0.
+	 */
+	arm_setup_nodes(min, max_high);
+	
 	/*
 	 * initialise the zones.
 	 */
-	memset(zone_size, 0, sizeof(zone_size));
+	memset(max_zone_pfns, 0, sizeof(max_zone_pfns));
+	max_zone_pfns[ZONE_NORMAL] = max_low;
 
-	/*
-	 * The memory size has already been determined.  If we need
-	 * to do anything fancy with the allocation of this memory
-	 * to the zones, now is the time to do it.
-	 */
-	zone_size[0] = max_low - min;
 #ifdef CONFIG_HIGHMEM
-	zone_size[ZONE_HIGHMEM] = max_high - max_low;
+	max_zone_pfns[ZONE_HIGHMEM] = max_high;
 #endif
 
-	/*
-	 * Calculate the size of the holes.
-	 *  holes = node_size - sum(bank_sizes)
-	 */
-	memcpy(zhole_size, zone_size, sizeof(zhole_size));
-	for_each_memblock(memory, reg) {
-		unsigned long start = memblock_region_memory_base_pfn(reg);
-		unsigned long end = memblock_region_memory_end_pfn(reg);
-
-		if (start < max_low) {
-			unsigned long low_end = min(end, max_low);
-			zhole_size[0] -= low_end - start;
-		}
-#ifdef CONFIG_HIGHMEM
-		if (end > max_low) {
-			unsigned long high_start = max(start, max_low);
-			zhole_size[ZONE_HIGHMEM] -= end - high_start;
-		}
-#endif
-	}
-
-#ifdef CONFIG_ZONE_DMA
-	/*
-	 * Adjust the sizes according to any special requirements for
-	 * this machine type.
-	 */
-	if (arm_dma_zone_size)
-		arm_adjust_dma_zone(zone_size, zhole_size,
-			arm_dma_zone_size >> PAGE_SHIFT);
+#ifdef CONFIG_DMA
+	max_zone_pfns[ZONE_DMA] = __phys_to_pfn(arm_dma_limit);
 #endif
 
-	free_area_init_node(0, zone_size, min, zhole_size);
+	free_area_init_nodes(max_zone_pfns);
 }
 
 #ifdef CONFIG_HAVE_ARCH_PFN_VALID

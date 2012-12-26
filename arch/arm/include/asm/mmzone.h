@@ -31,7 +31,19 @@ extern struct pglist_data *node_data[];
 #define arm_numa_alloc_nodes(_mlow)	do {} while (0)
 #endif
 
-#define	pfn_to_nid(pfn)		(0)
+#ifdef CONFIG_NUMA
+extern cpumask_var_t *node_to_cpumask_map;
+extern int numa_cpu_lookup_table[];
+extern int pfn_to_nid(unsigned long pfn);
+extern void __init arm_setup_nodes(unsigned long min, unsigned long max_high);
+extern void __init arm_numa_alloc_cpumask(unsigned long max_low);
+#else
+#define	pfn_to_nid(pfn)			(0)
+#define arm_setup_nodes(min, max_high) memblock_set_node(		\
+					__pfn_to_phys(min), 		\
+					__pfn_to_phys(max_high - min), 0)
+#define arm_numa_alloc_cpumask(max_low)	do {} while (0)
+#endif /* CONFIG_NUMA */
 
 #endif /* __KERNEL__ */
 #endif /* __ASM_ARM_MMZONE_H_ */

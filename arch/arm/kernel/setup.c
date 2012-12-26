@@ -817,6 +817,12 @@ static int __init topology_init(void)
 {
 	int cpu;
 
+#ifdef CONFIG_NUMA
+	int node;
+	for_each_online_node(node)
+		register_one_node(node);
+#endif
+
 	for_each_possible_cpu(cpu) {
 		struct cpuinfo_arm *cpuinfo = &per_cpu(cpu_data, cpu);
 		cpuinfo->cpu.hotpluggable = 1;
