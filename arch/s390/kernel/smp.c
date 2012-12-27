@@ -623,9 +623,9 @@ static struct sclp_cpu_info *smp_get_cpu_info(void)
 	return info;
 }
 
-static int __devinit smp_add_present_cpu(int cpu);
+static int __cpuinit smp_add_present_cpu(int cpu);
 
-static int __devinit __smp_rescan_cpus(struct sclp_cpu_info *info,
+static int __cpuinit __smp_rescan_cpus(struct sclp_cpu_info *info,
 				       int sysfs_add)
 {
 	struct pcpu *pcpu;
@@ -986,7 +986,7 @@ static int __cpuinit smp_cpu_notify(struct notifier_block *self,
 	return notifier_from_errno(err);
 }
 
-static int __devinit smp_add_present_cpu(int cpu)
+static int __cpuinit smp_add_present_cpu(int cpu)
 {
 	struct cpu *c = &pcpu_devices[cpu].cpu;
 	struct device *s = &c->dev;
