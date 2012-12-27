@@ -232,19 +232,11 @@ static inline int mips_atomic_set(struct pt_regs *regs,
 	while (1);
 }
 
-save_static_function(sys_sysmips);
-static int __used noinline
-_sys_sysmips(nabi_no_regargs struct pt_regs regs)
+SYSCALL_DEFINE3(sysmips, long, cmd, long, arg1, long, arg2)
 {
-	long cmd, arg1, arg2;
-
-	cmd = regs.regs[4];
-	arg1 = regs.regs[5];
-	arg2 = regs.regs[6];
-
 	switch (cmd) {
 	case MIPS_ATOMIC_SET:
-		return mips_atomic_set(&regs, arg1, arg2);
+		return mips_atomic_set(current_pt_regs(), arg1, arg2);
 
 	case MIPS_FIXADE:
 		if (arg1 & ~3)
