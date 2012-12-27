@@ -576,7 +576,8 @@ vcpu	.req	r0		@ vcpu pointer always in r0
  * (hardware reset value is 0) */
 .macro set_hdcr operation
 	mrc	p15, 4, r2, c1, c1, 1
-	ldr	r3, =(HDCR_TPM|HDCR_TPMCR)
+	@ldr	r3, =(HDCR_TPM|HDCR_TPMCR)
+	mov	r3, #0
 	.if \operation == vmentry
 	orr	r2, r2, r3		@ Trap some perfmon accesses
 	.else
