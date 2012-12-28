@@ -20,6 +20,7 @@
 #include <linux/gpio_keys.h>
 #include <linux/i2c.h>
 #include <linux/regulator/machine.h>
+#include <linux/regulator/fixed.h>
 #include <linux/mfd/max8997.h>
 #include <linux/lcd.h>
 #include <linux/rfkill-gpio.h>
@@ -64,6 +65,10 @@
 #define ORIGEN_UFCON_DEFAULT	(S3C2410_UFCON_FIFOMODE |	\
 				 S5PV210_UFCON_TXTRIG4 |	\
 				 S5PV210_UFCON_RXTRIG4)
+
+enum fixed_regulator_id {
+	FIXED_REG_ID_MMC = 0,
+};
 
 static struct s3c2410_uartcfg origen_uartcfgs[] __initdata = {
 	[0] = {
@@ -475,6 +480,36 @@ static struct i2c_board_info i2c0_devs[] __initdata = {
 	},
 };
 
+static struct regulator_consumer_supply mmc_supplies[] = {
+	REGULATOR_SUPPLY("vmmc", "exynos4-sdhci.0"),
+	REGULATOR_SUPPLY("vmmc", "exynos4-sdhci.2"),
+};
+
+static struct regulator_init_data mmc_fixed_voltage_init_data = {
+	.constraints		= {
+		.name		= "VMEM_VDD_2.8V",
+		.valid_ops_mask	= REGULATOR_CHANGE_STATUS,
+	},
+	.num_consumer_supplies	= ARRAY_SIZE(mmc_supplies),
+	.consumer_supplies	= mmc_supplies,
+};
+
+static struct fixed_voltage_config mmc_fixed_voltage_config = {
+	.supply_name		= "MMC_POWER_EN",
+	.microvolts		= 2800000,
+	.gpio			= EXYNOS4_GPX1(1),
+	.enable_high		= true,
+	.init_data		= &mmc_fixed_voltage_init_data,
+};
+
+static struct platform_device mmc_fixed_voltage = {
+	.name			= "reg-fixed-voltage",
+	.id			= FIXED_REG_ID_MMC,
+	.dev			= {
+		.platform_data	= &mmc_fixed_voltage_config,
+	},
+};
+
 static struct s3c_sdhci_platdata origen_hsmmc0_pdata __initdata = {
 	.cd_type		= S3C_SDHCI_CD_INTERNAL,
 };
@@ -690,6 +725,7 @@ static struct platform_device origen_device_bluetooth = {
 };
 
 static struct platform_device *origen_devices[] __initdata = {
+	&mmc_fixed_voltage,
 	&s3c_device_hsmmc2,
 	&s3c_device_hsmmc0,
 	&s3c_device_i2c0,
