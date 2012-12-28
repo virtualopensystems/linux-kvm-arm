@@ -68,6 +68,7 @@
 
 enum fixed_regulator_id {
 	FIXED_REG_ID_MMC = 0,
+	FIXED_REG_ID_5V,
 };
 
 static struct s3c2410_uartcfg origen_uartcfgs[] __initdata = {
@@ -99,6 +100,10 @@ static struct s3c2410_uartcfg origen_uartcfgs[] __initdata = {
 		.ulcon		= ORIGEN_ULCON_DEFAULT,
 		.ufcon		= ORIGEN_UFCON_DEFAULT,
 	},
+};
+
+static struct regulator_consumer_supply __initdata fixed_5v_supply[] = {
+	REGULATOR_SUPPLY("hdmi-en", "exynos4-hdmi"), /* HDMI */
 };
 
 static struct regulator_consumer_supply __initdata ldo3_consumer[] = {
@@ -835,6 +840,9 @@ static void __init origen_machine_init(void)
 #else
 	s5p_fimd0_set_platdata(&origen_lcd_pdata);
 #endif
+
+	regulator_register_always_on(FIXED_REG_ID_5V, "Fixed 5V",
+		fixed_5v_supply, ARRAY_SIZE(fixed_5v_supply), 5000000);
 
 	platform_add_devices(origen_devices, ARRAY_SIZE(origen_devices));
 
