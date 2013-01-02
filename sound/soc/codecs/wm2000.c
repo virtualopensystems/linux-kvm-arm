@@ -26,6 +26,7 @@
 #include <linux/kernel.h>
 #include <linux/init.h>
 #include <linux/firmware.h>
+#include <linux/clk.h>
 #include <linux/delay.h>
 #include <linux/pm.h>
 #include <linux/i2c.h>
@@ -62,6 +63,7 @@ enum wm2000_anc_mode {
 struct wm2000_priv {
 	struct i2c_client *i2c;
 	struct regmap *regmap;
+	struct clk *mclk;
 
 	struct regulator_bulk_data supplies[WM2000_NUM_SUPPLIES];
 
@@ -71,7 +73,6 @@ struct wm2000_priv {
 	unsigned int anc_eng_ena:1;
 	unsigned int spk_ena:1;
 
-	unsigned int mclk_div:1;
 	unsigned int speech_clarity:1;
 
 	int anc_download_size;
@@ -131,6 +132,7 @@ static int wm2000_poll_bit(struct i2c_client *i2c,
 static int wm2000_power_up(struct i2c_client *i2c, int analogue)
 {
 	struct wm2000_priv *wm2000 = dev_get_drvdata(&i2c->dev);
+	unsigned long rate;
 	int ret;
 
 	BUG_ON(wm2000->anc_mode != ANC_OFF);
@@ -143,7 +145,8 @@ static int wm2000_power_up(struct i2c_client *i2c, int analogue)
 		return ret;
 	}
 
-	if (!wm2000->mclk_div) {
+	rate = clk_get_rate(wm2000->mclk);
+	if (rate <= 13500000) {
 		dev_dbg(&i2c->dev, "Disabling MCLK divider\n");
 		wm2000_write(i2c, WM2000_REG_SYS_CTL2,
 			     WM2000_MCLK_DIV2_ENA_CLR);
@@ -550,6 +553,15 @@ static int wm2000_anc_transition(struct wm2000_priv *wm2000,
 		return -EINVAL;
 	}
 
+	/* Maintain clock while active */
+	if (anc_transitions[i].source == ANC_OFF) {
+		ret = clk_prepare_enable(wm2000->mclk);
+		if (ret != 0) {
+			dev_err(&i2c->dev, "Failed to enable MCLK: %d\n", ret);
+			return ret;
+		}
+	}
+
 	for (j = 0; j < ARRAY_SIZE(anc_transitions[j].step); j++) {
 		if (!anc_transitions[i].step[j])
 			break;
@@ -559,7 +571,10 @@ static int wm2000_anc_transition(struct wm2000_priv *wm2000,
 			return ret;
 	}
 
-	return 0;
+	if (anc_transitions[i].dest == ANC_OFF)
+		clk_disable_unprepare(wm2000->mclk);
+
+	return ret;
 }
 
 static int wm2000_anc_set_mode(struct wm2000_priv *wm2000)
@@ -823,10 +838,16 @@ static int wm2000_i2c_probe(struct i2c_client *i2c,
 	reg = wm2000_read(i2c, WM2000_REG_REVISON);
 	dev_info(&i2c->dev, "revision %c\n", reg + 'A');
 
+	wm2000->mclk = devm_clk_get(&i2c->dev, "MCLK");
+	if (IS_ERR(wm2000->mclk)) {
+		ret = PTR_ERR(wm2000->mclk);
+		dev_err(&i2c->dev, "Failed to get MCLK: %d\n", ret);
+		goto err_supplies;
+	}
+
 	filename = "wm2000_anc.bin";
 	pdata = dev_get_platdata(&i2c->dev);
 	if (pdata) {
-		wm2000->mclk_div = pdata->mclkdiv2;
 		wm2000->speech_clarity = !pdata->speech_enh_disable;
 
 		if (pdata->download_file)
