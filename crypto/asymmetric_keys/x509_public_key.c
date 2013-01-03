@@ -105,7 +105,7 @@ EXPORT_SYMBOL_GPL(x509_check_signature);
 /*
  * Attempt to parse a data blob for a key as an X509 certificate.
  */
-static int x509_key_preparse(struct key_preparsed_payload *prep)
+int x509_key_preparse(struct key_preparsed_payload *prep)
 {
 	struct x509_certificate *cert;
 	struct tm now;
@@ -218,6 +218,7 @@ error_free_cert:
 	x509_free_certificate(cert);
 	return ret;
 }
+EXPORT_SYMBOL_GPL(x509_key_preparse);
 
 static struct asymmetric_key_parser x509_key_parser = {
 	.owner	= THIS_MODULE,

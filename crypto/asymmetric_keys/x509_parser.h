@@ -12,6 +12,8 @@
 #include <linux/time.h>
 #include <crypto/public_key.h>
 
+struct key_preparsed_payload;
+
 struct x509_certificate {
 	struct x509_certificate *next;
 	const struct x509_certificate *signer;	/* Certificate that signed this one */
@@ -47,3 +49,4 @@ extern struct x509_certificate *x509_cert_parse(const void *data, size_t datalen
 extern int x509_get_sig_params(struct x509_certificate *cert);
 extern int x509_check_signature(const struct public_key *pub,
 				struct x509_certificate *cert);
+extern int x509_key_preparse(struct key_preparsed_payload *prep);
