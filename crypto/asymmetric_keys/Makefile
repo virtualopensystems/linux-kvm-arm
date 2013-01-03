@@ -39,3 +39,11 @@ $(obj)/pkcs7_parser.o: $(obj)/pkcs7-asn1.h
 $(obj)/pkcs7-asn1.o: $(obj)/pkcs7-asn1.c $(obj)/pkcs7-asn1.h
 
 clean-files	+= pkcs7-asn1.c pkcs7-asn1.h
+
+#
+# Signed PE binary-wrapped key handling
+#
+obj-$(CONFIG_PE_FILE_PARSER) += pefile_key_parser.o
+
+pefile_key_parser-y := \
+	pefile_parser.o
