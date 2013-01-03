@@ -9,6 +9,7 @@
  * 2 of the Licence, or (at your option) any later version.
  */
 
+#include <linux/export.h>
 #include <linux/kernel.h>
 #include <linux/sched.h>
 #include <linux/cred.h>
@@ -17,6 +18,7 @@
 #include "module-internal.h"
 
 struct key *modsign_keyring;
+EXPORT_SYMBOL_GPL(modsign_keyring);
 
 extern __initdata const u8 modsign_certificate_list[];
 extern __initdata const u8 modsign_certificate_list_end[];

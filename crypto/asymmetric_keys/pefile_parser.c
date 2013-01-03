@@ -23,6 +23,8 @@
 #include "public_key.h"
 #include "pefile_parser.h"
 
+extern struct key *modsign_keyring;
+
 /*
  * Parse a PE binary.
  */
@@ -432,6 +434,10 @@ static int pefile_key_preparse(struct key_preparsed_payload *prep)
 		goto error;
 
 	ret = pkcs7_verify(pkcs7);
+	if (ret < 0)
+		goto error;
+
+	ret = pkcs7_validate_trust(pkcs7, modsign_keyring);
 	if (ret < 0)
 		goto error;
 
