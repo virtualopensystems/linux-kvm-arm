@@ -205,6 +205,7 @@ static int pefile_strip_sig_wrapper(struct key_preparsed_payload *prep,
  */
 static int pefile_key_preparse(struct key_preparsed_payload *prep)
 {
+	struct pkcs7_message *pkcs7;
 	struct pefile_context ctx;
 	int ret;
 
@@ -219,7 +220,22 @@ static int pefile_key_preparse(struct key_preparsed_payload *prep)
 	if (ret < 0)
 		return ret;
 
-	return -ENOANO; // Not yet complete
+	pkcs7 = pkcs7_parse_message(prep->data + ctx.sig_offset, ctx.sig_len);
+	if (IS_ERR(pkcs7))
+		return PTR_ERR(pkcs7);
+	ctx.pkcs7 = pkcs7;
+
+	if (!ctx.pkcs7->data || !ctx.pkcs7->data_len) {
+		pr_devel("PKCS#7 message does not contain data\n");
+		ret = -EBADMSG;
+		goto error;
+	}
+
+	ret = -ENOANO; // Not yet complete
+
+error:
+	pkcs7_free_message(ctx.pkcs7);
+	return ret;
 }
 
 static struct asymmetric_key_parser pefile_key_parser = {
