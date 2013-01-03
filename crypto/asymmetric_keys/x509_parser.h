@@ -14,6 +14,7 @@
 
 struct x509_certificate {
 	struct x509_certificate *next;
+	const struct x509_certificate *signer;	/* Certificate that signed this one */
 	struct public_key *pub;			/* Public key details */
 	char		*issuer;		/* Name of certificate issuer */
 	char		*subject;		/* Name of certificate subject */

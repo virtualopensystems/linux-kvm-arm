@@ -161,6 +161,70 @@ static int pkcs7_find_key(struct pkcs7_message *pkcs7)
 }
 
 /*
+ * Verify the internal certificate chain as best we can.
+ */
+static int pkcs7_verify_sig_chain(struct pkcs7_message *pkcs7)
+{
+	struct x509_certificate *x509 = pkcs7->signer, *p;
+	int ret;
+
+	kenter("");
+
+	for (;;) {
+		pr_debug("verify %s: %s\n", x509->subject, x509->fingerprint);
+		ret = x509_get_sig_params(x509);
+		if (ret < 0)
+			return ret;
+
+		if (x509->issuer)
+			pr_debug("- issuer %s\n", x509->issuer);
+		if (x509->authority)
+			pr_debug("- authkeyid %s\n", x509->authority);
+
+		if (!x509->authority ||
+		    (x509->subject &&
+		     strcmp(x509->subject, x509->authority) == 0)) {
+			/* If there's no authority certificate specified, then
+			 * the certificate must be self-signed and is the root
+			 * of the chain.  Likewise if the cert is its own
+			 * authority.
+			 */
+			pr_debug("- no auth?\n");
+			if (x509->raw_subject_size != x509->raw_issuer_size ||
+			    memcmp(x509->raw_subject, x509->raw_issuer,
+				   x509->raw_issuer_size) != 0)
+				return 0;
+
+			ret = x509_check_signature(x509->pub, x509);
+			if (ret < 0)
+				return ret;
+			x509->signer = x509;
+			pr_debug("- self-signed\n");
+			return 0;
+		}
+
+		for (p = pkcs7->certs; p; p = p->next)
+			if (!p->signer &&
+			    p->raw_subject_size == x509->raw_issuer_size &&
+			    strcmp(p->fingerprint, x509->authority) == 0 &&
+			    memcmp(p->raw_subject, x509->raw_issuer,
+				   x509->raw_issuer_size) == 0)
+				goto found_issuer;
+		pr_debug("- top\n");
+		return 0;
+
+	found_issuer:
+		pr_debug("- issuer %s\n", p->subject);
+		ret = x509_check_signature(p->pub, x509);
+		if (ret < 0)
+			return ret;
+		x509->signer = p;
+		x509 = p;
+		might_sleep();
+	}
+}
+
+/*
  * Verify a PKCS#7 message
  */
 int pkcs7_verify(struct pkcs7_message *pkcs7)
@@ -186,6 +250,7 @@ int pkcs7_verify(struct pkcs7_message *pkcs7)
 
 	pr_devel("Verified signature\n");
 
-	return 0;
+	/* Verify the internal certificate chain */
+	return pkcs7_verify_sig_chain(pkcs7);
 }
 EXPORT_SYMBOL_GPL(pkcs7_verify);
