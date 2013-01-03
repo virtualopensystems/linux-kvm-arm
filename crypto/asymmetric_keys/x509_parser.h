@@ -21,18 +21,17 @@ struct x509_certificate {
 	char		*authority;		/* Authority key fingerprint as hex */
 	struct tm	valid_from;
 	struct tm	valid_to;
-	enum pkey_algo	sig_pkey_algo : 8;	/* Signature public key algorithm */
-	enum pkey_hash_algo sig_hash_algo : 8;	/* Signature hash algorithm */
 	const void	*tbs;			/* Signed data */
 	unsigned	tbs_size;		/* Size of signed data */
-	unsigned	sig_size;		/* Size of sigature */
-	const void	*sig;			/* Signature data */
+	unsigned	raw_sig_size;		/* Size of sigature */
+	const void	*raw_sig;		/* Signature data */
 	const void	*raw_serial;		/* Raw serial number in ASN.1 */
 	unsigned	raw_serial_size;
 	unsigned	raw_issuer_size;
 	const void	*raw_issuer;		/* Raw issuer name in ASN.1 */
 	const void	*raw_subject;		/* Raw subject name in ASN.1 */
 	unsigned	raw_subject_size;
+	struct public_key_signature sig;	/* Signature parameters */
 };
 
 /*
@@ -40,3 +39,10 @@ struct x509_certificate {
  */
 extern void x509_free_certificate(struct x509_certificate *cert);
 extern struct x509_certificate *x509_cert_parse(const void *data, size_t datalen);
+
+/*
+ * x509_public_key.c
+ */
+extern int x509_get_sig_params(struct x509_certificate *cert);
+extern int x509_check_signature(const struct public_key *pub,
+				struct x509_certificate *cert);
