@@ -429,7 +429,8 @@ static struct regulator_desc lp8788_buck_desc[] = {
 	},
 };
 
-static int lp8788_dvs_gpio_request(struct lp8788_buck *buck,
+static int lp8788_dvs_gpio_request(struct platform_device *pdev,
+				struct lp8788_buck *buck,
 				enum lp8788_buck_id id)
 {
 	struct lp8788_platform_data *pdata = buck->lp->pdata;
@@ -440,7 +441,7 @@ static int lp8788_dvs_gpio_request(struct lp8788_buck *buck,
 	switch (id) {
 	case BUCK1:
 		gpio = pdata->buck1_dvs->gpio;
-		ret = devm_gpio_request_one(buck->lp->dev, gpio, DVS_LOW,
+		ret = devm_gpio_request_one(&pdev->dev, gpio, DVS_LOW,
 					    b1_name);
 		if (ret)
 			return ret;
@@ -448,9 +449,9 @@ static int lp8788_dvs_gpio_request(struct lp8788_buck *buck,
 		buck->dvs = pdata->buck1_dvs;
 		break;
 	case BUCK2:
-		for (i = 0 ; i < LP8788_NUM_BUCK2_DVS ; i++) {
+		for (i = 0; i < LP8788_NUM_BUCK2_DVS; i++) {
 			gpio = pdata->buck2_dvs->gpio[i];
-			ret = devm_gpio_request_one(buck->lp->dev, gpio,
+			ret = devm_gpio_request_one(&pdev->dev, gpio,
 						    DVS_LOW, b2_name[i]);
 			if (ret)
 				return ret;
@@ -464,7 +465,8 @@ static int lp8788_dvs_gpio_request(struct lp8788_buck *buck,
 	return 0;
 }
 
-static int lp8788_init_dvs(struct lp8788_buck *buck, enum lp8788_buck_id id)
+static int lp8788_init_dvs(struct platform_device *pdev,
+			struct lp8788_buck *buck, enum lp8788_buck_id id)
 {
 	struct lp8788_platform_data *pdata = buck->lp->pdata;
 	u8 mask[] = { LP8788_BUCK1_DVS_SEL_M, LP8788_BUCK2_DVS_SEL_M };
@@ -483,7 +485,7 @@ static int lp8788_init_dvs(struct lp8788_buck *buck, enum lp8788_buck_id id)
 		(id == BUCK2 && !pdata->buck2_dvs))
 		goto set_default_dvs_mode;
 
-	if (lp8788_dvs_gpio_request(buck, id))
+	if (lp8788_dvs_gpio_request(pdev, buck, id))
 		goto set_default_dvs_mode;
 
 	return lp8788_update_bits(buck->lp, LP8788_BUCK_DVS_SEL, mask[id],
@@ -503,17 +505,17 @@ static int lp8788_buck_probe(struct platform_device *pdev)
 	struct regulator_dev *rdev;
 	int ret;
 
-	buck = devm_kzalloc(lp->dev, sizeof(struct lp8788_buck), GFP_KERNEL);
+	buck = devm_kzalloc(&pdev->dev, sizeof(struct lp8788_buck), GFP_KERNEL);
 	if (!buck)
 		return -ENOMEM;
 
 	buck->lp = lp;
 
-	ret = lp8788_init_dvs(buck, id);
+	ret = lp8788_init_dvs(pdev, buck, id);
 	if (ret)
 		return ret;
 
-	cfg.dev = lp->dev;
+	cfg.dev = pdev->dev.parent;
 	cfg.init_data = lp->pdata ? lp->pdata->buck_data[id] : NULL;
 	cfg.driver_data = buck;
 	cfg.regmap = lp->regmap;
@@ -521,7 +523,7 @@ static int lp8788_buck_probe(struct platform_device *pdev)
 	rdev = regulator_register(&lp8788_buck_desc[id], &cfg);
 	if (IS_ERR(rdev)) {
 		ret = PTR_ERR(rdev);
-		dev_err(lp->dev, "BUCK%d regulator register err = %d\n",
+		dev_err(&pdev->dev, "BUCK%d regulator register err = %d\n",
 				id + 1, ret);
 		return ret;
 	}
