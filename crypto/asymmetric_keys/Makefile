@@ -46,4 +46,11 @@ clean-files	+= pkcs7-asn1.c pkcs7-asn1.h
 obj-$(CONFIG_PE_FILE_PARSER) += pefile_key_parser.o
 
 pefile_key_parser-y := \
-	pefile_parser.o
+	pefile_parser.o \
+	mscode_parser.o \
+	mscode-asn1.o
+
+$(obj)/mscode_parser.o: $(obj)/mscode-asn1.h $(obj)/mscode-asn1.h
+$(obj)/mscode-asn1.o: $(obj)/mscode-asn1.c $(obj)/mscode-asn1.h
+
+clean-files	+= mscode-asn1.c mscode-asn1.h

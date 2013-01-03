@@ -231,6 +231,12 @@ static int pefile_key_preparse(struct key_preparsed_payload *prep)
 		goto error;
 	}
 
+	ret = mscode_parse(&ctx);
+	if (ret < 0)
+		goto error;
+
+	pr_devel("Digest: %u [%*ph]\n", ctx.digest_len, ctx.digest_len, ctx.digest);
+
 	ret = -ENOANO; // Not yet complete
 
 error:

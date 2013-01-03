@@ -29,3 +29,8 @@ struct pefile_context {
 	unsigned	digest_len;		/* Digest length */
 	enum pkey_hash_algo digest_algo;	/* Digest algorithm */
 };
+
+/*
+ * mscode_parser.c
+ */
+extern int mscode_parse(struct pefile_context *ctx);
