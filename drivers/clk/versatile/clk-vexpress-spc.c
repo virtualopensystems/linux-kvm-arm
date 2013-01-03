@@ -108,6 +108,11 @@ void __init vexpress_clk_of_register_spc(void)
 	const u32 *val;
 	int cluster_id = 0, len;
 
+	if (!of_find_compatible_node(NULL, NULL, "arm,spc")) {
+		pr_debug("%s: No SPC found, Exiting!!\n", __func__);
+		return;
+	}
+
 	while ((node = of_find_node_by_name(node, "cluster"))) {
 		val = of_get_property(node, "reg", &len);
 		if (val && len == 4)
