@@ -114,6 +114,53 @@ error_no_desc:
 }
 
 /*
+ * Find the key (X.509 certificate) to use to verify a PKCS#7 message.  PKCS#7
+ * uses the issuer's name and the issuing certificate serial number for
+ * matching purposes.  These must match the certificate issuer's name (not
+ * subject's name) and the certificate serial number [RFC 2315 6.7].
+ */
+static int pkcs7_find_key(struct pkcs7_message *pkcs7)
+{
+	struct x509_certificate *x509;
+
+	kenter("%u,%u", pkcs7->raw_serial_size, pkcs7->raw_issuer_size);
+
+	for (x509 = pkcs7->certs; x509; x509 = x509->next) {
+		pr_devel("- x509 %u,%u\n",
+			 x509->raw_serial_size, x509->raw_issuer_size);
+
+		/* I'm _assuming_ that the generator of the PKCS#7 message will
+		 * encode the fields from the X.509 cert in the same way in the
+		 * PKCS#7 message - but I can't be 100% sure of that.  It's
+		 * possible this will need element-by-element comparison.
+		 */
+		if (x509->raw_serial_size != pkcs7->raw_serial_size ||
+		    memcmp(x509->raw_serial, pkcs7->raw_serial,
+			   pkcs7->raw_serial_size) != 0)
+			continue;
+		pr_devel("Found cert serial match\n");
+
+		if (x509->raw_issuer_size != pkcs7->raw_issuer_size ||
+		    memcmp(x509->raw_issuer, pkcs7->raw_issuer,
+			   pkcs7->raw_issuer_size) != 0) {
+			pr_warn("X.509 subject and PKCS#7 issuer don't match\n");
+			continue;
+		}
+
+		if (x509->pub->pkey_algo != pkcs7->sig.pkey_algo) {
+			pr_warn("X.509 algo and PKCS#7 sig algo don't match\n");
+			continue;
+		}
+
+		pkcs7->signer = x509;
+		return 0;
+	}
+	pr_warn("Issuing X.509 cert not found (#%*ph)\n",
+		pkcs7->raw_serial_size, pkcs7->raw_serial);
+	return -ENOKEY;
+}
+
+/*
  * Verify a PKCS#7 message
  */
 int pkcs7_verify(struct pkcs7_message *pkcs7)
@@ -124,6 +171,20 @@ int pkcs7_verify(struct pkcs7_message *pkcs7)
 	ret = pkcs7_digest(pkcs7);
 	if (ret < 0)
 		return ret;
+
+	/* Find the key for the message signature */
+	ret = pkcs7_find_key(pkcs7);
+	if (ret < 0)
+		return ret;
+
+	pr_devel("Found X.509 cert\n");
+
+	/* Verify the PKCS#7 binary against the key */
+	ret = public_key_verify_signature(pkcs7->signer->pub, &pkcs7->sig);
+	if (ret < 0)
+		return ret;
+
+	pr_devel("Verified signature\n");
 
 	return 0;
 }
