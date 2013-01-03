@@ -15,6 +15,7 @@
 #include <linux/slab.h>
 #include <linux/err.h>
 #include <linux/pe.h>
+#include <linux/asn1.h>
 #include <keys/asymmetric-subtype.h>
 #include <keys/asymmetric-parser.h>
 #include <crypto/hash.h>
@@ -145,6 +146,61 @@ static int pefile_parse_binary(struct key_preparsed_payload *prep,
 }
 
 /*
+ * Check and strip the PE wrapper from around the signature and check that the
+ * remnant looks something like PKCS#7.
+ */
+static int pefile_strip_sig_wrapper(struct key_preparsed_payload *prep,
+				    struct pefile_context *ctx)
+{
+	struct win_certificate wrapper;
+	const u8 *pkcs7;
+
+	if (ctx->sig_len < sizeof(wrapper)) {
+		pr_devel("Signature wrapper too short\n");
+		return -ELIBBAD;
+	}
+
+	memcpy(&wrapper, prep->data + ctx->sig_offset, sizeof(wrapper));
+	pr_devel("sig wrapper = { %x, %x, %x }\n",
+		 wrapper.length, wrapper.revision, wrapper.cert_type);
+	if (wrapper.length != ctx->sig_len) {
+		pr_devel("Signature wrapper len wrong\n");
+		return -ELIBBAD;
+	}
+	if (wrapper.revision != WIN_CERT_REVISION_2_0) {
+		pr_devel("Signature is not revision 2.0\n");
+		return -ENOTSUPP;
+	}
+	if (wrapper.cert_type != WIN_CERT_TYPE_PKCS_SIGNED_DATA) {
+		pr_devel("Signature certificate type is not PKCS\n");
+		return -ENOTSUPP;
+	}
+
+	ctx->sig_offset += sizeof(wrapper);
+	ctx->sig_len -= sizeof(wrapper);
+	if (ctx->sig_len == 0) {
+		pr_devel("Signature data missing\n");
+		return -EKEYREJECTED;
+	}
+
+	/* What's left should a PKCS#7 cert */
+	pkcs7 = prep->data + ctx->sig_offset;
+	if (pkcs7[0] == (ASN1_CONS_BIT | ASN1_SEQ)) {
+		if (pkcs7[1] == 0x82 &&
+		    pkcs7[2] == (((ctx->sig_len - 4) >> 8) & 0xff) &&
+		    pkcs7[3] ==  ((ctx->sig_len - 4)       & 0xff))
+			return 0;
+		if (pkcs7[1] == 0x80)
+			return 0;
+		if (pkcs7[1] > 0x82)
+			return -EMSGSIZE;
+	}
+
+	pr_devel("Signature data not PKCS#7\n");
+	return -ELIBBAD;
+}
+
+/*
  * Parse a PE binary.
  */
 static int pefile_key_preparse(struct key_preparsed_payload *prep)
@@ -156,6 +212,10 @@ static int pefile_key_preparse(struct key_preparsed_payload *prep)
 
 	memset(&ctx, 0, sizeof(ctx));
 	ret = pefile_parse_binary(prep, &ctx);
+	if (ret < 0)
+		return ret;
+
+	ret = pefile_strip_sig_wrapper(prep, &ctx);
 	if (ret < 0)
 		return ret;
 
