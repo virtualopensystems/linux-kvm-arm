@@ -63,7 +63,8 @@ extern void pkcs7_free_message(struct pkcs7_message *pkcs7);
  * pkcs7_trust.c
  */
 extern int pkcs7_validate_trust(struct pkcs7_message *pkcs7,
-				struct key *trust_keyring);
+				struct key *trust_keyring,
+				bool *_trusted);
 
 /*
  * pkcs7_verify.c

@@ -439,7 +439,7 @@ static int pefile_key_preparse(struct key_preparsed_payload *prep)
 	if (ret < 0)
 		goto error;
 
-	ret = pkcs7_validate_trust(pkcs7, modsign_keyring);
+	ret = pkcs7_validate_trust(pkcs7, modsign_keyring, &prep->trusted);
 	if (ret < 0)
 		goto error;
 

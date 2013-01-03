@@ -74,11 +74,13 @@ static struct key *pkcs7_request_asymmetric_key(
  * keys we already know and trust.
  */
 int pkcs7_validate_trust(struct pkcs7_message *pkcs7,
-			 struct key *trust_keyring)
+			 struct key *trust_keyring,
+			 bool *_trusted)
 {
 	struct public_key_signature *sig = &pkcs7->sig;
 	struct x509_certificate *x509, *last = NULL;
 	struct key *key;
+	bool trusted;
 	int ret;
 
 	kenter("");
@@ -131,6 +133,7 @@ int pkcs7_validate_trust(struct pkcs7_message *pkcs7,
 
 matched:
 	ret = verify_signature(key, sig);
+	trusted = test_bit(KEY_FLAG_TRUSTED, &key->flags);
 	key_put(key);
 	if (ret < 0) {
 		if (ret == -ENOMEM)
@@ -139,6 +142,7 @@ matched:
 		return -EKEYREJECTED;
 	}
 
+	*_trusted = trusted;
 	kleave(" = 0");
 	return 0;
 }
