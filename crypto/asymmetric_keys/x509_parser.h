@@ -24,9 +24,15 @@ struct x509_certificate {
 	enum pkey_algo	sig_pkey_algo : 8;	/* Signature public key algorithm */
 	enum pkey_hash_algo sig_hash_algo : 8;	/* Signature hash algorithm */
 	const void	*tbs;			/* Signed data */
-	size_t		tbs_size;		/* Size of signed data */
+	unsigned	tbs_size;		/* Size of signed data */
+	unsigned	sig_size;		/* Size of sigature */
 	const void	*sig;			/* Signature data */
-	size_t		sig_size;		/* Size of sigature */
+	const void	*raw_serial;		/* Raw serial number in ASN.1 */
+	unsigned	raw_serial_size;
+	unsigned	raw_issuer_size;
+	const void	*raw_issuer;		/* Raw issuer name in ASN.1 */
+	const void	*raw_subject;		/* Raw subject name in ASN.1 */
+	unsigned	raw_subject_size;
 };
 
 /*
