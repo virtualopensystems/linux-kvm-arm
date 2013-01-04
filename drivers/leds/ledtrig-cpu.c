@@ -35,8 +35,6 @@
 struct led_trigger_cpu {
 	char name[MAX_NAME_LEN];
 	struct led_trigger *_trig;
-	struct mutex lock;
-	int lock_is_inited;
 };
 
 static DEFINE_PER_CPU(struct led_trigger_cpu, cpu_trig);
@@ -51,12 +49,6 @@ static DEFINE_PER_CPU(struct led_trigger_cpu, cpu_trig);
 void ledtrig_cpu(enum cpu_led_event ledevt)
 {
 	struct led_trigger_cpu *trig = &__get_cpu_var(cpu_trig);
-
-	/* mutex lock should be initialized before calling mutex_call() */
-	if (!trig->lock_is_inited)
-		return;
-
-	mutex_lock(&trig->lock);
 
 	/* Locate the correct CPU LED */
 	switch (ledevt) {
@@ -77,8 +69,6 @@ void ledtrig_cpu(enum cpu_led_event ledevt)
 		/* Will leave the LED as it is */
 		break;
 	}
-
-	mutex_unlock(&trig->lock);
 }
 EXPORT_SYMBOL(ledtrig_cpu);
 
@@ -138,14 +128,9 @@ static int __init ledtrig_cpu_init(void)
 	for_each_possible_cpu(cpu) {
 		struct led_trigger_cpu *trig = &per_cpu(cpu_trig, cpu);
 
-		mutex_init(&trig->lock);
-
 		snprintf(trig->name, MAX_NAME_LEN, "cpu%d", cpu);
 
-		mutex_lock(&trig->lock);
 		led_trigger_register_simple(trig->name, &trig->_trig);
-		trig->lock_is_inited = 1;
-		mutex_unlock(&trig->lock);
 	}
 
 	register_syscore_ops(&ledtrig_cpu_syscore_ops);
@@ -167,15 +152,9 @@ static void __exit ledtrig_cpu_exit(void)
 	for_each_possible_cpu(cpu) {
 		struct led_trigger_cpu *trig = &per_cpu(cpu_trig, cpu);
 
-		mutex_lock(&trig->lock);
-
 		led_trigger_unregister_simple(trig->_trig);
 		trig->_trig = NULL;
 		memset(trig->name, 0, MAX_NAME_LEN);
-		trig->lock_is_inited = 0;
-
-		mutex_unlock(&trig->lock);
-		mutex_destroy(&trig->lock);
 	}
 
 	unregister_syscore_ops(&ledtrig_cpu_syscore_ops);

@@ -441,7 +441,7 @@ static struct miscdevice etb_miscdev = {
 	.fops = &etb_fops,
 };
 
-static int __devinit etb_probe(struct amba_device *dev, const struct amba_id *id)
+static int etb_probe(struct amba_device *dev, const struct amba_id *id)
 {
 	struct tracectx *t = &tracer;
 	int ret = 0;

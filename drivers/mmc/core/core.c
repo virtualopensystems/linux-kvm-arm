@@ -43,6 +43,9 @@
 #include "sd_ops.h"
 #include "sdio_ops.h"
 
+/* If the device is not responding */
+#define MMC_CORE_TIMEOUT_MS	(10 * 60 * 1000) /* 10 minute timeout */
+
 /*
  * Background operations can take a long time, depending on the housekeeping
  * operations the card has to perform.
@@ -1664,6 +1667,7 @@ static int mmc_do_erase(struct mmc_card *card, unsigned int from,
 {
 	struct mmc_command cmd = {0};
 	unsigned int qty = 0;
+	unsigned long timeout;
 	int err;
 
 	/*
@@ -1741,6 +1745,7 @@ static int mmc_do_erase(struct mmc_card *card, unsigned int from,
 	if (mmc_host_is_spi(card->host))
 		goto out;
 
+	timeout = jiffies + msecs_to_jiffies(MMC_CORE_TIMEOUT_MS);
 	do {
 		memset(&cmd, 0, sizeof(struct mmc_command));
 		cmd.opcode = MMC_SEND_STATUS;
@@ -1754,8 +1759,19 @@ static int mmc_do_erase(struct mmc_card *card, unsigned int from,
 			err = -EIO;
 			goto out;
 		}
+
+		/* Timeout if the device never becomes ready for data and
+		 * never leaves the program state.
+		 */
+		if (time_after(jiffies, timeout)) {
+			pr_err("%s: Card stuck in programming state! %s\n",
+				mmc_hostname(card->host), __func__);
+			err =  -EIO;
+			goto out;
+		}
+
 	} while (!(cmd.resp[0] & R1_READY_FOR_DATA) ||
-		 R1_CURRENT_STATE(cmd.resp[0]) == R1_STATE_PRG);
+		 (R1_CURRENT_STATE(cmd.resp[0]) == R1_STATE_PRG));
 out:
 	return err;
 }
@@ -1974,6 +1990,20 @@ int mmc_set_blocklen(struct mmc_card *card, unsigned int blocklen)
 	return mmc_wait_for_cmd(card->host, &cmd, 5);
 }
 EXPORT_SYMBOL(mmc_set_blocklen);
+
+int mmc_set_blockcount(struct mmc_card *card, unsigned int blockcount,
+			bool is_rel_write)
+{
+	struct mmc_command cmd = {0};
+
+	cmd.opcode = MMC_SET_BLOCK_COUNT;
+	cmd.arg = blockcount & 0x0000FFFF;
+	if (is_rel_write)
+		cmd.arg |= 1 << 31;
+	cmd.flags = MMC_RSP_SPI_R1 | MMC_RSP_R1 | MMC_CMD_AC;
+	return mmc_wait_for_cmd(card->host, &cmd, 5);
+}
+EXPORT_SYMBOL(mmc_set_blockcount);
 
 static void mmc_hw_reset_for_init(struct mmc_host *host)
 {
