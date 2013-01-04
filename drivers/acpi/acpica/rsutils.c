@@ -108,7 +108,7 @@ u16 acpi_rs_encode_bitmask(u8 * list, u8 count)
 		mask |= (0x1 << list[i]);
 	}
 
-	return mask;
+	return (mask);
 }
 
 /*******************************************************************************
@@ -358,8 +358,10 @@ acpi_rs_get_resource_source(acpi_rs_length resource_length,
 		 *
 		 * Zero the entire area of the buffer.
 		 */
-		total_length = (u32)
-		ACPI_STRLEN(ACPI_CAST_PTR(char, &aml_resource_source[1])) + 1;
+		total_length =
+		    (u32)
+		    ACPI_STRLEN(ACPI_CAST_PTR(char, &aml_resource_source[1])) +
+		    1;
 		total_length = (u32) ACPI_ROUND_UP_TO_NATIVE_WORD(total_length);
 
 		ACPI_MEMSET(resource_source->string_ptr, 0, total_length);

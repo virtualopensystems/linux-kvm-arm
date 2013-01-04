@@ -49,14 +49,18 @@
  * get into potential aligment issues -- see the STORE macros below.
  * Use with care.
  */
-#define ACPI_GET8(ptr)                  *ACPI_CAST_PTR (u8, ptr)
-#define ACPI_GET16(ptr)                 *ACPI_CAST_PTR (u16, ptr)
-#define ACPI_GET32(ptr)                 *ACPI_CAST_PTR (u32, ptr)
-#define ACPI_GET64(ptr)                 *ACPI_CAST_PTR (u64, ptr)
-#define ACPI_SET8(ptr)                  *ACPI_CAST_PTR (u8, ptr)
-#define ACPI_SET16(ptr)                 *ACPI_CAST_PTR (u16, ptr)
-#define ACPI_SET32(ptr)                 *ACPI_CAST_PTR (u32, ptr)
-#define ACPI_SET64(ptr)                 *ACPI_CAST_PTR (u64, ptr)
+#define ACPI_CAST8(ptr)                 ACPI_CAST_PTR (u8, (ptr))
+#define ACPI_CAST16(ptr)                ACPI_CAST_PTR (u16, (ptr))
+#define ACPI_CAST32(ptr)                ACPI_CAST_PTR (u32, (ptr))
+#define ACPI_CAST64(ptr)                ACPI_CAST_PTR (u64, (ptr))
+#define ACPI_GET8(ptr)                  (*ACPI_CAST8 (ptr))
+#define ACPI_GET16(ptr)                 (*ACPI_CAST16 (ptr))
+#define ACPI_GET32(ptr)                 (*ACPI_CAST32 (ptr))
+#define ACPI_GET64(ptr)                 (*ACPI_CAST64 (ptr))
+#define ACPI_SET8(ptr, val)             (*ACPI_CAST8 (ptr) = (u8) (val))
+#define ACPI_SET16(ptr, val)            (*ACPI_CAST16 (ptr) = (u16) (val))
+#define ACPI_SET32(ptr, val)            (*ACPI_CAST32 (ptr) = (u32) (val))
+#define ACPI_SET64(ptr, val)            (*ACPI_CAST64 (ptr) = (u64) (val))
 
 /*
  * printf() format helpers
@@ -292,6 +296,20 @@
 #define ACPI_8BIT_MASK      0x000000FF
 #define ACPI_16BIT_MASK     0x0000FFFF
 #define ACPI_24BIT_MASK     0x00FFFFFF
+
+/* Macros to extract flag bits from position zero */
+
+#define ACPI_GET_1BIT_FLAG(value)                   ((value) & ACPI_1BIT_MASK)
+#define ACPI_GET_2BIT_FLAG(value)                   ((value) & ACPI_2BIT_MASK)
+#define ACPI_GET_3BIT_FLAG(value)                   ((value) & ACPI_3BIT_MASK)
+#define ACPI_GET_4BIT_FLAG(value)                   ((value) & ACPI_4BIT_MASK)
+
+/* Macros to extract flag bits from position one and above */
+
+#define ACPI_EXTRACT_1BIT_FLAG(field, position)     (ACPI_GET_1BIT_FLAG ((field) >> position))
+#define ACPI_EXTRACT_2BIT_FLAG(field, position)     (ACPI_GET_2BIT_FLAG ((field) >> position))
+#define ACPI_EXTRACT_3BIT_FLAG(field, position)     (ACPI_GET_3BIT_FLAG ((field) >> position))
+#define ACPI_EXTRACT_4BIT_FLAG(field, position)     (ACPI_GET_4BIT_FLAG ((field) >> position))
 
 /*
  * An object of type struct acpi_namespace_node can appear in some contexts
