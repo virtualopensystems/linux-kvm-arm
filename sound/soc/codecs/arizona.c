@@ -141,6 +141,30 @@ const char *arizona_mixer_texts[ARIZONA_NUM_MIXER_INPUTS] = {
 	"ASRC1R",
 	"ASRC2L",
 	"ASRC2R",
+	"ISRC1INT1",
+	"ISRC1INT2",
+	"ISRC1INT3",
+	"ISRC1INT4",
+	"ISRC1DEC1",
+	"ISRC1DEC2",
+	"ISRC1DEC3",
+	"ISRC1DEC4",
+	"ISRC2INT1",
+	"ISRC2INT2",
+	"ISRC2INT3",
+	"ISRC2INT4",
+	"ISRC2DEC1",
+	"ISRC2DEC2",
+	"ISRC2DEC3",
+	"ISRC2DEC4",
+	"ISRC3INT1",
+	"ISRC3INT2",
+	"ISRC3INT3",
+	"ISRC3INT4",
+	"ISRC3DEC1",
+	"ISRC3DEC2",
+	"ISRC3DEC3",
+	"ISRC3DEC4",
 };
 EXPORT_SYMBOL_GPL(arizona_mixer_texts);
 
@@ -220,6 +244,30 @@ int arizona_mixer_values[ARIZONA_NUM_MIXER_INPUTS] = {
 	0x91,
 	0x92,
 	0x93,
+	0xa0,  /* ISRC1INT1 */
+	0xa1,
+	0xa2,
+	0xa3,
+	0xa4,  /* ISRC1DEC1 */
+	0xa5,
+	0xa6,
+	0xa7,
+	0xa8,  /* ISRC2DEC1 */
+	0xa9,
+	0xaa,
+	0xab,
+	0xac,  /* ISRC2INT1 */
+	0xad,
+	0xae,
+	0xaf,
+	0xb0,  /* ISRC3DEC1 */
+	0xb1,
+	0xb2,
+	0xb3,
+	0xb4,  /* ISRC3INT1 */
+	0xb5,
+	0xb6,
+	0xb7,
 };
 EXPORT_SYMBOL_GPL(arizona_mixer_values);
 
@@ -1110,6 +1158,40 @@ int arizona_init_fll(struct arizona *arizona, int id, int base, int lock_irq,
 	return 0;
 }
 EXPORT_SYMBOL_GPL(arizona_init_fll);
+
+/**
+ * arizona_set_output_mode - Set the mode of the specified output
+ *
+ * @codec: Device to configure
+ * @output: Output number
+ * @diff: True to set the output to differential mode
+ *
+ * Some systems use external analogue switches to connect more
+ * analogue devices to the CODEC than are supported by the device.  In
+ * some systems this requires changing the switched output from single
+ * ended to differential mode dynamically at runtime, an operation
+ * supported using this function.
+ *
+ * Most systems have a single static configuration and should use
+ * platform data instead.
+ */
+int arizona_set_output_mode(struct snd_soc_codec *codec, int output, bool diff)
+{
+	unsigned int reg, val;
+
+	if (output < 1 || output > 6)
+		return -EINVAL;
+
+	reg = ARIZONA_OUTPUT_PATH_CONFIG_1L + (output - 1) * 8;
+
+	if (diff)
+		val = ARIZONA_OUT1_MONO;
+	else
+		val = 0;
+
+	return snd_soc_update_bits(codec, reg, ARIZONA_OUT1_MONO, val);
+}
+EXPORT_SYMBOL_GPL(arizona_set_output_mode);
 
 MODULE_DESCRIPTION("ASoC Wolfson Arizona class device support");
 MODULE_AUTHOR("Mark Brown <broonie@opensource.wolfsonmicro.com>");

@@ -66,7 +66,7 @@ struct arizona_priv {
 	struct arizona_dai_priv dai[ARIZONA_MAX_DAI];
 };
 
-#define ARIZONA_NUM_MIXER_INPUTS 75
+#define ARIZONA_NUM_MIXER_INPUTS 99
 
 extern const unsigned int arizona_mixer_tlv[];
 extern const char *arizona_mixer_texts[ARIZONA_NUM_MIXER_INPUTS];
@@ -212,5 +212,8 @@ extern int arizona_set_fll(struct arizona_fll *fll, int source,
 			   unsigned int Fref, unsigned int Fout);
 
 extern int arizona_init_dai(struct arizona_priv *priv, int dai);
+
+int arizona_set_output_mode(struct snd_soc_codec *codec, int output,
+			    bool diff);
 
 #endif
