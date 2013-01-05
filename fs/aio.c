@@ -230,7 +230,7 @@ static int kiocb_cancel(struct kioctx *ctx, struct kiocb *kiocb,
 		spin_unlock_irq(&ctx->ctx_lock);
 
 		memset(res, 0, sizeof(*res));
-		res->obj = (u64) kiocb->ki_obj.user;
+		res->obj = (u64)(unsigned long)kiocb->ki_obj.user;
 		res->data = kiocb->ki_user_data;
 		ret = cancel(kiocb, res);
 
