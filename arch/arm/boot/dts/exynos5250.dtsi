@@ -75,7 +75,7 @@
 		interrupts = <0 42 0>;
 	};
 
-	codec@11000000 {
+	mfc: codec@11000000 {
 		compatible = "samsung,mfc-v6";
 		reg = <0x11000000 0x10000>;
 		interrupts = <0 96 0>;
@@ -578,9 +578,152 @@
 		interrupts = <0 95 0>;
 	};
 
-	mixer {
+	mixer: mixer {
 		compatible = "samsung,exynos5-mixer";
 		reg = <0x14450000 0x10000>;
 		interrupts = <0 94 0>;
+	};
+
+	sysmmu-mfc-l {
+		mmuname = "mfc_l";
+		reg = <0x11210000 0x1000>;
+		compatible = "samsung,exynos-sysmmu";
+		interrupt-parent = <&combiner>;
+		interrupts = <8 5>;
+		mmu-master = <&mfc>;
+	};
+
+	sysmmu-mfc-r {
+		mmuname = "mfc_r";
+		reg = <0x11200000 0x1000>;
+		compatible = "samsung,exynos-sysmmu";
+		interrupt-parent = <&combiner>;
+		interrupts = <6 2>;
+		mmu-master = <&mfc>;
+	};
+
+	sysmmu-tv {
+		mmuname = "tv";
+		reg = <0x14650000 0x1000>;
+		compatible = "samsung,exynos-sysmmu";
+		interrupt-parent = <&combiner>;
+		interrupts = <7 4>;
+		mmu-master = <&mixer>;
+	};
+
+	sysmmu-gsc0 {
+		mmuname = "gsc0";
+		reg = <0x13E80000 0x1000>;
+		compatible = "samsung,exynos-sysmmu";
+		interrupt-parent = <&combiner>;
+		interrupts = <2 0>;
+		mmu-master = <&gsc_0>;
+	};
+
+	sysmmu-gsc1 {
+		mmuname = "gsc1";
+		reg = <0x13E90000 0x1000>;
+		compatible = "samsung,exynos-sysmmu";
+		interrupt-parent = <&combiner>;
+		interrupts = <2 2>;
+		mmu-master = <&gsc_1>;
+	};
+
+	sysmmu-gsc2 {
+		mmuname = "gsc2";
+		reg = <0x13EA0000 0x1000>;
+		compatible = "samsung,exynos-sysmmu";
+		interrupt-parent = <&combiner>;
+		interrupts = <2 4>;
+		mmu-master = <&gsc_2>;
+	};
+
+	sysmmu-gsc3 {
+		mmuname = "gsc3";
+		reg = <0x13EB0000 0x1000>;
+		compatible = "samsung,exynos-sysmmu";
+		interrupt-parent = <&combiner>;
+		interrupts = <2 6>;
+		mmu-master = <&gsc_3>;
+	};
+
+	sysmmu-fimd1 {
+		mmuname = "fimd1";
+		reg = <0x14640000 0x1000>;
+		compatible = "samsung,exynos-sysmmu";
+		interrupt-parent = <&combiner>;
+		interrupts = <3 2>;
+	};
+
+	sysmmu-rotator {
+		mmuname = "rotator";
+		reg = <0x11D40000 0x1000>;
+		compatible = "samsung,exynos-sysmmu";
+		interrupt-parent = <&combiner>;
+		interrupts = <4 0>;
+	};
+
+	sysmmu-is0 {
+		mmuname = "isp", "drc", "scalerc", "scalerp", "fd", "mcu";
+		reg = < 0x13260000 0x1000
+			0x13270000 0x1000
+			0x13280000 0x1000
+			0x13290000 0x1000
+			0x132A0000 0x1000
+			0x132B0000 0x1000 >;
+		compatible = "samsung,exynos-sysmmu";
+		interrupt-parent = <&combiner>;
+		interrupts = <  10 6
+				11 6
+				 5 2
+				 3 6
+				 5 0
+				 5 4 >;
+	};
+
+	sysmmu-is1 {
+		mmuname = "odc", "dis0", "dis1", "3dnr";
+		reg = < 0x132C0000 0x1000
+			0x132D0000 0x1000
+			0x132E0000 0x1000
+			0x132F0000 0x1000 >;
+		compatible = "samsung,exynos-sysmmu";
+		interrupt-parent = <&combiner>;
+		interrupts = <  11 0
+				10 4
+				 9 4
+				 5 6 >;
+	};
+
+	sysmmu-2d {
+		mmuname = "2d";
+		reg = <0x10A60000 0x1000>;
+		compatible = "samsung,exynos-sysmmu";
+		interrupt-parent = <&combiner>;
+		interrupts = <24 5>;
+	};
+
+	sysmmu-jpeg {
+		mmuname = "jpeg";
+		reg = <0x11F20000 0x1000>;
+		compatible = "samsung,exynos-sysmmu";
+		interrupt-parent = <&combiner>;
+		interrupts = <4 2>;
+	};
+
+	sysmmu-flite0 {
+		mmuname = "flite0";
+		reg = <0x13C40000 0x1000>;
+		compatible = "samsung,exynos-sysmmu";
+		interrupt-parent = <&combiner>;
+		interrupts = <3 4>;
+	};
+
+	sysmmu-flite1 {
+		mmuname = "flite1";
+		reg = <0x13C50000 0x1000>;
+		compatible = "samsung,exynos-sysmmu";
+		interrupt-parent = <&combiner>;
+		interrupts = <24 1>;
 	};
 };
