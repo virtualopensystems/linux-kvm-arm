@@ -183,7 +183,6 @@ static const struct file_operations misc_fops = {
  
 int misc_register(struct miscdevice * misc)
 {
-	struct miscdevice *c;
 	dev_t dev;
 	int err = 0;
 
@@ -200,6 +199,8 @@ int misc_register(struct miscdevice * misc)
 		misc->minor = DYNAMIC_MINORS - i - 1;
 		set_bit(i, misc_minors);
 	} else {
+		struct miscdevice *c;
+
 		list_for_each_entry(c, &misc_list, list) {
 			if (c->minor == misc->minor) {
 				mutex_unlock(&misc_mtx);
