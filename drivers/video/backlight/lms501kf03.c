@@ -388,15 +388,12 @@ static int lms501kf03_remove(struct spi_device *spi)
 }
 
 #if defined(CONFIG_PM)
-static unsigned int before_power;
 
 static int lms501kf03_suspend(struct spi_device *spi, pm_message_t mesg)
 {
 	struct lms501kf03 *lcd = dev_get_drvdata(&spi->dev);
 
 	dev_dbg(&spi->dev, "lcd->power = %d\n", lcd->power);
-
-	before_power = lcd->power;
 
 	/*
 	 * when lcd panel is suspend, lcd panel becomes off
