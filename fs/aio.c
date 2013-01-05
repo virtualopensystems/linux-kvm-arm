@@ -83,7 +83,7 @@ struct kioctx {
 
 	struct {
 		atomic_t	reqs_active;
-	} ____cacheline_aligned;
+	} ____cacheline_aligned_in_smp;
 
 	struct {
 		spinlock_t	ctx_lock;
