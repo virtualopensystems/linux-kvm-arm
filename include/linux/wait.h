@@ -370,7 +370,7 @@ do {									\
  * wait_event_hrtimeout - sleep until a condition gets true or a timeout elapses
  * @wq: the waitqueue to wait on
  * @condition: a C expression for the event to wait for
- * @timeout: timeout, in jiffies
+ * @timeout: timeout, as a ktime_t
  *
  * The process is put to sleep (TASK_UNINTERRUPTIBLE) until the
  * @condition evaluates to true or a signal is received.
@@ -395,7 +395,7 @@ do {									\
  * wait_event_interruptible_hrtimeout - sleep until a condition gets true or a timeout elapses
  * @wq: the waitqueue to wait on
  * @condition: a C expression for the event to wait for
- * @timeout: timeout, in jiffies
+ * @timeout: timeout, as a ktime_t
  *
  * The process is put to sleep (TASK_INTERRUPTIBLE) until the
  * @condition evaluates to true or a signal is received.
