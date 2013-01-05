@@ -1841,8 +1841,7 @@ static void shrink_lruvec(struct lruvec *lruvec, struct scan_control *sc)
 					nr[LRU_INACTIVE_FILE]) {
 		for_each_evictable_lru(lru) {
 			if (nr[lru]) {
-				nr_to_scan = min_t(unsigned long,
-						   nr[lru], SWAP_CLUSTER_MAX);
+				nr_to_scan = min(nr[lru], SWAP_CLUSTER_MAX);
 				nr[lru] -= nr_to_scan;
 
 				nr_reclaimed += shrink_list(lru, nr_to_scan,
