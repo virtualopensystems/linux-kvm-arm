@@ -20,45 +20,50 @@ struct batch_complete;
 typedef int (kiocb_cancel_fn)(struct kiocb *, struct io_event *);
 
 struct kiocb {
-	struct rb_node		ki_node;
-
-	atomic_t		ki_users;
-
-	struct file		*ki_filp;
-	struct kioctx		*ki_ctx;	/* NULL for sync ops */
-	kiocb_cancel_fn		*ki_cancel;
-	void			(*ki_dtor)(struct kiocb *);
-
-	union {
-		void __user		*user;
-		struct task_struct	*tsk;
-	} ki_obj;
-
-	__u64			ki_user_data;	/* user's data for completion */
-	long			ki_res;
-	long			ki_res2;
-
-	loff_t			ki_pos;
-
-	void			*private;
-	/* State that we remember to be able to restart/retry  */
-	unsigned short		ki_opcode;
-	size_t			ki_nbytes; 	/* copy of iocb->aio_nbytes */
-	char 			__user *ki_buf;	/* remaining iocb->aio_buf */
-	size_t			ki_left; 	/* remaining bytes */
-	struct iovec		ki_inline_vec;	/* inline vector */
- 	struct iovec		*ki_iovec;
- 	unsigned long		ki_nr_segs;
- 	unsigned long		ki_cur_seg;
-
 	struct list_head	ki_list;	/* the aio core uses this
 						 * for cancellation */
+	kiocb_cancel_fn		*ki_cancel;
+	void			(*ki_dtor)(struct kiocb *);
+	void			*private;
+	struct iovec		*ki_iovec;
 
 	/*
 	 * If the aio_resfd field of the userspace iocb is not zero,
 	 * this is the underlying eventfd context to deliver events to.
 	 */
 	struct eventfd_ctx	*ki_eventfd;
+	struct kioctx		*ki_ctx;	/* NULL for sync ops */
+	struct file		*ki_filp;
+
+	atomic_t		ki_users;
+
+	/* State that we remember to be able to restart/retry  */
+	unsigned		ki_opcode;
+
+	__u64			ki_user_data;	/* user's data for completion */
+	union {
+		void __user		*user;
+		struct task_struct	*tsk;
+	} ki_obj;
+
+	union {
+	struct {
+		loff_t		ki_pos;
+		size_t		ki_nbytes;	/* copy of iocb->aio_nbytes */
+		size_t		ki_left;	/* remaining bytes */
+		char __user	*ki_buf;	/* remaining iocb->aio_buf */
+		unsigned long	ki_nr_segs;
+		unsigned long	ki_cur_seg;
+	};
+
+	struct {
+		long		ki_res;
+		long		ki_res2;
+		struct rb_node	ki_node;
+	};
+	};
+
+	struct iovec		ki_inline_vec;	/* inline vector */
 };
 
 static inline bool is_sync_kiocb(struct kiocb *kiocb)

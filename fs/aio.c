@@ -570,12 +570,13 @@ static inline struct kiocb *aio_get_req(struct kioctx *ctx)
 	if (!get_reqs_available(ctx))
 		return NULL;
 
-	req = kmem_cache_alloc(kiocb_cachep, GFP_KERNEL|__GFP_ZERO);
+	req = kmem_cache_alloc(kiocb_cachep, GFP_KERNEL);
 	if (unlikely(!req))
 		goto out_put;
 
-	atomic_set(&req->ki_users, 1);
+	memset(req, 0, offsetof(struct kiocb, ki_ctx));
 	req->ki_ctx = ctx;
+	atomic_set(&req->ki_users, 1);
 	return req;
 out_put:
 	put_reqs_available(ctx, 1);
@@ -633,8 +634,8 @@ static inline unsigned kioctx_ring_put(struct kioctx *ctx, struct kiocb *req,
 	ev_page = kmap_atomic(ctx->ring_pages[pos / AIO_EVENTS_PER_PAGE]);
 	event = ev_page + pos % AIO_EVENTS_PER_PAGE;
 
-	event->obj	= (u64)(unsigned long)req->ki_obj.user;
 	event->data	= req->ki_user_data;
+	event->obj	= (u64)(unsigned long)req->ki_obj.user;
 	event->res	= req->ki_res;
 	event->res2	= req->ki_res2;
 
@@ -1245,13 +1246,16 @@ static int io_submit_one(struct kioctx *ctx, struct iocb __user *user_iocb,
 		goto out_put_req;
 	}
 
-	req->ki_obj.user = user_iocb;
-	req->ki_user_data = iocb->aio_data;
-	req->ki_pos = iocb->aio_offset;
+	req->ki_user_data	= iocb->aio_data;
+	req->ki_obj.user	= user_iocb;
 
-	req->ki_buf = (char __user *)(unsigned long)iocb->aio_buf;
-	req->ki_left = req->ki_nbytes = iocb->aio_nbytes;
-	req->ki_opcode = iocb->aio_lio_opcode;
+	req->ki_opcode		= iocb->aio_lio_opcode;
+	req->ki_pos		= iocb->aio_offset;
+	req->ki_nbytes		= iocb->aio_nbytes;
+	req->ki_left		= iocb->aio_nbytes;
+	req->ki_buf		= (char __user *) iocb->aio_buf;
+	req->ki_nr_segs		= 0;
+	req->ki_cur_seg		= 0;
 
 	ret = aio_run_iocb(req, compat);
 	if (ret)
