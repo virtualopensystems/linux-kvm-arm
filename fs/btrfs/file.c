@@ -30,6 +30,7 @@
 #include <linux/statfs.h>
 #include <linux/compat.h>
 #include <linux/slab.h>
+#include <linux/aio.h>
 #include "ctree.h"
 #include "disk-io.h"
 #include "transaction.h"

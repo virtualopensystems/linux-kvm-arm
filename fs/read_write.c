@@ -15,6 +15,7 @@
 #include <linux/syscalls.h>
 #include <linux/pagemap.h>
 #include <linux/splice.h>
+#include <linux/aio.h>
 #include "read_write.h"
 
 #include <asm/uaccess.h>
