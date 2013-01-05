@@ -65,10 +65,10 @@ struct cpu_rmap *alloc_cpu_rmap(unsigned int size, gfp_t flags)
 EXPORT_SYMBOL(alloc_cpu_rmap);
 
 /**
- * cpu_rmap_reclaim - internal reclaiming helper called from kref_put
+ * cpu_rmap_release - internal reclaiming helper called from kref_put
  * @ref: kref to struct cpu_rmap
  */
-static void cpu_rmap_reclaim(struct kref *ref)
+static void cpu_rmap_release(struct kref *ref)
 {
 	struct cpu_rmap *rmap = container_of(ref, struct cpu_rmap, refcount);
 	kfree(rmap);
@@ -84,23 +84,14 @@ static inline void cpu_rmap_get(struct cpu_rmap *rmap)
 }
 
 /**
- * cpu_rmap_put - internal helper to release ref on a cpu_rmap
+ * cpu_rmap_put - release ref on a cpu_rmap
  * @rmap: reverse-map allocated with alloc_cpu_rmap()
  */
-static inline void cpu_rmap_put(struct cpu_rmap *rmap)
+int cpu_rmap_put(struct cpu_rmap *rmap)
 {
-	kref_put(&rmap->refcount, cpu_rmap_reclaim);
+	return kref_put(&rmap->refcount, cpu_rmap_release);
 }
-
-/**
- * free_cpu_rmap - free CPU affinity reverse-map
- * @rmap: Reverse-map allocated with alloc_cpu_rmap()
- */
-void free_cpu_rmap(struct cpu_rmap *rmap)
-{
-	cpu_rmap_put(rmap);
-}
-EXPORT_SYMBOL(free_cpu_rmap);
+EXPORT_SYMBOL(cpu_rmap_put);
 
 /* Reevaluate nearest object for given CPU, comparing with the given
  * neighbours at the given distance.
