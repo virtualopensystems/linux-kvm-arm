@@ -259,45 +259,45 @@ static s32 ds1307_write_block_data(const struct i2c_client *client, u8 command,
 static s32 ds1307_native_smbus_write_block_data(const struct i2c_client *client,
 				u8 command, u8 length, const u8 *values)
 {
-	if (length <= I2C_SMBUS_BLOCK_MAX) {
+	u8 suboffset = 0;
+
+	if (length <= I2C_SMBUS_BLOCK_MAX)
 		return i2c_smbus_write_i2c_block_data(client,
 					command, length, values);
-	} else {
-		u8 suboffset = 0;
-		while (suboffset < length) {
-			s32 retval = i2c_smbus_write_i2c_block_data(client,
-						command+suboffset,
-						min(I2C_SMBUS_BLOCK_MAX, length-suboffset),
-						values+suboffset);
-			if (retval < 0)
-				return retval;
 
-			suboffset += I2C_SMBUS_BLOCK_MAX;
-		}
-		return length;
+	while (suboffset < length) {
+		s32 retval = i2c_smbus_write_i2c_block_data(client,
+				command + suboffset,
+				min(I2C_SMBUS_BLOCK_MAX, length - suboffset),
+				values + suboffset);
+		if (retval < 0)
+			return retval;
+
+		suboffset += I2C_SMBUS_BLOCK_MAX;
 	}
+	return length;
 }
 
 static s32 ds1307_native_smbus_read_block_data(const struct i2c_client *client,
 				u8 command, u8 length, u8 *values)
 {
-	if (length <= I2C_SMBUS_BLOCK_MAX) {
+	u8 suboffset = 0;
+
+	if (length <= I2C_SMBUS_BLOCK_MAX)
 		return i2c_smbus_read_i2c_block_data(client,
 					command, length, values);
-	} else {
-		u8 suboffset = 0;
-		while (suboffset < length) {
-			s32 retval = i2c_smbus_read_i2c_block_data(client,
-						command+suboffset,
-						min(I2C_SMBUS_BLOCK_MAX, length-suboffset),
-						values+suboffset);
-			if (retval < 0)
-				return retval;
 
-			suboffset += I2C_SMBUS_BLOCK_MAX;
-		}
-		return length;
+	while (suboffset < length) {
+		s32 retval = i2c_smbus_read_i2c_block_data(client,
+				command + suboffset,
+				min(I2C_SMBUS_BLOCK_MAX, length - suboffset),
+				values + suboffset);
+		if (retval < 0)
+			return retval;
+
+		suboffset += I2C_SMBUS_BLOCK_MAX;
 	}
+	return length;
 }
 
 /*----------------------------------------------------------------------*/
