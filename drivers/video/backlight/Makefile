@@ -27,6 +27,7 @@ obj-$(CONFIG_BACKLIGHT_LOCOMO)	+= locomolcd.o
 obj-$(CONFIG_BACKLIGHT_LM3630)	+= lm3630_bl.o
 obj-$(CONFIG_BACKLIGHT_LM3639)	+= lm3639_bl.o
 obj-$(CONFIG_BACKLIGHT_LP855X)	+= lp855x_bl.o
+obj-$(CONFIG_BACKLIGHT_LP8788)	+= lp8788_bl.o
 obj-$(CONFIG_BACKLIGHT_OMAP1)	+= omap1_bl.o
 obj-$(CONFIG_BACKLIGHT_PANDORA)	+= pandora_bl.o
 obj-$(CONFIG_BACKLIGHT_CARILLO_RANCH) += cr_bllcd.o
