@@ -62,7 +62,7 @@ extern int __build_bug_on_failed;
 		bool __cond = !!(condition);			\
 		((void)sizeof(char[1 - 2 * __cond]));		\
 		if (__cond) __build_bug_on_failed = 1;		\
-	} while(0)
+	} while (0)
 #endif
 
 /**
