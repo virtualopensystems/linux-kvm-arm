@@ -239,7 +239,7 @@ struct lp8788_charger_platform_data {
  * @fall_time             : brightness ramp down step time
  * @pwm_pol               : pwm polarity setting when bl_mode is pwm based
  * @period_ns             : platform specific pwm period value. unit is nano.
-		            Only valid when bl_mode is LP8788_BL_COMB_PWM_BASED
+			    Only valid when bl_mode is LP8788_BL_COMB_PWM_BASED
  */
 struct lp8788_backlight_platform_data {
 	char *name;
