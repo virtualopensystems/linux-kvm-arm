@@ -251,6 +251,7 @@ static int pcf8523_rtc_set_time(struct device *dev, struct rtc_time *tm)
 	return pcf8523_start_rtc(client);
 }
 
+#ifdef CONFIG_RTC_INTF_DEV
 static int pcf8523_rtc_ioctl(struct device *dev, unsigned int cmd,
 			     unsigned long arg)
 {
@@ -275,6 +276,9 @@ static int pcf8523_rtc_ioctl(struct device *dev, unsigned int cmd,
 		return -ENOIOCTLCMD;
 	}
 }
+#else
+#define pcf8523_rtc_ioctl NULL
+#endif
 
 static const struct rtc_class_ops pcf8523_rtc_ops = {
 	.read_time = pcf8523_rtc_read_time,
