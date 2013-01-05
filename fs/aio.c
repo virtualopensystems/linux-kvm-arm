@@ -633,7 +633,7 @@ static inline unsigned kioctx_ring_put(struct kioctx *ctx, struct kiocb *req,
 	ev_page = kmap_atomic(ctx->ring_pages[pos / AIO_EVENTS_PER_PAGE]);
 	event = ev_page + pos % AIO_EVENTS_PER_PAGE;
 
-	event->obj	= (u64) req->ki_obj.user;
+	event->obj	= (u64)(unsigned long)req->ki_obj.user;
 	event->data	= req->ki_user_data;
 	event->res	= req->ki_res;
 	event->res2	= req->ki_res2;
