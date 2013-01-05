@@ -42,7 +42,7 @@ struct pt_regs;
 
 /**
  * BUILD_BUG_ON_MSG - break compile if a condition is true & emit supplied
- * 		      error message.
+ *		      error message.
  * @condition: the condition which the compiler should know is false.
  *
  * See BUILD_BUG_ON for description.
