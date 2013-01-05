@@ -1253,7 +1253,7 @@ static int io_submit_one(struct kioctx *ctx, struct iocb __user *user_iocb,
 	req->ki_pos		= iocb->aio_offset;
 	req->ki_nbytes		= iocb->aio_nbytes;
 	req->ki_left		= iocb->aio_nbytes;
-	req->ki_buf		= (char __user *) iocb->aio_buf;
+	req->ki_buf		= (char __user *)(unsigned long)iocb->aio_buf;
 	req->ki_nr_segs		= 0;
 	req->ki_cur_seg		= 0;
 
