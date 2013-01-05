@@ -3662,6 +3662,8 @@ int do_take_over_console(const struct consw *csw, int first, int last, int deflt
 
 	return err;
 }
+EXPORT_SYMBOL_GPL(do_take_over_console);
+
 /*
  *	If we support more console drivers, this function is used
  *	when a driver wants to take over some existing consoles
