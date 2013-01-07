@@ -108,6 +108,7 @@
 					regulator-name = "VMIPI_1.1V";
 					regulator-min-microvolt = <1100000>;
 					regulator-max-microvolt = <1100000>;
+					regulator-always-on;
 				};
 
 				ldo4_reg: LDO4 {
@@ -134,6 +135,7 @@
 					regulator-name = "VADC_3.3V";
 					regulator-min-microvolt = <3300000>;
 					regulator-max-microvolt	= <3300000>;
+					regulator-always-on;
 				};
 
 				ldo9_reg: LDO9 {
