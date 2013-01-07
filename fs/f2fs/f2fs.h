@@ -211,11 +211,11 @@ struct dnode_of_data {
 static inline void set_new_dnode(struct dnode_of_data *dn, struct inode *inode,
 		struct page *ipage, struct page *npage, nid_t nid)
 {
+	memset(dn, 0, sizeof(*dn));
 	dn->inode = inode;
 	dn->inode_page = ipage;
 	dn->node_page = npage;
 	dn->nid = nid;
-	dn->inode_page_locked = 0;
 }
 
 /*
@@ -877,6 +877,8 @@ bool f2fs_empty_dir(struct inode *);
  * super.c
  */
 int f2fs_sync_fs(struct super_block *, int);
+extern __printf(3, 4)
+void f2fs_msg(struct super_block *, const char *, const char *, ...);
 
 /*
  * hash.c
