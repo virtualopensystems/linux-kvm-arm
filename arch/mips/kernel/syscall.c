@@ -46,20 +46,14 @@
  * argument.  Historically that used to be expensive in Linux.  These days
  * the performance advantage is negligible.
  */
-asmlinkage int sysm_pipe(nabi_no_regargs volatile struct pt_regs regs)
+asmlinkage int sysm_pipe(void)
 {
 	int fd[2];
-	int error, res;
-
-	error = do_pipe_flags(fd, 0);
-	if (error) {
-		res = error;
-		goto out;
-	}
-	regs.regs[3] = fd[1];
-	res = fd[0];
-out:
-	return res;
+	int error = do_pipe_flags(fd, 0);
+	if (error)
+		return error;
+	current_pt_regs()->regs[3] = fd[1];
+	return fd[0];
 }
 
 SYSCALL_DEFINE6(mips_mmap, unsigned long, addr, unsigned long, len,
@@ -89,43 +83,7 @@ SYSCALL_DEFINE6(mips_mmap2, unsigned long, addr, unsigned long, len,
 }
 
 save_static_function(sys_fork);
-static int __used noinline
-_sys_fork(nabi_no_regargs struct pt_regs regs)
-{
-	return do_fork(SIGCHLD, regs.regs[29], 0, NULL, NULL);
-}
-
 save_static_function(sys_clone);
-static int __used noinline
-_sys_clone(nabi_no_regargs struct pt_regs regs)
-{
-	unsigned long clone_flags;
-	unsigned long newsp;
-	int __user *parent_tidptr, *child_tidptr;
-
-	clone_flags = regs.regs[4];
-	newsp = regs.regs[5];
-	if (!newsp)
-		newsp = regs.regs[29];
-	parent_tidptr = (int __user *) regs.regs[6];
-#ifdef CONFIG_32BIT
-	/* We need to fetch the fifth argument off the stack.  */
-	child_tidptr = NULL;
-	if (clone_flags & (CLONE_CHILD_SETTID | CLONE_CHILD_CLEARTID)) {
-		int __user *__user *usp = (int __user *__user *) regs.regs[29];
-		if (regs.regs[2] == __NR_syscall) {
-			if (get_user (child_tidptr, &usp[5]))
-				return -EFAULT;
-		}
-		else if (get_user (child_tidptr, &usp[4]))
-			return -EFAULT;
-	}
-#else
-	child_tidptr = (int __user *) regs.regs[8];
-#endif
-	return do_fork(clone_flags, newsp, 0,
-	               parent_tidptr, child_tidptr);
-}
 
 SYSCALL_DEFINE1(set_thread_area, unsigned long, addr)
 {
