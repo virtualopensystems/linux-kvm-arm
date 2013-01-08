@@ -31,10 +31,9 @@
 #include <linux/jiffies.h>
 #include <linux/uaccess.h>
 
+#include <linux/mei.h>
 
 #include "mei_dev.h"
-#include "hw.h"
-#include <linux/mei.h>
 #include "interface.h"
 
 const uuid_le mei_amthi_guid  = UUID_LE(0x12f80028, 0xb4b7, 0x4b2d, 0xac,
@@ -99,7 +98,7 @@ void mei_amthif_host_init(struct mei_device *dev)
 
 	dev->iamthif_msg_buf = msg_buf;
 
-	if (mei_connect(dev, &dev->iamthif_cl)) {
+	if (mei_hbm_cl_connect_req(dev, &dev->iamthif_cl)) {
 		dev_dbg(&dev->pdev->dev, "Failed to connect to AMTHI client\n");
 		dev->iamthif_cl.state = MEI_FILE_DISCONNECTED;
 		dev->iamthif_cl.host_client_id = 0;
@@ -300,8 +299,7 @@ static int mei_amthif_send_cmd(struct mei_device *dev, struct mei_cl_cb *cb)
 		mei_hdr.reserved = 0;
 		dev->iamthif_msg_buf_index += mei_hdr.length;
 		if (mei_write_message(dev, &mei_hdr,
-					(unsigned char *)(dev->iamthif_msg_buf),
-					mei_hdr.length))
+					(unsigned char *)dev->iamthif_msg_buf))
 			return -ENODEV;
 
 		if (mei_hdr.msg_complete) {
@@ -434,37 +432,34 @@ unsigned int mei_amthif_poll(struct mei_device *dev,
 int mei_amthif_irq_write_complete(struct mei_device *dev, s32 *slots,
 			struct mei_cl_cb *cb, struct mei_cl_cb *cmpl_list)
 {
-	struct mei_msg_hdr *mei_hdr;
+	struct mei_msg_hdr mei_hdr;
 	struct mei_cl *cl = cb->cl;
 	size_t len = dev->iamthif_msg_buf_size - dev->iamthif_msg_buf_index;
 	size_t msg_slots = mei_data2slots(len);
 
-	mei_hdr = (struct mei_msg_hdr *)&dev->wr_msg_buf[0];
-	mei_hdr->host_addr = cl->host_client_id;
-	mei_hdr->me_addr = cl->me_client_id;
-	mei_hdr->reserved = 0;
+	mei_hdr.host_addr = cl->host_client_id;
+	mei_hdr.me_addr = cl->me_client_id;
+	mei_hdr.reserved = 0;
 
 	if (*slots >= msg_slots) {
-		mei_hdr->length = len;
-		mei_hdr->msg_complete = 1;
+		mei_hdr.length = len;
+		mei_hdr.msg_complete = 1;
 	/* Split the message only if we can write the whole host buffer */
 	} else if (*slots == dev->hbuf_depth) {
 		msg_slots = *slots;
 		len = (*slots * sizeof(u32)) - sizeof(struct mei_msg_hdr);
-		mei_hdr->length = len;
-		mei_hdr->msg_complete = 0;
+		mei_hdr.length = len;
+		mei_hdr.msg_complete = 0;
 	} else {
 		/* wait for next time the host buffer is empty */
 		return 0;
 	}
 
-	dev_dbg(&dev->pdev->dev, "msg: len = %d complete = %d\n",
-			mei_hdr->length, mei_hdr->msg_complete);
+	dev_dbg(&dev->pdev->dev, MEI_HDR_FMT,  MEI_HDR_PRM(&mei_hdr));
 
 	*slots -=  msg_slots;
-	if (mei_write_message(dev, mei_hdr,
-		dev->iamthif_msg_buf + dev->iamthif_msg_buf_index,
-		mei_hdr->length)) {
+	if (mei_write_message(dev, &mei_hdr,
+		dev->iamthif_msg_buf + dev->iamthif_msg_buf_index)) {
 			dev->iamthif_state = MEI_IAMTHIF_IDLE;
 			cl->status = -ENODEV;
 			list_del(&cb->list);
@@ -474,10 +469,10 @@ int mei_amthif_irq_write_complete(struct mei_device *dev, s32 *slots,
 	if (mei_flow_ctrl_reduce(dev, cl))
 		return -ENODEV;
 
-	dev->iamthif_msg_buf_index += mei_hdr->length;
+	dev->iamthif_msg_buf_index += mei_hdr.length;
 	cl->status = 0;
 
-	if (mei_hdr->msg_complete) {
+	if (mei_hdr.msg_complete) {
 		dev->iamthif_state = MEI_IAMTHIF_FLOW_CONTROL;
 		dev->iamthif_flow_control_pending = true;
 
@@ -563,7 +558,7 @@ int mei_amthif_irq_read(struct mei_device *dev, s32 *slots)
 		return -EMSGSIZE;
 	}
 	*slots -= mei_data2slots(sizeof(struct hbm_flow_control));
-	if (mei_send_flow_control(dev, &dev->iamthif_cl)) {
+	if (mei_hbm_cl_flow_control_req(dev, &dev->iamthif_cl)) {
 		dev_dbg(&dev->pdev->dev, "iamthif flow control failed\n");
 		return -EIO;
 	}
@@ -635,7 +630,8 @@ static bool mei_clear_list(struct mei_device *dev,
 			if (dev->iamthif_current_cb == cb_pos) {
 				dev->iamthif_current_cb = NULL;
 				/* send flow control to iamthif client */
-				mei_send_flow_control(dev, &dev->iamthif_cl);
+				mei_hbm_cl_flow_control_req(dev,
+							&dev->iamthif_cl);
 			}
 			/* free all allocated buffers */
 			mei_io_cb_free(cb_pos);

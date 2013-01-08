@@ -15,11 +15,66 @@
  */
 
 #include <linux/pci.h>
-#include "mei_dev.h"
 #include <linux/mei.h>
+
+#include "mei_dev.h"
 #include "interface.h"
 
+/**
+ * mei_reg_read - Reads 32bit data from the mei device
+ *
+ * @dev: the device structure
+ * @offset: offset from which to read the data
+ *
+ * returns register value (u32)
+ */
+static inline u32 mei_reg_read(const struct mei_device *dev,
+			       unsigned long offset)
+{
+	return ioread32(dev->mem_addr + offset);
+}
 
+
+/**
+ * mei_reg_write - Writes 32bit data to the mei device
+ *
+ * @dev: the device structure
+ * @offset: offset from which to write the data
+ * @value: register value to write (u32)
+ */
+static inline void mei_reg_write(const struct mei_device *dev,
+				 unsigned long offset, u32 value)
+{
+	iowrite32(value, dev->mem_addr + offset);
+}
+
+/**
+ * mei_hcsr_read - Reads 32bit data from the host CSR
+ *
+ * @dev: the device structure
+ *
+ * returns the byte read.
+ */
+u32 mei_hcsr_read(const struct mei_device *dev)
+{
+	return mei_reg_read(dev, H_CSR);
+}
+
+u32 mei_mecbrw_read(const struct mei_device *dev)
+{
+	return mei_reg_read(dev, ME_CB_RW);
+}
+/**
+ * mei_mecsr_read - Reads 32bit data from the ME CSR
+ *
+ * @dev: the device structure
+ *
+ * returns ME_CSR_HA register value (u32)
+ */
+u32 mei_mecsr_read(const struct mei_device *dev)
+{
+	return mei_reg_read(dev, ME_CSR_HA);
+}
 
 /**
  * mei_set_csr_register - writes H_CSR register to the mei device,
@@ -36,7 +91,18 @@ void mei_hcsr_set(struct mei_device *dev)
 }
 
 /**
- * mei_csr_enable_interrupts - enables mei device interrupts
+ * mei_enable_interrupts - clear and stop interrupts
+ *
+ * @dev: the device structure
+ */
+void mei_clear_interrupts(struct mei_device *dev)
+{
+	if ((dev->host_hw_state & H_IS) == H_IS)
+		mei_reg_write(dev, H_CSR, dev->host_hw_state);
+}
+
+/**
+ * mei_enable_interrupts - enables mei device interrupts
  *
  * @dev: the device structure
  */
@@ -47,7 +113,7 @@ void mei_enable_interrupts(struct mei_device *dev)
 }
 
 /**
- * mei_csr_disable_interrupts - disables mei device interrupts
+ * mei_disable_interrupts - disables mei device interrupts
  *
  * @dev: the device structure
  */
@@ -55,6 +121,29 @@ void mei_disable_interrupts(struct mei_device *dev)
 {
 	dev->host_hw_state &= ~H_IE;
 	mei_hcsr_set(dev);
+}
+
+
+/**
+ * mei_interrupt_quick_handler - The ISR of the MEI device
+ *
+ * @irq: The irq number
+ * @dev_id: pointer to the device structure
+ *
+ * returns irqreturn_t
+ */
+irqreturn_t mei_interrupt_quick_handler(int irq, void *dev_id)
+{
+	struct mei_device *dev = (struct mei_device *) dev_id;
+	u32 csr_reg = mei_hcsr_read(dev);
+
+	if ((csr_reg & H_IS) != H_IS)
+		return IRQ_NONE;
+
+	/* clear H_IS bit in H_CSR */
+	mei_reg_write(dev, H_CSR, csr_reg);
+
+	return IRQ_WAKE_THREAD;
 }
 
 /**
@@ -113,24 +202,21 @@ int mei_hbuf_empty_slots(struct mei_device *dev)
  * mei_write_message - writes a message to mei device.
  *
  * @dev: the device structure
- * @header: header of message
- * @write_buffer: message buffer will be written
- * @write_length: message size will be written
+ * @hader: mei HECI header of message
+ * @buf: message payload will be written
  *
  * This function returns -EIO if write has failed
  */
 int mei_write_message(struct mei_device *dev, struct mei_msg_hdr *header,
-		      unsigned char *buf, unsigned long length)
+		      unsigned char *buf)
 {
 	unsigned long rem, dw_cnt;
+	unsigned long length = header->length;
 	u32 *reg_buf = (u32 *)buf;
 	int i;
 	int empty_slots;
 
-
-	dev_dbg(&dev->pdev->dev,
-			"mei_write_message header=%08x.\n",
-			*((u32 *) header));
+	dev_dbg(&dev->pdev->dev, MEI_HDR_FMT, MEI_HDR_PRM(header));
 
 	empty_slots = mei_hbuf_empty_slots(dev);
 	dev_dbg(&dev->pdev->dev, "empty slots = %hu.\n", empty_slots);
@@ -281,35 +367,6 @@ int mei_flow_ctrl_reduce(struct mei_device *dev, struct mei_cl *cl)
 	return -ENOENT;
 }
 
-/**
- * mei_send_flow_control - sends flow control to fw.
- *
- * @dev: the device structure
- * @cl: private data of the file object
- *
- * This function returns -EIO on write failure
- */
-int mei_send_flow_control(struct mei_device *dev, struct mei_cl *cl)
-{
-	struct mei_msg_hdr *mei_hdr;
-	struct hbm_flow_control *flow_ctrl;
-	const size_t len = sizeof(struct hbm_flow_control);
-
-	mei_hdr = mei_hbm_hdr(&dev->wr_msg_buf[0], len);
-
-	flow_ctrl = (struct hbm_flow_control *)&dev->wr_msg_buf[1];
-	memset(flow_ctrl, 0, len);
-	flow_ctrl->hbm_cmd = MEI_FLOW_CONTROL_CMD;
-	flow_ctrl->host_addr = cl->host_client_id;
-	flow_ctrl->me_addr = cl->me_client_id;
-	/* FIXME: reserved !? */
-	memset(flow_ctrl->reserved, 0, sizeof(flow_ctrl->reserved));
-	dev_dbg(&dev->pdev->dev, "sending flow control host client = %d, ME client = %d\n",
-		cl->host_client_id, cl->me_client_id);
-
-	return mei_write_message(dev, mei_hdr,
-			(unsigned char *) flow_ctrl, len);
-}
 
 /**
  * mei_other_client_is_connecting - checks if other
@@ -336,53 +393,3 @@ int mei_other_client_is_connecting(struct mei_device *dev,
 	return 0;
 }
 
-/**
- * mei_disconnect - sends disconnect message to fw.
- *
- * @dev: the device structure
- * @cl: private data of the file object
- *
- * This function returns -EIO on write failure
- */
-int mei_disconnect(struct mei_device *dev, struct mei_cl *cl)
-{
-	struct mei_msg_hdr *mei_hdr;
-	struct hbm_client_connect_request *req;
-	const size_t len = sizeof(struct hbm_client_connect_request);
-
-	mei_hdr = mei_hbm_hdr(&dev->wr_msg_buf[0], len);
-
-	req = (struct hbm_client_connect_request *)&dev->wr_msg_buf[1];
-	memset(req, 0, len);
-	req->hbm_cmd = CLIENT_DISCONNECT_REQ_CMD;
-	req->host_addr = cl->host_client_id;
-	req->me_addr = cl->me_client_id;
-	req->reserved = 0;
-
-	return mei_write_message(dev, mei_hdr, (unsigned char *)req, len);
-}
-
-/**
- * mei_connect - sends connect message to fw.
- *
- * @dev: the device structure
- * @cl: private data of the file object
- *
- * This function returns -EIO on write failure
- */
-int mei_connect(struct mei_device *dev, struct mei_cl *cl)
-{
-	struct mei_msg_hdr *mei_hdr;
-	struct hbm_client_connect_request *req;
-	const size_t len = sizeof(struct hbm_client_connect_request);
-
-	mei_hdr = mei_hbm_hdr(&dev->wr_msg_buf[0], len);
-
-	req = (struct hbm_client_connect_request *) &dev->wr_msg_buf[1];
-	req->hbm_cmd = CLIENT_CONNECT_REQ_CMD;
-	req->host_addr = cl->host_client_id;
-	req->me_addr = cl->me_client_id;
-	req->reserved = 0;
-
-	return mei_write_message(dev, mei_hdr, (unsigned char *) req, len);
-}

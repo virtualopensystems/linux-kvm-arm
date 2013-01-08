@@ -21,10 +21,10 @@
 #include <linux/sched.h>
 #include <linux/watchdog.h>
 
-#include "mei_dev.h"
-#include "hw.h"
-#include "interface.h"
 #include <linux/mei.h>
+
+#include "mei_dev.h"
+#include "interface.h"
 
 static const u8 mei_start_wd_params[] = { 0x02, 0x12, 0x13, 0x10 };
 static const u8 mei_stop_wd_params[] = { 0x02, 0x02, 0x14, 0x10 };
@@ -79,7 +79,7 @@ int mei_wd_host_init(struct mei_device *dev)
 		return -ENOENT;
 	}
 
-	if (mei_connect(dev, &dev->wd_cl)) {
+	if (mei_hbm_cl_connect_req(dev, &dev->wd_cl)) {
 		dev_err(&dev->pdev->dev, "wd: failed to connect to the client\n");
 		dev->wd_cl.state = MEI_FILE_DISCONNECTED;
 		dev->wd_cl.host_client_id = 0;
@@ -101,22 +101,21 @@ int mei_wd_host_init(struct mei_device *dev)
  */
 int mei_wd_send(struct mei_device *dev)
 {
-	struct mei_msg_hdr *mei_hdr;
+	struct mei_msg_hdr hdr;
 
-	mei_hdr = (struct mei_msg_hdr *) &dev->wr_msg_buf[0];
-	mei_hdr->host_addr = dev->wd_cl.host_client_id;
-	mei_hdr->me_addr = dev->wd_cl.me_client_id;
-	mei_hdr->msg_complete = 1;
-	mei_hdr->reserved = 0;
+	hdr.host_addr = dev->wd_cl.host_client_id;
+	hdr.me_addr = dev->wd_cl.me_client_id;
+	hdr.msg_complete = 1;
+	hdr.reserved = 0;
 
 	if (!memcmp(dev->wd_data, mei_start_wd_params, MEI_WD_HDR_SIZE))
-		mei_hdr->length = MEI_WD_START_MSG_SIZE;
+		hdr.length = MEI_WD_START_MSG_SIZE;
 	else if (!memcmp(dev->wd_data, mei_stop_wd_params, MEI_WD_HDR_SIZE))
-		mei_hdr->length = MEI_WD_STOP_MSG_SIZE;
+		hdr.length = MEI_WD_STOP_MSG_SIZE;
 	else
 		return -EINVAL;
 
-	return mei_write_message(dev, mei_hdr, dev->wd_data, mei_hdr->length);
+	return mei_write_message(dev, &hdr, dev->wd_data);
 }
 
 /**
