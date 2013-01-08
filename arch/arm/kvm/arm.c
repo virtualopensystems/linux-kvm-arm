@@ -659,6 +659,17 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 	if (unlikely(vcpu->arch.target < 0))
 		return -ENOEXEC;
 
+	/*
+	 * Initialize the VGIC before running a vcpu the first time on
+	 * this VM.
+	 */
+	if (irqchip_in_kernel(vcpu->kvm) &&
+	    unlikely(!vgic_initialized(vcpu->kvm))) {
+		ret = kvm_vgic_init(vcpu->kvm);
+		if (ret)
+			return ret;
+	}
+
 	if (run->exit_reason == KVM_EXIT_MMIO) {
 		ret = kvm_handle_mmio_return(vcpu, vcpu->run);
 		if (ret)
@@ -1065,6 +1076,10 @@ static int init_hyp_mode(void)
 	err = kvm_vgic_hyp_init();
 	if (err)
 		goto out_free_vfp;
+
+#ifdef CONFIG_KVM_ARM_VGIC
+		vgic_present = true;
+#endif
 
 	kvm_info("Hyp mode initialized successfully\n");
 	return 0;
