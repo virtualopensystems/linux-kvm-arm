@@ -174,13 +174,13 @@ typedef enum _CONTEXT_TYPE {
 // RCB (Receive Control Block)
 typedef struct _RCB
 {
-    void *Next;
-    signed long                    Ref;
-    void *pDevice;
-    struct urb              *pUrb;
-    SRxMgmtPacket           sMngPacket;
-    struct sk_buff*         skb;
-    BOOL                    bBoolInUse;
+	void *Next;
+	signed long Ref;
+	void *pDevice;
+	struct urb *pUrb;
+	struct vnt_rx_mgmt sMngPacket;
+	struct sk_buff *skb;
+	int bBoolInUse;
 
 } RCB, *PRCB;
 
@@ -392,7 +392,7 @@ typedef struct __device_opt {
 } OPTIONS, *POPTIONS;
 
 
-typedef struct __device_info {
+typedef struct vnt_private {
 
 // netdev
 	struct usb_device*          usb;
@@ -525,9 +525,10 @@ typedef struct __device_info {
 
 
     // 802.11 management
+	struct vnt_manager vnt_mgmt;
     SMgmtObject                 sMgmtObj;
 
-    QWORD                       qwCurrTSF;
+	u64 qwCurrTSF;
     unsigned int                        cbBulkInMax;
     BOOL                        bPSRxBeacon;
 
@@ -871,9 +872,6 @@ typedef struct __device_info {
 
 /*---------------------  Export Functions  --------------------------*/
 
-/* BOOL device_dma0_xmit(PSDevice pDevice, struct sk_buff *skb,
- *                       unsigned int uNodeIndex);
- */
-BOOL device_alloc_frag_buf(PSDevice pDevice, PSDeFragControlBlock pDeF);
+int device_alloc_frag_buf(struct vnt_private *, PSDeFragControlBlock pDeF);
 
 #endif

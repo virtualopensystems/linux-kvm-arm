@@ -240,7 +240,6 @@ pDevice->bSameBSSMaxNum = jj;
             pSelect->bSelected = TRUE;
                         if (pDevice->bRoaming == FALSE)  {
 	//       Einsn Add @20070907
-				memset(pbyDesireSSID, 0, WLAN_IEHDR_LEN + WLAN_SSID_MAXLEN + 1);
 			memcpy(pbyDesireSSID,pCurrBSS->abySSID,WLAN_IEHDR_LEN + WLAN_SSID_MAXLEN + 1) ;
                                                 }
 
@@ -339,7 +338,7 @@ PKnownBSS BSSpAddrIsInBSSList(void *hDeviceContext,
 
 BOOL BSSbInsertToBSSList(void *hDeviceContext,
 			 PBYTE abyBSSIDAddr,
-			 QWORD qwTimestamp,
+			u64 qwTimestamp,
 			 WORD wBeaconInterval,
 			 WORD wCapInfo,
 			 BYTE byCurrChannel,
@@ -380,8 +379,7 @@ BOOL BSSbInsertToBSSList(void *hDeviceContext,
     // save the BSS info
     pBSSList->bActive = TRUE;
     memcpy( pBSSList->abyBSSID, abyBSSIDAddr, WLAN_BSSID_LEN);
-    HIDWORD(pBSSList->qwBSSTimestamp) = cpu_to_le32(HIDWORD(qwTimestamp));
-    LODWORD(pBSSList->qwBSSTimestamp) = cpu_to_le32(LODWORD(qwTimestamp));
+	pBSSList->qwBSSTimestamp = cpu_to_le64(qwTimestamp);
     pBSSList->wBeaconInterval = cpu_to_le16(wBeaconInterval);
     pBSSList->wCapInfo = cpu_to_le16(wCapInfo);
     pBSSList->uClearCount = 0;
@@ -519,7 +517,7 @@ BOOL BSSbInsertToBSSList(void *hDeviceContext,
 // TODO: input structure modify
 
 BOOL BSSbUpdateToBSSList(void *hDeviceContext,
-			 QWORD qwTimestamp,
+			u64 qwTimestamp,
 			 WORD wBeaconInterval,
 			 WORD wCapInfo,
 			 BYTE byCurrChannel,
@@ -548,8 +546,8 @@ BOOL BSSbUpdateToBSSList(void *hDeviceContext,
         return FALSE;
 
 
-    HIDWORD(pBSSList->qwBSSTimestamp) = cpu_to_le32(HIDWORD(qwTimestamp));
-    LODWORD(pBSSList->qwBSSTimestamp) = cpu_to_le32(LODWORD(qwTimestamp));
+	pBSSList->qwBSSTimestamp = cpu_to_le64(qwTimestamp);
+
     pBSSList->wBeaconInterval = cpu_to_le16(wBeaconInterval);
     pBSSList->wCapInfo = cpu_to_le16(wCapInfo);
     pBSSList->uClearCount = 0;

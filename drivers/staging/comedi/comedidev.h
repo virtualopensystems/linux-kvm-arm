@@ -77,6 +77,7 @@
 
 struct comedi_subdevice {
 	struct comedi_device *device;
+	int index;
 	int type;
 	int n_chan;
 	int subdev_flags;
@@ -250,13 +251,6 @@ static inline const void *comedi_board(const struct comedi_device *dev)
 	return dev->board_ptr;
 }
 
-struct comedi_device_file_info {
-	struct comedi_device *device;
-	struct comedi_subdevice *read_subdevice;
-	struct comedi_subdevice *write_subdevice;
-	struct device *hardware_device;
-};
-
 #ifdef CONFIG_COMEDI_DEBUG
 extern int comedi_debug;
 #else
@@ -280,27 +274,7 @@ enum comedi_minor_bits {
 static const unsigned COMEDI_SUBDEVICE_MINOR_SHIFT = 4;
 static const unsigned COMEDI_SUBDEVICE_MINOR_OFFSET = 1;
 
-struct comedi_device_file_info *comedi_get_device_file_info(unsigned minor);
-
-static inline struct comedi_subdevice *comedi_get_read_subdevice(
-	const struct comedi_device_file_info *info)
-{
-	if (info->read_subdevice)
-		return info->read_subdevice;
-	if (info->device == NULL)
-		return NULL;
-	return info->device->read_subdev;
-}
-
-static inline struct comedi_subdevice *comedi_get_write_subdevice(
-	const struct comedi_device_file_info *info)
-{
-	if (info->write_subdevice)
-		return info->write_subdevice;
-	if (info->device == NULL)
-		return NULL;
-	return info->device->write_subdev;
-}
+struct comedi_device *comedi_dev_from_minor(unsigned minor);
 
 int comedi_alloc_subdevices(struct comedi_device *, int);
 
@@ -389,10 +363,11 @@ enum subdevice_runflags {
 	SRF_RUNNING = 0x08000000
 };
 
+bool comedi_is_subdevice_running(struct comedi_subdevice *s);
+
 int comedi_check_chanlist(struct comedi_subdevice *s,
 			  int n,
 			  unsigned int *chanlist);
-unsigned comedi_get_subdevice_runflags(struct comedi_subdevice *s);
 
 /* range stuff */
 
@@ -489,7 +464,7 @@ static inline unsigned comedi_buf_read_n_allocated(struct comedi_async *async)
 static inline void *comedi_aux_data(int options[], int n)
 {
 	unsigned long address;
-	unsigned long addressLow;
+	unsigned long address_low;
 	int bit_shift;
 	if (sizeof(int) >= sizeof(void *))
 		address = options[COMEDI_DEVCONF_AUX_DATA_LO];
@@ -497,9 +472,9 @@ static inline void *comedi_aux_data(int options[], int n)
 		address = options[COMEDI_DEVCONF_AUX_DATA_HI];
 		bit_shift = sizeof(int) * 8;
 		address <<= bit_shift;
-		addressLow = options[COMEDI_DEVCONF_AUX_DATA_LO];
-		addressLow &= (1UL << bit_shift) - 1;
-		address |= addressLow;
+		address_low = options[COMEDI_DEVCONF_AUX_DATA_LO];
+		address_low &= (1UL << bit_shift) - 1;
+		address |= address_low;
 	}
 	if (n >= 1)
 		address += options[COMEDI_DEVCONF_AUX_DATA0_LENGTH];
