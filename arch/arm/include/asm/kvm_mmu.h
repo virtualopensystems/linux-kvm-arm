@@ -16,41 +16,14 @@
  * Foundation, 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
 
-#include <linux/linkage.h>
-#include <linux/const.h>
-#include <asm/unified.h>
-#include <asm/page.h>
-#include <asm/asm-offsets.h>
-#include <asm/kvm_asm.h>
-#include <asm/kvm_arm.h>
+#ifndef __ARM_KVM_MMU_H__
+#define __ARM_KVM_MMU_H__
 
-	.text
+int create_hyp_mappings(void *from, void *to);
+int create_hyp_io_mappings(void *from, void *to, phys_addr_t);
+void free_hyp_pmds(void);
 
-__kvm_hyp_code_start:
-	.globl __kvm_hyp_code_start
-
-/********************************************************************
- * Flush per-VMID TLBs
- */
-ENTRY(__kvm_flush_vm_context)
-	bx	lr
-ENDPROC(__kvm_flush_vm_context)
-
-/********************************************************************
- *  Hypervisor world-switch code
- */
-ENTRY(__kvm_vcpu_run)
-	bx	lr
-
-
-/********************************************************************
- * Hypervisor exception vector and handlers
- */
-
-	.align 5
-__kvm_hyp_vector:
-	.globl __kvm_hyp_vector
-	nop
-
-__kvm_hyp_code_end:
-	.globl	__kvm_hyp_code_end
+phys_addr_t kvm_mmu_get_httbr(void);
+int kvm_mmu_init(void);
+void kvm_clear_hyp_idmap(void);
+#endif /* __ARM_KVM_MMU_H__ */
