@@ -1,0 +1,86 @@
+* Samsung Exynos System MMU
+
+Samsung's Exynos architecture includes System MMU that enables scattered
+physical chunks to be visible as a contiguous region to DMA-capabile peripheral
+devices like MFC, FIMC, FIMD, GScaler, FIMC-IS and so forth.
+
+System MMU is a sort of IOMMU and support identical translation table format to
+ARMv7 translation tables with minimum set of page properties including access
+permissions, shareability and security protection. In addition System MMU has
+another capabilities like L2 TLB or block-fetch buffers to minimize translation
+latency
+
+Each System MMU is included in the H/W block of a peripheral device. Thus, it is
+important to specify that a System MMU is dedicated to which peripheral device
+before using System MMU. System initialization must specify the relationships
+between a System MMU and a peripheral device that owns the System MMU.
+
+Some device drivers may control several peripheral devices with a single device
+descriptor like MFC. Since handling a System MMU with IOMMU API requires a
+device descriptor that needs the System MMU, it is best to combine the System
+MMUs of the peripheral devices and control them with a single System MMU device
+descriptor. If it is unable to combine them into a single device descriptor,
+they can be linked with each other by the means of device.parent relationship.
+
+Required properties:
+- compatible: Should be "samsung,exynos-sysmmu".
+- reg: Tuples of base address and size of System MMU registers. The number of
+       tuples can be more than one if two or more System MMUs are controlled
+       by a single device descriptor.
+- interrupt-parent: The phandle of the interrupt controller of System MMU
+- interrupts: Tuples of numbers that indicates the interrupt source. The
+              number of elements in the tuple is dependent upon
+             'interrupt-parent' property. The number of tuples in this property
+             must be the same with 'reg' property.
+
+Optional properties:
+- mmuname: Strings of the name of System MMU for debugging purpose. The number
+          of strings must be the same with the number of tuples in 'reg'
+          property.
+- mmu-master: phandle to the device node that owns System MMU. Only the device
+          that is specified whith this property can control System MMU with
+          IOMMU API.
+
+Examples:
+
+MFC has 2 System MMUs for each port that MFC is attached. Thus it seems natural
+to define 2 System MMUs for each port of the MFC:
+
+	sysmmu-mfc-l {
+		mmuname = "mfc_l";
+		reg = <0x11210000 0x1000>;
+		compatible = "samsung,exynos-sysmmu";
+		interrupt-parent = <&combiner>;
+		interrupts = <8 5>;
+		mmu-master = <&mfc>;
+	};
+
+	sysmmu-mfc-r {
+		mmuname = "mfc_r";
+		reg = <0x11200000 0x1000>;
+		compatible = "samsung,exynos-sysmmu";
+		interrupt-parent = <&combiner>;
+		interrupts = <6 2>;
+		mmu-master = <&mfc>;
+	};
+
+Actually, MFC device driver requires sub-devices that represents each port and
+above 'mmu-master' properties of sysmmu-mfc-l and sysmmu-mfc-r have the phandles
+to those sub-devices.
+
+However, it is also a good idea that treats the above System MMUs as one System
+MMU because those System MMUs are actually required by the MFC device:
+
+	sysmmu-mfc {
+		mmuname = "mfc_l", "mfc_r";
+		reg = <0x11210000 0x1000
+		       0x11200000 0x1000>;
+		compatible = "samsung,exynos-sysmmu";
+		interrupt-parent = <&combiner>;
+		interrupts = <8 5
+			      6 2>;
+		mmu-master = <&mfc>;
+	};
+
+If System MMU of MFC is defined like the above, the number of elements and the
+order of list in 'mmuname', 'reg' and 'interrupts' must be the same.
