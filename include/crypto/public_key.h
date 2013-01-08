@@ -22,7 +22,8 @@ enum pkey_algo {
 	PKEY_ALGO__LAST
 };
 
-extern const char *const pkey_algo[PKEY_ALGO__LAST];
+extern const char *const pkey_algo_name[PKEY_ALGO__LAST];
+extern const struct public_key_algorithm *pkey_algo[PKEY_ALGO__LAST];
 
 enum pkey_hash_algo {
 	PKEY_HASH_MD4,
@@ -36,7 +37,7 @@ enum pkey_hash_algo {
 	PKEY_HASH__LAST
 };
 
-extern const char *const pkey_hash_algo[PKEY_HASH__LAST];
+extern const char *const pkey_hash_algo_name[PKEY_HASH__LAST];
 
 enum pkey_id_type {
 	PKEY_ID_PGP,		/* OpenPGP generated key ID */
@@ -44,7 +45,7 @@ enum pkey_id_type {
 	PKEY_ID_TYPE__LAST
 };
 
-extern const char *const pkey_id_type[PKEY_ID_TYPE__LAST];
+extern const char *const pkey_id_type_name[PKEY_ID_TYPE__LAST];
 
 /*
  * Cryptographic data for the public-key subtype of the asymmetric key type.
@@ -59,6 +60,7 @@ struct public_key {
 #define PKEY_CAN_DECRYPT	0x02
 #define PKEY_CAN_SIGN		0x04
 #define PKEY_CAN_VERIFY		0x08
+	enum pkey_algo pkey_algo : 8;
 	enum pkey_id_type id_type : 8;
 	union {
 		MPI	mpi[5];
@@ -88,6 +90,7 @@ struct public_key_signature {
 	u8 *digest;
 	u8 digest_size;			/* Number of bytes in digest */
 	u8 nr_mpi;			/* Occupancy of mpi[] */
+	enum pkey_algo pkey_algo : 8;
 	enum pkey_hash_algo pkey_hash_algo : 8;
 	union {
 		MPI mpi[2];

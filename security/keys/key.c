@@ -299,6 +299,8 @@ struct key *key_alloc(struct key_type *type, const char *desc,
 
 	if (!(flags & KEY_ALLOC_NOT_IN_QUOTA))
 		key->flags |= 1 << KEY_FLAG_IN_QUOTA;
+	if (flags & KEY_ALLOC_TRUSTED)
+		key->flags |= 1 << KEY_FLAG_TRUSTED;
 
 	memset(&key->type_data, 0, sizeof(key->type_data));
 
@@ -813,6 +815,7 @@ key_ref_t key_create_or_update(key_ref_t keyring_ref,
 	prep.data = payload;
 	prep.datalen = plen;
 	prep.quotalen = ktype->def_datalen;
+	prep.trusted = flags & KEY_ALLOC_TRUSTED;
 	if (ktype->preparse) {
 		ret = ktype->preparse(&prep);
 		if (ret < 0) {
@@ -825,6 +828,11 @@ key_ref_t key_create_or_update(key_ref_t keyring_ref,
 		if (!description)
 			goto error_free_prep;
 	}
+
+	key_ref = ERR_PTR(-EPERM);
+	if (!prep.trusted && test_bit(KEY_FLAG_TRUSTED_ONLY, &keyring->flags))
+		goto error_free_prep;
+	flags |= prep.trusted ? KEY_ALLOC_TRUSTED : 0;
 
 	ret = __key_link_begin(keyring, ktype, description, &prealloc);
 	if (ret < 0) {

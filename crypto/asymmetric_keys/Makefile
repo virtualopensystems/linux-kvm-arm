@@ -25,3 +25,33 @@ $(obj)/x509_rsakey-asn1.o: $(obj)/x509_rsakey-asn1.c $(obj)/x509_rsakey-asn1.h
 
 clean-files	+= x509-asn1.c x509-asn1.h
 clean-files	+= x509_rsakey-asn1.c x509_rsakey-asn1.h
+
+#
+# PKCS#7 message handling
+#
+obj-$(CONFIG_PKCS7_MESSAGE_PARSER) += pkcs7_message.o
+pkcs7_message-y := \
+	pkcs7-asn1.o \
+	pkcs7_parser.o \
+	pkcs7_trust.o \
+	pkcs7_verify.o
+
+$(obj)/pkcs7_parser.o: $(obj)/pkcs7-asn1.h
+$(obj)/pkcs7-asn1.o: $(obj)/pkcs7-asn1.c $(obj)/pkcs7-asn1.h
+
+clean-files	+= pkcs7-asn1.c pkcs7-asn1.h
+
+#
+# Signed PE binary-wrapped key handling
+#
+obj-$(CONFIG_PE_FILE_PARSER) += pefile_key_parser.o
+
+pefile_key_parser-y := \
+	pefile_parser.o \
+	mscode_parser.o \
+	mscode-asn1.o
+
+$(obj)/mscode_parser.o: $(obj)/mscode-asn1.h $(obj)/mscode-asn1.h
+$(obj)/mscode-asn1.o: $(obj)/mscode-asn1.c $(obj)/mscode-asn1.h
+
+clean-files	+= mscode-asn1.c mscode-asn1.h

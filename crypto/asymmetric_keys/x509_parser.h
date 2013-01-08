@@ -9,10 +9,14 @@
  * 2 of the Licence, or (at your option) any later version.
  */
 
+#include <linux/time.h>
 #include <crypto/public_key.h>
+
+struct key_preparsed_payload;
 
 struct x509_certificate {
 	struct x509_certificate *next;
+	const struct x509_certificate *signer;	/* Certificate that signed this one */
 	struct public_key *pub;			/* Public key details */
 	char		*issuer;		/* Name of certificate issuer */
 	char		*subject;		/* Name of certificate subject */
@@ -20,13 +24,17 @@ struct x509_certificate {
 	char		*authority;		/* Authority key fingerprint as hex */
 	struct tm	valid_from;
 	struct tm	valid_to;
-	enum pkey_algo	pkey_algo : 8;		/* Public key algorithm */
-	enum pkey_algo	sig_pkey_algo : 8;	/* Signature public key algorithm */
-	enum pkey_hash_algo sig_hash_algo : 8;	/* Signature hash algorithm */
 	const void	*tbs;			/* Signed data */
-	size_t		tbs_size;		/* Size of signed data */
-	const void	*sig;			/* Signature data */
-	size_t		sig_size;		/* Size of sigature */
+	unsigned	tbs_size;		/* Size of signed data */
+	unsigned	raw_sig_size;		/* Size of sigature */
+	const void	*raw_sig;		/* Signature data */
+	const void	*raw_serial;		/* Raw serial number in ASN.1 */
+	unsigned	raw_serial_size;
+	unsigned	raw_issuer_size;
+	const void	*raw_issuer;		/* Raw issuer name in ASN.1 */
+	const void	*raw_subject;		/* Raw subject name in ASN.1 */
+	unsigned	raw_subject_size;
+	struct public_key_signature sig;	/* Signature parameters */
 };
 
 /*
@@ -34,3 +42,11 @@ struct x509_certificate {
  */
 extern void x509_free_certificate(struct x509_certificate *cert);
 extern struct x509_certificate *x509_cert_parse(const void *data, size_t datalen);
+
+/*
+ * x509_public_key.c
+ */
+extern int x509_get_sig_params(struct x509_certificate *cert);
+extern int x509_check_signature(const struct public_key *pub,
+				struct x509_certificate *cert);
+extern int x509_key_preparse(struct key_preparsed_payload *prep);
