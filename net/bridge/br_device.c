@@ -172,7 +172,6 @@ static int br_set_mac_address(struct net_device *dev, void *p)
 
 	spin_lock_bh(&br->lock);
 	if (!ether_addr_equal(dev->dev_addr, addr->sa_data)) {
-		dev->addr_assign_type &= ~NET_ADDR_RANDOM;
 		memcpy(dev->dev_addr, addr->sa_data, ETH_ALEN);
 		br_fdb_change_mac_address(br, addr->sa_data);
 		br_stp_change_bridge_id(br, addr->sa_data);
@@ -185,10 +184,10 @@ static int br_set_mac_address(struct net_device *dev, void *p)
 
 static void br_getinfo(struct net_device *dev, struct ethtool_drvinfo *info)
 {
-	strcpy(info->driver, "bridge");
-	strcpy(info->version, BR_VERSION);
-	strcpy(info->fw_version, "N/A");
-	strcpy(info->bus_info, "N/A");
+	strlcpy(info->driver, "bridge", sizeof(info->driver));
+	strlcpy(info->version, BR_VERSION, sizeof(info->version));
+	strlcpy(info->fw_version, "N/A", sizeof(info->fw_version));
+	strlcpy(info->bus_info, "N/A", sizeof(info->bus_info));
 }
 
 static netdev_features_t br_fix_features(struct net_device *dev,

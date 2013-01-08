@@ -498,10 +498,10 @@ bfin_mac_ethtool_setsettings(struct net_device *dev, struct ethtool_cmd *cmd)
 static void bfin_mac_ethtool_getdrvinfo(struct net_device *dev,
 					struct ethtool_drvinfo *info)
 {
-	strcpy(info->driver, KBUILD_MODNAME);
-	strcpy(info->version, DRV_VERSION);
-	strcpy(info->fw_version, "N/A");
-	strcpy(info->bus_info, dev_name(&dev->dev));
+	strlcpy(info->driver, KBUILD_MODNAME, sizeof(info->driver));
+	strlcpy(info->version, DRV_VERSION, sizeof(info->version));
+	strlcpy(info->fw_version, "N/A", sizeof(info->fw_version));
+	strlcpy(info->bus_info, dev_name(&dev->dev), sizeof(info->bus_info));
 }
 
 static void bfin_mac_ethtool_getwol(struct net_device *dev,
@@ -647,7 +647,6 @@ static int bfin_mac_set_mac_address(struct net_device *dev, void *p)
 	if (netif_running(dev))
 		return -EBUSY;
 	memcpy(dev->dev_addr, addr->sa_data, dev->addr_len);
-	dev->addr_assign_type &= ~NET_ADDR_RANDOM;
 	setup_mac_addr(dev->dev_addr);
 	return 0;
 }

@@ -124,7 +124,6 @@ static int batadv_interface_set_mac_addr(struct net_device *dev, void *p)
 		batadv_tt_local_add(dev, addr->sa_data, BATADV_NULL_IFINDEX);
 	}
 
-	dev->addr_assign_type &= ~NET_ADDR_RANDOM;
 	return 0;
 }
 
@@ -581,10 +580,10 @@ static int batadv_get_settings(struct net_device *dev, struct ethtool_cmd *cmd)
 static void batadv_get_drvinfo(struct net_device *dev,
 			       struct ethtool_drvinfo *info)
 {
-	strcpy(info->driver, "B.A.T.M.A.N. advanced");
-	strcpy(info->version, BATADV_SOURCE_VERSION);
-	strcpy(info->fw_version, "N/A");
-	strcpy(info->bus_info, "batman");
+	strlcpy(info->driver, "B.A.T.M.A.N. advanced", sizeof(info->driver));
+	strlcpy(info->version, BATADV_SOURCE_VERSION, sizeof(info->version));
+	strlcpy(info->fw_version, "N/A", sizeof(info->fw_version));
+	strlcpy(info->bus_info, "batman", sizeof(info->bus_info));
 }
 
 static u32 batadv_get_msglevel(struct net_device *dev)

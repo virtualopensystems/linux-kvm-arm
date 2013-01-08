@@ -155,8 +155,9 @@ static void skb_under_panic(struct sk_buff *skb, int sz, void *here)
  */
 #define kmalloc_reserve(size, gfp, node, pfmemalloc) \
 	 __kmalloc_reserve(size, gfp, node, _RET_IP_, pfmemalloc)
-void *__kmalloc_reserve(size_t size, gfp_t flags, int node, unsigned long ip,
-			 bool *pfmemalloc)
+
+static void *__kmalloc_reserve(size_t size, gfp_t flags, int node,
+			       unsigned long ip, bool *pfmemalloc)
 {
 	void *obj;
 	bool ret_pfmemalloc = false;
@@ -1706,20 +1707,6 @@ static bool spd_fill_page(struct splice_pipe_desc *spd,
 	return false;
 }
 
-static inline void __segment_seek(struct page **page, unsigned int *poff,
-				  unsigned int *plen, unsigned int off)
-{
-	unsigned long n;
-
-	*poff += off;
-	n = *poff / PAGE_SIZE;
-	if (n)
-		*page = nth_page(*page, n);
-
-	*poff = *poff % PAGE_SIZE;
-	*plen -= off;
-}
-
 static bool __splice_segment(struct page *page, unsigned int poff,
 			     unsigned int plen, unsigned int *off,
 			     unsigned int *len, struct sk_buff *skb,
@@ -1727,6 +1714,8 @@ static bool __splice_segment(struct page *page, unsigned int poff,
 			     struct sock *sk,
 			     struct pipe_inode_info *pipe)
 {
+	unsigned int flen;
+
 	if (!*len)
 		return true;
 
@@ -1737,24 +1726,16 @@ static bool __splice_segment(struct page *page, unsigned int poff,
 	}
 
 	/* ignore any bits we already processed */
-	if (*off) {
-		__segment_seek(&page, &poff, &plen, *off);
-		*off = 0;
-	}
+	poff += *off;
+	plen -= *off;
+	*off = 0;
 
-	do {
-		unsigned int flen = min(*len, plen);
+	flen = min(*len, plen);
 
-		/* the linear region may spread across several pages  */
-		flen = min_t(unsigned int, flen, PAGE_SIZE - poff);
+	if (spd_fill_page(spd, pipe, page, &flen, poff, skb, linear, sk))
+		return true;
 
-		if (spd_fill_page(spd, pipe, page, &flen, poff, skb, linear, sk))
-			return true;
-
-		__segment_seek(&page, &poff, &plen, flen);
-		*len -= flen;
-
-	} while (*len && plen);
+	*len -= flen;
 
 	return false;
 }
@@ -2686,48 +2667,37 @@ int skb_append_datato_frags(struct sock *sk, struct sk_buff *skb,
 					int len, int odd, struct sk_buff *skb),
 			void *from, int length)
 {
-	int frg_cnt = 0;
-	skb_frag_t *frag = NULL;
-	struct page *page = NULL;
-	int copy, left;
+	int frg_cnt = skb_shinfo(skb)->nr_frags;
+	int copy;
 	int offset = 0;
 	int ret;
+	struct page_frag *pfrag = &current->task_frag;
 
 	do {
 		/* Return error if we don't have space for new frag */
-		frg_cnt = skb_shinfo(skb)->nr_frags;
 		if (frg_cnt >= MAX_SKB_FRAGS)
-			return -EFAULT;
+			return -EMSGSIZE;
 
-		/* allocate a new page for next frag */
-		page = alloc_pages(sk->sk_allocation, 0);
-
-		/* If alloc_page fails just return failure and caller will
-		 * free previous allocated pages by doing kfree_skb()
-		 */
-		if (page == NULL)
+		if (!sk_page_frag_refill(sk, pfrag))
 			return -ENOMEM;
 
-		/* initialize the next frag */
-		skb_fill_page_desc(skb, frg_cnt, page, 0, 0);
-		skb->truesize += PAGE_SIZE;
-		atomic_add(PAGE_SIZE, &sk->sk_wmem_alloc);
-
-		/* get the new initialized frag */
-		frg_cnt = skb_shinfo(skb)->nr_frags;
-		frag = &skb_shinfo(skb)->frags[frg_cnt - 1];
-
 		/* copy the user data to page */
-		left = PAGE_SIZE - frag->page_offset;
-		copy = (length > left)? left : length;
+		copy = min_t(int, length, pfrag->size - pfrag->offset);
 
-		ret = getfrag(from, skb_frag_address(frag) + skb_frag_size(frag),
-			    offset, copy, 0, skb);
+		ret = getfrag(from, page_address(pfrag->page) + pfrag->offset,
+			      offset, copy, 0, skb);
 		if (ret < 0)
 			return -EFAULT;
 
 		/* copy was successful so update the size parameters */
-		skb_frag_size_add(frag, copy);
+		skb_fill_page_desc(skb, frg_cnt, pfrag->page, pfrag->offset,
+				   copy);
+		frg_cnt++;
+		pfrag->offset += copy;
+		get_page(pfrag->page);
+
+		skb->truesize += copy;
+		atomic_add(copy, &sk->sk_wmem_alloc);
 		skb->len += copy;
 		skb->data_len += copy;
 		offset += copy;

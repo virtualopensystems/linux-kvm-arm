@@ -375,7 +375,6 @@ static int macvlan_set_mac_address(struct net_device *dev, void *p)
 
 	if (!(dev->flags & IFF_UP)) {
 		/* Just copy in the new address */
-		dev->addr_assign_type &= ~NET_ADDR_RANDOM;
 		memcpy(dev->dev_addr, addr->sa_data, ETH_ALEN);
 	} else {
 		/* Rehash and update the device filters */
@@ -586,8 +585,8 @@ static int macvlan_fdb_del(struct ndmsg *ndm,
 static void macvlan_ethtool_get_drvinfo(struct net_device *dev,
 					struct ethtool_drvinfo *drvinfo)
 {
-	snprintf(drvinfo->driver, 32, "macvlan");
-	snprintf(drvinfo->version, 32, "0.1");
+	strlcpy(drvinfo->driver, "macvlan", sizeof(drvinfo->driver));
+	strlcpy(drvinfo->version, "0.1", sizeof(drvinfo->version));
 }
 
 static int macvlan_ethtool_get_settings(struct net_device *dev,
@@ -765,16 +764,22 @@ int macvlan_common_newlink(struct net *src_net, struct net_device *dev,
 		memcpy(dev->dev_addr, lowerdev->dev_addr, ETH_ALEN);
 	}
 
+	err = netdev_upper_dev_link(lowerdev, dev);
+	if (err)
+		goto destroy_port;
+
 	port->count += 1;
 	err = register_netdevice(dev);
 	if (err < 0)
-		goto destroy_port;
+		goto upper_dev_unlink;
 
 	list_add_tail(&vlan->list, &port->vlans);
 	netif_stacked_transfer_operstate(lowerdev, dev);
 
 	return 0;
 
+upper_dev_unlink:
+	netdev_upper_dev_unlink(lowerdev, dev);
 destroy_port:
 	port->count -= 1;
 	if (!port->count)
@@ -798,6 +803,7 @@ void macvlan_dellink(struct net_device *dev, struct list_head *head)
 
 	list_del(&vlan->list);
 	unregister_netdevice_queue(dev, head);
+	netdev_upper_dev_unlink(vlan->lowerdev, dev);
 }
 EXPORT_SYMBOL_GPL(macvlan_dellink);
 
