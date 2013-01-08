@@ -326,7 +326,7 @@ static struct sysrq_key_op sysrq_drm_fb_helper_restore_op = {
 static struct sysrq_key_op sysrq_drm_fb_helper_restore_op = { };
 #endif
 
-static void drm_fb_helper_dpms(struct fb_info *info, int dpms_mode)
+static int drm_fb_helper_dpms(struct fb_info *info, int dpms_mode)
 {
 	struct drm_fb_helper *fb_helper = info->par;
 	struct drm_device *dev = fb_helper->dev;
@@ -334,10 +334,15 @@ static void drm_fb_helper_dpms(struct fb_info *info, int dpms_mode)
 	struct drm_connector *connector;
 	int i, j;
 
+	if (oops_in_progress) {
+		if (!mutex_trylock(&dev->mode_config.mutex))
+			return -EBUSY;
+	} else
+		mutex_lock(&dev->mode_config.mutex);
+
 	/*
 	 * For each CRTC in this fb, turn the connectors on/off.
 	 */
-	mutex_lock(&dev->mode_config.mutex);
 	for (i = 0; i < fb_helper->crtc_count; i++) {
 		crtc = fb_helper->crtc_info[i].mode_set.crtc;
 
@@ -353,6 +358,7 @@ static void drm_fb_helper_dpms(struct fb_info *info, int dpms_mode)
 		}
 	}
 	mutex_unlock(&dev->mode_config.mutex);
+	return 0;
 }
 
 int drm_fb_helper_blank(int blank, struct fb_info *info)
@@ -360,24 +366,19 @@ int drm_fb_helper_blank(int blank, struct fb_info *info)
 	switch (blank) {
 	/* Display: On; HSync: On, VSync: On */
 	case FB_BLANK_UNBLANK:
-		drm_fb_helper_dpms(info, DRM_MODE_DPMS_ON);
-		break;
+		return drm_fb_helper_dpms(info, DRM_MODE_DPMS_ON);
 	/* Display: Off; HSync: On, VSync: On */
 	case FB_BLANK_NORMAL:
-		drm_fb_helper_dpms(info, DRM_MODE_DPMS_STANDBY);
-		break;
+		return drm_fb_helper_dpms(info, DRM_MODE_DPMS_STANDBY);
 	/* Display: Off; HSync: Off, VSync: On */
 	case FB_BLANK_HSYNC_SUSPEND:
-		drm_fb_helper_dpms(info, DRM_MODE_DPMS_STANDBY);
-		break;
+		return drm_fb_helper_dpms(info, DRM_MODE_DPMS_STANDBY);
 	/* Display: Off; HSync: On, VSync: Off */
 	case FB_BLANK_VSYNC_SUSPEND:
-		drm_fb_helper_dpms(info, DRM_MODE_DPMS_SUSPEND);
-		break;
+		return drm_fb_helper_dpms(info, DRM_MODE_DPMS_SUSPEND);
 	/* Display: Off; HSync: Off, VSync: Off */
 	case FB_BLANK_POWERDOWN:
-		drm_fb_helper_dpms(info, DRM_MODE_DPMS_OFF);
-		break;
+		return drm_fb_helper_dpms(info, DRM_MODE_DPMS_OFF);
 	}
 	return 0;
 }

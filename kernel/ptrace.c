@@ -24,6 +24,7 @@
 #include <linux/regset.h>
 #include <linux/hw_breakpoint.h>
 #include <linux/cn_proc.h>
+#include <linux/uio.h>
 
 
 static int ptrace_trapping_sleep_fn(void *flags)

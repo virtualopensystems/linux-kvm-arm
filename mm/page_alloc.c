@@ -3881,8 +3881,11 @@ void __meminit memmap_init_zone(unsigned long size, int nid, unsigned long zone,
 		 * exist on hotplugged memory.
 		 */
 		if (context == MEMMAP_EARLY) {
-			if (!early_pfn_valid(pfn))
+			if (!early_pfn_valid(pfn)) {
+				pfn = ALIGN(pfn + MAX_ORDER_NR_PAGES,
+						MAX_ORDER_NR_PAGES) - 1;
 				continue;
+			}
 			if (!early_pfn_in_nid(pfn, nid))
 				continue;
 		}
@@ -5258,13 +5261,10 @@ static void __setup_per_zone_wmarks(void)
 			 * deltas controls asynch page reclaim, and so should
 			 * not be capped for highmem.
 			 */
-			int min_pages;
+			unsigned long min_pages;
 
 			min_pages = zone->present_pages / 1024;
-			if (min_pages < SWAP_CLUSTER_MAX)
-				min_pages = SWAP_CLUSTER_MAX;
-			if (min_pages > 128)
-				min_pages = 128;
+			min_pages = clamp(min_pages, SWAP_CLUSTER_MAX, 128UL);
 			zone->watermark[WMARK_MIN] = min_pages;
 		} else {
 			/*
@@ -5817,9 +5817,11 @@ static int __alloc_contig_migrate_range(struct compact_control *cc,
 				    0, false, MIGRATE_SYNC,
 				    MR_CMA);
 	}
-
-	putback_movable_pages(&cc->migratepages);
-	return ret > 0 ? 0 : ret;
+	if (ret < 0) {
+		putback_movable_pages(&cc->migratepages);
+		return ret;
+	}
+	return 0;
 }
 
 /**
