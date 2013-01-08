@@ -44,6 +44,7 @@
 #include <xen/grant_table.h>
 #include <xen/xenbus.h>
 #include <xen/xen.h>
+#include <xen/features.h>
 
 #include "xenbus_probe.h"
 
@@ -490,7 +491,8 @@ static int xenbus_map_ring_valloc_pv(struct xenbus_device *dev,
 
 	op.host_addr = arbitrary_virt_to_machine(pte).maddr;
 
-	gnttab_batch_map(&op, 1);
+	if (HYPERVISOR_grant_table_op(GNTTABOP_map_grant_ref, &op, 1))
+		BUG();
 
 	if (op.status != GNTST_okay) {
 		free_vm_area(area);
@@ -571,7 +573,8 @@ int xenbus_map_ring(struct xenbus_device *dev, int gnt_ref,
 	gnttab_set_map_op(&op, (unsigned long)vaddr, GNTMAP_host_map, gnt_ref,
 			  dev->otherend_id);
 
-	gnttab_batch_map(&op, 1);
+	if (HYPERVISOR_grant_table_op(GNTTABOP_map_grant_ref, &op, 1))
+		BUG();
 
 	if (op.status != GNTST_okay) {
 		xenbus_dev_fatal(dev, op.status,
@@ -741,7 +744,7 @@ static const struct xenbus_ring_ops ring_ops_hvm = {
 
 void __init xenbus_ring_ops_init(void)
 {
-	if (xen_pv_domain())
+	if (xen_pv_domain() && !xen_feature(XENFEAT_auto_translated_physmap))
 		ring_ops = &ring_ops_pv;
 	else
 		ring_ops = &ring_ops_hvm;

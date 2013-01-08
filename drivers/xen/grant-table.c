@@ -38,7 +38,6 @@
 #include <linux/vmalloc.h>
 #include <linux/uaccess.h>
 #include <linux/io.h>
-#include <linux/delay.h>
 #include <linux/hardirq.h>
 
 #include <xen/xen.h>
@@ -824,52 +823,6 @@ unsigned int gnttab_max_grant_frames(void)
 }
 EXPORT_SYMBOL_GPL(gnttab_max_grant_frames);
 
-/* Handling of paged out grant targets (GNTST_eagain) */
-#define MAX_DELAY 256
-static inline void
-gnttab_retry_eagain_gop(unsigned int cmd, void *gop, int16_t *status,
-						const char *func)
-{
-	unsigned delay = 1;
-
-	do {
-		BUG_ON(HYPERVISOR_grant_table_op(cmd, gop, 1));
-		if (*status == GNTST_eagain)
-			msleep(delay++);
-	} while ((*status == GNTST_eagain) && (delay < MAX_DELAY));
-
-	if (delay >= MAX_DELAY) {
-		printk(KERN_ERR "%s: %s eagain grant\n", func, current->comm);
-		*status = GNTST_bad_page;
-	}
-}
-
-void gnttab_batch_map(struct gnttab_map_grant_ref *batch, unsigned count)
-{
-	struct gnttab_map_grant_ref *op;
-
-	if (HYPERVISOR_grant_table_op(GNTTABOP_map_grant_ref, batch, count))
-		BUG();
-	for (op = batch; op < batch + count; op++)
-		if (op->status == GNTST_eagain)
-			gnttab_retry_eagain_gop(GNTTABOP_map_grant_ref, op,
-						&op->status, __func__);
-}
-EXPORT_SYMBOL_GPL(gnttab_batch_map);
-
-void gnttab_batch_copy(struct gnttab_copy *batch, unsigned count)
-{
-	struct gnttab_copy *op;
-
-	if (HYPERVISOR_grant_table_op(GNTTABOP_copy, batch, count))
-		BUG();
-	for (op = batch; op < batch + count; op++)
-		if (op->status == GNTST_eagain)
-			gnttab_retry_eagain_gop(GNTTABOP_copy, op,
-						&op->status, __func__);
-}
-EXPORT_SYMBOL_GPL(gnttab_batch_copy);
-
 int gnttab_map_refs(struct gnttab_map_grant_ref *map_ops,
 		    struct gnttab_map_grant_ref *kmap_ops,
 		    struct page **pages, unsigned int count)
@@ -882,12 +835,6 @@ int gnttab_map_refs(struct gnttab_map_grant_ref *map_ops,
 	ret = HYPERVISOR_grant_table_op(GNTTABOP_map_grant_ref, map_ops, count);
 	if (ret)
 		return ret;
-
-	/* Retry eagain maps */
-	for (i = 0; i < count; i++)
-		if (map_ops[i].status == GNTST_eagain)
-			gnttab_retry_eagain_gop(GNTTABOP_map_grant_ref, map_ops + i,
-						&map_ops[i].status, __func__);
 
 	if (xen_feature(XENFEAT_auto_translated_physmap))
 		return ret;
@@ -1029,14 +976,20 @@ static void gnttab_unmap_frames_v2(void)
 static int gnttab_map(unsigned int start_idx, unsigned int end_idx)
 {
 	struct gnttab_setup_table setup;
+	unsigned long start_gpfn;
 	xen_pfn_t *frames;
 	unsigned int nr_gframes = end_idx + 1;
 	int rc;
 
-	if (xen_hvm_domain()) {
+	if (xen_hvm_domain() || xen_feature(XENFEAT_auto_translated_physmap)) {
 		struct xen_add_to_physmap xatp;
 		unsigned int i = end_idx;
 		rc = 0;
+
+		if (xen_hvm_domain())
+			start_gpfn = xen_hvm_resume_frames >> PAGE_SHIFT;
+		else
+			start_gpfn = virt_to_pfn(gnttab_shared.addr);
 		/*
 		 * Loop backwards, so that the first hypercall has the largest
 		 * index, ensuring that the table will grow only once.
@@ -1045,7 +998,7 @@ static int gnttab_map(unsigned int start_idx, unsigned int end_idx)
 			xatp.domid = DOMID_SELF;
 			xatp.idx = i;
 			xatp.space = XENMAPSPACE_grant_table;
-			xatp.gpfn = (xen_hvm_resume_frames >> PAGE_SHIFT) + i;
+			xatp.gpfn = start_gpfn + i;
 			rc = HYPERVISOR_memory_op(XENMEM_add_to_physmap, &xatp);
 			if (rc != 0) {
 				printk(KERN_WARNING
@@ -1108,7 +1061,7 @@ static void gnttab_request_version(void)
 	int rc;
 	struct gnttab_set_version gsv;
 
-	if (xen_hvm_domain())
+	if (xen_hvm_domain() || xen_feature(XENFEAT_auto_translated_physmap))
 		gsv.version = 1;
 	else
 		gsv.version = 2;
@@ -1136,12 +1089,25 @@ static void gnttab_request_version(void)
 int gnttab_resume(void)
 {
 	unsigned int max_nr_gframes;
+	char *kmsg = "Failed to kmalloc pages for pv in hvm grant frames\n";
 
 	gnttab_request_version();
 	max_nr_gframes = gnttab_max_grant_frames();
 	if (max_nr_gframes < nr_grant_frames)
 		return -ENOSYS;
 
+	/* PVH note: xen will free existing kmalloc'd mfn in
+	 * XENMEM_add_to_physmap. TBD/FIXME: use xen ballooning instead of
+	 * kmalloc(). */
+	if (xen_pv_domain() && xen_feature(XENFEAT_auto_translated_physmap) &&
+	    !gnttab_shared.addr) {
+		gnttab_shared.addr =
+			kmalloc(max_nr_gframes * PAGE_SIZE, GFP_KERNEL);
+		if (!gnttab_shared.addr) {
+			pr_warn("%s", kmsg);
+			return -ENOMEM;
+		}
+	}
 	if (xen_pv_domain())
 		return gnttab_map(0, nr_grant_frames - 1);
 

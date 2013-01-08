@@ -666,7 +666,9 @@ static void xen_netbk_rx_action(struct xen_netbk *netbk)
 		return;
 
 	BUG_ON(npo.copy_prod > ARRAY_SIZE(netbk->grant_copy_op));
-	gnttab_batch_copy(netbk->grant_copy_op, npo.copy_prod);
+	ret = HYPERVISOR_grant_table_op(GNTTABOP_copy, &netbk->grant_copy_op,
+					npo.copy_prod);
+	BUG_ON(ret != 0);
 
 	while ((skb = __skb_dequeue(&rxq)) != NULL) {
 		sco = (struct skb_cb_overlay *)skb->cb;
@@ -1489,15 +1491,18 @@ static void xen_netbk_tx_submit(struct xen_netbk *netbk)
 static void xen_netbk_tx_action(struct xen_netbk *netbk)
 {
 	unsigned nr_gops;
+	int ret;
 
 	nr_gops = xen_netbk_tx_build_gops(netbk);
 
 	if (nr_gops == 0)
 		return;
-
-	gnttab_batch_copy(netbk->tx_copy_ops, nr_gops);
+	ret = HYPERVISOR_grant_table_op(GNTTABOP_copy,
+					netbk->tx_copy_ops, nr_gops);
+	BUG_ON(ret);
 
 	xen_netbk_tx_submit(netbk);
+
 }
 
 static void xen_netbk_idx_release(struct xen_netbk *netbk, u16 pending_idx)
