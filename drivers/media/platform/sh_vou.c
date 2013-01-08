@@ -207,6 +207,7 @@ static void sh_vou_stream_start(struct sh_vou_device *vou_dev,
 #endif
 
 	switch (vou_dev->pix.pixelformat) {
+	default:
 	case V4L2_PIX_FMT_NV12:
 	case V4L2_PIX_FMT_NV16:
 		row_coeff = 1;
@@ -595,9 +596,9 @@ static void vou_adjust_input(struct sh_vou_geometry *geo, v4l2_std_id std)
  */
 static void vou_adjust_output(struct sh_vou_geometry *geo, v4l2_std_id std)
 {
-	unsigned int best_err = UINT_MAX, best, width_max, height_max,
-		img_height_max;
-	int i, idx;
+	unsigned int best_err = UINT_MAX, best = geo->in_width,
+		width_max, height_max, img_height_max;
+	int i, idx = 0;
 
 	if (std & V4L2_STD_525_60) {
 		width_max = 858;
@@ -1091,7 +1092,7 @@ static irqreturn_t sh_vou_isr(int irq, void *dev_id)
 	list_del(&vb->queue);
 
 	vb->state = VIDEOBUF_DONE;
-	do_gettimeofday(&vb->ts);
+	v4l2_get_timestamp(&vb->ts);
 	vb->field_count++;
 	wake_up(&vb->done);
 
