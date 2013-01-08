@@ -1,0 +1,112 @@
+Native Linux KVM tool
+=====================
+The goal of this tool is to provide a clean, from-scratch, lightweight
+KVM host tool implementation that can boot Linux guest images (just a
+hobby, won't be big and professional like QEMU) with no BIOS
+dependencies and with only the minimal amount of legacy device
+emulation.
+
+It's great as a learning tool if you want to get your feet wet in
+virtualization land: it's only 5 KLOC of clean C code that can already
+boot a guest Linux image.
+
+Right now it can boot a Linux image and provide you output via a serial
+console, over the host terminal, i.e. you can use it to boot a guest
+Linux image in a terminal or over ssh and log into the guest without
+much guest or host side setup work needed.
+
+1. To try out the tool, clone the git repository:
+
+  git clone git://github.com/penberg/linux-kvm.git
+
+or alternatively, if you already have a kernel source tree:
+
+  git remote add kvm-tool git://github.com/penberg/linux-kvm.git
+  git remote update
+  git checkout -b kvm-tool/master kvm-tool
+
+2. Compile the tool:
+
+  cd tools/kvm && make
+
+3. Download a raw userspace image:
+
+  wget http://wiki.qemu.org/download/linux-0.2.img.bz2 && bunzip2
+linux-0.2.img.bz2
+
+4. The guest kernel has to be built with the following configuration:
+
+ - For the default console output:
+	CONFIG_SERIAL_8250=y
+	CONFIG_SERIAL_8250_CONSOLE=y
+
+ - For running 32bit images on 64bit hosts:
+	CONFIG_IA32_EMULATION=y
+
+ - Proper FS options according to image FS (e.g. CONFIG_EXT2_FS, CONFIG_EXT4_FS).
+
+ - For all virtio devices listed below:
+	CONFIG_VIRTIO=y
+	CONFIG_VIRTIO_RING=y
+	CONFIG_VIRTIO_PCI=y
+
+ - For virtio-blk devices (--disk, -d):
+	CONFIG_VIRTIO_BLK=y
+
+ - For virtio-net devices ([--network, -n] virtio):
+	CONFIG_VIRTIO_NET=y
+
+ - For virtio-9p devices (--virtio-9p):
+	CONFIG_NET_9P=y
+	CONFIG_NET_9P_VIRTIO=y
+	CONFIG_9P_FS=y
+
+ - For virtio-balloon device (--balloon):
+	CONFIG_VIRTIO_BALLOON=y
+
+ - For virtio-console device (--console virtio):
+	CONFIG_VIRTIO_CONSOLE=y
+
+ - For virtio-rng device (--rng):
+	CONFIG_HW_RANDOM_VIRTIO=y
+
+ - For vesa device (--sdl or --vnc):
+	CONFIG_FB_VESA=y
+
+
+5. And finally, launch the hypervisor:
+
+  ./lkvm run --disk linux-0.2.img \
+	    --kernel ../../arch/x86/boot/bzImage \
+or
+
+  sudo ./lkvm run --disk linux-0.2.img \
+		 --kernel ../../arch/x86/boot/bzImage \
+		 --network virtio
+
+The tool has been written by Pekka Enberg, Cyrill Gorcunov, Asias He,
+Sasha Levin and Prasad Joshi. Special thanks to Avi Kivity for his help
+on KVM internals and Ingo Molnar for all-around support and encouragement!
+
+See the following thread for original discussion for motivation of this
+project:
+
+http://thread.gmane.org/gmane.linux.kernel/962051/focus=962620
+
+Build dependencies
+=====================
+For deb based systems:
+32-bit:
+sudo apt-get install build-essential
+64-bit:
+sudo apt-get install build-essential libc6-dev-i386
+
+For rpm based systems:
+32-bit:
+yum install glibc-devel
+64-bit:
+yum install glibc-devel glibc-static
+
+On 64-bit Arch Linux make sure the multilib repository is enabled in your
+/etc/pacman.conf and run
+pacman -Sy lib32-glibc

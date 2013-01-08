@@ -1,0 +1,15 @@
+lkvm-setup(1)
+================
+
+NAME
+----
+lkvm-setup - Setup a new virtual machine
+
+SYNOPSIS
+--------
+[verse]
+'lkvm setup <name>'
+
+DESCRIPTION
+-----------
+The command setups a virtual machine.

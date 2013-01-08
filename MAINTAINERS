@@ -5318,6 +5318,14 @@ L:	alsa-devel@alsa-project.org
 W:	http://www.native-instruments.com
 F:	sound/usb/caiaq/
 
+NATIVE LINUX KVM TOOL
+M:	Pekka Enberg <penberg@kernel.org>
+M:	Sasha Levin <levinsasha928@gmail.com>
+M:	Asias He <asias.hejun@gmail.com>
+L:	kvm@vger.kernel.org
+S:	Maintained
+F:	tools/kvm/
+
 NCP FILESYSTEM
 M:	Petr Vandrovec <petr@vandrovec.name>
 S:	Odd Fixes
