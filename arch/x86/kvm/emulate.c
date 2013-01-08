@@ -43,7 +43,7 @@
 #define OpCL               9ull  /* CL register (for shifts) */
 #define OpImmByte         10ull  /* 8-bit sign extended immediate */
 #define OpOne             11ull  /* Implied 1 */
-#define OpImm             12ull  /* Sign extended immediate */
+#define OpImm             12ull  /* Sign extended up to 32-bit immediate */
 #define OpMem16           13ull  /* Memory operand (16-bit). */
 #define OpMem32           14ull  /* Memory operand (32-bit). */
 #define OpImmU            15ull  /* Immediate operand, zero extended */
@@ -58,6 +58,7 @@
 #define OpFS              24ull  /* FS */
 #define OpGS              25ull  /* GS */
 #define OpMem8            26ull  /* 8-bit zero extended memory operand */
+#define OpImm64           27ull  /* Sign extended 16/32/64-bit immediate */
 
 #define OpBits             5  /* Width of operand field */
 #define OpMask             ((1ull << OpBits) - 1)
@@ -101,6 +102,7 @@
 #define SrcMemFAddr (OpMemFAddr << SrcShift)
 #define SrcAcc      (OpAcc << SrcShift)
 #define SrcImmU16   (OpImmU16 << SrcShift)
+#define SrcImm64    (OpImm64 << SrcShift)
 #define SrcDX       (OpDX << SrcShift)
 #define SrcMem8     (OpMem8 << SrcShift)
 #define SrcMask     (OpMask << SrcShift)
@@ -2852,6 +2854,27 @@ static int em_das(struct x86_emulate_ctxt *ctxt)
 	return X86EMUL_CONTINUE;
 }
 
+static int em_aad(struct x86_emulate_ctxt *ctxt)
+{
+	u8 al = ctxt->dst.val & 0xff;
+	u8 ah = (ctxt->dst.val >> 8) & 0xff;
+
+	al = (al + (ah * ctxt->src.val)) & 0xff;
+
+	ctxt->dst.val = (ctxt->dst.val & 0xffff0000) | al;
+
+	ctxt->eflags &= ~(X86_EFLAGS_PF | X86_EFLAGS_SF | X86_EFLAGS_ZF);
+
+	if (!al)
+		ctxt->eflags |= X86_EFLAGS_ZF;
+	if (!(al & 1))
+		ctxt->eflags |= X86_EFLAGS_PF;
+	if (al & 0x80)
+		ctxt->eflags |= X86_EFLAGS_SF;
+
+	return X86EMUL_CONTINUE;
+}
+
 static int em_call(struct x86_emulate_ctxt *ctxt)
 {
 	long rel = ctxt->src.val;
@@ -3786,7 +3809,7 @@ static const struct opcode opcode_table[256] = {
 	/* 0xB0 - 0xB7 */
 	X8(I(ByteOp | DstReg | SrcImm | Mov, em_mov)),
 	/* 0xB8 - 0xBF */
-	X8(I(DstReg | SrcImm | Mov, em_mov)),
+	X8(I(DstReg | SrcImm64 | Mov, em_mov)),
 	/* 0xC0 - 0xC7 */
 	D2bv(DstMem | SrcImmByte | ModRM),
 	I(ImplicitOps | Stack | SrcImmU16, em_ret_near_imm),
@@ -3801,7 +3824,7 @@ static const struct opcode opcode_table[256] = {
 	D(ImplicitOps | No64), II(ImplicitOps, em_iret, iret),
 	/* 0xD0 - 0xD7 */
 	D2bv(DstMem | SrcOne | ModRM), D2bv(DstMem | ModRM),
-	N, N, N, N,
+	N, I(DstAcc | SrcImmByte | No64, em_aad), N, N,
 	/* 0xD8 - 0xDF */
 	N, N, N, N, N, N, N, N,
 	/* 0xE0 - 0xE7 */
@@ -3950,6 +3973,9 @@ static int decode_imm(struct x86_emulate_ctxt *ctxt, struct operand *op,
 	case 4:
 		op->val = insn_fetch(s32, ctxt);
 		break;
+	case 8:
+		op->val = insn_fetch(s64, ctxt);
+		break;
 	}
 	if (!sign_extension) {
 		switch (op->bytes) {
@@ -4027,6 +4053,9 @@ static int decode_operand(struct x86_emulate_ctxt *ctxt, struct operand *op,
 		break;
 	case OpImm:
 		rc = decode_imm(ctxt, op, imm_size(ctxt), true);
+		break;
+	case OpImm64:
+		rc = decode_imm(ctxt, op, ctxt->op_bytes, true);
 		break;
 	case OpMem8:
 		ctxt->memop.bytes = 1;
