@@ -1,6 +1,5 @@
 /*
- * Driver for the Synopsys DesignWare DMA Controller (aka DMACA on
- * AVR32 systems.)
+ * Core driver for the Synopsys DesignWare DMA Controller
  *
  * Copyright (C) 2007-2008 Atmel Corporation
  * Copyright (C) 2010-2011 ST Microelectronics
@@ -9,6 +8,7 @@
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
  */
+
 #include <linux/bitops.h>
 #include <linux/clk.h>
 #include <linux/delay.h>
@@ -93,7 +93,7 @@ static struct device *chan2parent(struct dma_chan *chan)
 
 static struct dw_desc *dwc_first_active(struct dw_dma_chan *dwc)
 {
-	return list_entry(dwc->active_list.next, struct dw_desc, desc_node);
+	return to_dw_desc(dwc->active_list.next);
 }
 
 static struct dw_desc *dwc_desc_get(struct dw_dma_chan *dwc)
@@ -221,7 +221,6 @@ static inline void dwc_dump_chan_regs(struct dw_dma_chan *dwc)
 		channel_readl(dwc, CTL_HI),
 		channel_readl(dwc, CTL_LO));
 }
-
 
 static inline void dwc_chan_disable(struct dw_dma *dw, struct dw_dma_chan *dwc)
 {
@@ -457,9 +456,8 @@ static void dwc_scan_descriptors(struct dw_dma *dw, struct dw_dma_chan *dwc)
 
 static inline void dwc_dump_lli(struct dw_dma_chan *dwc, struct dw_lli *lli)
 {
-	dev_printk(KERN_CRIT, chan2dev(&dwc->chan),
-			"  desc: s0x%x d0x%x l0x%x c0x%x:%x\n",
-			lli->sar, lli->dar, lli->llp, lli->ctlhi, lli->ctllo);
+	dev_crit(chan2dev(&dwc->chan), "  desc: s0x%x d0x%x l0x%x c0x%x:%x\n",
+		 lli->sar, lli->dar, lli->llp, lli->ctlhi, lli->ctllo);
 }
 
 static void dwc_handle_error(struct dw_dma *dw, struct dw_dma_chan *dwc)
@@ -487,16 +485,14 @@ static void dwc_handle_error(struct dw_dma *dw, struct dw_dma_chan *dwc)
 		dwc_dostart(dwc, dwc_first_active(dwc));
 
 	/*
-	 * KERN_CRITICAL may seem harsh, but since this only happens
+	 * WARN may seem harsh, but since this only happens
 	 * when someone submits a bad physical address in a
 	 * descriptor, we should consider ourselves lucky that the
 	 * controller flagged an error instead of scribbling over
 	 * random memory locations.
 	 */
-	dev_printk(KERN_CRIT, chan2dev(&dwc->chan),
-			"Bad descriptor submitted for DMA!\n");
-	dev_printk(KERN_CRIT, chan2dev(&dwc->chan),
-			"  cookie: %d\n", bad_desc->txd.cookie);
+	dev_WARN(chan2dev(&dwc->chan), "Bad descriptor submitted for DMA!\n"
+				       "  cookie: %d\n", bad_desc->txd.cookie);
 	dwc_dump_lli(dwc, &bad_desc->lli);
 	list_for_each_entry(child, &bad_desc->tx_list, desc_node)
 		dwc_dump_lli(dwc, &child->lli);
@@ -604,9 +600,7 @@ static void dw_dma_tasklet(unsigned long data)
 			if (test_bit(DW_DMA_IS_SOFT_LLP, &dwc->flags)) {
 				if (dwc->tx_node_active != dwc->tx_list) {
 					struct dw_desc *desc =
-						list_entry(dwc->tx_node_active,
-							   struct dw_desc,
-							   desc_node);
+						to_dw_desc(dwc->tx_node_active);
 
 					dma_writel(dw, CLEAR.XFER, dwc->mask);
 
@@ -1179,6 +1173,50 @@ static void dwc_free_chan_resources(struct dma_chan *chan)
 	dev_vdbg(chan2dev(chan), "%s: done\n", __func__);
 }
 
+bool dw_dma_generic_filter(struct dma_chan *chan, void *param)
+{
+	struct dw_dma *dw = to_dw_dma(chan->device);
+	static struct dw_dma *last_dw;
+	static char *last_bus_id;
+	int i = -1;
+
+	/*
+	 * dmaengine framework calls this routine for all channels of all dma
+	 * controller, until true is returned. If 'param' bus_id is not
+	 * registered with a dma controller (dw), then there is no need of
+	 * running below function for all channels of dw.
+	 *
+	 * This block of code does this by saving the parameters of last
+	 * failure. If dw and param are same, i.e. trying on same dw with
+	 * different channel, return false.
+	 */
+	if ((last_dw == dw) && (last_bus_id == param))
+		return false;
+	/*
+	 * Return true:
+	 * - If dw_dma's platform data is not filled with slave info, then all
+	 *   dma controllers are fine for transfer.
+	 * - Or if param is NULL
+	 */
+	if (!dw->sd || !param)
+		return true;
+
+	while (++i < dw->sd_count) {
+		if (!strcmp(dw->sd[i].bus_id, param)) {
+			chan->private = &dw->sd[i];
+			last_dw = NULL;
+			last_bus_id = NULL;
+
+			return true;
+		}
+	}
+
+	last_dw = dw;
+	last_bus_id = param;
+	return false;
+}
+EXPORT_SYMBOL(dw_dma_generic_filter);
+
 /* --------------------- Cyclic DMA API extensions -------------------- */
 
 /**
@@ -1462,7 +1500,92 @@ static void dw_dma_off(struct dw_dma *dw)
 		dw->chan[i].initialized = false;
 }
 
-static int dw_probe(struct platform_device *pdev)
+#ifdef CONFIG_OF
+static struct dw_dma_platform_data *
+__devinit dw_dma_parse_dt(struct platform_device *pdev)
+{
+	struct device_node *sn, *cn, *np = pdev->dev.of_node;
+	struct dw_dma_platform_data *pdata;
+	struct dw_dma_slave *sd;
+	u32 tmp, arr[4];
+
+	if (!np) {
+		dev_err(&pdev->dev, "Missing DT data\n");
+		return NULL;
+	}
+
+	pdata = devm_kzalloc(&pdev->dev, sizeof(*pdata), GFP_KERNEL);
+	if (!pdata)
+		return NULL;
+
+	if (of_property_read_u32(np, "nr_channels", &pdata->nr_channels))
+		return NULL;
+
+	if (of_property_read_bool(np, "is_private"))
+		pdata->is_private = true;
+
+	if (!of_property_read_u32(np, "chan_allocation_order", &tmp))
+		pdata->chan_allocation_order = (unsigned char)tmp;
+
+	if (!of_property_read_u32(np, "chan_priority", &tmp))
+		pdata->chan_priority = tmp;
+
+	if (!of_property_read_u32(np, "block_size", &tmp))
+		pdata->block_size = tmp;
+
+	if (!of_property_read_u32(np, "nr_masters", &tmp)) {
+		if (tmp > 4)
+			return NULL;
+
+		pdata->nr_masters = tmp;
+	}
+
+	if (!of_property_read_u32_array(np, "data_width", arr,
+				pdata->nr_masters))
+		for (tmp = 0; tmp < pdata->nr_masters; tmp++)
+			pdata->data_width[tmp] = arr[tmp];
+
+	/* parse slave data */
+	sn = of_find_node_by_name(np, "slave_info");
+	if (!sn)
+		return pdata;
+
+	/* calculate number of slaves */
+	tmp = of_get_child_count(sn);
+	if (!tmp)
+		return NULL;
+
+	sd = devm_kzalloc(&pdev->dev, sizeof(*sd) * tmp, GFP_KERNEL);
+	if (!sd)
+		return NULL;
+
+	pdata->sd = sd;
+	pdata->sd_count = tmp;
+
+	for_each_child_of_node(sn, cn) {
+		sd->dma_dev = &pdev->dev;
+		of_property_read_string(cn, "bus_id", &sd->bus_id);
+		of_property_read_u32(cn, "cfg_hi", &sd->cfg_hi);
+		of_property_read_u32(cn, "cfg_lo", &sd->cfg_lo);
+		if (!of_property_read_u32(cn, "src_master", &tmp))
+			sd->src_master = tmp;
+
+		if (!of_property_read_u32(cn, "dst_master", &tmp))
+			sd->dst_master = tmp;
+		sd++;
+	}
+
+	return pdata;
+}
+#else
+static inline struct dw_dma_platform_data *
+dw_dma_parse_dt(struct platform_device *pdev)
+{
+	return NULL;
+}
+#endif
+
+static int __devinit dw_probe(struct platform_device *pdev)
 {
 	struct dw_dma_platform_data *pdata;
 	struct resource		*io;
@@ -1478,6 +1601,9 @@ static int dw_probe(struct platform_device *pdev)
 	int			i;
 
 	pdata = dev_get_platdata(&pdev->dev);
+	if (!pdata)
+		pdata = dw_dma_parse_dt(pdev);
+
 	if (!pdata || pdata->nr_channels > DW_DMA_MAX_NR_CHANNELS)
 		return -EINVAL;
 
@@ -1512,6 +1638,8 @@ static int dw_probe(struct platform_device *pdev)
 	clk_prepare_enable(dw->clk);
 
 	dw->regs = regs;
+	dw->sd = pdata->sd;
+	dw->sd_count = pdata->sd_count;
 
 	/* get hardware configuration parameters */
 	if (autocfg) {
@@ -1626,8 +1754,8 @@ static int dw_probe(struct platform_device *pdev)
 
 	dma_writel(dw, CFG, DW_CFG_DMA_EN);
 
-	printk(KERN_INFO "%s: DesignWare DMA Controller, %d channels\n",
-			dev_name(&pdev->dev), nr_channels);
+	dev_info(&pdev->dev, "DesignWare DMA Controller, %d channels\n",
+		 nr_channels);
 
 	dma_async_device_register(&dw->dma);
 
@@ -1657,7 +1785,7 @@ static void dw_shutdown(struct platform_device *pdev)
 {
 	struct dw_dma	*dw = platform_get_drvdata(pdev);
 
-	dw_dma_off(platform_get_drvdata(pdev));
+	dw_dma_off(dw);
 	clk_disable_unprepare(dw->clk);
 }
 
@@ -1666,7 +1794,7 @@ static int dw_suspend_noirq(struct device *dev)
 	struct platform_device *pdev = to_platform_device(dev);
 	struct dw_dma	*dw = platform_get_drvdata(pdev);
 
-	dw_dma_off(platform_get_drvdata(pdev));
+	dw_dma_off(dw);
 	clk_disable_unprepare(dw->clk);
 
 	return 0;
@@ -1679,6 +1807,7 @@ static int dw_resume_noirq(struct device *dev)
 
 	clk_prepare_enable(dw->clk);
 	dma_writel(dw, CFG, DW_CFG_DMA_EN);
+
 	return 0;
 }
 

@@ -239,6 +239,10 @@ struct dw_dma {
 	struct tasklet_struct	tasklet;
 	struct clk		*clk;
 
+	/* slave information */
+	struct dw_dma_slave	*sd;
+	unsigned int		sd_count;
+
 	u8			all_chan_mask;
 
 	/* hardware configuration */
@@ -294,6 +298,8 @@ struct dw_desc {
 	struct dma_async_tx_descriptor	txd;
 	size_t				len;
 };
+
+#define to_dw_desc(h)	list_entry(h, struct dw_desc, desc_node)
 
 static inline struct dw_desc *
 txd_to_dw_desc(struct dma_async_tx_descriptor *txd)
