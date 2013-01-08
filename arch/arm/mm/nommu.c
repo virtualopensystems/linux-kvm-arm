@@ -20,12 +20,14 @@
 
 void __init arm_mm_memblock_reserve(void)
 {
+#ifndef CONFIG_CPU_V7M
 	/*
 	 * Register the exception vector page.
 	 * some architectures which the DRAM is the exception vector to trap,
 	 * alloc_page breaks with error, although it is not NULL, but "0."
 	 */
 	memblock_reserve(CONFIG_VECTORS_BASE, PAGE_SIZE);
+#endif
 }
 
 void __init sanity_check_meminfo(void)

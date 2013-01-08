@@ -125,8 +125,33 @@
 # endif
 #endif
 
+#if defined(CONFIG_CPU_V7M)
+# ifdef _CACHE
+#  error "Multi-cache not supported on ARMv7-M"
+# else
+#  define _CACHE nop
+# endif
+#endif
+
 #if !defined(_CACHE) && !defined(MULTI_CACHE)
 #error Unknown cache maintenance model
+#endif
+
+#ifndef __ASSEMBLER__
+static inline void nop_flush_icache_all(void) { }
+static inline void nop_flush_kern_cache_all(void) { }
+static inline void nop_flush_kern_cache_louis(void) { }
+static inline void nop_flush_user_cache_all(void) { }
+static inline void nop_flush_user_cache_range(unsigned long a, unsigned long b, unsigned int c) { }
+
+static inline void nop_coherent_kern_range(unsigned long a, unsigned long b) { }
+static inline int nop_coherent_user_range(unsigned long a, unsigned long b) { return 0; }
+static inline void nop_flush_kern_dcache_area(void *a, size_t s) { }
+
+static inline void nop_dma_flush_range(const void *a, const void *b) { }
+
+static inline void nop_dma_map_area(const void *s, size_t l, int f) { }
+static inline void nop_dma_unmap_area(const void *s, size_t l, int f) { }
 #endif
 
 #ifndef MULTI_CACHE

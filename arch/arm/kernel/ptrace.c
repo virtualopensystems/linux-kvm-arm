@@ -87,6 +87,9 @@ static const struct pt_regs_offset regoffset_table[] = {
 	REG_OFFSET_NAME(pc),
 	REG_OFFSET_NAME(cpsr),
 	REG_OFFSET_NAME(ORIG_r0),
+#ifdef CONFIG_CPU_V7M
+	REG_OFFSET_NAME(EXC_RET),
+#endif
 	REG_OFFSET_END,
 };
 

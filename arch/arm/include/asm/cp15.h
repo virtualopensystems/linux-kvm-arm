@@ -42,6 +42,8 @@
 #define vectors_high()	(0)
 #endif
 
+#ifdef CONFIG_CPU_CP15
+
 extern unsigned long cr_no_alignment;	/* defined in entry-armv.S */
 extern unsigned long cr_alignment;	/* defined in entry-armv.S */
 
@@ -82,6 +84,13 @@ static inline void set_copro_access(unsigned int val)
 	isb();
 }
 
-#endif
+#else /* ifdef CONFIG_CPU_CP15 */
+
+#define cr_no_alignment	UL(0)
+#define cr_alignment	UL(0)
+
+#endif /* ifdef CONFIG_CPU_CP15 / else */
+
+#endif /* ifndef __ASSEMBLY__ */
 
 #endif

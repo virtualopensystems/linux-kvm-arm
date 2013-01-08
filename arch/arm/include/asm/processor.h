@@ -49,7 +49,14 @@ struct thread_struct {
 #ifdef CONFIG_MMU
 #define nommu_start_thread(regs) do { } while (0)
 #else
+#ifndef CONFIG_CPU_V7M
 #define nommu_start_thread(regs) regs->ARM_r10 = current->mm->start_data
+#else
+#define nommu_start_thread(regs) do {					\
+	regs->ARM_r10 = current->mm->start_data;			\
+	regs->ARM_EXC_RET = 0xfffffffdL;				\
+} while (0)
+#endif
 #endif
 
 #define start_thread(regs,pc,sp)					\

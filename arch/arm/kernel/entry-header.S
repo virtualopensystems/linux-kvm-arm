@@ -44,6 +44,145 @@
 #endif
 	.endm
 
+#ifdef CONFIG_CPU_V7M
+/*
+ * ARMv7-M exception entry/exit macros.
+ *
+ * xPSR, ReturnAddress(), LR (R14), R12, R3, R2, R1, and R0 are
+ * automatically saved on the current stack (32 words) before
+ * switching to the exception stack (SP_main).
+ *
+ * If exception is taken while in user mode, SP_main is
+ * empty. Otherwise, SP_main is aligned to 64 bit automatically
+ * (CCR.STKALIGN set).
+ *
+ * Linux assumes that the interrupts are disabled when entering an
+ * exception handler and it may BUG if this is not the case. Interrupts
+ * are disabled during entry and reenabled in the exit macro.
+ *
+ * v7m_exception_fast_exit is used when returning from interrupts.
+ *
+ * v7m_exception_slow_exit is used when returning from SVC or PendSV.
+ * When returning to kernel mode, we don't return from exception.
+ */
+	.macro	v7m_exception_entry
+	@ determine the location of the registers saved by the core during
+	@ exception entry. Depending on the mode the cpu was in when the
+	@ exception happend that is either on the main or the process stack.
+	@ Bit 2 of EXC_RETURN stored in the lr register specifies which stack
+	@ was used.
+	tst	lr, #0x4
+	mrsne	r12, psp
+	moveq	r12, sp
+
+	@ we cannot rely on r0-r3 and r12 matching the value saved in the
+	@ exception frame because of tail-chaining. So these have to be
+	@ reloaded.
+	ldmia	r12!, {r0-r3}
+
+	@ Linux expects to have irqs off. Do it here before taking stack space
+	cpsid	i
+
+	sub	sp, #S_FRAME_SIZE-S_IP
+	stmdb	sp!, {r0-r11}
+
+	@ load saved r12, lr, return address and xPSR.
+	@ r0-r7 are used for signals and never touched from now on. Clobbering
+	@ r8-r12 is OK.
+	mov	r9, r12
+	ldmia	r9!, {r8, r10-r12}
+
+	@ calculate the original stack pointer value.
+	@ r9 currently points to the memory location just above the auto saved
+	@ xPSR. If the FP extension is implemented and bit 4 of EXC_RETURN is 0
+	@ then space was allocated for FP state. That is space for 18 32-bit
+	@ values. (If FP extension is unimplemented, bit 4 is 1.)
+	@ Additionally the cpu might automatically 8-byte align the stack. Bit 9
+	@ of the saved xPSR specifies if stack aligning took place. In this case
+	@ another 32-bit value is included in the stack.
+
+	tst	lr, #0x10
+	addeq	r9, r9, #576
+
+	tst	r12, 0x100
+	addne	r9, r9, #4
+
+	@ store saved r12 using str to have a register to hold the base for stm
+	str	r8, [sp, #S_IP]
+	add	r8, sp, #S_SP
+	@ store r13-r15, xPSR
+	stmia	r8!, {r9-r12}
+	@ store r0 once more and EXC_RETURN
+	stmia	r8, {r0, lr}
+	.endm
+
+	.macro	v7m_exception_fast_exit
+	@ registers r0-r3 and r12 are automatically restored on exception
+	@ return. r4-r7 were not clobbered in v7m_exception_entry so for
+	@ correctness they don't need to be restored. So only r8-r11 must be
+	@ restored here. The easiest way to do so is to restore r0-r7, too.
+	ldmia	sp!, {r0-r11}
+	add	sp, #S_FRAME_SIZE-S_IP
+	cpsie	i
+	bx	lr
+	.endm
+
+	.macro	v7m_exception_slow_exit ret_r0
+	cpsid	i
+	ldr	lr, [sp, #S_EXC_RET]	@ read exception LR
+	tst     lr, #0x8
+	bne	1f			@ go to thread mode using exception return
+
+	/*
+	 * return to kernel thread
+	 * sp is already set up (and might be unset in pt_regs), so only
+	 * restore r0-r12 and pc
+	 */
+	ldmia	sp, {r0-r12}
+	ldr	lr, [sp, #S_PC]
+	add	sp, sp, #S_FRAME_SIZE
+	cpsie	i
+	bx	lr
+
+1:	/*
+	 * return to userspace
+	 */
+
+	@ read original r12, sp, lr, pc and xPSR
+	add	r12, sp, #S_IP
+	ldmia	r12, {r1-r5}
+
+	@ handle stack aligning
+	tst	r5, #0x100
+	subne	r2, r2, #4
+
+	@ skip over stack space for fp saving
+	tst	lr, #0x10
+	subeq	r2, r2, #576
+
+	@ write basic exception frame
+	stmdb	r2!, {r1, r3-r5}
+	ldmia	sp, {r1, r3-r5}
+	.if	\ret_r0
+	stmdb	r2!, {r0, r3-r5}
+	.else
+	stmdb	r2!, {r1, r3-r5}
+	.endif
+
+	@ restore process sp
+	msr	psp, r2
+
+	@ restore original r4-r11
+	ldmia	sp!, {r0-r11}
+
+	@ restore main sp
+	add	sp, sp, #S_FRAME_SIZE-S_IP
+
+	cpsie	i
+	bx	lr
+	.endm
+#endif	/* CONFIG_CPU_V7M */
+
 	@
 	@ Store/load the USER SP and LR registers by switching to the SYS
 	@ mode. Useful in Thumb-2 mode where "stm/ldm rd, {sp, lr}^" is not
@@ -131,6 +270,14 @@
 	rfeia	sp!
 	.endm
 
+#ifdef CONFIG_CPU_V7M
+	.macro	restore_user_regs, fast = 0, offset = 0
+	.if	\offset
+	add	sp, #\offset
+	.endif
+	v7m_exception_slow_exit ret_r0 = \fast
+	.endm
+#else	/* !CONFIG_CPU_V7M */
 	.macro	restore_user_regs, fast = 0, offset = 0
 	clrex					@ clear the exclusive monitor
 	mov	r2, sp
@@ -147,6 +294,7 @@
 	add	sp, sp, #S_FRAME_SIZE - S_SP
 	movs	pc, lr				@ return & move spsr_svc into cpsr
 	.endm
+#endif	/* CONFIG_CPU_V7M */
 
 	.macro	get_thread_info, rd
 	mov	\rd, sp
