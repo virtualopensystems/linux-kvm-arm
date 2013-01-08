@@ -2856,6 +2856,8 @@ static void enter_rmode(struct kvm_vcpu *vcpu)
 	vmx_get_segment(vcpu, &vmx->rmode.segs[VCPU_SREG_DS], VCPU_SREG_DS);
 	vmx_get_segment(vcpu, &vmx->rmode.segs[VCPU_SREG_FS], VCPU_SREG_FS);
 	vmx_get_segment(vcpu, &vmx->rmode.segs[VCPU_SREG_GS], VCPU_SREG_GS);
+	vmx_get_segment(vcpu, &vmx->rmode.segs[VCPU_SREG_SS], VCPU_SREG_SS);
+	vmx_get_segment(vcpu, &vmx->rmode.segs[VCPU_SREG_CS], VCPU_SREG_CS);
 
 	vmx->emulation_required = 1;
 	vmx->rmode.vm86_active = 1;
@@ -3171,10 +3173,7 @@ static void vmx_get_segment(struct kvm_vcpu *vcpu,
 	struct vcpu_vmx *vmx = to_vmx(vcpu);
 	u32 ar;
 
-	if (vmx->rmode.vm86_active
-	    && (seg == VCPU_SREG_TR || seg == VCPU_SREG_ES
-		|| seg == VCPU_SREG_DS || seg == VCPU_SREG_FS
-		|| seg == VCPU_SREG_GS)) {
+	if (vmx->rmode.vm86_active && seg != VCPU_SREG_LDTR) {
 		*var = vmx->rmode.segs[seg];
 		if (seg == VCPU_SREG_TR
 		    || var->selector == vmx_read_guest_seg_selector(vmx, seg))
@@ -3269,28 +3268,22 @@ static void vmx_set_segment(struct kvm_vcpu *vcpu,
 {
 	struct vcpu_vmx *vmx = to_vmx(vcpu);
 	const struct kvm_vmx_segment_field *sf = &kvm_vmx_segment_fields[seg];
-	u32 ar;
 
 	vmx_segment_cache_clear(vmx);
+	__clear_bit(VCPU_EXREG_CPL, (ulong *)&vcpu->arch.regs_avail);
 
-	if (vmx->rmode.vm86_active && seg == VCPU_SREG_TR) {
-		vmcs_write16(sf->selector, var->selector);
-		vmx->rmode.segs[VCPU_SREG_TR] = *var;
+	if (vmx->rmode.vm86_active && seg != VCPU_SREG_LDTR) {
+		vmx->rmode.segs[seg] = *var;
+		if (seg == VCPU_SREG_TR)
+			vmcs_write16(sf->selector, var->selector);
+		else if (var->s)
+			fix_rmode_seg(seg, &vmx->rmode.segs[seg]);
 		return;
 	}
+
 	vmcs_writel(sf->base, var->base);
 	vmcs_write32(sf->limit, var->limit);
 	vmcs_write16(sf->selector, var->selector);
-	if (vmx->rmode.vm86_active && var->s) {
-		vmx->rmode.segs[seg] = *var;
-		/*
-		 * Hack real-mode segments into vm86 compatibility.
-		 */
-		if (var->base == 0xffff0000 && var->selector == 0xf000)
-			vmcs_writel(sf->base, 0xf0000);
-		ar = 0xf3;
-	} else
-		ar = vmx_segment_access_rights(var);
 
 	/*
 	 *   Fix the "Accessed" bit in AR field of segment registers for older
@@ -3304,42 +3297,9 @@ static void vmx_set_segment(struct kvm_vcpu *vcpu,
 	 * kvm hack.
 	 */
 	if (enable_unrestricted_guest && (seg != VCPU_SREG_LDTR))
-		ar |= 0x1; /* Accessed */
+		var->type |= 0x1; /* Accessed */
 
-	vmcs_write32(sf->ar_bytes, ar);
-	__clear_bit(VCPU_EXREG_CPL, (ulong *)&vcpu->arch.regs_avail);
-
-	/*
-	 * Fix segments for real mode guest in hosts that don't have
-	 * "unrestricted_mode" or it was disabled.
-	 * This is done to allow migration of the guests from hosts with
-	 * unrestricted guest like Westmere to older host that don't have
-	 * unrestricted guest like Nehelem.
-	 */
-	if (vmx->rmode.vm86_active) {
-		switch (seg) {
-		case VCPU_SREG_CS:
-			vmcs_write32(GUEST_CS_AR_BYTES, 0xf3);
-			vmcs_write32(GUEST_CS_LIMIT, 0xffff);
-			if (vmcs_readl(GUEST_CS_BASE) == 0xffff0000)
-				vmcs_writel(GUEST_CS_BASE, 0xf0000);
-			vmcs_write16(GUEST_CS_SELECTOR,
-				     vmcs_readl(GUEST_CS_BASE) >> 4);
-			break;
-		case VCPU_SREG_ES:
-		case VCPU_SREG_DS:
-		case VCPU_SREG_GS:
-		case VCPU_SREG_FS:
-			fix_rmode_seg(seg, &vmx->rmode.segs[seg]);
-			break;
-		case VCPU_SREG_SS:
-			vmcs_write16(GUEST_SS_SELECTOR,
-				     vmcs_readl(GUEST_SS_BASE) >> 4);
-			vmcs_write32(GUEST_SS_LIMIT, 0xffff);
-			vmcs_write32(GUEST_SS_AR_BYTES, 0xf3);
-			break;
-		}
-	}
+	vmcs_write32(sf->ar_bytes, vmx_segment_access_rights(var));
 }
 
 static void vmx_get_cs_db_l_bits(struct kvm_vcpu *vcpu, int *db, int *l)
@@ -3380,13 +3340,18 @@ static bool rmode_segment_valid(struct kvm_vcpu *vcpu, int seg)
 	u32 ar;
 
 	vmx_get_segment(vcpu, &var, seg);
+	var.dpl = 0x3;
+	var.g = 0;
+	var.db = 0;
+	if (seg == VCPU_SREG_CS)
+		var.type = 0x3;
 	ar = vmx_segment_access_rights(&var);
 
 	if (var.base != (var.selector << 4))
 		return false;
 	if (var.limit < 0xffff)
 		return false;
-	if (((ar | (3 << AR_DPL_SHIFT)) & ~(AR_G_MASK | AR_DB_MASK)) != 0xf3)
+	if (ar != 0xf3)
 		return false;
 
 	return true;
@@ -3667,7 +3632,7 @@ static int alloc_apic_access_page(struct kvm *kvm)
 	kvm_userspace_mem.flags = 0;
 	kvm_userspace_mem.guest_phys_addr = 0xfee00000ULL;
 	kvm_userspace_mem.memory_size = PAGE_SIZE;
-	r = __kvm_set_memory_region(kvm, &kvm_userspace_mem, 0);
+	r = __kvm_set_memory_region(kvm, &kvm_userspace_mem, false);
 	if (r)
 		goto out;
 
@@ -3697,7 +3662,7 @@ static int alloc_identity_pagetable(struct kvm *kvm)
 	kvm_userspace_mem.guest_phys_addr =
 		kvm->arch.ept_identity_map_addr;
 	kvm_userspace_mem.memory_size = PAGE_SIZE;
-	r = __kvm_set_memory_region(kvm, &kvm_userspace_mem, 0);
+	r = __kvm_set_memory_region(kvm, &kvm_userspace_mem, false);
 	if (r)
 		goto out;
 
@@ -4251,7 +4216,7 @@ static int vmx_set_tss_addr(struct kvm *kvm, unsigned int addr)
 		.flags = 0,
 	};
 
-	ret = kvm_set_memory_region(kvm, &tss_mem, 0);
+	ret = kvm_set_memory_region(kvm, &tss_mem, false);
 	if (ret)
 		return ret;
 	kvm->arch.tss_addr = addr;
