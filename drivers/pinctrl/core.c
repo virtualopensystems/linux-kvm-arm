@@ -609,13 +609,16 @@ static int add_setting(struct pinctrl *p, struct pinctrl_map const *map)
 
 	setting->pctldev = get_pinctrl_dev_from_devname(map->ctrl_dev_name);
 	if (setting->pctldev == NULL) {
-		dev_info(p->dev, "unknown pinctrl device %s in map entry, deferring probe",
-			map->ctrl_dev_name);
 		kfree(setting);
+		/* Do not defer probing of hogs (circular loop) */
+		if (!strcmp(map->ctrl_dev_name, map->dev_name))
+			return -ENODEV;
 		/*
 		 * OK let us guess that the driver is not there yet, and
 		 * let's defer obtaining this pinctrl handle to later...
 		 */
+		dev_info(p->dev, "unknown pinctrl device %s in map entry, deferring probe",
+			map->ctrl_dev_name);
 		return -EPROBE_DEFER;
 	}
 
@@ -694,10 +697,28 @@ static struct pinctrl *create_pinctrl(struct device *dev)
 			continue;
 
 		ret = add_setting(p, map);
-		if (ret < 0) {
+		/*
+		 * At this point the adding of a setting may:
+		 *
+		 * - Defer, if the pinctrl device is not yet available
+		 * - Fail, if the pinctrl device is not yet available,
+		 *   AND the setting is a hog. We cannot defer that, since
+		 *   the hog will kick in immediately after the device
+		 *   is registered.
+		 *
+		 * If the error returned was not -EPROBE_DEFER then we
+		 * accumulate the errors to see if we end up with
+		 * an -EPROBE_DEFER later, as that is the worst case.
+		 */
+		if (ret == -EPROBE_DEFER) {
 			pinctrl_put_locked(p, false);
 			return ERR_PTR(ret);
 		}
+	}
+	if (ret < 0) {
+		/* If some other error than deferral occured, return here */
+		pinctrl_put_locked(p, false);
+		return ERR_PTR(ret);
 	}
 
 	/* Add the pinctrl handle to the global list */
@@ -1054,6 +1075,30 @@ void pinctrl_unregister_map(struct pinctrl_map const *map)
 		}
 	}
 }
+
+/**
+ * pinctrl_force_sleep() - turn a given controller device into sleep state
+ * @pctldev: pin controller device
+ */
+int pinctrl_force_sleep(struct pinctrl_dev *pctldev)
+{
+	if (!IS_ERR(pctldev->p) && !IS_ERR(pctldev->hog_sleep))
+		return pinctrl_select_state(pctldev->p, pctldev->hog_sleep);
+	return 0;
+}
+EXPORT_SYMBOL_GPL(pinctrl_force_sleep);
+
+/**
+ * pinctrl_force_default() - turn a given controller device into default state
+ * @pctldev: pin controller device
+ */
+int pinctrl_force_default(struct pinctrl_dev *pctldev)
+{
+	if (!IS_ERR(pctldev->p) && !IS_ERR(pctldev->hog_default))
+		return pinctrl_select_state(pctldev->p, pctldev->hog_default);
+	return 0;
+}
+EXPORT_SYMBOL_GPL(pinctrl_force_default);
 
 #ifdef CONFIG_DEBUG_FS
 
@@ -1500,16 +1545,23 @@ struct pinctrl_dev *pinctrl_register(struct pinctrl_desc *pctldesc,
 
 	pctldev->p = pinctrl_get_locked(pctldev->dev);
 	if (!IS_ERR(pctldev->p)) {
-		struct pinctrl_state *s =
+		pctldev->hog_default =
 			pinctrl_lookup_state_locked(pctldev->p,
 						    PINCTRL_STATE_DEFAULT);
-		if (IS_ERR(s)) {
+		if (IS_ERR(pctldev->hog_default)) {
 			dev_dbg(dev, "failed to lookup the default state\n");
 		} else {
-			if (pinctrl_select_state_locked(pctldev->p, s))
+			if (pinctrl_select_state_locked(pctldev->p,
+						pctldev->hog_default))
 				dev_err(dev,
 					"failed to select default state\n");
 		}
+
+		pctldev->hog_sleep =
+			pinctrl_lookup_state_locked(pctldev->p,
+						    PINCTRL_STATE_SLEEP);
+		if (IS_ERR(pctldev->hog_sleep))
+			dev_dbg(dev, "failed to lookup the sleep state\n");
 	}
 
 	mutex_unlock(&pinctrl_mutex);
