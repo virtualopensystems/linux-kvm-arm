@@ -106,7 +106,7 @@ static void __init spear13xx_clk_init(void)
 		pr_err("%s: Unknown machine\n", __func__);
 }
 
-static void __init spear13xx_timer_init(void)
+void __init spear13xx_timer_init(void)
 {
 	char pclk_name[] = "osc_24m_clk";
 	struct clk *gpt_clk, *pclk;
@@ -135,10 +135,6 @@ static void __init spear13xx_timer_init(void)
 	spear_setup_of_timer();
 	twd_local_timer_of_register();
 }
-
-struct sys_timer spear13xx_timer = {
-	.init = spear13xx_timer_init,
-};
 
 static const struct of_device_id gic_of_match[] __initconst = {
 	{ .compatible = "arm,cortex-a9-gic", .data = gic_of_init },
