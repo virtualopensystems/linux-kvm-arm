@@ -2206,12 +2206,12 @@ This ioctl returns the guest registers that are supported for the
 KVM_GET_ONE_REG/KVM_SET_ONE_REG calls.
 
 
-4.80 KVM_SET_DEVICE_ADDRESS
+4.80 KVM_ARM_SET_DEVICE_ADDR
 
-Capability: KVM_CAP_SET_DEVICE_ADDRESS
+Capability: KVM_CAP_ARM_SET_DEVICE_ADDR
 Architectures: arm
 Type: vm ioctl
-Parameters: struct kvm_device_address (in)
+Parameters: struct kvm_arm_device_address (in)
 Returns: 0 on success, -1 on error
 Errors:
   ENODEV: The device id is unknown
@@ -2220,7 +2220,7 @@ Errors:
   E2BIG:  Address outside guest physical address space
   EBUSY:  Address overlaps with other device range
 
-struct kvm_device_address {
+struct kvm_arm_device_addr {
 	__u64 id;
 	__u64 addr;
 };
