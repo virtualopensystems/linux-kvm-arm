@@ -18,6 +18,7 @@
 #include <linux/of.h>
 #include <linux/of_gpio.h>
 #include <linux/pm_runtime.h>
+#include <linux/pinctrl/consumer.h>
 
 #include <sound/soc.h>
 #include <sound/pcm_params.h>
@@ -71,6 +72,7 @@ struct i2s_dai {
 	u32	suspend_i2spsr;
 	unsigned long gpios[7];	/* i2s gpio line numbers */
 	int	dev_id;		/* i2s dev id */
+	struct pinctrl *pctrl;
 };
 
 /* Lock for cross i/f checks */
@@ -1059,6 +1061,7 @@ static int samsung_i2s_probe(struct platform_device *pdev)
 	u32 regs_base, quirks = 0, idma_addr = 0;
 	struct property *prop;
 	struct device_node *np = pdev->dev.of_node;
+
 	int ret = 0, id;
 
 	/* Call during Seconday interface registration */
@@ -1211,8 +1214,11 @@ static int samsung_i2s_probe(struct platform_device *pdev)
 		pri_dai->sec_dai = sec_dai;
 	}
 
+	pri_dai->pctrl = devm_pinctrl_get_select_default(&pri_dai->pdev->dev);
+
 	if (np) {
-		if (samsung_i2s_parse_dt_gpio(pri_dai)) {
+		if (IS_ERR(pri_dai->pctrl) &&
+				samsung_i2s_parse_dt_gpio(pri_dai)) {
 			dev_err(&pdev->dev, "Unable to configure gpio\n");
 			ret = -EINVAL;
 			goto err;
@@ -1247,7 +1253,8 @@ static int samsung_i2s_remove(struct platform_device *pdev)
 	i2s = dev_get_drvdata(&pdev->dev);
 	other = i2s->pri_dai ? : i2s->sec_dai;
 
-	if (!i2s_pdata->cfg_gpio && pdev->dev.of_node)
+	if (!i2s_pdata->cfg_gpio && pdev->dev.of_node &&
+			IS_ERR(i2s->pri_dai->pctrl))
 		samsung_i2s_dt_gpio_free(i2s->pri_dai);
 
 	if (other) {
