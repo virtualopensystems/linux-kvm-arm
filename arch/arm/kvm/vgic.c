@@ -29,6 +29,9 @@
 #include <asm/hardware/gic.h>
 #include <asm/kvm_arm.h>
 #include <asm/kvm_mmu.h>
+#include <trace/events/kvm.h>
+
+#include "trace.h"
 
 /*
  * How the whole thing works (courtesy of Christoffer Dall):
@@ -703,6 +706,8 @@ bool vgic_handle_mmio(struct kvm_vcpu *vcpu, struct kvm_run *run,
 	bool updated_state;
 	unsigned long offset;
 
+	trace_kvm_vgic_mmio(*vcpu_pc(vcpu), mmio->phys_addr);
+
 	if (!irqchip_in_kernel(vcpu->kvm) ||
 	    mmio->phys_addr < base ||
 	    (mmio->phys_addr + mmio->len) > (base + KVM_VGIC_V2_DIST_SIZE))
@@ -747,6 +752,8 @@ static void vgic_dispatch_sgi(struct kvm_vcpu *vcpu, u32 reg)
 	sgi = reg & 0xf;
 	target_cpus = (reg >> 16) & 0xff;
 	mode = (reg >> 24) & 3;
+
+	trace_kvm_vgic_sgi(*vcpu_pc(vcpu), sgi, mode, target_cpus);
 
 	switch (mode) {
 	case 0:
@@ -1042,6 +1049,7 @@ static bool vgic_process_maintenance(struct kvm_vcpu *vcpu)
 		for_each_set_bit(lr, (unsigned long *)vgic_cpu->vgic_eisr,
 				 vgic_cpu->nr_lr) {
 			irq = vgic_cpu->vgic_lr[lr] & GICH_LR_VIRTUALID;
+			trace_kvm_vgic_eoi_maintenance(*vcpu_pc(vcpu), irq);
 
 			vgic_irq_clear_active(vcpu, irq);
 			vgic_cpu->vgic_lr[lr] &= ~GICH_LR_EOI;

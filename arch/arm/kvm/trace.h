@@ -224,6 +224,80 @@ TRACE_EVENT(kvm_hvc,
 		  __entry->vcpu_pc, __entry->r0, __entry->imm)
 );
 
+TRACE_EVENT(kvm_vgic_mmio,
+	TP_PROTO(unsigned long vcpu_pc, unsigned long long addr),
+	TP_ARGS(vcpu_pc, addr),
+
+	TP_STRUCT__entry(
+		__field(	unsigned long,		vcpu_pc		)
+		__field(	unsigned long long,	addr		)
+	),
+
+	TP_fast_assign(
+		__entry->vcpu_pc		= vcpu_pc;
+		__entry->addr			= addr;
+	),
+
+	TP_printk("guest accessed emulated vgic mmio at 0x%llx from 0x%08lx",
+		  __entry->addr, __entry->vcpu_pc)
+);
+
+TRACE_EVENT(kvm_vgic_eoi_maintenance,
+	TP_PROTO(unsigned long vcpu_pc, int irq),
+	TP_ARGS(vcpu_pc, irq),
+
+	TP_STRUCT__entry(
+		__field(	unsigned long,	vcpu_pc		)
+		__field(	int,		irq		)
+	),
+
+	TP_fast_assign(
+		__entry->vcpu_pc		= vcpu_pc;
+		__entry->irq			= irq;
+	),
+
+	TP_printk("processing maintenance interrupt for irq %d from 0x%08lx",
+		  __entry->irq, __entry->vcpu_pc)
+);
+
+TRACE_EVENT(kvm_vgic_sgi,
+	TP_PROTO(unsigned long vcpu_pc, int sgi, int mode, int target_cpus),
+	TP_ARGS(vcpu_pc, sgi, mode, target_cpus),
+
+	TP_STRUCT__entry(
+		__field(	unsigned long,	vcpu_pc		)
+		__field(	int,		sgi		)
+		__field(	int,		mode		)
+		__field(	int,		target_cpus		)
+	),
+
+	TP_fast_assign(
+		__entry->vcpu_pc		= vcpu_pc;
+		__entry->sgi			= sgi;
+		__entry->mode			= mode;
+		__entry->target_cpus		= target_cpus;
+	),
+
+	TP_printk("generating SGI %d with mode 0x%x and targets 0x%x at 0x%08lx",
+		  __entry->sgi, __entry->mode, __entry->target_cpus,
+		  __entry->vcpu_pc)
+);
+
+TRACE_EVENT(kvm_hwirq,
+	TP_PROTO(unsigned long vcpu_pc),
+	TP_ARGS(vcpu_pc),
+
+	TP_STRUCT__entry(
+		__field(	unsigned long,	vcpu_pc		)
+	),
+
+	TP_fast_assign(
+		__entry->vcpu_pc		= vcpu_pc;
+	),
+
+	TP_printk("harware IRQ at 0x%08lx", __entry->vcpu_pc)
+);
+
 #endif /* _TRACE_KVM_H */
 
 #undef TRACE_INCLUDE_PATH
