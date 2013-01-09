@@ -52,7 +52,7 @@ config KVM_ARM_MAX_VCPUS
 	  actually use.
 
 config KVM_ARM_VGIC
-        bool "KVM support for Virtual GIC"
+	bool "KVM support for Virtual GIC"
 	depends on KVM_ARM_HOST && OF
 	select HAVE_KVM_IRQCHIP
 	default y
@@ -60,7 +60,7 @@ config KVM_ARM_VGIC
 	  Adds support for a hardware assisted, in-kernel GIC emulation.
 
 config KVM_ARM_TIMER
-        bool "KVM support for Architected Timers"
+	bool "KVM support for Architected Timers"
 	depends on KVM_ARM_VGIC && ARM_ARCH_TIMER
 	select HAVE_KVM_IRQCHIP
 	default y
