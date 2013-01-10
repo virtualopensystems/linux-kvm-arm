@@ -129,6 +129,7 @@
 					regulator-name = "VDD_AUD_1.8V";
 					regulator-min-microvolt = <1800000>;
 					regulator-max-microvolt	= <1800000>;
+					regulator-always-on;
 				};
 
 				ldo8_reg: LDO8 {
@@ -156,6 +157,7 @@
 					regulator-name = "VDD_AUD_3V";
 					regulator-min-microvolt = <3000000>;
 					regulator-max-microvolt	= <3000000>;
+					regulator-always-on;
 				};
 
 				ldo14_reg: LDO14 {
