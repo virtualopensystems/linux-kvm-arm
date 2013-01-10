@@ -643,6 +643,26 @@ static int handle_exit(struct kvm_vcpu *vcpu, struct kvm_run *run,
 	}
 }
 
+static int kvm_vcpu_first_run_init(struct kvm_vcpu *vcpu)
+{
+	if (likely(vcpu->arch.has_run_once))
+		return 0;
+
+	vcpu->arch.has_run_once = true;
+
+	/*
+	 * Initialize the VGIC before running a vcpu the first time on
+	 * this VM.
+	 */
+	if (irqchip_in_kernel(vcpu->kvm) && !vgic_initialized(vcpu->kvm)) {
+		int ret = kvm_vgic_init(vcpu->kvm);
+		if (ret)
+			return ret;
+	}
+
+	return 0;
+}
+
 /**
  * kvm_arch_vcpu_ioctl_run - the main VCPU run function to execute guest code
  * @vcpu:	The VCPU pointer
@@ -663,16 +683,9 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 	if (unlikely(vcpu->arch.target < 0))
 		return -ENOEXEC;
 
-	/*
-	 * Initialize the VGIC before running a vcpu the first time on
-	 * this VM.
-	 */
-	if (irqchip_in_kernel(vcpu->kvm) &&
-	    unlikely(!vgic_initialized(vcpu->kvm))) {
-		ret = kvm_vgic_init(vcpu->kvm);
-		if (ret)
-			return ret;
-	}
+	ret = kvm_vcpu_first_run_init(vcpu);
+	if (ret)
+		return ret;
 
 	if (run->exit_reason == KVM_EXIT_MMIO) {
 		ret = kvm_handle_mmio_return(vcpu, vcpu->run);

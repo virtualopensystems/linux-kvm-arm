@@ -127,6 +127,9 @@ struct kvm_vcpu_arch {
 
 	/* Cache some mmu pages needed inside spinlock regions */
 	struct kvm_mmu_memory_cache mmu_page_cache;
+
+	/* Detect first run of a vcpu */
+	bool has_run_once;
 };
 
 struct kvm_vm_stat {
