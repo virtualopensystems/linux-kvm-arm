@@ -167,7 +167,7 @@ static int cci_pmu_get_event_idx(struct pmu_hw_events *hw, struct perf_event *ev
                 return CCI400_PMU_CYCLE_COUNTER_IDX;
         }
 
-	for (idx = CCI400_PMU_COUNTER0_IDX; idx < CCI400_PMU_COUNTER_LAST(cci_pmu); ++idx) {
+	for (idx = CCI400_PMU_COUNTER0_IDX; idx <= CCI400_PMU_COUNTER_LAST(cci_pmu); ++idx) {
 		if (!test_and_set_bit(idx, hw->used_mask))
 			return idx;
 	}
@@ -232,7 +232,7 @@ static irqreturn_t cci_pmu_handle_irq(int irq_num, void *dev)
 	/* Iterate over counters and update the corresponding perf events.
 	   This should work regardless of whether we have per-counter overflow
 	   interrupt or a combined overflow interrupt. */
-	for (idx = CCI400_PMU_CYCLE_COUNTER_IDX; idx < CCI400_PMU_COUNTER_LAST(cci_pmu); idx++) {
+	for (idx = CCI400_PMU_CYCLE_COUNTER_IDX; idx <= CCI400_PMU_COUNTER_LAST(cci_pmu); idx++) {
 		struct perf_event *event = events->events[idx];
 		struct hw_perf_event *hw_counter;
 
