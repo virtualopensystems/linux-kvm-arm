@@ -43,6 +43,7 @@
 #include <asm/kvm_mmu.h>
 #include <asm/kvm_emulate.h>
 #include <asm/kvm_coproc.h>
+#include <asm/kvm_psci.h>
 #include <asm/opcodes.h>
 
 #ifdef REQUIRES_VIRT
@@ -192,6 +193,7 @@ int kvm_dev_ioctl_check_extension(long ext)
 	case KVM_CAP_SYNC_MMU:
 	case KVM_CAP_DESTROY_MEMORY_REGION_WORKS:
 	case KVM_CAP_ONE_REG:
+	case KVM_CAP_ARM_PSCI:
 		r = 1;
 		break;
 	case KVM_CAP_COALESCED_MMIO:
@@ -496,21 +498,18 @@ static int handle_svc_hyp(struct kvm_vcpu *vcpu, struct kvm_run *run)
 
 static int handle_hvc(struct kvm_vcpu *vcpu, struct kvm_run *run)
 {
-	/*
-	 * Guest called HVC instruction:
-	 * Let it know we don't want that by injecting an undefined exception.
-	 */
-	kvm_debug("hvc: %x (at %08x)", vcpu->arch.hsr & ((1 << 16) - 1),
-		  *vcpu_pc(vcpu));
-	kvm_debug("         HSR: %8x", vcpu->arch.hsr);
+	if (!kvm_psci_call(vcpu))
+		return 1;
+
 	kvm_inject_undefined(vcpu);
 	return 1;
 }
 
 static int handle_smc(struct kvm_vcpu *vcpu, struct kvm_run *run)
 {
-	/* We don't support SMC; don't do that. */
-	kvm_debug("smc: at %08x", *vcpu_pc(vcpu));
+	if (!kvm_psci_call(vcpu))
+		return 1;
+
 	kvm_inject_undefined(vcpu);
 	return 1;
 }
@@ -658,6 +657,15 @@ static int kvm_vcpu_first_run_init(struct kvm_vcpu *vcpu)
 		int ret = kvm_vgic_init(vcpu->kvm);
 		if (ret)
 			return ret;
+	}
+
+	/*
+	 * Handle the "start in power-off" case by calling into the
+	 * PSCI code.
+	 */
+	if (test_and_clear_bit(KVM_ARM_VCPU_POWER_OFF, vcpu->arch.features)) {
+		*vcpu_reg(vcpu, 0) = KVM_PSCI_FN_CPU_OFF;
+		kvm_psci_call(vcpu);
 	}
 
 	return 0;
