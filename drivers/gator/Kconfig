@@ -1,6 +1,6 @@
 config GATOR
 	tristate "Gator module for ARM's Streamline Performance Analyzer"
-	default m
+	default m if ARM
 	depends on PROFILING
 	depends on HIGH_RES_TIMERS
 	depends on LOCAL_TIMERS || !(ARM && SMP)
