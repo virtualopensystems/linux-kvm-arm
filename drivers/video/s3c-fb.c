@@ -26,6 +26,7 @@
 #include <linux/pm_runtime.h>
 #include <linux/of.h>
 #include <linux/of_gpio.h>
+#include <linux/pinctrl/consumer.h>
 
 #include <video/samsung_fimd.h>
 #include <mach/map.h>
@@ -225,6 +226,7 @@ struct s3c_fb {
 	unsigned long		 irq_flags;
 	struct s3c_fb_vsync	 vsync_info;
 	int			 *gpios;
+	struct pinctrl		*pctrl;
 };
 
 /**
@@ -1420,6 +1422,9 @@ static int s3c_fb_dt_parse_gpios(struct device *dev, struct s3c_fb *sfb,
 {
 	int nr_gpios, idx, gpio, ret;
 
+	if (!IS_ERR(sfb->pctrl))
+		return 0;
+
 	nr_gpios = sfb->pdata->win[0]->max_bpp + 4;
 	sfb->gpios = devm_kzalloc(dev, sizeof(int) * nr_gpios, GFP_KERNEL);
 	if (!sfb->gpios) {
@@ -1455,6 +1460,9 @@ gpio_free:
 static void s3c_fb_dt_free_gpios(struct s3c_fb *sfb)
 {
 	unsigned int idx, nr_gpio;
+
+	if (!IS_ERR(sfb->pctrl))
+		return;
 
 	nr_gpio = sfb->pdata->win[0]->max_bpp + 4;
 	for (idx = 0; idx < nr_gpio; idx++)
@@ -1690,6 +1698,8 @@ static int s3c_fb_probe(struct platform_device *pdev)
 	pm_runtime_get_sync(sfb->dev);
 
 	/* setup gpio and output polarity controls */
+
+	sfb->pctrl = devm_pinctrl_get_select_default(&pdev->dev);
 
 	if (dev->of_node) {
 		if (s3c_fb_dt_parse_gpios(dev, sfb, true))
