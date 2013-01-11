@@ -21,6 +21,11 @@
 #include <asm/kvm_emulate.h>
 #include <asm/kvm_psci.h>
 
+/*
+ * This is an implementation of the Power State Coordination Interface
+ * as described in ARM document number ARM DEN 0022A.
+ */
+
 static void kvm_psci_vcpu_off(struct kvm_vcpu *vcpu)
 {
 	wait_queue_head_t *wq = kvm_arch_vcpu_wq(vcpu);
@@ -63,7 +68,17 @@ static unsigned long kvm_psci_vcpu_on(struct kvm_vcpu *source_vcpu)
 	return KVM_PSCI_RET_SUCCESS;
 }
 
-int kvm_psci_call(struct kvm_vcpu *vcpu)
+/**
+ * kvm_psci_call - handle PSCI call if r0 value is in range
+ * @vcpu: Pointer to the VCPU struct
+ *
+ * Handle PSCI calls from guests through traps from HVC or SMC instructions.
+ * The calling convention is similar to SMC calls to the secure world where
+ * the function number is placed in r0 and this function returns true if the
+ * function number specified in r0 is withing the PSCI range, and false
+ * otherwise.
+ */
+bool kvm_psci_call(struct kvm_vcpu *vcpu)
 {
 	unsigned long psci_fn = *vcpu_reg(vcpu, 0) & ~((u32) 0);
 	unsigned long val;
@@ -82,9 +97,9 @@ int kvm_psci_call(struct kvm_vcpu *vcpu)
 		break;
 
 	default:
-		return -1;
+		return false;
 	}
 
 	*vcpu_reg(vcpu, 0) = val;
-	return 0;
+	return true;
 }
