@@ -31,7 +31,7 @@
 
 #define MAX_CLUSTERS	2
 
-static struct cpufreq_arm_bl_ops *arm_bl_ops;
+static struct cpufreq_arm_bL_ops *arm_bL_ops;
 static struct clk *clk[MAX_CLUSTERS];
 static struct cpufreq_frequency_table *freq_table[MAX_CLUSTERS];
 static atomic_t cluster_usage[MAX_CLUSTERS] = {ATOMIC_INIT(0), ATOMIC_INIT(0)};
@@ -46,7 +46,7 @@ static int cpu_to_cluster(int cpu)
 	return topology_physical_package_id(cpu);
 }
 
-static unsigned int bl_cpufreq_get(unsigned int cpu)
+static unsigned int bL_cpufreq_get(unsigned int cpu)
 {
 	u32 cur_cluster = cpu_to_cluster(cpu);
 
@@ -54,7 +54,7 @@ static unsigned int bl_cpufreq_get(unsigned int cpu)
 }
 
 /* Validate policy frequency range */
-static int bl_cpufreq_verify_policy(struct cpufreq_policy *policy)
+static int bL_cpufreq_verify_policy(struct cpufreq_policy *policy)
 {
 	u32 cur_cluster = cpu_to_cluster(policy->cpu);
 
@@ -63,7 +63,7 @@ static int bl_cpufreq_verify_policy(struct cpufreq_policy *policy)
 }
 
 /* Set clock frequency */
-static int bl_cpufreq_set_target(struct cpufreq_policy *policy,
+static int bL_cpufreq_set_target(struct cpufreq_policy *policy,
 		unsigned int target_freq, unsigned int relation)
 {
 	struct cpufreq_freqs freqs;
@@ -73,7 +73,7 @@ static int bl_cpufreq_set_target(struct cpufreq_policy *policy,
 	/* ASSUMPTION: The cpu can't be hotplugged in this function */
 	cur_cluster = cpu_to_cluster(policy->cpu);
 
-	freqs.old = bl_cpufreq_get(policy->cpu);
+	freqs.old = bL_cpufreq_get(policy->cpu);
 
 	/* Determine valid target frequency using freq_table */
 	cpufreq_frequency_table_target(policy, freq_table[cur_cluster],
@@ -108,7 +108,7 @@ static int bl_cpufreq_set_target(struct cpufreq_policy *policy,
 
 /* translate the integer array into cpufreq_frequency_table entries */
 struct cpufreq_frequency_table *
-arm_bl_copy_table_from_array(unsigned int *table, int count)
+arm_bL_copy_table_from_array(unsigned int *table, int count)
 {
 	int i;
 
@@ -131,22 +131,22 @@ arm_bl_copy_table_from_array(unsigned int *table, int count)
 
 	return freq_table;
 }
-EXPORT_SYMBOL_GPL(arm_bl_copy_table_from_array);
+EXPORT_SYMBOL_GPL(arm_bL_copy_table_from_array);
 
-void arm_bl_free_freq_table(u32 cluster)
+void arm_bL_free_freq_table(u32 cluster)
 {
 	pr_debug("%s: free freq table\n", __func__);
 
 	kfree(freq_table[cluster]);
 }
-EXPORT_SYMBOL_GPL(arm_bl_free_freq_table);
+EXPORT_SYMBOL_GPL(arm_bL_free_freq_table);
 
 static void put_cluster_clk_and_freq_table(u32 cluster)
 {
 	if (!atomic_dec_return(&cluster_usage[cluster])) {
 		clk_put(clk[cluster]);
 		clk[cluster] = NULL;
-		arm_bl_ops->put_freq_tbl(cluster);
+		arm_bL_ops->put_freq_tbl(cluster);
 		freq_table[cluster] = NULL;
 		pr_debug("%s: cluster: %d\n", __func__, cluster);
 	}
@@ -160,7 +160,7 @@ static int get_cluster_clk_and_freq_table(u32 cluster)
 	if (atomic_inc_return(&cluster_usage[cluster]) != 1)
 		return 0;
 
-	freq_table[cluster] = arm_bl_ops->get_freq_tbl(cluster, &count);
+	freq_table[cluster] = arm_bL_ops->get_freq_tbl(cluster, &count);
 	if (!freq_table[cluster])
 		goto atomic_dec;
 
@@ -173,7 +173,7 @@ static int get_cluster_clk_and_freq_table(u32 cluster)
 		return 0;
 	}
 
-	arm_bl_ops->put_freq_tbl(cluster);
+	arm_bL_ops->put_freq_tbl(cluster);
 
 atomic_dec:
 	atomic_dec(&cluster_usage[cluster]);
@@ -182,7 +182,7 @@ atomic_dec:
 }
 
 /* Per-CPU initialization */
-static int bl_cpufreq_init(struct cpufreq_policy *policy)
+static int bL_cpufreq_init(struct cpufreq_policy *policy)
 {
 	u32 cur_cluster = cpu_to_cluster(policy->cpu);
 	int result;
@@ -203,7 +203,7 @@ static int bl_cpufreq_init(struct cpufreq_policy *policy)
 	cpufreq_frequency_table_get_attr(freq_table[cur_cluster], policy->cpu);
 
 	policy->cpuinfo.transition_latency = 1000000;	/* 1 ms assumed */
-	policy->cur = bl_cpufreq_get(policy->cpu);
+	policy->cur = bL_cpufreq_get(policy->cpu);
 
 	cpumask_copy(policy->cpus, topology_core_cpumask(policy->cpu));
 	cpumask_copy(policy->related_cpus, policy->cpus);
@@ -212,7 +212,7 @@ static int bl_cpufreq_init(struct cpufreq_policy *policy)
 	return 0;
 }
 
-static int bl_cpufreq_exit(struct cpufreq_policy *policy)
+static int bL_cpufreq_exit(struct cpufreq_policy *policy)
 {
 	put_cluster_clk_and_freq_table(cpu_to_cluster(policy->cpu));
 	pr_debug("%s: Exited, cpu: %d\n", __func__, policy->cpu);
@@ -221,44 +221,44 @@ static int bl_cpufreq_exit(struct cpufreq_policy *policy)
 }
 
 /* Export freq_table to sysfs */
-static struct freq_attr *bl_cpufreq_attr[] = {
+static struct freq_attr *bL_cpufreq_attr[] = {
 	&cpufreq_freq_attr_scaling_available_freqs,
 	NULL,
 };
 
-static struct cpufreq_driver bl_cpufreq_driver = {
+static struct cpufreq_driver bL_cpufreq_driver = {
 	.name	= "arm-big-little",
 	.flags	= CPUFREQ_STICKY,
-	.verify	= bl_cpufreq_verify_policy,
-	.target	= bl_cpufreq_set_target,
-	.get	= bl_cpufreq_get,
-	.init	= bl_cpufreq_init,
-	.exit	= bl_cpufreq_exit,
-	.attr	= bl_cpufreq_attr,
+	.verify	= bL_cpufreq_verify_policy,
+	.target	= bL_cpufreq_set_target,
+	.get	= bL_cpufreq_get,
+	.init	= bL_cpufreq_init,
+	.exit	= bL_cpufreq_exit,
+	.attr	= bL_cpufreq_attr,
 };
 
-int bl_cpufreq_register(struct cpufreq_arm_bl_ops *ops)
+int bL_cpufreq_register(struct cpufreq_arm_bL_ops *ops)
 {
 	int ret;
 
-	if (arm_bl_ops) {
+	if (arm_bL_ops) {
 		pr_debug("%s: Already registered: %s, exiting\n", __func__,
-				arm_bl_ops->name);
+				arm_bL_ops->name);
 		return -EBUSY;
 	}
 
 	if (!ops || !strlen(ops->name) || !ops->get_freq_tbl) {
-		pr_err("%s: Invalid arm_bl_ops, exiting\n", __func__);
+		pr_err("%s: Invalid arm_bL_ops, exiting\n", __func__);
 		return -ENODEV;
 	}
 
-	arm_bl_ops = ops;
+	arm_bL_ops = ops;
 
-	ret = cpufreq_register_driver(&bl_cpufreq_driver);
+	ret = cpufreq_register_driver(&bL_cpufreq_driver);
 	if (ret) {
 		pr_info("%s: Failed registering platform driver: %s, err: %d\n",
 				__func__, ops->name, ret);
-		arm_bl_ops = NULL;
+		arm_bL_ops = NULL;
 	} else {
 		pr_info("%s: Registered platform driver: %s\n", __func__,
 				ops->name);
@@ -266,18 +266,18 @@ int bl_cpufreq_register(struct cpufreq_arm_bl_ops *ops)
 
 	return ret;
 }
-EXPORT_SYMBOL_GPL(bl_cpufreq_register);
+EXPORT_SYMBOL_GPL(bL_cpufreq_register);
 
-void bl_cpufreq_unregister(struct cpufreq_arm_bl_ops *ops)
+void bL_cpufreq_unregister(struct cpufreq_arm_bL_ops *ops)
 {
-	if (arm_bl_ops != ops) {
+	if (arm_bL_ops != ops) {
 		pr_info("%s: Registered with: %s, can't unregister, exiting\n",
-				__func__, arm_bl_ops->name);
+				__func__, arm_bL_ops->name);
 	}
 
-	cpufreq_unregister_driver(&bl_cpufreq_driver);
+	cpufreq_unregister_driver(&bL_cpufreq_driver);
 	pr_info("%s: Un-registered platform driver: %s\n", __func__,
-			arm_bl_ops->name);
-	arm_bl_ops = NULL;
+			arm_bL_ops->name);
+	arm_bL_ops = NULL;
 }
-EXPORT_SYMBOL_GPL(bl_cpufreq_unregister);
+EXPORT_SYMBOL_GPL(bL_cpufreq_unregister);
