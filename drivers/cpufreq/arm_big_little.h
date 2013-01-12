@@ -22,17 +22,17 @@
 #include <linux/cpufreq.h>
 #include <linux/types.h>
 
-struct cpufreq_arm_bl_ops {
+struct cpufreq_arm_bL_ops {
 	char name[CPUFREQ_NAME_LEN];
 	struct cpufreq_frequency_table *(*get_freq_tbl)(u32 cluster, int *count);
 	void (*put_freq_tbl)(u32 cluster);
 };
 
 struct cpufreq_frequency_table *
-arm_bl_copy_table_from_array(unsigned int *table, int count);
-void arm_bl_free_freq_table(u32 cluster);
+arm_bL_copy_table_from_array(unsigned int *table, int count);
+void arm_bL_free_freq_table(u32 cluster);
 
-int bl_cpufreq_register(struct cpufreq_arm_bl_ops *ops);
-void bl_cpufreq_unregister(struct cpufreq_arm_bl_ops *ops);
+int bL_cpufreq_register(struct cpufreq_arm_bL_ops *ops);
+void bL_cpufreq_unregister(struct cpufreq_arm_bL_ops *ops);
 
 #endif /* CPUFREQ_ARM_BIG_LITTLE_H */

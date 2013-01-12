@@ -68,7 +68,7 @@ static struct cpufreq_frequency_table *generic_get_freq_tbl(u32 cluster,
 		return NULL;
 	}
 
-	cpufreq_table = arm_bl_copy_table_from_array(table, *count);
+	cpufreq_table = arm_bL_copy_table_from_array(table, *count);
 	kfree(table);
 
 	return cpufreq_table;
@@ -76,26 +76,26 @@ static struct cpufreq_frequency_table *generic_get_freq_tbl(u32 cluster,
 
 static void generic_put_freq_tbl(u32 cluster)
 {
-	arm_bl_free_freq_table(cluster);
+	arm_bL_free_freq_table(cluster);
 }
 
-static struct cpufreq_arm_bl_ops generic_bl_ops = {
+static struct cpufreq_arm_bL_ops generic_bL_ops = {
 	.name	= "generic-bl",
 	.get_freq_tbl = generic_get_freq_tbl,
 	.put_freq_tbl = generic_put_freq_tbl,
 };
 
-static int generic_bl_init(void)
+static int generic_bL_init(void)
 {
-	return bl_cpufreq_register(&generic_bl_ops);
+	return bL_cpufreq_register(&generic_bL_ops);
 }
-module_init(generic_bl_init);
+module_init(generic_bL_init);
 
-static void generic_bl_exit(void)
+static void generic_bL_exit(void)
 {
-	return bl_cpufreq_unregister(&generic_bl_ops);
+	return bL_cpufreq_unregister(&generic_bL_ops);
 }
-module_exit(generic_bl_exit);
+module_exit(generic_bL_exit);
 
 MODULE_DESCRIPTION("Generic ARM big LITTLE cpufreq driver");
 MODULE_LICENSE("GPL");
