@@ -204,6 +204,26 @@ TRACE_EVENT(kvm_set_spte_hva,
 	TP_printk("mmu notifier set pte hva: %#08lx", __entry->hva)
 );
 
+TRACE_EVENT(kvm_hvc,
+	TP_PROTO(unsigned long vcpu_pc, unsigned long r0, unsigned long imm),
+	TP_ARGS(vcpu_pc, r0, imm),
+
+	TP_STRUCT__entry(
+		__field(	unsigned long,	vcpu_pc		)
+		__field(	unsigned long,	r0		)
+		__field(	unsigned long,	imm		)
+	),
+
+	TP_fast_assign(
+		__entry->vcpu_pc		= vcpu_pc;
+		__entry->r0		= r0;
+		__entry->imm		= imm;
+	),
+
+	TP_printk("HVC at 0x%08lx (r0: 0x%08lx, imm: 0x%lx",
+		  __entry->vcpu_pc, __entry->r0, __entry->imm)
+);
+
 #endif /* _TRACE_KVM_H */
 
 #undef TRACE_INCLUDE_PATH

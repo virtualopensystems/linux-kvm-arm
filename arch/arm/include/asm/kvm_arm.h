@@ -209,4 +209,6 @@
 #define HSR_EC_DABT	(0x24)
 #define HSR_EC_DABT_HYP	(0x25)
 
+#define HSR_HVC_IMM_MASK	((1UL << 16) - 1)
+
 #endif /* __ARM_KVM_ARM_H__ */
