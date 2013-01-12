@@ -88,10 +88,10 @@ __do_hyp_init:
 	ldr	r12, =HSCTLR_MASK
 	bic	r0, r0, r12
 	mrc	p15, 0, r1, c1, c0, 0	@ SCTLR
-	ldr	r12, =(HSCTLR_EE | HSCTLR_FI)
+	ldr	r12, =(HSCTLR_EE | HSCTLR_FI | HSCTLR_I | HSCTLR_C)
 	and	r1, r1, r12
- ARM(	ldr	r12, =(HSCTLR_M | HSCTLR_A | HSCTLR_I | HSCTLR_C )	      )
- THUMB(	ldr	r12, =(HSCTLR_M | HSCTLR_A | HSCTLR_I | HSCTLR_C | HSCTLR_TE) )
+ ARM(	ldr	r12, =(HSCTLR_M | HSCTLR_A)			)
+ THUMB(	ldr	r12, =(HSCTLR_M | HSCTLR_A | HSCTLR_TE)		)
 	orr	r1, r1, r12
 	orr	r0, r0, r1
 	isb
