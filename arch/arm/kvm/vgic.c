@@ -447,9 +447,6 @@ static void vgic_set_target_reg(struct kvm *kvm, u32 val, int irq)
 	unsigned long *bmap;
 	u32 target;
 
-	BUG_ON(irq & 3);
-	BUG_ON(irq < VGIC_NR_PRIVATE_IRQS);
-
 	irq -= VGIC_NR_PRIVATE_IRQS;
 
 	/*
@@ -598,63 +595,63 @@ struct mmio_range {
 };
 
 static const struct mmio_range vgic_ranges[] = {
-	{			/* CTRL, TYPER, IIDR */
-		.base		= 0,
+	{
+		.base		= GIC_DIST_CTRL,
 		.len		= 12,
 		.handle_mmio	= handle_mmio_misc,
 	},
-	{			/* IGROUPRn */
-		.base		= 0x80,
+	{
+		.base		= GIC_DIST_IGROUP,
 		.len		= VGIC_NR_IRQS / 8,
 		.handle_mmio	= handle_mmio_raz_wi,
 	},
-	{			/* ISENABLERn */
-		.base		= 0x100,
+	{
+		.base		= GIC_DIST_ENABLE_SET,
 		.len		= VGIC_NR_IRQS / 8,
 		.handle_mmio	= handle_mmio_set_enable_reg,
 	},
-	{			/* ICENABLERn */
-		.base		= 0x180,
+	{
+		.base		= GIC_DIST_ENABLE_CLEAR,
 		.len		= VGIC_NR_IRQS / 8,
 		.handle_mmio	= handle_mmio_clear_enable_reg,
 	},
-	{			/* ISPENDRn */
-		.base		= 0x200,
+	{
+		.base		= GIC_DIST_PENDING_SET,
 		.len		= VGIC_NR_IRQS / 8,
 		.handle_mmio	= handle_mmio_set_pending_reg,
 	},
-	{			/* ICPENDRn */
-		.base		= 0x280,
+	{
+		.base		= GIC_DIST_PENDING_CLEAR,
 		.len		= VGIC_NR_IRQS / 8,
 		.handle_mmio	= handle_mmio_clear_pending_reg,
 	},
-	{			/* ISACTIVERn */
-		.base		= 0x300,
+	{
+		.base		= GIC_DIST_ACTIVE_SET,
 		.len		= VGIC_NR_IRQS / 8,
 		.handle_mmio	= handle_mmio_raz_wi,
 	},
-	{			/* ICACTIVERn */
-		.base		= 0x380,
+	{
+		.base		= GIC_DIST_ACTIVE_CLEAR,
 		.len		= VGIC_NR_IRQS / 8,
 		.handle_mmio	= handle_mmio_raz_wi,
 	},
-	{			/* IPRIORITYRn */
-		.base		= 0x400,
+	{
+		.base		= GIC_DIST_PRI,
 		.len		= VGIC_NR_IRQS,
 		.handle_mmio	= handle_mmio_priority_reg,
 	},
-	{			/* ITARGETSRn */
-		.base		= 0x800,
+	{
+		.base		= GIC_DIST_TARGET,
 		.len		= VGIC_NR_IRQS,
 		.handle_mmio	= handle_mmio_target_reg,
 	},
-	{			/* ICFGRn */
-		.base		= 0xC00,
+	{
+		.base		= GIC_DIST_CONFIG,
 		.len		= VGIC_NR_IRQS / 4,
 		.handle_mmio	= handle_mmio_cfg_reg,
 	},
-	{			/* SGIRn */
-		.base		= 0xF00,
+	{
+		.base		= GIC_DIST_SOFTINT,
 		.len		= 4,
 		.handle_mmio	= handle_mmio_sgi_reg,
 	},
@@ -856,7 +853,7 @@ static bool vgic_queue_irq(struct kvm_vcpu *vcpu, u8 sgi_source_id, int irq)
 
 	/* Sanitize the input... */
 	BUG_ON(sgi_source_id & ~7);
-	BUG_ON(sgi_source_id && irq > 15);
+	BUG_ON(sgi_source_id && irq >= VGIC_NR_SGIS);
 	BUG_ON(irq >= VGIC_NR_IRQS);
 
 	kvm_debug("Queue IRQ%d\n", irq);

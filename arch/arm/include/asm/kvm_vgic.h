@@ -99,7 +99,7 @@ struct vgic_dist {
 	struct vgic_bitmap	irq_cfg;
 
 	/* Source CPU per SGI and target CPU */
-	u8			irq_sgi_sources[VGIC_MAX_CPUS][16];
+	u8			irq_sgi_sources[VGIC_MAX_CPUS][VGIC_NR_SGIS];
 
 	/* Target CPU for each IRQ */
 	u8			irq_spi_cpu[VGIC_NR_SHARED_IRQS];
