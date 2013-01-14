@@ -971,6 +971,7 @@ long kvm_arch_vm_ioctl(struct file *filp,
 static void cpu_init_hyp_mode(void *vector)
 {
 	unsigned long long pgd_ptr;
+	unsigned long pgd_low, pgd_high;
 	unsigned long hyp_stack_ptr;
 	unsigned long stack_page;
 	unsigned long vector_ptr;
@@ -979,26 +980,20 @@ static void cpu_init_hyp_mode(void *vector)
 	__hyp_set_vectors((unsigned long)vector);
 
 	pgd_ptr = (unsigned long long)kvm_mmu_get_httbr();
+	pgd_low = (pgd_ptr & ((1ULL << 32) - 1));
+	pgd_high = (pgd_ptr >> 32ULL);
 	stack_page = __get_cpu_var(kvm_arm_hyp_stack_page);
 	hyp_stack_ptr = stack_page + PAGE_SIZE;
 	vector_ptr = (unsigned long)__kvm_hyp_vector;
 
 	/*
 	 * Call initialization code, and switch to the full blown
-	 * HYP code. The init code corrupts r12, so set the clobber
-	 * list accordingly.
+	 * HYP code. The init code doesn't need to preserve these registers as
+	 * r1-r3 and r12 are already callee save according to the AAPCS.
+	 * Note that we slightly misuse the prototype by casing the pgd_low to
+	 * a void *.
 	 */
-	asm volatile (
-		"mov	r0, %[pgd_ptr_low]\n\t"
-		"mov	r1, %[pgd_ptr_high]\n\t"
-		"mov	r2, %[hyp_stack_ptr]\n\t"
-		"mov	r3, %[vector_ptr]\n\t"
-		"hvc	#0\n\t" : :
-		[pgd_ptr_low] "r" ((unsigned long)(pgd_ptr & 0xffffffff)),
-		[pgd_ptr_high] "r" ((unsigned long)(pgd_ptr >> 32ULL)),
-		[hyp_stack_ptr] "r" (hyp_stack_ptr),
-		[vector_ptr] "r" (vector_ptr) :
-		"r0", "r1", "r2", "r3", "r12");
+	kvm_call_hyp((void *)pgd_low, pgd_high, hyp_stack_ptr, vector_ptr);
 }
 
 /**
