@@ -33,7 +33,7 @@
 #define VGIC_NR_PRIVATE_IRQS	(VGIC_NR_SGIS + VGIC_NR_PPIS)
 #define VGIC_NR_SHARED_IRQS	(VGIC_NR_IRQS - VGIC_NR_PRIVATE_IRQS)
 #define VGIC_MAX_CPUS		KVM_MAX_VCPUS
-#define VGIC_MAX_LRS		64
+#define VGIC_MAX_LRS		(1 << 6)
 
 /* Sanity checks... */
 #if (VGIC_MAX_CPUS > 8)
