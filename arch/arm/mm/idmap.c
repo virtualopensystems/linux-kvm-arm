@@ -71,9 +71,6 @@ static void identity_mapping_add(pgd_t *pgd, const char *text_start,
 	addr = virt_to_phys(text_start);
 	end = virt_to_phys(text_end);
 
-	pr_info("Setting up static %sidentity map for 0x%llx - 0x%llx\n",
-		prot ? "HYP " : "",
-		(long long)addr, (long long)end);
 	prot |= PMD_TYPE_SECT | PMD_SECT_AP_WRITE | PMD_SECT_AF;
 
 	if (cpu_architecture() <= CPU_ARCH_ARMv5TEJ && !cpu_is_xscale())
@@ -97,6 +94,8 @@ static int __init init_static_idmap_hyp(void)
 	if (!hyp_pgd)
 		return -ENOMEM;
 
+	pr_info("Setting up static HYP identity map for 0x%p - 0x%p\n",
+		__hyp_idmap_text_start, __hyp_idmap_text_end);
 	identity_mapping_add(hyp_pgd, __hyp_idmap_text_start,
 			     __hyp_idmap_text_end, PMD_SECT_AP1);
 
@@ -119,6 +118,8 @@ static int __init init_static_idmap(void)
 	if (!idmap_pgd)
 		return -ENOMEM;
 
+	pr_info("Setting up static identity map for 0x%p - 0x%p\n",
+		__idmap_text_start, __idmap_text_end);
 	identity_mapping_add(idmap_pgd, __idmap_text_start,
 			     __idmap_text_end, 0);
 
