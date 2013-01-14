@@ -352,10 +352,8 @@ void kvm_arch_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
 	 * operations by set/way on this vcpu. We do it here to be in
 	 * a non-preemptible section.
 	 */
-	if (cpumask_test_cpu(cpu, &vcpu->arch.require_dcache_flush)) {
-		cpumask_clear_cpu(cpu, &vcpu->arch.require_dcache_flush);
+	if (cpumask_test_and_clear_cpu(cpu, &vcpu->arch.require_dcache_flush))
 		flush_cache_all(); /* We'd really want v7_flush_dcache_all() */
-	}
 
 	kvm_arm_set_running_vcpu(vcpu);
 }
