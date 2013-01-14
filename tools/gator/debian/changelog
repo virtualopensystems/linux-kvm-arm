@@ -1,3 +1,9 @@
+gator (5.13.0) quantal; urgency=low
+
+  * New release from ARM.
+
+ -- Jon Medhurst (Tixy) <jon.medhurst@linaro.org>  Mon, 14 Jan 2013 10:04:42 +0000
+
 gator (5.12.0) precise; urgency=low
 
   * New release from ARM.
