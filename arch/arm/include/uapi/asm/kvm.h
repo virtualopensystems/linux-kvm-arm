@@ -19,7 +19,7 @@
 #ifndef __ARM_KVM_H__
 #define __ARM_KVM_H__
 
-#include <asm/types.h>
+#include <linux/types.h>
 #include <asm/ptrace.h>
 
 #define __KVM_HAVE_GUEST_DEBUG
