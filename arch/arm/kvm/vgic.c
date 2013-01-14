@@ -1345,6 +1345,8 @@ int kvm_vgic_hyp_init(void)
 
 	vgic_nr_lr = readl_relaxed(vgic_vctrl_base + GICH_VTR);
 	vgic_nr_lr = (vgic_nr_lr & 0x1f) + 1;
+	if (vgic_nr_lr > VGIC_MAX_LRS)
+		vgic_nr_lr = VGIC_MAX_LRS; /* TODO: Clear remaining LRs */
 
 	ret = create_hyp_io_mappings(vgic_vctrl_base,
 				     vgic_vctrl_base + resource_size(&vctrl_res),

@@ -33,6 +33,7 @@
 #define VGIC_NR_PRIVATE_IRQS	(VGIC_NR_SGIS + VGIC_NR_PPIS)
 #define VGIC_NR_SHARED_IRQS	(VGIC_NR_IRQS - VGIC_NR_PRIVATE_IRQS)
 #define VGIC_MAX_CPUS		KVM_MAX_VCPUS
+#define VGIC_MAX_LRS		64
 
 /* Sanity checks... */
 #if (VGIC_MAX_CPUS > 8)
@@ -120,7 +121,7 @@ struct vgic_cpu {
 	DECLARE_BITMAP(	pending_shared, VGIC_NR_SHARED_IRQS);
 
 	/* Bitmap of used/free list registers */
-	DECLARE_BITMAP(	lr_used, 64);
+	DECLARE_BITMAP(	lr_used, VGIC_MAX_LRS);
 
 	/* Number of list registers on this CPU */
 	int		nr_lr;
@@ -132,7 +133,7 @@ struct vgic_cpu {
 	u32		vgic_eisr[2];	/* Saved only */
 	u32		vgic_elrsr[2];	/* Saved only */
 	u32		vgic_apr;
-	u32		vgic_lr[64];	/* A15 has only 4... */
+	u32		vgic_lr[VGIC_MAX_LRS];
 #endif
 };
 
