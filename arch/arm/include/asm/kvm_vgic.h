@@ -149,8 +149,8 @@ int kvm_vgic_hyp_init(void);
 int kvm_vgic_init(struct kvm *kvm);
 int kvm_vgic_create(struct kvm *kvm);
 int kvm_vgic_vcpu_init(struct kvm_vcpu *vcpu);
-void kvm_vgic_sync_to_cpu(struct kvm_vcpu *vcpu);
-void kvm_vgic_sync_from_cpu(struct kvm_vcpu *vcpu);
+void kvm_vgic_flush(struct kvm_vcpu *vcpu);
+void kvm_vgic_sync(struct kvm_vcpu *vcpu);
 int kvm_vgic_inject_irq(struct kvm *kvm, int cpuid, unsigned int irq_num,
 			bool level);
 int kvm_vgic_vcpu_pending_irq(struct kvm_vcpu *vcpu);

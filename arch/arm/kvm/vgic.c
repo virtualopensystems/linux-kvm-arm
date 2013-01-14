@@ -946,7 +946,7 @@ static bool vgic_queue_hwirq(struct kvm_vcpu *vcpu, int irq)
  * Fill the list registers with pending interrupts before running the
  * guest.
  */
-static void __kvm_vgic_sync_to_cpu(struct kvm_vcpu *vcpu)
+static void __kvm_vgic_flush(struct kvm_vcpu *vcpu)
 {
 	struct vgic_cpu *vgic_cpu = &vcpu->arch.vgic_cpu;
 	struct vgic_dist *dist = &vcpu->kvm->arch.vgic;
@@ -1009,7 +1009,7 @@ static bool vgic_process_maintenance(struct kvm_vcpu *vcpu)
 	 * We do not need to take the distributor lock here, since the only
 	 * action we perform is clearing the irq_active_bit for an EOIed
 	 * level interrupt.  There is a potential race with
-	 * the queuing of an interrupt in __kvm_sync_to_cpu(), where we check
+	 * the queuing of an interrupt in __kvm_vgic_flush(), where we check
 	 * if the interrupt is already active. Two possibilities:
 	 *
 	 * - The queuing is occurring on the same vcpu: cannot happen,
@@ -1055,7 +1055,7 @@ static bool vgic_process_maintenance(struct kvm_vcpu *vcpu)
  * the distributor here (the irq_pending_on_cpu bit is safe to set),
  * so there is no need for taking its lock.
  */
-static void __kvm_vgic_sync_from_cpu(struct kvm_vcpu *vcpu)
+static void __kvm_vgic_sync(struct kvm_vcpu *vcpu)
 {
 	struct vgic_cpu *vgic_cpu = &vcpu->arch.vgic_cpu;
 	struct vgic_dist *dist = &vcpu->kvm->arch.vgic;
@@ -1085,7 +1085,7 @@ static void __kvm_vgic_sync_from_cpu(struct kvm_vcpu *vcpu)
 		set_bit(vcpu->vcpu_id, &dist->irq_pending_on_cpu);
 }
 
-void kvm_vgic_sync_to_cpu(struct kvm_vcpu *vcpu)
+void kvm_vgic_flush(struct kvm_vcpu *vcpu)
 {
 	struct vgic_dist *dist = &vcpu->kvm->arch.vgic;
 
@@ -1093,16 +1093,16 @@ void kvm_vgic_sync_to_cpu(struct kvm_vcpu *vcpu)
 		return;
 
 	spin_lock(&dist->lock);
-	__kvm_vgic_sync_to_cpu(vcpu);
+	__kvm_vgic_flush(vcpu);
 	spin_unlock(&dist->lock);
 }
 
-void kvm_vgic_sync_from_cpu(struct kvm_vcpu *vcpu)
+void kvm_vgic_sync(struct kvm_vcpu *vcpu)
 {
 	if (!irqchip_in_kernel(vcpu->kvm))
 		return;
 
-	__kvm_vgic_sync_from_cpu(vcpu);
+	__kvm_vgic_sync(vcpu);
 }
 
 int kvm_vgic_vcpu_pending_irq(struct kvm_vcpu *vcpu)

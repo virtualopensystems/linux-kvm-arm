@@ -714,7 +714,7 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 
 		update_vttbr(vcpu->kvm);
 
-		kvm_vgic_sync_to_cpu(vcpu);
+		kvm_vgic_flush(vcpu);
 		kvm_timer_flush(vcpu);
 
 		local_irq_disable();
@@ -730,7 +730,7 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 		if (ret <= 0 || need_new_vmid_gen(vcpu->kvm)) {
 			local_irq_enable();
 			kvm_timer_sync(vcpu);
-			kvm_vgic_sync_from_cpu(vcpu);
+			kvm_vgic_sync(vcpu);
 			continue;
 		}
 
@@ -770,7 +770,7 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 		 *************************************************************/
 
 		kvm_timer_sync(vcpu);
-		kvm_vgic_sync_from_cpu(vcpu);
+		kvm_vgic_sync(vcpu);
 
 		ret = handle_exit(vcpu, run, ret);
 	}
