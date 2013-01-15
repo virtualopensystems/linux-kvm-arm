@@ -19,7 +19,7 @@
 #ifndef __ARM_KVM_ARM_H__
 #define __ARM_KVM_ARM_H__
 
-#include <asm/types.h>
+#include <linux/types.h>
 
 /* Hyp Configuration Register (HCR) bits */
 #define HCR_TGE		(1 << 27)
