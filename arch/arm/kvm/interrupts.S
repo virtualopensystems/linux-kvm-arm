@@ -15,5 +15,45 @@
  * along with this program; if not, write to the Free Software
  * Foundation, 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
+
+#include <linux/linkage.h>
+#include <linux/const.h>
+#include <asm/unified.h>
+#include <asm/page.h>
 #include <asm/asm-offsets.h>
 #include <asm/kvm_asm.h>
+#include <asm/kvm_arm.h>
+
+	.text
+
+__kvm_hyp_code_start:
+	.globl __kvm_hyp_code_start
+
+/********************************************************************
+ * Flush per-VMID TLBs
+ */
+ENTRY(__kvm_flush_vm_context)
+	bx	lr
+ENDPROC(__kvm_flush_vm_context)
+
+/********************************************************************
+ *  Hypervisor world-switch code
+ */
+ENTRY(__kvm_vcpu_run)
+	bx	lr
+
+ENTRY(kvm_call_hyp)
+	hvc	#0
+	bx	lr
+
+/********************************************************************
+ * Hypervisor exception vector and handlers
+ */
+
+	.align 5
+__kvm_hyp_vector:
+	.globl __kvm_hyp_vector
+	nop
+
+__kvm_hyp_code_end:
+	.globl	__kvm_hyp_code_end
