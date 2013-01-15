@@ -170,4 +170,4 @@ obj-$(CONFIG_FB_VIRTUAL)          += vfb.o
 obj-$(CONFIG_VIDEO_OUTPUT_CONTROL) += output.o
 
 # platform specific output drivers
-obj-$(CONFIG_VEXPRESS_CONFIG)	  += vexpress-dvi.o
+obj-$(CONFIG_VEXPRESS_DVI_CONTROL) += vexpress-dvi.o

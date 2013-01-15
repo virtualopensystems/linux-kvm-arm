@@ -33,6 +33,11 @@ config VIDEO_OUTPUT_CONTROL
 	  This framework adds support for low-level control of the video 
 	  output switch.
 
+config VEXPRESS_DVI_CONTROL
+	bool "Versatile Express DVI control"
+	depends on FB && VEXPRESS_CONFIG
+	default y
+
 menuconfig FB
 	tristate "Support for frame buffer devices"
 	---help---
