@@ -1,3 +1,13 @@
+gator (5.13.0-20130115161200) quantal; urgency=low
+
+  * Automatically packaged from git repository:
+    URL:    
+    Tag:    
+    Branch: 
+    Commit: 6caa6478179ce1af5ca0e70a8d4d7fa4ea6f5ea3
+
+ -- Jon Medhurst (Tixy) <jon.medhurst@linaro.org>  Tue, 15 Jan 2013 16:12:00 +0000
+
 gator (5.13.0) quantal; urgency=low
 
   * New release from ARM.
