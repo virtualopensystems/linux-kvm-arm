@@ -21,8 +21,8 @@
 
 #include <asm/kvm.h>
 #include <asm/kvm_asm.h>
+#include <asm/kvm_mmio.h>
 #include <asm/fpstate.h>
-#include <asm/kvm_decode.h>
 #include <asm/kvm_arch_timer.h>
 
 #define KVM_MAX_VCPUS CONFIG_KVM_ARM_MAX_VCPUS

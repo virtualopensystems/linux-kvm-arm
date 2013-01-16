@@ -23,6 +23,11 @@
 #include <asm/kvm_asm.h>
 #include <asm/kvm_arm.h>
 
+struct kvm_decode {
+	unsigned long rt;
+	bool sign_extend;
+};
+
 /*
  * The in-kernel MMIO emulation code wants to use a copy of run->mmio,
  * which is an anonymous type. Use our own type instead.

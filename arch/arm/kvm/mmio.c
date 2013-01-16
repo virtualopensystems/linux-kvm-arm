@@ -16,9 +16,9 @@
  * Foundation, 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
 
+#include <linux/kvm_host.h>
 #include <asm/kvm_mmio.h>
 #include <asm/kvm_emulate.h>
-#include <asm/kvm_decode.h>
 #include <trace/events/kvm.h>
 
 #include "trace.h"
@@ -135,9 +135,8 @@ int io_mem_abort(struct kvm_vcpu *vcpu, struct kvm_run *run,
 		if (ret)
 			return ret;
 	} else {
-		ret = kvm_emulate_mmio_ls(vcpu, fault_ipa, &mmio);
-		if (ret)
-			return ret;
+		kvm_err("load/store instruction decoding not implemented\n");
+		return -ENOSYS;
 	}
 
 	rt = vcpu->arch.mmio_decode.rt;
