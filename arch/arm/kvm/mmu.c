@@ -591,7 +591,7 @@ int kvm_handle_guest_abort(struct kvm_vcpu *vcpu, struct kvm_run *run)
 	struct kvm_memory_slot *memslot;
 	bool is_iabt;
 	gfn_t gfn;
-	int ret;
+	int ret, idx;
 
 	hsr_ec = vcpu->arch.hsr >> HSR_EC_SHIFT;
 	is_iabt = (hsr_ec == HSR_EC_IABT);
@@ -608,33 +608,43 @@ int kvm_handle_guest_abort(struct kvm_vcpu *vcpu, struct kvm_run *run)
 		return -EFAULT;
 	}
 
+	idx = srcu_read_lock(&vcpu->kvm->srcu);
+
 	gfn = fault_ipa >> PAGE_SHIFT;
 	if (!kvm_is_visible_gfn(vcpu->kvm, gfn)) {
 		if (is_iabt) {
 			/* Prefetch Abort on I/O address */
 			kvm_inject_pabt(vcpu, vcpu->arch.hxfar);
-			return 1;
+			ret = 1;
+			goto out_unlock;
 		}
 
 		if (fault_status != FSC_FAULT) {
 			kvm_err("Unsupported fault status on io memory: %#lx\n",
 				fault_status);
-			return -EFAULT;
+			ret = -EFAULT;
+			goto out_unlock;
 		}
 
 		/* Adjust page offset */
 		fault_ipa |= vcpu->arch.hxfar & ~PAGE_MASK;
-		return io_mem_abort(vcpu, run, fault_ipa);
+		ret = io_mem_abort(vcpu, run, fault_ipa);
+		goto out_unlock;
 	}
 
 	memslot = gfn_to_memslot(vcpu->kvm, gfn);
 	if (!memslot->user_alloc) {
 		kvm_err("non user-alloc memslots not supported\n");
-		return -EINVAL;
+		ret = -EINVAL;
+		goto out_unlock;
 	}
 
 	ret = user_mem_abort(vcpu, fault_ipa, gfn, memslot, fault_status);
-	return ret ? ret : 1;
+	if (ret == 0)
+		ret = 1;
+out_unlock:
+	srcu_read_unlock(&vcpu->kvm->srcu, idx);
+	return ret;
 }
 
 static void handle_hva_to_gpa(struct kvm *kvm,
