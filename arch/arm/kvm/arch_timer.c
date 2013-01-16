@@ -76,7 +76,7 @@ static irqreturn_t kvm_arch_timer_handler(int irq, void *dev_id)
 
 	/*
 	 * We disable the timer in the world switch and let it be
-	 * handled by kvm_timer_sync_from_cpu(). Getting a timer
+	 * handled by kvm_timer_sync_hwstate(). Getting a timer
 	 * interrupt at this point is a sure sign of some major
 	 * breakage.
 	 */
@@ -102,7 +102,7 @@ static enum hrtimer_restart kvm_timer_expire(struct hrtimer *hrt)
 }
 
 /**
- * kvm_timer_flush - prepare to move the virt timer to the cpu
+ * kvm_timer_flush_hwstate - prepare to move the virt timer to the cpu
  * @vcpu: The vcpu pointer
  *
  * Disarm any pending soft timers, since the world-switch code will write the
@@ -121,7 +121,7 @@ void kvm_timer_flush_hwstate(struct kvm_vcpu *vcpu)
 }
 
 /**
- * kvm_timer_sync - sync timer state from cpu
+ * kvm_timer_sync_hwstate - sync timer state from cpu
  * @vcpu: The vcpu pointer
  *
  * Check if the virtual timer was armed and either schedule a corresponding
