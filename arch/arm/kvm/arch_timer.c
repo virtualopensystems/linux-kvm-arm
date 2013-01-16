@@ -108,7 +108,7 @@ static enum hrtimer_restart kvm_timer_expire(struct hrtimer *hrt)
  * Disarm any pending soft timers, since the world-switch code will write the
  * virtual timer state back to the physical CPU.
  */
-void kvm_timer_flush(struct kvm_vcpu *vcpu)
+void kvm_timer_flush_hwstate(struct kvm_vcpu *vcpu)
 {
 	struct arch_timer_cpu *timer = &vcpu->arch.timer_cpu;
 
@@ -127,7 +127,7 @@ void kvm_timer_flush(struct kvm_vcpu *vcpu)
  * Check if the virtual timer was armed and either schedule a corresponding
  * soft timer or inject directly if already expired.
  */
-void kvm_timer_sync(struct kvm_vcpu *vcpu)
+void kvm_timer_sync_hwstate(struct kvm_vcpu *vcpu)
 {
 	struct arch_timer_cpu *timer = &vcpu->arch.timer_cpu;
 	cycle_t cval, now;
