@@ -588,7 +588,7 @@ int kvm_handle_guest_abort(struct kvm_vcpu *vcpu, struct kvm_run *run)
 	unsigned long hsr_ec;
 	unsigned long fault_status;
 	phys_addr_t fault_ipa;
-	struct kvm_memory_slot *memslot = NULL;
+	struct kvm_memory_slot *memslot;
 	bool is_iabt;
 	gfn_t gfn;
 	int ret;
@@ -624,7 +624,7 @@ int kvm_handle_guest_abort(struct kvm_vcpu *vcpu, struct kvm_run *run)
 
 		/* Adjust page offset */
 		fault_ipa |= vcpu->arch.hxfar & ~PAGE_MASK;
-		return io_mem_abort(vcpu, run, fault_ipa, memslot);
+		return io_mem_abort(vcpu, run, fault_ipa);
 	}
 
 	memslot = gfn_to_memslot(vcpu->kvm, gfn);

@@ -117,7 +117,7 @@ static int decode_hsr(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
 }
 
 int io_mem_abort(struct kvm_vcpu *vcpu, struct kvm_run *run,
-		 phys_addr_t fault_ipa, struct kvm_memory_slot *memslot)
+		 phys_addr_t fault_ipa)
 {
 	struct kvm_exit_mmio mmio;
 	unsigned long rt;

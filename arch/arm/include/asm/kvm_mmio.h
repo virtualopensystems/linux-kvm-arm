@@ -46,6 +46,6 @@ static inline void kvm_prepare_mmio(struct kvm_run *run,
 
 int kvm_handle_mmio_return(struct kvm_vcpu *vcpu, struct kvm_run *run);
 int io_mem_abort(struct kvm_vcpu *vcpu, struct kvm_run *run,
-		 phys_addr_t fault_ipa, struct kvm_memory_slot *memslot);
+		 phys_addr_t fault_ipa);
 
 #endif	/* __ARM_KVM_MMIO_H__ */
