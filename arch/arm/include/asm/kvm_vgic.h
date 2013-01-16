@@ -187,8 +187,8 @@ static inline int kvm_vgic_vcpu_init(struct kvm_vcpu *vcpu)
 	return 0;
 }
 
-static inline void kvm_vgic_sync_to_cpu(struct kvm_vcpu *vcpu) {}
-static inline void kvm_vgic_sync_from_cpu(struct kvm_vcpu *vcpu) {}
+static inline void kvm_vgic_flush(struct kvm_vcpu *vcpu) {}
+static inline void kvm_vgic_sync(struct kvm_vcpu *vcpu) {}
 
 static inline int kvm_vgic_inject_irq(struct kvm *kvm, int cpuid,
 				      unsigned int irq_num, bool level)
