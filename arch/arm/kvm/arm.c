@@ -394,11 +394,6 @@ int kvm_arch_vcpu_runnable(struct kvm_vcpu *v)
 	return !!v->arch.irq_lines || kvm_vgic_vcpu_pending_irq(v);
 }
 
-int kvm_arch_vcpu_in_guest_mode(struct kvm_vcpu *v)
-{
-	return v->mode == IN_GUEST_MODE;
-}
-
 /* Just ensure a guest exit from a particular CPU */
 static void exit_vm_noop(void *info)
 {
