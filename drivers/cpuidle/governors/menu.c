@@ -317,7 +317,6 @@ static int menu_select(struct cpuidle_driver *drv, struct cpuidle_device *dev)
 {
 	struct menu_device *data = &__get_cpu_var(menu_devices);
 	int latency_req = pm_qos_request(PM_QOS_CPU_DMA_LATENCY);
-	int power_usage = -1;
 	int i;
 	int multiplier;
 	struct timespec t;
@@ -388,11 +387,8 @@ static int menu_select(struct cpuidle_driver *drv, struct cpuidle_device *dev)
 		if (s->exit_latency * multiplier > data->predicted_us)
 			continue;
 
-		if (s->power_usage < power_usage) {
-			power_usage = s->power_usage;
-			data->last_state_idx = i;
-			data->exit_us = s->exit_latency;
-		}
+		data->last_state_idx = i;
+		data->exit_us = s->exit_latency;
 	}
 
 	/* not deepest C-state chosen for low predicted residency */
