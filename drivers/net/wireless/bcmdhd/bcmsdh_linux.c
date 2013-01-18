@@ -142,8 +142,8 @@ EXPORT_SYMBOL(bcmsdh_remove);
 
 #else
 /* forward declarations */
-static int __devinit bcmsdh_probe(struct device *dev);
-static int __devexit bcmsdh_remove(struct device *dev);
+static int bcmsdh_probe(struct device *dev);
+static int bcmsdh_remove(struct device *dev);
 #endif /* BCMLXSDMMC */
 
 #ifndef BCMLXSDMMC
@@ -296,8 +296,8 @@ int bcmsdh_remove(struct device *dev)
 
 #if !defined(BCMLXSDMMC)
 /* forward declarations for PCI probe and remove functions. */
-static int __devinit bcmsdh_pci_probe(struct pci_dev *pdev, const struct pci_device_id *ent);
-static void __devexit bcmsdh_pci_remove(struct pci_dev *pdev);
+static int bcmsdh_pci_probe(struct pci_dev *pdev, const struct pci_device_id *ent);
+static void bcmsdh_pci_remove(struct pci_dev *pdev);
 
 /**
  * pci id table
@@ -350,7 +350,7 @@ module_param(sd_pci_slot, uint, 0);
  * Determine if the device described by pdev is a supported SDIO Host
  * Controller.  If so, attach to it and attach to the target device.
  */
-static int __devinit
+static int
 bcmsdh_pci_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 {
 	osl_t *osh = NULL;
@@ -478,7 +478,7 @@ err:
 /**
  * Detach from target devices and SDIO Host Controller
  */
-static void __devexit
+static void
 bcmsdh_pci_remove(struct pci_dev *pdev)
 {
 	bcmsdh_hc_t *sdhc, *prev;
