@@ -221,7 +221,7 @@ static struct platform_driver gpio_event_driver = {
 	},
 };
 
-static int __devinit gpio_event_init(void)
+static int gpio_event_init(void)
 {
 	return platform_driver_register(&gpio_event_driver);
 }

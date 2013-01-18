@@ -653,7 +653,7 @@ static struct i2c_driver synaptics_ts_driver = {
 	},
 };
 
-static int __devinit synaptics_ts_init(void)
+static int synaptics_ts_init(void)
 {
 	synaptics_wq = create_singlethread_workqueue("synaptics_wq");
 	if (!synaptics_wq)
