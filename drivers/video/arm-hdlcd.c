@@ -109,7 +109,7 @@ static char *fb_mode = "1680x1050-32@60\0\0\0\0\0";
 
 static struct fb_var_screeninfo cached_var_screeninfo;
 
-static struct fb_videomode __devinitdata hdlcd_default_mode = {
+static struct fb_videomode hdlcd_default_mode = {
 	.refresh	= 60,
 	.xres		= 1680,
 	.yres		= 1050,
@@ -627,7 +627,7 @@ static int parse_edid_data(struct hdlcd_device *hdlcd, const u8 *edid_data, int 
 	return 0;
 }
 
-static int __devinit hdlcd_probe(struct platform_device *pdev)
+static int hdlcd_probe(struct platform_device *pdev)
 {
 	int err = 0, i;
 	struct hdlcd_device *hdlcd;
@@ -800,7 +800,7 @@ static int hdlcd_resume(struct platform_device *pdev)
 
 static struct platform_driver hdlcd_driver = {
 	.probe		= hdlcd_probe,
-	.remove		= __devexit_p(hdlcd_remove),
+	.remove		= hdlcd_remove,
 	.suspend	= hdlcd_suspend,
 	.resume		= hdlcd_resume,
 	.driver	= {
