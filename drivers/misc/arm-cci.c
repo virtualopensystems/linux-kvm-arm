@@ -394,7 +394,7 @@ static struct arm_pmu cci_pmu = {
 	.write_counter    = cci_pmu_write_counter,
 };
 
-static int __devinit cci_pmu_init(struct platform_device *pdev)
+static int cci_pmu_init(struct platform_device *pdev)
 {
 	cci_pmu.plat_device = pdev;
 	cci_pmu.num_events = cci_pmu_get_max_counters();
@@ -404,19 +404,19 @@ static int __devinit cci_pmu_init(struct platform_device *pdev)
 	return armpmu_register(&cci_pmu, -1);
 }
 
-static void __devexit cci_pmu_destroy(void)
+static void cci_pmu_destroy(void)
 {
 	perf_pmu_unregister(&cci_pmu.pmu);
 }
 
 #else
 
-static int __devinit cci_pmu_init(struct platform_device *pdev)
+static int cci_pmu_init(struct platform_device *pdev)
 {
 	return 0;
 }
 
-static void __devexit cci_pmu_destroy(void) { }
+static void cci_pmu_destroy(void) { }
 
 #endif /* CONFIG_HW_PERF_EVENTS */
 
@@ -430,7 +430,7 @@ void notrace disable_cci(int cluster)
 }
 EXPORT_SYMBOL_GPL(disable_cci);
 
-static int __devinit cci_driver_probe(struct platform_device *pdev)
+static int cci_driver_probe(struct platform_device *pdev)
 {
 	struct resource *res;
 	int ret = 0;
@@ -477,7 +477,7 @@ mem_free:
 	return ret;
 }
 
-static int __devexit cci_driver_remove(struct platform_device *pdev)
+static int cci_driver_remove(struct platform_device *pdev)
 {
 	struct cci_drvdata *info;
 	struct resource *res = pdev->resource;
