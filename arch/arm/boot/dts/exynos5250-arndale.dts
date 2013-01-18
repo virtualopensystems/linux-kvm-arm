@@ -338,4 +338,9 @@
 	spi_2: spi@12d40000 {
 		status = "disabled";
 	};
+
+	ehci {
+		samsung,hub-reset = <&gpx3 5 1 0 3>;
+		samsung,hub-connect = <&gpd1 7 1 0 3>;
+	};
 };
