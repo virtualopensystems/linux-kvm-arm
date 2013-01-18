@@ -573,7 +573,7 @@ static const struct file_operations android_power_debug_fops = {
 	.release = single_release,
 };
 
-static __devinit int android_bat_probe(struct platform_device *pdev)
+static int android_bat_probe(struct platform_device *pdev)
 {
 	struct android_bat_platform_data *pdata = dev_get_platdata(&pdev->dev);
 	struct android_bat_data *battery;
@@ -700,7 +700,7 @@ err_pdata:
 	return ret;
 }
 
-static int __devexit android_bat_remove(struct platform_device *pdev)
+static int android_bat_remove(struct platform_device *pdev)
 {
 	struct android_bat_data *battery = platform_get_drvdata(pdev);
 
@@ -747,7 +747,7 @@ static struct platform_driver android_bat_driver = {
 		.pm = &android_bat_pm_ops,
 	},
 	.probe = android_bat_probe,
-	.remove = __devexit_p(android_bat_remove),
+	.remove = android_bat_remove,
 };
 
 static int __init android_bat_init(void)

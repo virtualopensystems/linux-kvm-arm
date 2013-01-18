@@ -133,7 +133,7 @@ err_switch_dev_register:
 	return ret;
 }
 
-static int __devexit gpio_switch_remove(struct platform_device *pdev)
+static int gpio_switch_remove(struct platform_device *pdev)
 {
 	struct gpio_switch_data *switch_data = platform_get_drvdata(pdev);
 
@@ -147,7 +147,7 @@ static int __devexit gpio_switch_remove(struct platform_device *pdev)
 
 static struct platform_driver gpio_switch_driver = {
 	.probe		= gpio_switch_probe,
-	.remove		= __devexit_p(gpio_switch_remove),
+	.remove		= gpio_switch_remove,
 	.driver		= {
 		.name	= "switch-gpio",
 		.owner	= THIS_MODULE,
