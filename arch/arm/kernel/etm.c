@@ -856,7 +856,7 @@ static struct kobj_attribute trace_data_range_attr =
 	__ATTR(trace_data_range, 0644,
 		trace_data_range_show, trace_data_range_store);
 
-static int __devinit etm_probe(struct amba_device *dev, const struct amba_id *id)
+static int etm_probe(struct amba_device *dev, const struct amba_id *id)
 {
 	struct tracectx *t = &tracer;
 	int ret = 0;
