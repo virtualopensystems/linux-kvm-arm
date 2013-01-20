@@ -627,6 +627,7 @@ struct kvm_ppc_smmu_info {
 #define KVM_CAP_READONLY_MEM 81
 #endif
 #define KVM_CAP_IRQFD_RESAMPLE 82
+#define KVM_CAP_ARM_PSCI 86
 
 #ifdef KVM_CAP_IRQ_ROUTING
 
