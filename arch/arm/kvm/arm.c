@@ -502,7 +502,7 @@ static int handle_hvc(struct kvm_vcpu *vcpu, struct kvm_run *run)
 
 static int handle_smc(struct kvm_vcpu *vcpu, struct kvm_run *run)
 {
-	if (!kvm_psci_call(vcpu))
+	if (kvm_psci_call(vcpu))
 		return 1;
 
 	kvm_inject_undefined(vcpu);
@@ -667,6 +667,13 @@ static int kvm_vcpu_first_run_init(struct kvm_vcpu *vcpu)
 	return 0;
 }
 
+static void vcpu_pause(struct kvm_vcpu *vcpu)
+{
+	wait_queue_head_t *wq = kvm_arch_vcpu_wq(vcpu);
+
+	wait_event_interruptible(*wq, !vcpu->arch.pause);
+}
+
 /**
  * kvm_arch_vcpu_ioctl_run - the main VCPU run function to execute guest code
  * @vcpu:	The VCPU pointer
@@ -710,6 +717,9 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 
 		update_vttbr(vcpu->kvm);
 
+		if (vcpu->arch.pause)
+			vcpu_pause(vcpu);
+
 		kvm_vgic_flush_hwstate(vcpu);
 		kvm_timer_flush_hwstate(vcpu);
 
@@ -737,13 +747,7 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 		kvm_guest_enter();
 		vcpu->mode = IN_GUEST_MODE;
 
-		smp_mb(); /* set mode before reading vcpu->arch.pause */
-		if (unlikely(vcpu->arch.pause)) {
-			/* This means ignore, try again. */
-			ret = ARM_EXCEPTION_IRQ;
-		} else {
-			ret = kvm_call_hyp(__kvm_vcpu_run, vcpu);
-		}
+		ret = kvm_call_hyp(__kvm_vcpu_run, vcpu);
 
 		vcpu->mode = OUTSIDE_GUEST_MODE;
 		vcpu->arch.last_pcpu = smp_processor_id();

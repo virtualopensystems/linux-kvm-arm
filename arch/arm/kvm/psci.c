@@ -28,11 +28,7 @@
 
 static void kvm_psci_vcpu_off(struct kvm_vcpu *vcpu)
 {
-	wait_queue_head_t *wq = kvm_arch_vcpu_wq(vcpu);
-
 	vcpu->arch.pause = true;
-
-	wait_event_interruptible(*wq, !vcpu->arch.pause);
 }
 
 static unsigned long kvm_psci_vcpu_on(struct kvm_vcpu *source_vcpu)
