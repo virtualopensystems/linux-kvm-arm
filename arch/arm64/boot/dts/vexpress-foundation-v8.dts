@@ -82,10 +82,7 @@
 
 	timer {
 		compatible = "arm,armv8-timer";
-		interrupts = <1 13 0xff01>,
-			     <1 14 0xff01>,
-			     <1 11 0xff01>,
-			     <1 10 0xff01>;
+		interrupts = <1 14 0xff01>;
 		clock-frequency = <100000000>;
 	};
 
