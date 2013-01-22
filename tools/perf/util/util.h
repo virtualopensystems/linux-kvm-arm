@@ -256,11 +256,13 @@ void event_attr_init(struct perf_event_attr *attr);
  * *not* considered a power of two.
  */
 
+#ifndef _LINUX_LOG2_H /* is_power_of_2 is defined here too, and Bionic drags in that header */
 static inline __attribute__((const))
 bool is_power_of_2(unsigned long n)
 {
 	return (n != 0 && ((n & (n - 1)) == 0));
 }
+#endif
 
 size_t hex_width(u64 v);
 int hex2u64(const char *ptr, u64 *val);

@@ -130,6 +130,7 @@ CFLAGS ?= -g -Wall
 # Append required CFLAGS
 override CFLAGS += $(CONFIG_FLAGS) $(INCLUDES) $(PLUGIN_DIR_SQ)
 override CFLAGS += $(udis86-flags) -D_GNU_SOURCE
+override CFLAGS += $(ANDROID_CFLAGS)
 
 ifeq ($(VERBOSE),1)
   Q =
