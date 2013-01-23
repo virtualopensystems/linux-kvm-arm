@@ -15,6 +15,7 @@
 #include <linux/ftrace.h>
 #include <linux/module.h>
 #include <linux/uaccess.h>
+#include <linux/stop_machine.h>
 
 #include <asm/cacheflush.h>
 #include <asm/opcodes.h>
@@ -169,6 +170,39 @@ int ftrace_make_nop(struct module *mod,
 #endif
 
 	return ret;
+}
+
+struct afmc_data {
+	int command;
+	atomic_t cpu;
+	atomic_t done;
+};
+
+static int __arch_ftrace_modify_code(void *data)
+{
+	struct afmc_data *afmcd = data;
+
+	if (atomic_inc_return(&afmcd->cpu) == num_online_cpus()) {
+		/* Last cpu to get into this function does the actual work */
+		ftrace_modify_all_code(afmcd->command);
+		wmb();
+		atomic_set(&afmcd->done, true);
+	} else {
+		/* Other cpus wait for the code modifications to be done */
+		rmb();
+		while (!atomic_read(&afmcd->done))
+			cpu_relax();
+		/* Ensure icache is consistent with the code changes */
+		__flush_icache_all();
+	}
+
+	return 0;
+}
+
+void arch_ftrace_update_code(int command)
+{
+	struct afmc_data afmcd = { command };
+	stop_machine(__arch_ftrace_modify_code, &afmcd, cpu_online_mask);
 }
 
 int __init ftrace_dyn_arch_init(void *data)

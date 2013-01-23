@@ -144,6 +144,8 @@ dtb-$(CONFIG_ARCH_TEGRA) += tegra20-harmony.dtb \
 	tegra20-whistler.dtb \
 	tegra30-cardhu-a02.dtb \
 	tegra30-cardhu-a04.dtb
+dtb-$(CONFIG_ARCH_VERSATILE) += versatile-ab.dtb \
+	versatile-pb.dtb
 dtb-$(CONFIG_ARCH_VEXPRESS) += vexpress-v2p-ca5s.dtb \
 	vexpress-v2p-ca9.dtb \
 	vexpress-v2p-ca15-tc1.dtb \
