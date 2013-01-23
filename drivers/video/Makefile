@@ -168,3 +168,6 @@ obj-$(CONFIG_FB_VIRTUAL)          += vfb.o
 
 #video output switch sysfs driver
 obj-$(CONFIG_VIDEO_OUTPUT_CONTROL) += output.o
+
+# platform specific output drivers
+obj-$(CONFIG_VEXPRESS_DVI_CONTROL) += vexpress-dvi.o
