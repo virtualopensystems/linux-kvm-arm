@@ -18,6 +18,21 @@ config SUSPEND_FREEZER
 
 	  Turning OFF this setting is NOT recommended! If in doubt, say Y.
 
+config HAS_WAKELOCK
+	bool
+	default n
+
+config WAKELOCK
+	bool
+	default n
+
+config FB_EARLYSUSPEND
+	bool "Sysfs compat interface for earlysuspend"
+	---help---
+	  Register early suspend handler that notifies and waits for
+	  user-space through sysfs when user-space should stop drawing
+	  to the screen and notifies user-space when it should resume.
+
 config HIBERNATE_CALLBACKS
 	bool
 
@@ -274,3 +289,10 @@ config PM_GENERIC_DOMAINS_RUNTIME
 config CPU_PM
 	bool
 	depends on SUSPEND || CPU_IDLE
+
+config SUSPEND_TIME
+	bool "Log time spent in suspend"
+	---help---
+	  Prints the time spent in suspend in the kernel log, and
+	  keeps statistics on the time spent in suspend in
+	  /sys/kernel/debug/suspend_time

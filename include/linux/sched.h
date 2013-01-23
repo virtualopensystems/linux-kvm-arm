@@ -657,6 +657,7 @@ struct signal_struct {
 #endif
 
 	oom_flags_t oom_flags;
+	int oom_adj;		/* OOM kill score adjustment (bit shift) */
 	short oom_score_adj;		/* OOM kill score adjustment */
 	short oom_score_adj_min;	/* OOM kill score adjustment min value.
 					 * Only settable by CAP_SYS_RESOURCE. */
@@ -1794,6 +1795,9 @@ static inline void put_task_struct(struct task_struct *t)
 
 extern void task_cputime_adjusted(struct task_struct *p, cputime_t *ut, cputime_t *st);
 extern void thread_group_cputime_adjusted(struct task_struct *p, cputime_t *ut, cputime_t *st);
+
+extern int task_free_register(struct notifier_block *n);
+extern int task_free_unregister(struct notifier_block *n);
 
 /*
  * Per process flags

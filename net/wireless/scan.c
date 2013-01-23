@@ -19,7 +19,7 @@
 #include "wext-compat.h"
 #include "rdev-ops.h"
 
-#define IEEE80211_SCAN_RESULT_EXPIRE	(30 * HZ)
+#define IEEE80211_SCAN_RESULT_EXPIRE	(3 * HZ)
 
 static void bss_release(struct kref *ref)
 {

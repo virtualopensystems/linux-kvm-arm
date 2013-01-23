@@ -1528,8 +1528,11 @@ composite_resume(struct usb_gadget *gadget)
 }
 
 /*-------------------------------------------------------------------------*/
-
+#if IS_ENABLED(CONFIG_USB_G_ANDROID)
+static struct usb_gadget_driver composite_driver_template = {
+#else
 static const struct usb_gadget_driver composite_driver_template = {
+#endif
 	.bind		= composite_bind,
 	.unbind		= composite_unbind,
 

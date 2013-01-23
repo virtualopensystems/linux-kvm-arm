@@ -26,6 +26,8 @@
 #include <linux/percpu.h>
 #include <linux/syscore_ops.h>
 #include <linux/rwsem.h>
+#include <linux/notifier.h>
+#include <linux/cpu.h>
 #include "leds.h"
 
 #define MAX_NAME_LEN	8
@@ -92,6 +94,25 @@ static struct syscore_ops ledtrig_cpu_syscore_ops = {
 	.resume		= ledtrig_cpu_syscore_resume,
 };
 
+static int leds_idle_notifier(struct notifier_block *nb, unsigned long val,
+                                void *data)
+{
+	switch (val) {
+	case IDLE_START:
+		ledtrig_cpu(CPU_LED_IDLE_START);
+		break;
+	case IDLE_END:
+		ledtrig_cpu(CPU_LED_IDLE_END);
+		break;
+	}
+
+	return 0;
+}
+
+static struct notifier_block leds_idle_nb = {
+	.notifier_call = leds_idle_notifier,
+};
+
 static int __init ledtrig_cpu_init(void)
 {
 	int cpu;
@@ -114,6 +135,8 @@ static int __init ledtrig_cpu_init(void)
 
 	register_syscore_ops(&ledtrig_cpu_syscore_ops);
 
+	idle_notifier_register(&leds_idle_nb);
+
 	pr_info("ledtrig-cpu: registered to indicate activity on CPUs\n");
 
 	return 0;
@@ -123,6 +146,8 @@ module_init(ledtrig_cpu_init);
 static void __exit ledtrig_cpu_exit(void)
 {
 	int cpu;
+
+	idle_notifier_unregister(&leds_idle_nb);
 
 	for_each_possible_cpu(cpu) {
 		struct led_trigger_cpu *trig = &per_cpu(cpu_trig, cpu);
