@@ -1,0 +1,9 @@
+config PLAT_VEXPRESS
+	bool "ARMv8 software model (Versatile Express)"
+	select ARCH_REQUIRE_GPIOLIB
+	select ARM_AMBA
+	select CLKDEV_LOOKUP
+	select ARM64_GIC
+	help
+	  This enables support for the ARMv8 software model (Versatile
+	  Express).

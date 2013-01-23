@@ -1,4 +1,7 @@
 /*
+ * Based on arch/arm/include/asm/clkdev.h
+ *
+ * Copyright (C) 2008 Russell King.
  * Copyright (C) 2012 ARM Ltd.
  *
  * This program is free software; you can redistribute it and/or modify
@@ -13,19 +16,17 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-#ifndef __ASM_MMU_H
-#define __ASM_MMU_H
+#ifndef __ASM_CLKDEV_H
+#define __ASM_CLKDEV_H
 
-typedef struct {
-	unsigned int id;
-	raw_spinlock_t id_lock;
-	void *vdso;
-} mm_context_t;
+#include <linux/slab.h>
 
-#define ASID(mm)	((mm)->context.id & 0xffff)
+#define __clk_get(clk)	({ 1; })
+#define __clk_put(clk)	do { } while (0)
 
-extern void paging_init(void);
-extern void setup_mm_for_reboot(void);
-extern void __iomem *early_io_map(phys_addr_t phys, unsigned long virt);
+static inline struct clk_lookup_alloc *__clkdev_alloc(size_t size)
+{
+	return kzalloc(size, GFP_KERNEL);
+}
 
 #endif

@@ -100,7 +100,11 @@ source "kernel/Kconfig.freezer"
 
 menu "System Type"
 
+source "arch/arm64/platforms/Kconfig"
+
 endmenu
+
+source "drivers/irqchip/Kconfig"
 
 menu "Bus support"
 
