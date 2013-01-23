@@ -91,7 +91,7 @@ config ARM_BIG_LITTLE_CPUFREQ
 config ARM_DT_BL_CPUFREQ
 	tristate "Generic ARM big LITTLE CPUfreq driver probed via DT"
 	select ARM_BIG_LITTLE_CPUFREQ
-	depends on OF
+	depends on OF && BIG_LITTLE
 	default y
 	help
 	  This enables the Generic CPUfreq driver for ARM big.LITTLE platform.
@@ -100,7 +100,7 @@ config ARM_DT_BL_CPUFREQ
 config ARM_VEXPRESS_BL_CPUFREQ
 	tristate "ARM Vexpress big LITTLE CPUfreq driver"
 	select ARM_BIG_LITTLE_CPUFREQ
-	depends on ARM_SPC
+	depends on ARM_SPC && BIG_LITTLE
 	help
 	  This enables the CPUfreq driver for ARM Vexpress big.LITTLE platform.
 	  If in doubt, say N.
