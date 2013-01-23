@@ -149,6 +149,7 @@ dtb-$(CONFIG_ARCH_VERSATILE) += versatile-ab.dtb \
 dtb-$(CONFIG_ARCH_VEXPRESS) += vexpress-v2p-ca5s.dtb \
 	vexpress-v2p-ca9.dtb \
 	vexpress-v2p-ca15-tc1.dtb \
+	vexpress-v2p-ca15-tc2.dtb \
 	vexpress-v2p-ca15_a7.dtb \
 	xenvm-4.2.dtb \
 	rtsm_ve-cortex_a9x2.dtb \
