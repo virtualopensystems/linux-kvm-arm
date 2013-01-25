@@ -17,6 +17,12 @@ obj-$(CONFIG_MODULES)		+= proc-syms.o
 
 obj-$(CONFIG_ALIGNMENT_TRAP)	+= alignment.o
 obj-$(CONFIG_HIGHMEM)		+= highmem.o
+obj-$(CONFIG_HUGETLB_PAGE)	+= hugetlbpage.o
+ifeq ($(CONFIG_ARM_LPAE),y)
+obj-$(CONFIG_HUGETLB_PAGE)	+= hugetlbpage-3level.o
+else
+obj-$(CONFIG_HUGETLB_PAGE)	+= hugetlbpage-2level.o
+endif
 
 obj-$(CONFIG_CPU_ABRT_NOMMU)	+= abort-nommu.o
 obj-$(CONFIG_CPU_ABRT_EV4)	+= abort-ev4.o
@@ -97,3 +103,5 @@ obj-$(CONFIG_CACHE_FEROCEON_L2)	+= cache-feroceon-l2.o
 obj-$(CONFIG_CACHE_L2X0)	+= cache-l2x0.o
 obj-$(CONFIG_CACHE_XSC3L2)	+= cache-xsc3l2.o
 obj-$(CONFIG_CACHE_TAUROS2)	+= cache-tauros2.o
+
+obj-$(CONFIG_NUMA_ALLOC_NODES)	+= numa.o

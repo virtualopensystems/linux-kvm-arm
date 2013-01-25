@@ -87,6 +87,13 @@ config LCD_PLATFORM
 	  This driver provides a platform-device registered LCD power
 	  control interface.
 
+config LCD_PWRCTRL
+	tristate "LCD panel power control"
+	help
+	  Say y here, if you have a lcd panel that allows reset and vcc to be
+	  controlled by the host system, and which does not use a serial command
+	  interface (such as i2c or spi) or memory-mapped-io interface.
+
 config LCD_TOSA
 	tristate "Sharp SL-6000 LCD Driver"
 	depends on I2C && SPI && MACH_TOSA

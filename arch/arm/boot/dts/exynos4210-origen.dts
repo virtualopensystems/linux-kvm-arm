@@ -73,6 +73,209 @@
 		status = "okay";
 	};
 
+	lcd_fimd0: lcd_panel0 {
+		compatible = "lcd-powercontrol";
+		vcc-lcd-supply = <&buck7_reg>;
+		lcd-reset-gpio = <&gpe3 4 0>;
+		lcd-htiming = <64 16 48 1024>;
+		lcd-vtiming = <64 16 3 600>;
+	};
+
+	fimd@11C00000 {
+		samsung,fimd-display = <&lcd_fimd0>;
+		samsung,fimd-vidout-rgb;
+		samsung,fimd-inv-hsync;
+		samsung,fimd-inv-vsync;
+		samsung,fimd-inv-vclk;
+		samsung,fimd-frame-rate = <60>;
+
+		samsung,power-domain = <&pd_lcd0>;
+
+		pinctrl-0 = <&lcd0_sync &lcd0_clk &lcd0_en &lcd0_data &pwm0_out>;
+		pinctrl-names = "default";
+
+		window0 {
+			samsung,fimd-win-id = <0>;
+			samsung,fimd-win-bpp = <32 24>;
+			samsung,fimd-win-res = <1024 600>;
+			samsung,fimd-win-vres = <1024 600>;
+		};
+
+		window1 {
+			samsung,fimd-win-id = <1>;
+			samsung,fimd-win-bpp = <32 24>;
+			samsung,fimd-win-res = <1024 600>;
+			samsung,fimd-win-vres = <1024 600>;
+		};
+	};
+
+	i2c@13860000 {
+		status = "okay";
+		samsung,i2c-sda-delay = <100>;
+		samsung,i2c-max-bus-freq = <20000>;
+		pinctrl-0 = <&i2c0_bus>;
+		pinctrl-names = "default";
+
+		max8997_pmic@66 {
+			compatible = "maxim,max8997-pmic";
+			reg = <0x66>;
+			interrupt-parent = <&gpx0>;
+			interrupts = <4 0>, <3 0>;
+
+			max8997,pmic-buck1-dvs-voltage = <1350000>;
+			max8997,pmic-buck2-dvs-voltage = <1100000>;
+			max8997,pmic-buck5-dvs-voltage = <1200000>;
+
+			regulators {
+				ldo1_reg: LDO1 {
+					regulator-name = "VDD_ABB_3.3V";
+					regulator-min-microvolt = <3300000>;
+					regulator-max-microvolt = <3300000>;
+				};
+
+				ldo2_reg: LDO2 {
+					regulator-name = "VDD_ALIVE_1.1V";
+					regulator-min-microvolt = <1100000>;
+					regulator-max-microvolt = <1100000>;
+					regulator-always-on;
+				};
+
+				ldo3_reg: LDO3 {
+					regulator-name = "VMIPI_1.1V";
+					regulator-min-microvolt = <1100000>;
+					regulator-max-microvolt = <1100000>;
+					regulator-always-on;
+				};
+
+				ldo4_reg: LDO4 {
+					regulator-name = "VDD_RTC_1.8V";
+					regulator-min-microvolt = <1800000>;
+					regulator-max-microvolt	= <1800000>;
+					regulator-always-on;
+				};
+
+				ldo6_reg: LDO6 {
+					regulator-name = "VMIPI_1.8V";
+					regulator-min-microvolt = <1800000>;
+					regulator-max-microvolt	= <1800000>;
+					regulator-always-on;
+				};
+
+				ldo7_reg: LDO7 {
+					regulator-name = "VDD_AUD_1.8V";
+					regulator-min-microvolt = <1800000>;
+					regulator-max-microvolt	= <1800000>;
+					regulator-always-on;
+				};
+
+				ldo8_reg: LDO8 {
+					regulator-name = "VADC_3.3V";
+					regulator-min-microvolt = <3300000>;
+					regulator-max-microvolt	= <3300000>;
+					regulator-always-on;
+				};
+
+				ldo9_reg: LDO9 {
+					regulator-name = "DVDD_SWB_2.8V";
+					regulator-min-microvolt = <2800000>;
+					regulator-max-microvolt	= <2800000>;
+					regulator-always-on;
+				};
+
+				ldo10_reg: LDO10 {
+					regulator-name = "VDD_PLL_1.1V";
+					regulator-min-microvolt = <1100000>;
+					regulator-max-microvolt	= <1100000>;
+					regulator-always-on;
+				};
+
+				ldo11_reg: LDO11 {
+					regulator-name = "VDD_AUD_3V";
+					regulator-min-microvolt = <3000000>;
+					regulator-max-microvolt	= <3000000>;
+					regulator-always-on;
+				};
+
+				ldo14_reg: LDO14 {
+					regulator-name = "AVDD18_SWB_1.8V";
+					regulator-min-microvolt = <1800000>;
+					regulator-max-microvolt	= <1800000>;
+					regulator-always-on;
+				};
+
+				ldo17_reg: LDO17 {
+					regulator-name = "VDD_SWB_3.3V";
+					regulator-min-microvolt = <3300000>;
+					regulator-max-microvolt	= <3300000>;
+					regulator-always-on;
+				};
+
+				ldo21_reg: LDO21 {
+					regulator-name = "VDD_MIF_1.2V";
+					regulator-min-microvolt = <1200000>;
+					regulator-max-microvolt	= <1200000>;
+					regulator-always-on;
+				};
+
+				buck1_reg: BUCK1 {
+					regulator-name = "VDD_ARM_1.2V";
+					regulator-min-microvolt = <950000>;
+					regulator-max-microvolt	= <1350000>;
+					regulator-always-on;
+					regulator-boot-on;
+				};
+
+				buck2_reg: BUCK2 {
+					regulator-name = "VDD_INT_1.1V";
+					regulator-min-microvolt = <900000>;
+					regulator-max-microvolt	= <1100000>;
+					regulator-always-on;
+					regulator-boot-on;
+				};
+
+				buck3_reg: BUCK3 {
+					regulator-name = "VDD_G3D_1.1V";
+					regulator-min-microvolt = <900000>;
+					regulator-max-microvolt = <1100000>;
+				};
+
+				buck5_reg: BUCK5 {
+					regulator-name = "VDDQ_M1M2_1.2V";
+					regulator-min-microvolt = <1200000>;
+					regulator-max-microvolt = <1200000>;
+					regulator-always-on;
+				};
+
+				buck7_reg: BUCK7 {
+					regulator-name = "VDD_LCD_3.3V";
+					regulator-min-microvolt = <3300000>;
+					regulator-max-microvolt = <3300000>;
+					regulator-boot-on;
+				};
+			};
+		};
+
+		unidisplay_ts@41 {
+			compatible = "pixcir,unidisplay-ts";
+			reg = <0x41>;
+			interrupt-parent = <&gpx3>;
+			interrupts = <1 0>;
+		};
+	};
+
+	i2c@13870000 {
+		status = "okay";
+		samsung,i2c-sda-delay = <100>;
+		samsung,i2c-max-bus-freq = <20000>;
+		pinctrl-0 = <&i2c1_bus>;
+		pinctrl-names = "default";
+
+		codec: alc5625@1e {
+			compatible = "realtek,alc5625";
+			reg = <0x1e>;
+		};
+	};
+
 	gpio_keys {
 		compatible = "gpio-keys";
 		#address-cells = <1>;
@@ -121,4 +324,62 @@
 			linux,default-trigger = "heartbeat";
 		};
 	};
+
+	usb@12480000 {
+		vusb_a-supply = <&ldo3_reg>;
+		vusb_d-supply = <&ldo8_reg>;
+	};
+
+	i2c@138e0000 {
+		#address-cells = <1>;
+		#size-cells = <0>;
+		compatible = "samsung,s3c2440-hdmiphy-i2c";
+		samsung,i2c-quirk-hdmiphy;
+		samsung,i2c-no-gpio;
+		reg = <0x138e0000 0x1000>;
+		interrupts = <0 93 0>;
+		status = "okay";
+
+		hdmiphy: phy@38 {
+			compatible = "samsung,hdmiphy-exynos4210";
+			reg = <0x38>;
+		};
+	};
+
+	tvmixer: tvmixer@12c10000 {
+		compatible = "samsung,s5pv210-tvmixer";
+		reg = <0x12c10000 0x10000>, <0x12c00000 0x10000>;
+		reg-names = "mxr", "vp";
+		interrupts = <0 91 0>;
+		interrupt-names = "irq";
+		samsung,power-domain = <&pd_tv>;
+	};
+
+	hdmi: hdmi@12d00000 {
+		compatible = "samsung,s5pv210-hdmi";
+		reg = <0x12d00000 0x100000>;
+		interrupts = <0 92 0>;
+		phy = <&hdmiphy>;
+		samsung,power-domain = <&pd_tv>;
+
+		vdd_osc-supply = <&ldo8_reg>;
+		vdd_pll-supply = <&ldo3_reg>;
+		vdd-supply = <&ldo3_reg>;
+	};
+
+	reg_hdmi_en: fixedregulator@0 {
+		compatible = "regulator-fixed";
+		regulator-name = "hdmi-en";
+	};
+
+	i2s_0: i2s@03830000 {
+		pinctrl-0 = <&i2s0_bus>;
+		pinctrl-names = "default";
+		idma-addr = <0x03000000>;
+	};
+
+	asoc_dma {
+		compatible = "samsung,audio-dma";
+	};
+
 };

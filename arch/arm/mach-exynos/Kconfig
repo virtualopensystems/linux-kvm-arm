@@ -332,6 +332,7 @@ config MACH_ORIGEN
 	select CPU_EXYNOS4210
 	select EXYNOS4_DEV_USB_OHCI
 	select EXYNOS4_SETUP_FIMD0
+	select EXYNOS4_SETUP_I2C1
 	select EXYNOS4_SETUP_SDHCI
 	select EXYNOS4_SETUP_USB_PHY
 	select EXYNOS_DEV_DMA
@@ -340,7 +341,9 @@ config MACH_ORIGEN
 	select S3C24XX_PWM
 	select S3C_DEV_HSMMC
 	select S3C_DEV_HSMMC2
+	select S3C_DEV_HSMMC3
 	select S3C_DEV_RTC
+	select S3C_DEV_I2C1
 	select S3C_DEV_USB_HSOTG
 	select S3C_DEV_WDT
 	select S5P_DEV_FIMC0
@@ -349,6 +352,7 @@ config MACH_ORIGEN
 	select S5P_DEV_FIMC3
 	select S5P_DEV_FIMD0
 	select S5P_DEV_G2D
+	select S5P_DEV_G3D
 	select S5P_DEV_I2C_HDMIPHY
 	select S5P_DEV_JPEG
 	select S5P_DEV_MFC
@@ -416,6 +420,8 @@ config MACH_EXYNOS4_DT
 	select PINCTRL
 	select PINCTRL_EXYNOS4
 	select USE_OF
+	select SAMSUNG_DEV_BACKLIGHT
+	select SAMSUNG_DEV_PWM
 	help
 	  Machine support for Samsung Exynos4 machine with device tree enabled.
 	  Select this if a fdt blob is available for the Exynos4 SoC based board.
@@ -428,6 +434,8 @@ config MACH_EXYNOS5_DT
 	depends on ARCH_EXYNOS5
 	select ARM_AMBA
 	select USE_OF
+	select EXYNOS4_SETUP_USB_PHY
+	select USB_ARCH_HAS_XHCI
 	help
 	  Machine support for Samsung EXYNOS5 machine with device tree enabled.
 	  Select this if a fdt blob is available for the EXYNOS5 SoC based board.

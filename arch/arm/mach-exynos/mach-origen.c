@@ -20,6 +20,7 @@
 #include <linux/gpio_keys.h>
 #include <linux/i2c.h>
 #include <linux/regulator/machine.h>
+#include <linux/regulator/fixed.h>
 #include <linux/mfd/max8997.h>
 #include <linux/lcd.h>
 #include <linux/rfkill-gpio.h>
@@ -27,6 +28,8 @@
 #include <linux/platform_data/s3c-hsotg.h>
 #include <linux/platform_data/usb-ehci-s5p.h>
 #include <linux/platform_data/usb-exynos.h>
+#include <linux/ath6kl.h>
+#include <linux/delay.h>
 
 #include <asm/mach/arch.h>
 #include <asm/hardware/gic.h>
@@ -34,6 +37,7 @@
 
 #include <video/platform_lcd.h>
 #include <video/samsung_fimd.h>
+#include <video/lcd_pwrctrl.h>
 
 #include <plat/regs-serial.h>
 #include <plat/cpu.h>
@@ -65,6 +69,11 @@
 				 S5PV210_UFCON_TXTRIG4 |	\
 				 S5PV210_UFCON_RXTRIG4)
 
+enum fixed_regulator_id {
+	FIXED_REG_ID_MMC = 0,
+	FIXED_REG_ID_5V,
+};
+
 static struct s3c2410_uartcfg origen_uartcfgs[] __initdata = {
 	[0] = {
 		.hwport		= 0,
@@ -94,6 +103,10 @@ static struct s3c2410_uartcfg origen_uartcfgs[] __initdata = {
 		.ulcon		= ORIGEN_ULCON_DEFAULT,
 		.ufcon		= ORIGEN_UFCON_DEFAULT,
 	},
+};
+
+static struct regulator_consumer_supply __initdata fixed_5v_supply[] = {
+	REGULATOR_SUPPLY("hdmi-en", "exynos4-hdmi"), /* HDMI */
 };
 
 static struct regulator_consumer_supply __initdata ldo3_consumer[] = {
@@ -135,7 +148,7 @@ static struct regulator_consumer_supply __initdata buck3_consumer[] = {
 	REGULATOR_SUPPLY("vdd_g3d", "mali_drm"), /* G3D */
 };
 static struct regulator_consumer_supply __initdata buck7_consumer[] = {
-	REGULATOR_SUPPLY("vcc", "platform-lcd"), /* LCD */
+	REGULATOR_SUPPLY("vcc-lcd", "lcd-pwrctrl.0"), /* LCD */
 };
 
 static struct regulator_init_data __initdata max8997_ldo1_data = {
@@ -169,6 +182,7 @@ static struct regulator_init_data __initdata max8997_ldo3_data = {
 		.min_uV		= 1100000,
 		.max_uV		= 1100000,
 		.apply_uV	= 1,
+		.always_on	= 1,
 		.valid_ops_mask	= REGULATOR_CHANGE_STATUS,
 		.state_mem	= {
 			.disabled	= 1,
@@ -197,6 +211,7 @@ static struct regulator_init_data __initdata max8997_ldo6_data = {
 		.min_uV		= 1800000,
 		.max_uV		= 1800000,
 		.apply_uV	= 1,
+		.always_on	= 1,
 		.valid_ops_mask	= REGULATOR_CHANGE_STATUS,
 		.state_mem	= {
 			.disabled	= 1,
@@ -227,6 +242,7 @@ static struct regulator_init_data __initdata max8997_ldo8_data = {
 		.min_uV		= 3300000,
 		.max_uV		= 3300000,
 		.apply_uV	= 1,
+		.always_on	= 1,
 		.valid_ops_mask	= REGULATOR_CHANGE_STATUS,
 		.state_mem	= {
 			.disabled	= 1,
@@ -271,6 +287,7 @@ static struct regulator_init_data __initdata max8997_ldo11_data = {
 		.min_uV		= 3000000,
 		.max_uV		= 3000000,
 		.apply_uV	= 1,
+		.always_on	= 1,
 		.valid_ops_mask	= REGULATOR_CHANGE_STATUS,
 		.state_mem	= {
 			.disabled	= 1,
@@ -361,7 +378,9 @@ static struct regulator_init_data __initdata max8997_buck3_data = {
 	.constraints	= {
 		.name		= "VDD_G3D_1.1V",
 		.min_uV		= 900000,
-		.max_uV		= 1100000,
+		.max_uV		= 1200000,
+		.always_on	= 1,
+		.boot_on	= 1,
 		.valid_ops_mask	= REGULATOR_CHANGE_VOLTAGE |
 					REGULATOR_CHANGE_STATUS,
 		.state_mem	= {
@@ -390,7 +409,7 @@ static struct regulator_init_data __initdata max8997_buck7_data = {
 		.name		= "VDD_LCD_3.3V",
 		.min_uV		= 3300000,
 		.max_uV		= 3300000,
-		.boot_on	= 1,
+		.boot_on	= 0,
 		.apply_uV	= 1,
 		.valid_ops_mask	= REGULATOR_CHANGE_STATUS,
 		.state_mem	= {
@@ -473,6 +492,49 @@ static struct i2c_board_info i2c0_devs[] __initdata = {
 		.platform_data	= &origen_max8997_pdata,
 		.irq		= IRQ_EINT(4),
 	},
+#ifdef CONFIG_TOUCHSCREEN_UNIDISPLAY_TS
+	{
+		I2C_BOARD_INFO("unidisplay_ts", 0x41),
+		.irq = IRQ_TS,
+	},
+#endif
+};
+
+static struct regulator_consumer_supply mmc_supplies[] = {
+	REGULATOR_SUPPLY("vmmc", "exynos4-sdhci.0"),
+	REGULATOR_SUPPLY("vmmc", "exynos4-sdhci.2"),
+};
+
+static struct regulator_init_data mmc_fixed_voltage_init_data = {
+	.constraints		= {
+		.name		= "VMEM_VDD_2.8V",
+		.valid_ops_mask	= REGULATOR_CHANGE_STATUS,
+	},
+	.num_consumer_supplies	= ARRAY_SIZE(mmc_supplies),
+	.consumer_supplies	= mmc_supplies,
+};
+
+static struct fixed_voltage_config mmc_fixed_voltage_config = {
+	.supply_name		= "MMC_POWER_EN",
+	.microvolts		= 2800000,
+	.gpio			= EXYNOS4_GPX1(1),
+	.enable_high		= true,
+	.init_data		= &mmc_fixed_voltage_init_data,
+};
+
+static struct platform_device mmc_fixed_voltage = {
+	.name			= "reg-fixed-voltage",
+	.id			= FIXED_REG_ID_MMC,
+	.dev			= {
+		.platform_data	= &mmc_fixed_voltage_config,
+	},
+};
+
+/* I2C1 */
+static struct i2c_board_info i2c1_devs[] __initdata = {
+	{
+		I2C_BOARD_INFO("alc5625", 0x1E),
+	},
 };
 
 static struct s3c_sdhci_platdata origen_hsmmc0_pdata __initdata = {
@@ -482,6 +544,100 @@ static struct s3c_sdhci_platdata origen_hsmmc0_pdata __initdata = {
 static struct s3c_sdhci_platdata origen_hsmmc2_pdata __initdata = {
 	.cd_type		= S3C_SDHCI_CD_INTERNAL,
 };
+
+
+/*
+ * WLAN: SDIO Host will call this func at booting time
+ */
+static int origen_wifi_status_register(void (*notify_func)
+		(struct platform_device *, int state));
+
+/* WLAN: MMC3-SDIO */
+static struct s3c_sdhci_platdata origen_hsmmc3_pdata __initdata = {
+	.max_width		= 4,
+	.host_caps		= MMC_CAP_4_BIT_DATA |
+			MMC_CAP_MMC_HIGHSPEED | MMC_CAP_SD_HIGHSPEED,
+	.pm_caps		= MMC_PM_KEEP_POWER,
+	.cd_type		= S3C_SDHCI_CD_EXTERNAL,
+	.ext_cd_init		= origen_wifi_status_register,
+};
+
+/*
+ * WLAN: Save SDIO Card detect func into this pointer
+ */
+static void (*wifi_status_cb)(struct platform_device *, int state);
+
+static int origen_wifi_status_register(void (*notify_func)
+		(struct platform_device *, int state))
+{
+	/* Assign sdhci_s3c_notify_change to wifi_status_cb */
+	if (!notify_func)
+		return -EAGAIN;
+	else
+		wifi_status_cb = notify_func;
+
+	return 0;
+}
+
+#define ORIGEN_WLAN_WOW EXYNOS4_GPX2(3)
+#define ORIGEN_WLAN_RESET EXYNOS4_GPX2(4)
+
+
+static void origen_wlan_setup_power(bool val)
+{
+	int err;
+
+	if (val) {
+		err = gpio_request_one(ORIGEN_WLAN_RESET,
+				GPIOF_OUT_INIT_LOW, "GPX2_4");
+		if (err) {
+			pr_warning("ORIGEN: Not obtain WIFI gpios\n");
+			return;
+		}
+		s3c_gpio_cfgpin(ORIGEN_WLAN_RESET, S3C_GPIO_OUTPUT);
+		s3c_gpio_setpull(ORIGEN_WLAN_RESET,
+						S3C_GPIO_PULL_NONE);
+		/* VDD33,I/O Supply must be done */
+		gpio_set_value(ORIGEN_WLAN_RESET, 0);
+		udelay(30);	/*Tb */
+		gpio_direction_output(ORIGEN_WLAN_RESET, 1);
+	} else {
+		gpio_direction_output(ORIGEN_WLAN_RESET, 0);
+		gpio_free(ORIGEN_WLAN_RESET);
+	}
+
+	mdelay(100);
+
+	return;
+}
+
+/*
+ * This will be called at init time of WLAN driver
+ */
+static int origen_wifi_set_detect(bool val)
+{
+
+	if (!wifi_status_cb) {
+		pr_warning("ORIGEN: WLAN: No callback \n"
+		"ORIGEN: WLAN: MMC should boot earlier than net \n");
+
+		return -EAGAIN;
+	}
+	if (true == val) {
+		origen_wlan_setup_power(true);
+		wifi_status_cb(&s3c_device_hsmmc3, 1);
+	} else {
+		origen_wlan_setup_power(false);
+		wifi_status_cb(&s3c_device_hsmmc3, 0);
+	}
+
+	return 0;
+}
+
+struct ath6kl_platform_data origen_wlan_data  __initdata = {
+	.setup_power = origen_wifi_set_detect,
+};
+
 
 /* USB EHCI */
 static struct s5p_ehci_platdata origen_ehci_pdata;
@@ -590,29 +746,12 @@ static struct platform_device origen_device_gpiokeys = {
 	},
 };
 
-static void lcd_hv070wsa_set_power(struct plat_lcd_data *pd, unsigned int power)
-{
-	int ret;
-
-	if (power)
-		ret = gpio_request_one(EXYNOS4_GPE3(4),
-					GPIOF_OUT_INIT_HIGH, "GPE3_4");
-	else
-		ret = gpio_request_one(EXYNOS4_GPE3(4),
-					GPIOF_OUT_INIT_LOW, "GPE3_4");
-
-	gpio_free(EXYNOS4_GPE3(4));
-
-	if (ret)
-		pr_err("failed to request gpio for LCD power: %d\n", ret);
-}
-
-static struct plat_lcd_data origen_lcd_hv070wsa_data = {
-	.set_power = lcd_hv070wsa_set_power,
+static struct lcd_pwrctrl_data origen_lcd_hv070wsa_data = {
+	.gpio	= EXYNOS4_GPE3(4),
 };
 
 static struct platform_device origen_lcd_hv070wsa = {
-	.name			= "platform-lcd",
+	.name			= "lcd-pwrctrl",
 	.dev.parent		= &s5p_device_fimd0.dev,
 	.dev.platform_data	= &origen_lcd_hv070wsa_data,
 };
@@ -646,7 +785,25 @@ static struct s3c_fb_pd_win origen_fb_win0 = {
 	.xres			= 1024,
 	.yres			= 600,
 	.max_bpp		= 32,
-	.default_bpp		= 24,
+	.default_bpp		= 32,
+	.virtual_x		= 1024,
+	.virtual_y		= 2 * 600,
+};
+
+static struct s3c_fb_pd_win origen_fb_win1 = {
+	.xres			= 1024,
+	.yres			= 600,
+	.max_bpp		= 32,
+	.default_bpp		= 32,
+	.virtual_x		= 1024,
+	.virtual_y		= 2 * 600,
+};
+
+static struct s3c_fb_pd_win origen_fb_win2 = {
+	.xres			= 1024,
+	.yres			= 600,
+	.max_bpp		= 32,
+	.default_bpp		= 32,
 	.virtual_x		= 1024,
 	.virtual_y		= 2 * 600,
 };
@@ -664,6 +821,8 @@ static struct fb_videomode origen_lcd_timing = {
 
 static struct s3c_fb_platdata origen_lcd_pdata __initdata = {
 	.win[0]		= &origen_fb_win0,
+	.win[1]		= &origen_fb_win1,
+	.win[2]		= &origen_fb_win2,
 	.vtiming	= &origen_lcd_timing,
 	.vidcon0	= VIDCON0_VIDOUT_RGB | VIDCON0_PNRMODE_RGB,
 	.vidcon1	= VIDCON1_INV_HSYNC | VIDCON1_INV_VSYNC |
@@ -690,9 +849,12 @@ static struct platform_device origen_device_bluetooth = {
 };
 
 static struct platform_device *origen_devices[] __initdata = {
+	&mmc_fixed_voltage,
 	&s3c_device_hsmmc2,
 	&s3c_device_hsmmc0,
+	&s3c_device_hsmmc3,
 	&s3c_device_i2c0,
+	&s3c_device_i2c1,
 	&s3c_device_rtc,
 	&s3c_device_usb_hsotg,
 	&s3c_device_wdt,
@@ -704,6 +866,7 @@ static struct platform_device *origen_devices[] __initdata = {
 	&s5p_device_fimc_md,
 	&s5p_device_fimd0,
 	&s5p_device_g2d,
+	&s5p_device_g3d,
 	&s5p_device_hdmi,
 	&s5p_device_i2c_hdmiphy,
 	&s5p_device_jpeg,
@@ -711,6 +874,7 @@ static struct platform_device *origen_devices[] __initdata = {
 	&s5p_device_mfc_l,
 	&s5p_device_mfc_r,
 	&s5p_device_mixer,
+	&exynos4_device_i2s0,
 	&exynos4_device_ohci,
 	&origen_device_gpiokeys,
 	&origen_lcd_hv070wsa,
@@ -768,7 +932,7 @@ static void __init origen_power_init(void)
 
 static void __init origen_reserve(void)
 {
-	s5p_mfc_reserve_mem(0x43000000, 8 << 20, 0x51000000, 8 << 20);
+	s5p_mfc_reserve_mem(0x43000000, 32 << 20, 0x51000000, 32 << 20);
 }
 
 static void __init origen_machine_init(void)
@@ -778,12 +942,16 @@ static void __init origen_machine_init(void)
 	s3c_i2c0_set_platdata(NULL);
 	i2c_register_board_info(0, i2c0_devs, ARRAY_SIZE(i2c0_devs));
 
+	s3c_i2c1_set_platdata(NULL);
+	i2c_register_board_info(1, i2c1_devs, ARRAY_SIZE(i2c1_devs));
+
 	/*
 	 * Since sdhci instance 2 can contain a bootable media,
 	 * sdhci instance 0 is registered after instance 2.
 	 */
 	s3c_sdhci2_set_platdata(&origen_hsmmc2_pdata);
 	s3c_sdhci0_set_platdata(&origen_hsmmc0_pdata);
+	s3c_sdhci3_set_platdata(&origen_hsmmc3_pdata);
 
 	origen_ehci_init();
 	origen_ohci_init();
@@ -800,12 +968,17 @@ static void __init origen_machine_init(void)
 	s5p_fimd0_set_platdata(&origen_lcd_pdata);
 #endif
 
+	regulator_register_always_on(FIXED_REG_ID_5V, "Fixed 5V",
+		fixed_5v_supply, ARRAY_SIZE(fixed_5v_supply), 5000000);
+
 	platform_add_devices(origen_devices, ARRAY_SIZE(origen_devices));
 
 	pwm_add_table(origen_pwm_lookup, ARRAY_SIZE(origen_pwm_lookup));
 	samsung_bl_set(&origen_bl_gpio_info, &origen_bl_data);
 
 	origen_bt_setup();
+
+	ath6kl_set_platform_data(&origen_wlan_data);
 }
 
 MACHINE_START(ORIGEN, "ORIGEN")

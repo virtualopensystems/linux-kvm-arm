@@ -121,7 +121,7 @@ ENTRY(stext)
 	bl	__fixup_smp
 #endif
 #ifdef CONFIG_ARM_PATCH_PHYS_VIRT
-	bl	__fixup_pv_table
+	bl	__fixup_pv_offsets
 #endif
 	bl	__create_page_tables
 
@@ -156,7 +156,7 @@ ENDPROC(stext)
  *
  * Returns:
  *  r0, r3, r5-r7 corrupted
- *  r4 = physical page table address
+ *  r4 = page table (see ARCH_PGD_SHIFT in asm/memory.h)
  */
 __create_page_tables:
 	pgtbl	r4, r8				@ page table address
@@ -310,6 +310,7 @@ __create_page_tables:
 #endif
 #ifdef CONFIG_ARM_LPAE
 	sub	r4, r4, #0x1000		@ point to the PGD table
+	mov	r4, r4, lsr #ARCH_PGD_SHIFT
 #endif
 	mov	pc, lr
 ENDPROC(__create_page_tables)
@@ -387,7 +388,7 @@ __secondary_data:
  *  r0  = cp#15 control register
  *  r1  = machine ID
  *  r2  = atags or dtb pointer
- *  r4  = page table pointer
+ *  r4	= page table (see ARCH_PGD_SHIFT in asm/memory.h)
  *  r9  = processor ID
  *  r13 = *virtual* address to jump to upon completion
  */
@@ -406,17 +407,22 @@ __enable_mmu:
 #ifdef CONFIG_CPU_ICACHE_DISABLE
 	bic	r0, r0, #CR_I
 #endif
-#ifdef CONFIG_ARM_LPAE
-	mov	r5, #0
-	mcrr	p15, 0, r4, r5, c2		@ load TTBR0
-#else
+#ifndef CONFIG_ARM_LPAE
+#ifndef	CONFIG_SYS_SUPPORTS_HUGETLBFS
 	mov	r5, #(domain_val(DOMAIN_USER, DOMAIN_MANAGER) | \
 		      domain_val(DOMAIN_KERNEL, DOMAIN_MANAGER) | \
 		      domain_val(DOMAIN_TABLE, DOMAIN_MANAGER) | \
 		      domain_val(DOMAIN_IO, DOMAIN_CLIENT))
+#else
+	@ set ourselves as the client in all domains
+	@ this allows us to then use the 4 domain bits in the
+	@ section descriptors in our transparent huge pages
+	ldr	r5, =0x55555555
+#endif /* CONFIG_SYS_SUPPORTS_HUGETLBFS */
+
 	mcr	p15, 0, r5, c3, c0, 0		@ load domain access register
 	mcr	p15, 0, r4, c2, c0, 0		@ load page table pointer
-#endif
+#endif /* CONFIG_ARM_LPAE */
 	b	__turn_mmu_on
 ENDPROC(__enable_mmu)
 
@@ -519,92 +525,33 @@ ENDPROC(fixup_smp)
 
 #ifdef CONFIG_ARM_PATCH_PHYS_VIRT
 
-/* __fixup_pv_table - patch the stub instructions with the delta between
- * PHYS_OFFSET and PAGE_OFFSET, which is assumed to be 16MiB aligned and
- * can be expressed by an immediate shifter operand. The stub instruction
- * has a form of '(add|sub) rd, rn, #imm'.
+/*
+ * __fixup_pv_offsets - update __pv_offset and __pv_phys_offset based on the
+ * runtime location of the kernel.
  */
 	__HEAD
-__fixup_pv_table:
+__fixup_pv_offsets:
 	adr	r0, 1f
-	ldmia	r0, {r3-r5, r7}
+	ldmia	r0, {r3-r6}
 	sub	r3, r0, r3	@ PHYS_OFFSET - PAGE_OFFSET
-	add	r4, r4, r3	@ adjust table start address
-	add	r5, r5, r3	@ adjust table end address
-	add	r7, r7, r3	@ adjust __pv_phys_offset address
-	str	r8, [r7]	@ save computed PHYS_OFFSET to __pv_phys_offset
-	mov	r6, r3, lsr #24	@ constant for add/sub instructions
-	teq	r3, r6, lsl #24 @ must be 16MiB aligned
-THUMB(	it	ne		@ cross section branch )
-	bne	__error
-	str	r6, [r7, #4]	@ save to __pv_offset
-	b	__fixup_a_pv_table
-ENDPROC(__fixup_pv_table)
+	add	r4, r4, r3	@ virt_to_phys(__pv_phys_offset)
+	add	r5, r5, r3	@ virt_to_phys(__pv_offset)
+	add	r6, r6, r3	@ virt_to_phys(PAGE_OFFSET) = PHYS_OFFSET
+	str	r6, [r4]	@ save __pv_phys_offset
+	str	r3, [r5]	@ save __pv_offset
+	mov	pc, lr
+ENDPROC(__fixup_pv_offsets)
 
 	.align
 1:	.long	.
-	.long	__pv_table_begin
-	.long	__pv_table_end
-2:	.long	__pv_phys_offset
-
-	.text
-__fixup_a_pv_table:
-#ifdef CONFIG_THUMB2_KERNEL
-	lsls	r6, #24
-	beq	2f
-	clz	r7, r6
-	lsr	r6, #24
-	lsl	r6, r7
-	bic	r6, #0x0080
-	lsrs	r7, #1
-	orrcs	r6, #0x0080
-	orr	r6, r6, r7, lsl #12
-	orr	r6, #0x4000
-	b	2f
-1:	add     r7, r3
-	ldrh	ip, [r7, #2]
-	and	ip, 0x8f00
-	orr	ip, r6	@ mask in offset bits 31-24
-	strh	ip, [r7, #2]
-2:	cmp	r4, r5
-	ldrcc	r7, [r4], #4	@ use branch for delay slot
-	bcc	1b
-	bx	lr
+#if defined(CONFIG_ARM_LPAE) && defined(__ARMEB__)
+	.long	__pv_phys_offset + 4
 #else
-	b	2f
-1:	ldr	ip, [r7, r3]
-	bic	ip, ip, #0x000000ff
-	orr	ip, ip, r6	@ mask in offset bits 31-24
-	str	ip, [r7, r3]
-2:	cmp	r4, r5
-	ldrcc	r7, [r4], #4	@ use branch for delay slot
-	bcc	1b
-	mov	pc, lr
+	.long	__pv_phys_offset
 #endif
-ENDPROC(__fixup_a_pv_table)
-
-ENTRY(fixup_pv_table)
-	stmfd	sp!, {r4 - r7, lr}
-	ldr	r2, 2f			@ get address of __pv_phys_offset
-	mov	r3, #0			@ no offset
-	mov	r4, r0			@ r0 = table start
-	add	r5, r0, r1		@ r1 = table size
-	ldr	r6, [r2, #4]		@ get __pv_offset
-	bl	__fixup_a_pv_table
-	ldmfd	sp!, {r4 - r7, pc}
-ENDPROC(fixup_pv_table)
-
-	.align
-2:	.long	__pv_phys_offset
-
-	.data
-	.globl	__pv_phys_offset
-	.type	__pv_phys_offset, %object
-__pv_phys_offset:
-	.long	0
-	.size	__pv_phys_offset, . - __pv_phys_offset
-__pv_offset:
-	.long	0
+	.long	__pv_offset
+	.long	PAGE_OFFSET
 #endif
+
 
 #include "head-common.S"

@@ -17,14 +17,39 @@
 
 #include <asm/mach/arch.h>
 #include <asm/hardware/gic.h>
+
 #include <mach/map.h>
 #include <mach/regs-pmu.h>
 
 #include <plat/cpu.h>
 #include <plat/regs-serial.h>
 #include <plat/mfc.h>
+#include <linux/platform_data/samsung-usbphy.h>
+#include <linux/platform_data/usb-exynos.h>
+
+#include <plat/regs-srom.h>
+#include <plat/devs.h>
+#include <plat/usb-phy.h>
+#include <linux/platform_data/usb-ehci-s5p.h>
 
 #include "common.h"
+
+
+
+static struct samsung_usbphy_data exynos5_usbphy_pdata = {
+	.pmu_isolation = s5p_usb_phy_pmu_isolation,
+	.phy_cfg_sel = s5p_usb_phy_cfg_sel,
+};
+
+static struct exynos4_ohci_platdata smdk5250_ohci_pdata = {
+	.phy_init = s5p_usb_phy_init,
+	.phy_exit = s5p_usb_phy_exit,
+};
+
+static struct s5p_ehci_platdata smdk5250_ehci_pdata = {
+	.phy_init = s5p_usb_phy_init,
+	.phy_exit = s5p_usb_phy_exit,
+};
 
 /*
  * The following lookup table is used to override device names when devices
@@ -80,11 +105,11 @@ static const struct of_dev_auxdata exynos5250_auxdata_lookup[] __initconst = {
 				"exynos4210-spi.1", NULL),
 	OF_DEV_AUXDATA("samsung,exynos4210-spi", EXYNOS5_PA_SPI2,
 				"exynos4210-spi.2", NULL),
-	OF_DEV_AUXDATA("samsung,exynos5-sata-ahci", 0x122F0000,
+	OF_DEV_AUXDATA("samsung,exynos5-sata-ahci", EXYNOS5_PA_SATA_BASE,
 				"exynos5-sata", NULL),
-	OF_DEV_AUXDATA("samsung,exynos5-sata-phy", 0x12170000,
+	OF_DEV_AUXDATA("samsung,exynos5-sata-phy", EXYNOS5_PA_SATA_PHY_CTRL,
 				"exynos5-sata-phy", NULL),
-	OF_DEV_AUXDATA("samsung,exynos5-sata-phy-i2c", 0x121D0000,
+	OF_DEV_AUXDATA("samsung,exynos5-sata-phy-i2c", EXYNOS5_PA_SATA_PHY_I2C,
 				"exynos5-sata-phy-i2c", NULL),
 	OF_DEV_AUXDATA("arm,pl330", EXYNOS5_PA_PDMA0, "dma-pl330.0", NULL),
 	OF_DEV_AUXDATA("arm,pl330", EXYNOS5_PA_PDMA1, "dma-pl330.1", NULL),
@@ -104,6 +129,14 @@ static const struct of_dev_auxdata exynos5250_auxdata_lookup[] __initconst = {
 	OF_DEV_AUXDATA("samsung,mfc-v6", 0x11000000, "s5p-mfc-v6", NULL),
 	OF_DEV_AUXDATA("samsung,exynos5250-tmu", 0x10060000,
 				"exynos-tmu", NULL),
+	OF_DEV_AUXDATA("samsung,exynos5250-usbphy", EXYNOS5_PA_HSPHY,
+				"s3c-usbphy", &exynos5_usbphy_pdata),
+	OF_DEV_AUXDATA("samsung,exynos-dwc3", EXYNOS5_PA_DRD,
+				"exynos-dwc3", NULL),
+	OF_DEV_AUXDATA("samsung,exynos-ohci", 0x12120000,
+				"exynos-ohci", &smdk5250_ohci_pdata),
+	OF_DEV_AUXDATA("samsung,exynos-ehci", 0x12110000,
+				"s5p-ehci", &smdk5250_ehci_pdata),
 	{},
 };
 
@@ -121,6 +154,11 @@ static void __init exynos5_dt_map_io(void)
 
 	if (of_flat_dt_is_compatible(root, "samsung,exynos5250"))
 		s3c24xx_init_clocks(24000000);
+}
+
+static void exynos5_i2c_setup(void)
+{	/* Setup the low-speed i2c controller interrupts */
+	writel(0x0, EXYNOS5_SYS_I2C_CFG);
 }
 
 static void __init exynos5_dt_machine_init(void)
@@ -146,6 +184,8 @@ static void __init exynos5_dt_machine_init(void)
 			}
 		}
 	}
+
+	exynos5_i2c_setup();
 
 	if (of_machine_is_compatible("samsung,exynos5250"))
 		of_platform_populate(NULL, of_default_bus_match_table,

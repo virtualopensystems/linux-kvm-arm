@@ -31,6 +31,8 @@
 #include <linux/pm_runtime.h>
 #include <linux/clk.h>
 #include <linux/regulator/consumer.h>
+#include <linux/of.h>
+#include <linux/of_i2c.h>
 
 #include <media/s5p_hdmi.h>
 #include <media/v4l2-common.h>
@@ -44,7 +46,7 @@ MODULE_DESCRIPTION("Samsung HDMI");
 MODULE_LICENSE("GPL");
 
 /* default preset configured on probe */
-#define HDMI_DEFAULT_PRESET V4L2_DV_480P59_94
+#define HDMI_DEFAULT_PRESET V4L2_DV_1080P60
 
 struct hdmi_pulse {
 	u32 beg;
@@ -176,16 +178,175 @@ static irqreturn_t hdmi_irq_handler(int irq, void *dev_data)
 	return IRQ_HANDLED;
 }
 
+/* Audio related changes */
+static void hdmi_set_acr(u32 freq, u8 *acr)
+{
+	u32 n, cts;
+
+	switch (freq) {
+	case 32000:
+		n = 4096;
+		cts = 27000;
+		break;
+	case 44100:
+		n = 6272;
+		cts = 30000;
+		break;
+	case 88200:
+		n = 12544;
+		cts = 30000;
+		break;
+	case 176400:
+		n = 25088;
+		cts = 30000;
+		break;
+	case 48000:
+		n = 6144;
+		cts = 27000;
+		break;
+	case 96000:
+		n = 12288;
+		cts = 27000;
+		break;
+	case 192000:
+		n = 24576;
+		cts = 27000;
+		break;
+	default:
+		n = 0;
+		cts = 0;
+		break;
+	}
+
+	acr[1] = cts >> 16;
+	acr[2] = cts >> 8 & 0xff;
+	acr[3] = cts & 0xff;
+
+	acr[4] = n >> 16;
+	acr[5] = n >> 8 & 0xff;
+	acr[6] = n & 0xff;
+}
+
+static void hdmi_reg_acr(struct hdmi_device *hdev, u8 *acr)
+{
+	hdmi_writeb(hdev, HDMI_ACR_N0, acr[6]);
+	hdmi_writeb(hdev, HDMI_ACR_N1, acr[5]);
+	hdmi_writeb(hdev, HDMI_ACR_N2, acr[4]);
+	hdmi_writeb(hdev, HDMI_ACR_MCTS0, acr[3]);
+	hdmi_writeb(hdev, HDMI_ACR_MCTS1, acr[2]);
+	hdmi_writeb(hdev, HDMI_ACR_MCTS2, acr[1]);
+	hdmi_writeb(hdev, HDMI_ACR_CTS0, acr[3]);
+	hdmi_writeb(hdev, HDMI_ACR_CTS1, acr[2]);
+	hdmi_writeb(hdev, HDMI_ACR_CTS2, acr[1]);
+
+	hdmi_writeb(hdev, HDMI_ACR_CON, 4);
+}
+
+static void hdmi_audio_init(struct hdmi_device *hdev)
+{
+	u32 sample_rate, bits_per_sample, frame_size_code;
+	u32 data_num, bit_ch, sample_frq;
+	u32 val;
+	u8 acr[7];
+
+	sample_rate = 44100;
+	bits_per_sample = 16;
+	frame_size_code = 0;
+
+	switch (bits_per_sample) {
+	case 20:
+		data_num = 2;
+		bit_ch = 1;
+		break;
+	case 24:
+		data_num = 3;
+		bit_ch = 1;
+		break;
+	default:
+		data_num = 1;
+		bit_ch = 0;
+		break;
+	}
+
+	hdmi_set_acr(sample_rate, acr);
+	hdmi_reg_acr(hdev, acr);
+
+	hdmi_writeb(hdev, HDMI_I2S_MUX_CON, HDMI_I2S_IN_DISABLE
+			| HDMI_I2S_AUD_I2S | HDMI_I2S_CUV_I2S_ENABLE
+			| HDMI_I2S_MUX_ENABLE);
+
+	hdmi_writeb(hdev, HDMI_I2S_MUX_CH, HDMI_I2S_CH0_EN
+			| HDMI_I2S_CH1_EN | HDMI_I2S_CH2_EN);
+
+	hdmi_writeb(hdev, HDMI_I2S_MUX_CUV, HDMI_I2S_CUV_RL_EN);
+
+	sample_frq = (sample_rate == 44100) ? 0 :
+		(sample_rate == 48000) ? 2 :
+		(sample_rate == 32000) ? 3 :
+		(sample_rate == 96000) ? 0xa : 0x0;
+
+	hdmi_writeb(hdev, HDMI_I2S_CLK_CON, HDMI_I2S_CLK_DIS);
+	hdmi_writeb(hdev, HDMI_I2S_CLK_CON, HDMI_I2S_CLK_EN);
+
+	val = hdmi_read(hdev, HDMI_I2S_DSD_CON) | 0x01;
+	hdmi_writeb(hdev, HDMI_I2S_DSD_CON, val);
+
+	/* Configuration I2S input ports. Configure I2S_PIN_SEL_0~4 */
+	hdmi_writeb(hdev, HDMI_I2S_PIN_SEL_0, HDMI_I2S_SEL_SCLK(5)
+			| HDMI_I2S_SEL_LRCK(6));
+	hdmi_writeb(hdev, HDMI_I2S_PIN_SEL_1, HDMI_I2S_SEL_SDATA1(3)
+			| HDMI_I2S_SEL_SDATA2(4));
+	hdmi_writeb(hdev, HDMI_I2S_PIN_SEL_2, HDMI_I2S_SEL_SDATA3(1)
+			| HDMI_I2S_SEL_SDATA2(2));
+	hdmi_writeb(hdev, HDMI_I2S_PIN_SEL_3, HDMI_I2S_SEL_DSD(0));
+
+	/* I2S_CON_1 & 2 */
+	hdmi_writeb(hdev, HDMI_I2S_CON_1, HDMI_I2S_SCLK_FALLING_EDGE
+			| HDMI_I2S_L_CH_LOW_POL);
+	hdmi_writeb(hdev, HDMI_I2S_CON_2, HDMI_I2S_MSB_FIRST_MODE
+			| HDMI_I2S_SET_BIT_CH(bit_ch)
+			| HDMI_I2S_SET_SDATA_BIT(data_num)
+			| HDMI_I2S_BASIC_FORMAT);
+
+	/* Configure register related to CUV information */
+	hdmi_writeb(hdev, HDMI_I2S_CH_ST_0, HDMI_I2S_CH_STATUS_MODE_0
+			| HDMI_I2S_2AUD_CH_WITHOUT_PREEMPH
+			| HDMI_I2S_COPYRIGHT
+			| HDMI_I2S_LINEAR_PCM
+			| HDMI_I2S_CONSUMER_FORMAT);
+	hdmi_writeb(hdev, HDMI_I2S_CH_ST_1, HDMI_I2S_CD_PLAYER);
+	hdmi_writeb(hdev, HDMI_I2S_CH_ST_2, HDMI_I2S_SET_SOURCE_NUM(0));
+	hdmi_writeb(hdev, HDMI_I2S_CH_ST_3, HDMI_I2S_CLK_ACCUR_LEVEL_2
+			| HDMI_I2S_SET_SMP_FREQ(sample_frq));
+	hdmi_writeb(hdev, HDMI_I2S_CH_ST_4,
+			HDMI_I2S_ORG_SMP_FREQ_44_1
+			| HDMI_I2S_WORD_LEN_MAX24_24BITS
+			| HDMI_I2S_WORD_LEN_MAX_24BITS);
+
+	hdmi_writeb(hdev, HDMI_I2S_CH_ST_CON, HDMI_I2S_CH_STATUS_RELOAD);
+}
+
+static void hdmi_audio_control(struct hdmi_device *hdev, bool onoff)
+{
+	u32 mod;
+
+	mod = hdmi_read(hdev, HDMI_MODE_SEL);
+	if (mod & HDMI_MODE_DVI_EN)
+		return;
+
+	hdmi_writeb(hdev, HDMI_AUI_CON, onoff ? 2 : 0);
+	hdmi_write_mask(hdev, HDMI_CON_0, onoff ?
+			HDMI_ASP_EN : HDMI_ASP_DIS, HDMI_ASP_MASK);
+}
+
 static void hdmi_reg_init(struct hdmi_device *hdev)
 {
 	/* enable HPD interrupts */
 	hdmi_write_mask(hdev, HDMI_INTC_CON, ~0, HDMI_INTC_EN_GLOBAL |
 		HDMI_INTC_EN_HPD_PLUG | HDMI_INTC_EN_HPD_UNPLUG);
-	/* choose DVI mode */
+	/* choose HDMI mode */
 	hdmi_write_mask(hdev, HDMI_MODE_SEL,
-		HDMI_MODE_DVI_EN, HDMI_MODE_MASK);
-	hdmi_write_mask(hdev, HDMI_CON_2, ~0,
-		HDMI_DVI_PERAMBLE_EN | HDMI_DVI_BAND_EN);
+		HDMI_MODE_HDMI_EN, HDMI_MODE_MASK);
 	/* disable bluescreen */
 	hdmi_write_mask(hdev, HDMI_CON_0, 0, HDMI_BLUE_SCR_EN);
 	/* choose bluescreen (fecal) color */
@@ -282,9 +443,11 @@ static int hdmi_conf_apply(struct hdmi_device *hdmi_dev)
 	mdelay(10);
 
 	hdmi_reg_init(hdmi_dev);
+	hdmi_audio_init(hdmi_dev);
 
 	/* setting core registers */
 	hdmi_timing_apply(hdmi_dev, conf);
+	hdmi_audio_control(hdmi_dev, true);
 
 	hdmi_dev->cur_conf_dirty = 0;
 
@@ -679,6 +842,56 @@ static int hdmi_enum_dv_presets(struct v4l2_subdev *sd,
 		preset);
 }
 
+#ifdef CONFIG_OF
+/* Heavily based[1] on v4l2_i2c_new_subdev_board()
+ *
+ * [1] Copy-pasted, that is
+ */
+struct v4l2_subdev *hdmi_of_get_i2c_subdev(struct v4l2_device *v4l2_dev,
+	struct device_node *np, const char *propname)
+{
+	struct v4l2_subdev *sd = NULL;
+	struct i2c_client *client;
+	struct device_node *cnp;
+
+	BUG_ON(!v4l2_dev);
+
+	cnp = of_parse_phandle(np, propname, 0);
+	if (!cnp) {
+		dev_err(v4l2_dev->dev, "Can't find subdev %s\n", propname);
+		goto err;
+	}
+
+	client = of_find_i2c_device_by_node(cnp);
+	if (!client) {
+		dev_err(v4l2_dev->dev, "subdev %s doesn't reference correct node\n",
+			propname);
+		goto err;
+	}
+
+	if (client == NULL || client->driver == NULL)
+		goto err;
+
+	/* Lock the module so we can safely get the v4l2_subdev pointer */
+	if (!try_module_get(client->driver->driver.owner))
+		goto err;
+	sd = i2c_get_clientdata(client);
+
+	/* Register with the v4l2_device which increases the module's
+	   use count as well. */
+	if (v4l2_device_register_subdev(v4l2_dev, sd)) {
+		printk(KERN_ERR "%s: failed to register subdev\n", __func__);
+		sd = NULL;
+	}
+	/* Decrease the module use count to match the first try_module_get. */
+	module_put(client->driver->driver.owner);
+err:
+	of_node_put(cnp);
+
+	return sd;
+}
+#endif
+
 static const struct v4l2_subdev_core_ops hdmi_sd_core_ops = {
 	.s_power = hdmi_s_power,
 };
@@ -702,8 +915,15 @@ static int hdmi_runtime_suspend(struct device *dev)
 	struct hdmi_device *hdev = sd_to_hdmi_dev(sd);
 
 	dev_dbg(dev, "%s\n", __func__);
+#if 0
+	/*
+	 * Currently we are getting a system-hang during soft-reboot and
+	 * suspend-resume here. Commenting temporarily to fix that issue.
+	 * Also HDMI is not working after resume.
+	 */
 	v4l2_subdev_call(hdev->mhl_sd, core, s_power, 0);
 	hdmi_resource_poweroff(&hdev->res);
+#endif
 	/* flag that device context is lost */
 	hdev->cur_conf_dirty = 1;
 	return 0;
@@ -830,11 +1050,53 @@ fail:
 	return -ENODEV;
 }
 
+static struct v4l2_subdev *hdmi_get_subdev(
+	struct hdmi_device *hdmi_dev,
+	struct i2c_board_info *bdinfo,
+	int bus,
+	const char *propname)
+{
+	struct v4l2_subdev *sd = NULL;
+	struct i2c_adapter *adapter;
+	struct device *dev = hdmi_dev->dev;
+
+#ifdef CONFIG_OF
+	if (dev->of_node)
+		return hdmi_of_get_i2c_subdev(&hdmi_dev->v4l2_dev,
+					   dev->of_node, propname);
+#endif
+
+	if (!bdinfo) {
+		dev_err(dev, "%s info is missing in platform data\n",
+			propname);
+		return ERR_PTR(-ENXIO);
+	}
+
+	adapter = i2c_get_adapter(bus);
+	if (adapter == NULL) {
+		dev_err(dev, "%s adapter request failed, name\n",
+			propname);
+		return ERR_PTR(-ENXIO);
+	}
+
+	sd = v4l2_i2c_new_subdev_board(&hdmi_dev->v4l2_dev,
+				       adapter, bdinfo, NULL);
+
+	/* on failure or not adapter is no longer useful */
+	i2c_put_adapter(adapter);
+
+	if (sd == NULL) {
+		dev_err(dev, "missing subdev for %s\n", propname);
+		return ERR_PTR(-ENODEV);
+	}
+
+	return sd;
+}
+
 static int hdmi_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
 	struct resource *res;
-	struct i2c_adapter *adapter;
 	struct v4l2_subdev *sd;
 	struct hdmi_device *hdmi_dev = NULL;
 	struct s5p_hdmi_platform_data *pdata = dev->platform_data;
@@ -842,7 +1104,7 @@ static int hdmi_probe(struct platform_device *pdev)
 
 	dev_dbg(dev, "probe start\n");
 
-	if (!pdata) {
+	if (!pdata && !dev->of_node) {
 		dev_err(dev, "platform data is missing\n");
 		ret = -ENODEV;
 		goto fail;
@@ -902,47 +1164,22 @@ static int hdmi_probe(struct platform_device *pdev)
 		goto fail_init;
 	}
 
-	/* testing if hdmiphy info is present */
-	if (!pdata->hdmiphy_info) {
-		dev_err(dev, "hdmiphy info is missing in platform data\n");
-		ret = -ENXIO;
+	hdmi_dev->phy_sd = hdmi_get_subdev(hdmi_dev,
+					   pdata ? pdata->hdmiphy_info : NULL,
+					   pdata ? pdata->hdmiphy_bus : -1,
+					   "phy");
+	if (IS_ERR_OR_NULL(hdmi_dev->phy_sd)) {
+		ret = PTR_ERR(hdmi_dev->phy_sd);
 		goto fail_vdev;
 	}
 
-	adapter = i2c_get_adapter(pdata->hdmiphy_bus);
-	if (adapter == NULL) {
-		dev_err(dev, "hdmiphy adapter request failed\n");
-		ret = -ENXIO;
-		goto fail_vdev;
-	}
-
-	hdmi_dev->phy_sd = v4l2_i2c_new_subdev_board(&hdmi_dev->v4l2_dev,
-		adapter, pdata->hdmiphy_info, NULL);
-	/* on failure or not adapter is no longer useful */
-	i2c_put_adapter(adapter);
-	if (hdmi_dev->phy_sd == NULL) {
-		dev_err(dev, "missing subdev for hdmiphy\n");
-		ret = -ENODEV;
-		goto fail_vdev;
-	}
-
-	/* initialization of MHL interface if present */
-	if (pdata->mhl_info) {
-		adapter = i2c_get_adapter(pdata->mhl_bus);
-		if (adapter == NULL) {
-			dev_err(dev, "MHL adapter request failed\n");
-			ret = -ENXIO;
-			goto fail_vdev;
-		}
-
-		hdmi_dev->mhl_sd = v4l2_i2c_new_subdev_board(
-			&hdmi_dev->v4l2_dev, adapter,
-			pdata->mhl_info, NULL);
-		/* on failure or not adapter is no longer useful */
-		i2c_put_adapter(adapter);
-		if (hdmi_dev->mhl_sd == NULL) {
-			dev_err(dev, "missing subdev for MHL\n");
-			ret = -ENODEV;
+	if (pdata && pdata->mhl_info) {
+		hdmi_dev->mhl_sd = hdmi_get_subdev(hdmi_dev,
+				pdata ? pdata->mhl_info : NULL ,
+				pdata ? pdata->mhl_bus : -1,
+				"mhl");
+		if (IS_ERR_OR_NULL(hdmi_dev->mhl_sd)) {
+			ret = PTR_ERR(hdmi_dev->mhl_sd);
 			goto fail_vdev;
 		}
 	}
@@ -995,6 +1232,13 @@ static int hdmi_remove(struct platform_device *pdev)
 	return 0;
 }
 
+#ifdef CONFIG_OF
+static struct of_device_id hdmi_dt_match[] = {
+	{ .compatible = "samsung,s5pv210-hdmi" },
+	{ },
+};
+#endif
+
 static struct platform_driver hdmi_driver __refdata = {
 	.probe = hdmi_probe,
 	.remove = hdmi_remove,
@@ -1003,6 +1247,7 @@ static struct platform_driver hdmi_driver __refdata = {
 		.name = "s5p-hdmi",
 		.owner = THIS_MODULE,
 		.pm = &hdmi_pm_ops,
+		.of_match_table = of_match_ptr(hdmi_dt_match),
 	}
 };
 

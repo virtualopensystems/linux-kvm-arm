@@ -23,6 +23,7 @@
 #include <linux/mmc/sdio_ids.h>
 #include <linux/mmc/sdio.h>
 #include <linux/mmc/sd.h>
+#include <linux/ath6kl.h>
 #include "hif.h"
 #include "hif-ops.h"
 #include "target.h"
@@ -1407,7 +1408,11 @@ static struct sdio_driver ath6kl_sdio_driver = {
 static int __init ath6kl_sdio_init(void)
 {
 	int ret;
+	const struct ath6kl_platform_data *wlan_data;
 
+	wlan_data = ath6kl_get_platform_data();
+	if (!IS_ERR(wlan_data))
+		wlan_data->setup_power(true);
 	ret = sdio_register_driver(&ath6kl_sdio_driver);
 	if (ret)
 		ath6kl_err("sdio driver registration failed: %d\n", ret);
@@ -1417,7 +1422,13 @@ static int __init ath6kl_sdio_init(void)
 
 static void __exit ath6kl_sdio_exit(void)
 {
+	const struct ath6kl_platform_data *wlan_data;
+
 	sdio_unregister_driver(&ath6kl_sdio_driver);
+
+	wlan_data = ath6kl_get_platform_data();
+	if (!IS_ERR(wlan_data))
+		wlan_data->setup_power(false);
 }
 
 module_init(ath6kl_sdio_init);

@@ -83,6 +83,7 @@ extern struct platform_device s5p_device_fimc3;
 extern struct platform_device s5p_device_fimc_md;
 extern struct platform_device s5p_device_jpeg;
 extern struct platform_device s5p_device_g2d;
+extern struct platform_device s5p_device_g3d;
 extern struct platform_device s5p_device_fimd0;
 extern struct platform_device s5p_device_hdmi;
 extern struct platform_device s5p_device_i2c_hdmiphy;
@@ -134,7 +135,6 @@ extern struct platform_device exynos4_device_spdif;
 
 extern struct platform_device samsung_asoc_idma;
 extern struct platform_device samsung_device_keypad;
-
 /* s3c2440 specific devices */
 
 #ifdef CONFIG_CPU_S3C2440

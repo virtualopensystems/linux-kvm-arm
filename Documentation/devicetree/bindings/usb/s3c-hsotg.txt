@@ -1,0 +1,16 @@
+Samsung HSOTG controller s3c-hsotg
+
+Required properties:
+  - compatible : should be "samsung,exynos-hsotg".
+  - reg : should contain at least address and length of the standard HSOTG
+    register set for the device.
+  - interrupts : one HSOTG interrupt should be described here.
+
+Example (Samsung Origen):
+
+	usb@12480000 {
+		compatible = "samsung,exynos-hsotg";
+		reg = <0x12480000 0x20000>;
+		interrupts = <0 71 0>;
+	};
+

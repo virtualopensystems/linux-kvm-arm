@@ -14,14 +14,57 @@
 #include <linux/of_platform.h>
 #include <linux/serial_core.h>
 
+#include <linux/platform_data/usb-ehci-s5p.h>
+#include <linux/platform_data/usb-exynos.h>
+
+#include <linux/platform_data/s3c-hsotg.h>
+#include <linux/pwm_backlight.h>
+#include <linux/gpio.h>
+#include <linux/fb.h>
+#include <linux/lcd.h>
+
+#include <video/samsung_fimd.h>
+
+#include <plat/backlight.h>
+#include <plat/gpio-cfg.h>
+#include <plat/fb.h>
+#include <plat/devs.h>
+
 #include <asm/mach/arch.h>
 #include <asm/hardware/gic.h>
 #include <mach/map.h>
 
 #include <plat/cpu.h>
 #include <plat/regs-serial.h>
+#include <plat/usb-phy.h>
 
 #include "common.h"
+
+static struct s5p_ehci_platdata origen_ehci_pdata = {
+	.phy_init = s5p_usb_phy_init,
+	.phy_exit = s5p_usb_phy_exit,
+};
+
+static struct exynos4_ohci_platdata origen_ohci_pdata = {
+	.phy_init = s5p_usb_phy_init,
+	.phy_exit = s5p_usb_phy_exit,
+};
+
+static struct s3c_hsotg_plat origen_hsotg_pdata = {
+	.phy_init = s5p_usb_phy_init,
+	.phy_exit = s5p_usb_phy_exit,
+};
+
+/* LCD Backlight data */
+static struct samsung_bl_gpio_info origen_bl_gpio_info = {
+	.no	= EXYNOS4_GPD0(0),
+	.func	= S3C_GPIO_SFN(2),
+};
+
+static struct platform_pwm_backlight_data origen_bl_data = {
+	.pwm_id		= 0,
+	.pwm_period_ns	= 1000,
+};
 
 /*
  * The following lookup table is used to override device names when devices
@@ -69,6 +112,12 @@ static const struct of_dev_auxdata exynos4_auxdata_lookup[] __initconst = {
 				"s3c2440-i2c.6", NULL),
 	OF_DEV_AUXDATA("samsung,s3c2440-i2c", EXYNOS4_PA_IIC(7),
 				"s3c2440-i2c.7", NULL),
+	OF_DEV_AUXDATA("samsung,s3c2440-hdmiphy-i2c", EXYNOS4_PA_IIC_HDMIPHY,
+				"s3c2440-hdmiphy-i2c", NULL),
+	OF_DEV_AUXDATA("samsung,s5pv210-tvmixer", EXYNOS4_PA_MIXER,
+				"s5p-mixer", NULL),
+	OF_DEV_AUXDATA("samsung,s5pv210-hdmi", EXYNOS4_PA_HDMI,
+				"exynos4-hdmi", NULL),
 	OF_DEV_AUXDATA("samsung,exynos4210-spi", EXYNOS4_PA_SPI0,
 				"exynos4210-spi.0", NULL),
 	OF_DEV_AUXDATA("samsung,exynos4210-spi", EXYNOS4_PA_SPI1,
@@ -80,6 +129,16 @@ static const struct of_dev_auxdata exynos4_auxdata_lookup[] __initconst = {
 	OF_DEV_AUXDATA("arm,pl330", EXYNOS4_PA_MDMA1, "dma-pl330.2", NULL),
 	OF_DEV_AUXDATA("samsung,exynos4210-tmu", EXYNOS4_PA_TMU,
 				"exynos-tmu", NULL),
+	OF_DEV_AUXDATA("samsung,exynos-ehci", EXYNOS4_PA_EHCI, "s5p-ehci",
+			&origen_ehci_pdata),
+	OF_DEV_AUXDATA("samsung,exynos-ohci", EXYNOS4_PA_OHCI, "exynos-ohci",
+			&origen_ohci_pdata),
+	OF_DEV_AUXDATA("samsung,exynos-hsotg", EXYNOS4_PA_HSOTG, "s3c-hsotg",
+			&origen_hsotg_pdata),
+	OF_DEV_AUXDATA("samsung,exynos4210-fimd", EXYNOS4_PA_FIMD0,
+			"exynos4-fb.0", NULL),
+	OF_DEV_AUXDATA("samsung,samsung-i2s", EXYNOS4_PA_I2S0,
+						"samsung-i2s.0", NULL),
 	{},
 };
 
@@ -89,10 +148,21 @@ static void __init exynos4_dt_map_io(void)
 	s3c24xx_init_clocks(24000000);
 }
 
+static void __init exynos4_setup_fimd(void)
+{
+	unsigned int reg;
+
+	reg = __raw_readl(S3C_VA_SYS + 0x0210);
+	reg |= (1 << 1);
+	__raw_writel(reg, S3C_VA_SYS + 0x0210);
+}
+
 static void __init exynos4_dt_machine_init(void)
 {
 	of_platform_populate(NULL, of_default_bus_match_table,
 				exynos4_auxdata_lookup, NULL);
+	samsung_bl_set(&origen_bl_gpio_info, &origen_bl_data);
+	exynos4_setup_fimd();
 }
 
 static char const *exynos4_dt_compat[] __initdata = {

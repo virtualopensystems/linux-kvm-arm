@@ -82,7 +82,7 @@
 
 #define EXYNOS_TRIMINFO_RELOAD		0x1
 #define EXYNOS_TMU_CLEAR_RISE_INT	0x111
-#define EXYNOS_TMU_CLEAR_FALL_INT	(0x111 << 16)
+#define EXYNOS_TMU_CLEAR_FALL_INT	(0x111 << 12)
 #define EXYNOS_MUX_ADDR_VALUE		6
 #define EXYNOS_MUX_ADDR_SHIFT		20
 #define EXYNOS_TMU_TRIP_MODE_SHIFT	13
@@ -94,6 +94,7 @@
 #define SENSOR_NAME_LEN	16
 #define MAX_TRIP_COUNT	8
 #define MAX_COOLING_DEVICE 4
+#define MAX_THRESHOLD_LEVS 4
 
 #define ACTIVE_INTERVAL 500
 #define IDLE_INTERVAL 10000
@@ -125,6 +126,7 @@ struct exynos_tmu_data {
 struct	thermal_trip_point_conf {
 	int trip_val[MAX_TRIP_COUNT];
 	int trip_count;
+	u8 trigger_falling;
 };
 
 struct	thermal_cooling_conf {
@@ -174,7 +176,8 @@ static int exynos_set_mode(struct thermal_zone_device *thermal,
 
 	mutex_lock(&th_zone->therm_dev->lock);
 
-	if (mode == THERMAL_DEVICE_ENABLED)
+	if (mode == THERMAL_DEVICE_ENABLED &&
+		!th_zone->sensor_conf->trip_data.trigger_falling)
 		th_zone->therm_dev->polling_delay = IDLE_INTERVAL;
 	else
 		th_zone->therm_dev->polling_delay = 0;
@@ -284,7 +287,7 @@ static int exynos_bind(struct thermal_zone_device *thermal,
 		case MONITOR_ZONE:
 		case WARN_ZONE:
 			if (thermal_zone_bind_cooling_device(thermal, i, cdev,
-								level, level)) {
+								level, 0)) {
 				pr_err("error binding cdev inst %d\n", i);
 				ret = -EINVAL;
 			}
@@ -362,12 +365,19 @@ static int exynos_get_temp(struct thermal_zone_device *thermal,
 static int exynos_get_trend(struct thermal_zone_device *thermal,
 			int trip, enum thermal_trend *trend)
 {
-	if (thermal->temperature >= trip)
-		*trend = THERMAL_TREND_RAISING;
-	else
-		*trend = THERMAL_TREND_DROPPING;
+	int ret = 0;
+	unsigned long trip_temp;
 
-	return 0;
+	ret = exynos_get_trip_temp(thermal, trip, &trip_temp);
+	if (ret < 0)
+		return ret;
+
+	if (thermal->temperature >= trip_temp)
+		*trend = THERMAL_TREND_RAISE_FULL;
+	else
+		*trend = THERMAL_TREND_DROP_FULL;
+
+	return ret;
 }
 /* Operation callback functions for thermal zone */
 static struct thermal_zone_device_ops const exynos_dev_ops = {
@@ -413,7 +423,8 @@ static void exynos_report_trigger(void)
 			break;
 	}
 
-	if (th_zone->mode == THERMAL_DEVICE_ENABLED) {
+	if (th_zone->mode == THERMAL_DEVICE_ENABLED &&
+		!th_zone->sensor_conf->trip_data.trigger_falling) {
 		if (i > 0)
 			th_zone->therm_dev->polling_delay = ACTIVE_INTERVAL;
 		else
@@ -452,7 +463,8 @@ static int exynos_register_thermal(struct thermal_sensor_conf *sensor_conf)
 
 	th_zone->therm_dev = thermal_zone_device_register(sensor_conf->name,
 			EXYNOS_ZONE_COUNT, 0, NULL, &exynos_dev_ops, NULL, 0,
-			IDLE_INTERVAL);
+			sensor_conf->trip_data.trigger_falling ?
+			0 : IDLE_INTERVAL);
 
 	if (IS_ERR(th_zone->therm_dev)) {
 		pr_err("Failed to register thermal zone device\n");
@@ -559,8 +571,9 @@ static int exynos_tmu_initialize(struct platform_device *pdev)
 {
 	struct exynos_tmu_data *data = platform_get_drvdata(pdev);
 	struct exynos_tmu_platform_data *pdata = data->pdata;
-	unsigned int status, trim_info, rising_threshold;
-	int ret = 0, threshold_code;
+	unsigned int status, trim_info;
+	unsigned int rising_threshold = 0, falling_threshold = 0;
+	int ret = 0, threshold_code, i, trigger_levs = 0;
 
 	mutex_lock(&data->lock);
 	clk_enable(data->clk);
@@ -585,6 +598,11 @@ static int exynos_tmu_initialize(struct platform_device *pdev)
 			(data->temp_error2 != 0))
 		data->temp_error1 = pdata->efuse_value;
 
+	/* Count trigger levels to be enabled */
+	for (i = 0; i < MAX_THRESHOLD_LEVS; i++)
+		if (pdata->trigger_levels[i])
+			trigger_levs++;
+
 	if (data->soc == SOC_ARCH_EXYNOS4210) {
 		/* Write temperature code for threshold */
 		threshold_code = temp_to_code(data, pdata->threshold);
@@ -594,44 +612,38 @@ static int exynos_tmu_initialize(struct platform_device *pdev)
 		}
 		writeb(threshold_code,
 			data->base + EXYNOS4210_TMU_REG_THRESHOLD_TEMP);
-
-		writeb(pdata->trigger_levels[0],
-			data->base + EXYNOS4210_TMU_REG_TRIG_LEVEL0);
-		writeb(pdata->trigger_levels[1],
-			data->base + EXYNOS4210_TMU_REG_TRIG_LEVEL1);
-		writeb(pdata->trigger_levels[2],
-			data->base + EXYNOS4210_TMU_REG_TRIG_LEVEL2);
-		writeb(pdata->trigger_levels[3],
-			data->base + EXYNOS4210_TMU_REG_TRIG_LEVEL3);
+		for (i = 0; i < trigger_levs; i++)
+			writeb(pdata->trigger_levels[i],
+			data->base + EXYNOS4210_TMU_REG_TRIG_LEVEL0 + i * 4);
 
 		writel(EXYNOS4210_TMU_INTCLEAR_VAL,
 			data->base + EXYNOS_TMU_REG_INTCLEAR);
 	} else if (data->soc == SOC_ARCH_EXYNOS) {
-		/* Write temperature code for threshold */
-		threshold_code = temp_to_code(data, pdata->trigger_levels[0]);
-		if (threshold_code < 0) {
-			ret = threshold_code;
-			goto out;
+		/* Write temperature code for rising and falling threshold */
+		for (i = 0; i < trigger_levs; i++) {
+			threshold_code = temp_to_code(data,
+						pdata->trigger_levels[i]);
+			if (threshold_code < 0) {
+				ret = threshold_code;
+				goto out;
+			}
+			rising_threshold |= threshold_code << 8 * i;
+			if (pdata->threshold_falling) {
+				threshold_code = temp_to_code(data,
+						pdata->trigger_levels[i] -
+						pdata->threshold_falling);
+				if (threshold_code > 0)
+					falling_threshold |=
+						threshold_code << 8 * i;
+			}
 		}
-		rising_threshold = threshold_code;
-		threshold_code = temp_to_code(data, pdata->trigger_levels[1]);
-		if (threshold_code < 0) {
-			ret = threshold_code;
-			goto out;
-		}
-		rising_threshold |= (threshold_code << 8);
-		threshold_code = temp_to_code(data, pdata->trigger_levels[2]);
-		if (threshold_code < 0) {
-			ret = threshold_code;
-			goto out;
-		}
-		rising_threshold |= (threshold_code << 16);
 
 		writel(rising_threshold,
 				data->base + EXYNOS_THD_TEMP_RISE);
-		writel(0, data->base + EXYNOS_THD_TEMP_FALL);
+		writel(falling_threshold,
+				data->base + EXYNOS_THD_TEMP_FALL);
 
-		writel(EXYNOS_TMU_CLEAR_RISE_INT|EXYNOS_TMU_CLEAR_FALL_INT,
+		writel(EXYNOS_TMU_CLEAR_RISE_INT | EXYNOS_TMU_CLEAR_FALL_INT,
 				data->base + EXYNOS_TMU_REG_INTCLEAR);
 	}
 out:
@@ -664,6 +676,8 @@ static void exynos_tmu_control(struct platform_device *pdev, bool on)
 			pdata->trigger_level2_en << 8 |
 			pdata->trigger_level1_en << 4 |
 			pdata->trigger_level0_en;
+		if (pdata->threshold_falling)
+			interrupt_en |= interrupt_en << 16;
 	} else {
 		con |= EXYNOS_TMU_CORE_OFF;
 		interrupt_en = 0; /* Disable all interrupts */
@@ -701,16 +715,19 @@ static void exynos_tmu_work(struct work_struct *work)
 	clk_enable(data->clk);
 
 
-	if (data->soc == SOC_ARCH_EXYNOS)
-		writel(EXYNOS_TMU_CLEAR_RISE_INT,
-				data->base + EXYNOS_TMU_REG_INTCLEAR);
-	else
-		writel(EXYNOS4210_TMU_INTCLEAR_VAL,
-				data->base + EXYNOS_TMU_REG_INTCLEAR);
 
 	clk_disable(data->clk);
 	mutex_unlock(&data->lock);
 	exynos_report_trigger();
+	clk_enable(data->clk);
+	if (data->soc == SOC_ARCH_EXYNOS)
+		writel(EXYNOS_TMU_CLEAR_RISE_INT |
+				EXYNOS_TMU_CLEAR_FALL_INT,
+				data->base + EXYNOS_TMU_REG_INTCLEAR);
+	else
+		writel(EXYNOS4210_TMU_INTCLEAR_VAL,
+				data->base + EXYNOS_TMU_REG_INTCLEAR);
+	clk_disable(data->clk);
 	enable_irq(data->irq);
 }
 
@@ -759,6 +776,7 @@ static struct exynos_tmu_platform_data const exynos4210_default_tmu_data = {
 
 #if defined(CONFIG_SOC_EXYNOS5250) || defined(CONFIG_SOC_EXYNOS4412)
 static struct exynos_tmu_platform_data const exynos_default_tmu_data = {
+	.threshold_falling = 10,
 	.trigger_levels[0] = 85,
 	.trigger_levels[1] = 103,
 	.trigger_levels[2] = 110,
@@ -915,6 +933,8 @@ static int exynos_tmu_probe(struct platform_device *pdev)
 	for (i = 0; i < exynos_sensor_conf.trip_data.trip_count; i++)
 		exynos_sensor_conf.trip_data.trip_val[i] =
 			pdata->threshold + pdata->trigger_levels[i];
+
+	exynos_sensor_conf.trip_data.trigger_falling = pdata->threshold_falling;
 
 	exynos_sensor_conf.cooling_data.freq_clip_count =
 						pdata->freq_tab_count;

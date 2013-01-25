@@ -24,6 +24,7 @@
 #include <asm/sections.h>
 #include <asm/smp_plat.h>
 #include <asm/unwind.h>
+#include <asm/runtime-patch.h>
 
 #ifdef CONFIG_XIP_KERNEL
 /*
@@ -272,6 +273,7 @@ int module_finalize(const Elf32_Ehdr *hdr, const Elf_Shdr *sechdrs,
 		    struct module *mod)
 {
 	const Elf_Shdr *s = NULL;
+	int err;
 #ifdef CONFIG_ARM_UNWIND
 	const char *secstrs = (void *)hdr + sechdrs[hdr->e_shstrndx].sh_offset;
 	const Elf_Shdr *sechdrs_end = sechdrs + hdr->e_shnum;
@@ -316,11 +318,12 @@ int module_finalize(const Elf32_Ehdr *hdr, const Elf_Shdr *sechdrs,
 					         maps[i].txt_sec->sh_addr,
 					         maps[i].txt_sec->sh_size);
 #endif
-#ifdef CONFIG_ARM_PATCH_PHYS_VIRT
-	s = find_mod_section(hdr, sechdrs, ".pv_table");
-	if (s)
-		fixup_pv_table((void *)s->sh_addr, s->sh_size);
-#endif
+	s = find_mod_section(hdr, sechdrs, ".runtime.patch.table");
+	if (s) {
+		err = runtime_patch((void *)s->sh_addr, s->sh_size);
+		if (err)
+			return err;
+	}
 	s = find_mod_section(hdr, sechdrs, ".alt.smp.init");
 	if (s && !is_smp())
 #ifdef CONFIG_SMP_ON_UP

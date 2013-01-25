@@ -18,6 +18,9 @@
 #include <linux/types.h>
 #include <linux/sizes.h>
 
+#include <asm/cache.h>
+#include <asm/runtime-patch.h>
+
 #ifdef CONFIG_NEED_MACH_MEMORY_H
 #include <mach/memory.h>
 #endif
@@ -99,11 +102,11 @@
 #endif
 
 #ifndef PHYS_OFFSET
-#define PHYS_OFFSET 		UL(CONFIG_DRAM_BASE)
+#define PHYS_OFFSET		UL(CONFIG_DRAM_BASE)
 #endif
 
 #ifndef END_MEM
-#define END_MEM     		(UL(CONFIG_DRAM_BASE) + CONFIG_DRAM_SIZE)
+#define END_MEM			(UL(CONFIG_DRAM_BASE) + CONFIG_DRAM_SIZE)
 #endif
 
 #ifndef PAGE_OFFSET
@@ -141,6 +144,20 @@
 #define page_to_phys(page)	(__pfn_to_phys(page_to_pfn(page)))
 #define phys_to_page(phys)	(pfn_to_page(__phys_to_pfn(phys)))
 
+/*
+ * Minimum guaranted alignment in pgd_alloc().  The page table pointers passed
+ * around in head.S and proc-*.S are shifted by this amount, in order to
+ * leave spare high bits for systems with physical address extension.  This
+ * does not fully accomodate the 40-bit addressing capability of ARM LPAE, but
+ * gives us about 38-bits or so.
+ */
+#ifdef CONFIG_ARM_LPAE
+#define ARCH_PGD_SHIFT         L1_CACHE_SHIFT
+#else
+#define ARCH_PGD_SHIFT         0
+#endif
+#define ARCH_PGD_MASK          ((1 << ARCH_PGD_SHIFT) - 1)
+
 #ifndef __ASSEMBLY__
 
 /*
@@ -151,40 +168,70 @@
 #ifndef __virt_to_phys
 #ifdef CONFIG_ARM_PATCH_PHYS_VIRT
 
-/*
- * Constants used to force the right instruction encodings and shifts
- * so that all we need to do is modify the 8-bit constant field.
- */
-#define __PV_BITS_31_24	0x81000000
+extern unsigned long	__pv_offset;
+extern phys_addr_t	__pv_phys_offset;
+#define PHYS_OFFSET	__virt_to_phys(PAGE_OFFSET)
 
-extern unsigned long __pv_phys_offset;
-#define PHYS_OFFSET __pv_phys_offset
-
-#define __pv_stub(from,to,instr,type)			\
-	__asm__("@ __pv_stub\n"				\
-	"1:	" instr "	%0, %1, %2\n"		\
-	"	.pushsection .pv_table,\"a\"\n"		\
-	"	.long	1b\n"				\
-	"	.popsection\n"				\
-	: "=r" (to)					\
-	: "r" (from), "I" (type))
-
-static inline unsigned long __virt_to_phys(unsigned long x)
+static inline phys_addr_t __virt_to_phys(unsigned long x)
 {
-	unsigned long t;
-	__pv_stub(x, t, "add", __PV_BITS_31_24);
-	return t;
-}
+	phys_addr_t t;
 
-static inline unsigned long __phys_to_virt(unsigned long x)
-{
-	unsigned long t;
-	__pv_stub(x, t, "sub", __PV_BITS_31_24);
-	return t;
-}
+#ifndef CONFIG_ARM_LPAE
+	early_patch_imm8("add", t, x, __pv_offset, 0);
 #else
-#define __virt_to_phys(x)	((x) - PAGE_OFFSET + PHYS_OFFSET)
-#define __phys_to_virt(x)	((x) - PHYS_OFFSET + PAGE_OFFSET)
+	unsigned long __tmp;
+
+#ifndef __ARMEB__
+#define PV_PHYS_HIGH	"(__pv_phys_offset + 4)"
+#else
+#define PV_PHYS_HIGH	"__pv_phys_offset"
+#endif
+
+	early_patch_stub(
+	/* type */		PATCH_IMM8,
+	/* code */
+		"ldr		%[tmp], =__pv_offset\n"
+		"ldr		%[tmp], [%[tmp]]\n"
+		"add		%Q[to], %[from], %[tmp]\n"
+		"ldr		%[tmp], =" PV_PHYS_HIGH "\n"
+		"ldr		%[tmp], [%[tmp]]\n"
+		"mov		%R[to], %[tmp]\n",
+	/* pad */		4,
+	/* patch_data */
+		".long		__pv_offset\n"
+		"add		%Q[to], %[from], %[imm]\n"
+		".long	"	PV_PHYS_HIGH "\n"
+		"mov		%R[to], %[imm]\n",
+	/* operands */
+		: [to]	"=r"	(t),
+		  [tmp]	"=&r"	(__tmp)
+		: [from]"r"	(x),
+		  [imm]	"I"	(__IMM8),
+			"i"	(&__pv_offset),
+			"i"	(&__pv_phys_offset));
+#endif
+	return t;
+}
+
+static inline unsigned long __phys_to_virt(phys_addr_t x)
+{
+	unsigned long t, xlo = x;
+	early_patch_imm8("sub", t, xlo, __pv_offset, 0);
+	return t;
+}
+
+#else
+
+static inline phys_addr_t __virt_to_phys(unsigned long x)
+{
+	return (phys_addr_t)x - PAGE_OFFSET + PHYS_OFFSET;
+}
+
+static inline unsigned long __phys_to_virt(phys_addr_t x)
+{
+	return x - PHYS_OFFSET + PAGE_OFFSET;
+}
+
 #endif
 #endif
 #endif /* __ASSEMBLY__ */
@@ -222,14 +269,14 @@ static inline phys_addr_t virt_to_phys(const volatile void *x)
 
 static inline void *phys_to_virt(phys_addr_t x)
 {
-	return (void *)(__phys_to_virt((unsigned long)(x)));
+	return (void *)__phys_to_virt(x);
 }
 
 /*
  * Drivers should NOT use these either.
  */
 #define __pa(x)			__virt_to_phys((unsigned long)(x))
-#define __va(x)			((void *)__phys_to_virt((unsigned long)(x)))
+#define __va(x)			((void *)__phys_to_virt((phys_addr_t)(x)))
 #define pfn_to_kaddr(pfn)	__va((pfn) << PAGE_SHIFT)
 
 /*
@@ -278,5 +325,7 @@ static inline __deprecated void *bus_to_virt(unsigned long x)
 #endif
 
 #include <asm-generic/memory_model.h>
+
+#define ARCH_LOW_ADDRESS_LIMIT         PHYS_MASK
 
 #endif

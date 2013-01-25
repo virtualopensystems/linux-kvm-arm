@@ -20,6 +20,7 @@
 #include <linux/mmc/mmc.h>
 #include <linux/mmc/dw_mmc.h>
 #include <linux/of.h>
+#include <linux/dma-mapping.h>
 
 #include "dw_mmc.h"
 
@@ -64,6 +65,8 @@ EXPORT_SYMBOL_GPL(dw_mci_pltfm_register);
 
 static int dw_mci_pltfm_probe(struct platform_device *pdev)
 {
+	/* set the coherent dma_mask */
+	pdev->dev.coherent_dma_mask = DMA_BIT_MASK(64);
 	return dw_mci_pltfm_register(pdev, NULL);
 }
 

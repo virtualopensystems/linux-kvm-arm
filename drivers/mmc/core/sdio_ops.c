@@ -111,6 +111,46 @@ static int mmc_io_rw_direct_host(struct mmc_host *host, int write, unsigned fn,
 	return 0;
 }
 
+static struct mmc_command sdio_intx_cmd = {
+	.opcode = SD_IO_RW_DIRECT,
+	.arg = SDIO_CCCR_INTx << 9,
+	.flags = MMC_RSP_SPI_R5 | MMC_RSP_R5 | MMC_CMD_AC,
+};
+
+int mmc_io_rw_direct_irq(struct mmc_card *card, u8 *out)
+{
+	int err;
+	struct mmc_host *host ;
+
+	BUG_ON(!card);
+	host = card->host;
+	BUG_ON(!host);
+
+	err = mmc_wait_for_cmd(host, &sdio_intx_cmd, 0);
+	if (err)
+		return err;
+
+	if (mmc_host_is_spi(host)) {
+		/* host driver already reported errors */
+	} else {
+		if (sdio_intx_cmd.resp[0] & R5_ERROR)
+			return -EIO;
+		if (sdio_intx_cmd.resp[0] & R5_FUNCTION_NUMBER)
+			return -EINVAL;
+		if (sdio_intx_cmd.resp[0] & R5_OUT_OF_RANGE)
+			return -ERANGE;
+	}
+
+	if (out) {
+		if (mmc_host_is_spi(host))
+			*out = (sdio_intx_cmd.resp[0] >> 8) & 0xFF;
+		else
+			*out = sdio_intx_cmd.resp[0] & 0xFF;
+	}
+
+	return 0;
+}
+
 int mmc_io_rw_direct(struct mmc_card *card, int write, unsigned fn,
 	unsigned addr, u8 in, u8 *out)
 {

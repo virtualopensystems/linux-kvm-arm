@@ -371,6 +371,11 @@ config S5P_DEV_G2D
 	help
 	  Compile in platform device definitions for G2D device
 
+config S5P_DEV_G3D
+	bool
+	help
+	  Compile in platform device definitions for G3D device
+
 config S5P_DEV_I2C_HDMIPHY
 	bool
 	help

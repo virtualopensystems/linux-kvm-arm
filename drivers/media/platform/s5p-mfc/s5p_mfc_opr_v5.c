@@ -1135,6 +1135,9 @@ static void s5p_mfc_set_flush(struct s5p_mfc_ctx *ctx, int flush)
 		dpb = mfc_read(dev, S5P_FIMV_SI_CH0_DPB_CONF_CTRL) &
 			~(S5P_FIMV_DPB_FLUSH_MASK << S5P_FIMV_DPB_FLUSH_SHIFT);
 	mfc_write(dev, dpb, S5P_FIMV_SI_CH0_DPB_CONF_CTRL);
+
+	s5p_mfc_write_info_v5(ctx, ctx->frame_tag,
+			S5P_FIMV_SHARED_SET_FRAME_TAG);
 }
 
 /* Decode a single frame */
@@ -1733,6 +1736,11 @@ unsigned int s5p_mfc_get_crop_info_v_v5(struct s5p_mfc_ctx *ctx)
 	return s5p_mfc_read_info_v5(ctx, CROP_INFO_V);
 }
 
+unsigned int s5p_mfc_get_frame_tag(struct s5p_mfc_ctx *ctx)
+{
+	return s5p_mfc_read_info_v5(ctx, GET_FRAME_TAG_TOP);
+}
+
 /* Initialize opr function pointers for MFC v5 */
 static struct s5p_mfc_hw_ops s5p_mfc_ops_v5 = {
 	.alloc_dec_temp_buffers = s5p_mfc_alloc_dec_temp_buffers_v5,
@@ -1786,6 +1794,7 @@ static struct s5p_mfc_hw_ops s5p_mfc_ops_v5 = {
 	.get_pic_type_bot = s5p_mfc_get_pic_type_bot_v5,
 	.get_crop_info_h = s5p_mfc_get_crop_info_h_v5,
 	.get_crop_info_v = s5p_mfc_get_crop_info_v_v5,
+	.get_frame_tag = s5p_mfc_get_frame_tag,
 };
 
 struct s5p_mfc_hw_ops *s5p_mfc_init_hw_ops_v5(void)

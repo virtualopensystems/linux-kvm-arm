@@ -1,0 +1,36 @@
+* Power controller for simple lcd panels
+
+Some LCD panels provide a simple control interface for the host system. The
+control mechanism would include a nRESET line connected to a gpio of the host
+system and a Vcc supply line which the host can optionally be controlled using
+a voltage regulator. Such simple panels do not support serial command
+interface (such as i2c or spi) or memory-mapped-io interface.
+
+Required properties:
+- compatible: should be 'lcd-powercontrol'
+
+- lcd-reset-gpio: The GPIO number of the host system used to control the
+  nRESET line. The format of the gpio specifier depends on the gpio controller
+  of the host system.
+
+Optional properties:
+- lcd-reset-active-high: When the nRESET line is asserted low, the lcd panel
+  is reset and stays in reset mode as long as the nRESET line is asserted low.
+  This is the default behaviour of most lcd panels. If a lcd panel requires the
+  nRESET line to be asserted high for panel reset, then this property is used.
+  Note: Some platforms might allow inverting the polarity of the gpio output
+  in the 'lcd-reset-gpio' gpio specifier. On such platforms, if the polarity
+  is used to control the output of the gpio, then this property should not be
+  used.
+
+- vcc-lcd-supply: phandle of the regulator that controls the vcc supply to
+  the lcd panel.
+
+Example:
+
+	lcd_pwrctrl {
+		compatible = "lcd-powercontrol";
+		lcd-reset-gpio = <&gpe0 4 1 0 0>;
+		lcd-reset-active-high;
+		lcd-vcc-supply = <&regulator7>;
+	};
