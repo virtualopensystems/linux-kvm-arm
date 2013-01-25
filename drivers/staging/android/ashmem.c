@@ -692,6 +692,22 @@ static long ashmem_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	return ret;
 }
 
+/* support for 32bit syscalls on 64bit systems */
+#ifdef CONFIG_COMPAT
+static long compat_ashmem_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
+{
+	switch (cmd) {
+	case COMPAT_ASHMEM_SET_SIZE:
+		cmd = ASHMEM_SET_SIZE;
+		break;
+	case COMPAT_ASHMEM_SET_PROT_MASK:
+		cmd = ASHMEM_SET_PROT_MASK;
+		break;
+	}
+	return ashmem_ioctl(file, cmd, arg);
+}
+#endif /* CONFIG_COMPAT */
+
 static const struct file_operations ashmem_fops = {
 	.owner = THIS_MODULE,
 	.open = ashmem_open,
@@ -700,7 +716,9 @@ static const struct file_operations ashmem_fops = {
 	.llseek = ashmem_llseek,
 	.mmap = ashmem_mmap,
 	.unlocked_ioctl = ashmem_ioctl,
-	.compat_ioctl = ashmem_ioctl,
+#ifdef CONFIG_COMPAT
+	.compat_ioctl = compat_ashmem_ioctl,
+#endif
 };
 
 static struct miscdevice ashmem_misc = {
