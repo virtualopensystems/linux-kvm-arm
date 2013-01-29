@@ -29,13 +29,14 @@
 #include <asm/sched_clock.h>
 #include <asm/hardware/arm_timer.h>
 
-static long __init sp804_get_clock_rate(const char *name)
+static long __init sp804_get_clock_rate(struct clk *clk,
+		const char *name)
 {
-	struct clk *clk;
 	long rate;
 	int err;
 
-	clk = clk_get_sys("sp804", name);
+	if (!clk)
+		clk = clk_get_sys("sp804", name);
 	if (IS_ERR(clk)) {
 		pr_err("sp804: %s clock not found: %d\n", name,
 			(int)PTR_ERR(clk));
@@ -77,9 +78,10 @@ static u32 sp804_read(void)
 
 void __init __sp804_clocksource_and_sched_clock_init(void __iomem *base,
 						     const char *name,
+						     struct clk *clk,
 						     int use_sched_clock)
 {
-	long rate = sp804_get_clock_rate(name);
+	long rate = sp804_get_clock_rate(clk, name);
 
 	if (rate < 0)
 		return;
@@ -172,10 +174,10 @@ static struct irqaction sp804_timer_irq = {
 };
 
 void __init sp804_clockevents_init(void __iomem *base, unsigned int irq,
-	const char *name)
+	const char *name, struct clk *clk)
 {
 	struct clock_event_device *evt = &sp804_clockevent;
-	long rate = sp804_get_clock_rate(name);
+	long rate = sp804_get_clock_rate(clk, name);
 
 	if (rate < 0)
 		return;

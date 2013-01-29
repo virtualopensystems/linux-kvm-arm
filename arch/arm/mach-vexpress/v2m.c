@@ -56,7 +56,8 @@ static struct map_desc v2m_io_desc[] __initdata = {
 	},
 };
 
-static void __init v2m_sp804_init(void __iomem *base, unsigned int irq)
+static void __init v2m_sp804_init(void __iomem *base, unsigned int irq,
+		struct clk *clk1, struct clk *clk2)
 {
 	if (WARN_ON(!base || irq == NO_IRQ))
 		return;
@@ -64,8 +65,8 @@ static void __init v2m_sp804_init(void __iomem *base, unsigned int irq)
 	writel(0, base + TIMER_1_BASE + TIMER_CTRL);
 	writel(0, base + TIMER_2_BASE + TIMER_CTRL);
 
-	sp804_clocksource_init(base + TIMER_2_BASE, "v2m-timer1");
-	sp804_clockevents_init(base + TIMER_1_BASE, irq, "v2m-timer0");
+	sp804_clocksource_init(base + TIMER_2_BASE, "v2m-timer1", clk2);
+	sp804_clockevents_init(base + TIMER_1_BASE, irq, "v2m-timer0", clk1);
 }
 
 
@@ -288,7 +289,7 @@ static struct amba_device *v2m_amba_devs[] __initdata = {
 static void __init v2m_timer_init(void)
 {
 	vexpress_clk_init(ioremap(V2M_SYSCTL, SZ_4K));
-	v2m_sp804_init(ioremap(V2M_TIMER01, SZ_4K), IRQ_V2M_TIMER0);
+	v2m_sp804_init(ioremap(V2M_TIMER01, SZ_4K), IRQ_V2M_TIMER0, NULL, NULL);
 }
 
 static void __init v2m_init_early(void)
@@ -442,7 +443,9 @@ static void __init v2m_dt_timer_init(void)
 		pr_info("Using SP804 '%s' as a clock & events source\n",
 				node->full_name);
 		v2m_sp804_init(of_iomap(node, 0),
-				irq_of_parse_and_map(node, 0));
+				irq_of_parse_and_map(node, 0),
+				of_clk_get_by_name(node, "timclken1"),
+				of_clk_get_by_name(node, "timclken2"));
 	}
 
 	if (arch_timer_of_register() != 0)
