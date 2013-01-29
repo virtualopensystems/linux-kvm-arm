@@ -21,9 +21,12 @@ struct dev_archdata {
 #ifdef CONFIG_IOMMU_API
 	void *iommu;			/* private IOMMU data */
 #endif
+	struct dma_iommu_mapping	*mapping;
 };
 
 struct pdev_archdata {
 };
+
+#define to_dma_iommu_mapping(dev) ((dev)->archdata.mapping)
 
 #endif

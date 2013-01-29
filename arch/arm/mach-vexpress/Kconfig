@@ -23,6 +23,7 @@ config ARCH_VEXPRESS
 	select POWER_SUPPLY
 	select REGULATOR_FIXED_VOLTAGE if REGULATOR
 	select VEXPRESS_CONFIG
+	select ZONE_DMA if ARM_LPAE
 	help
 	  This option enables support for systems using Cortex processor based
 	  ARM core and logic (FPGA) tiles on the Versatile Express motherboard,

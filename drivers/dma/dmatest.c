@@ -15,12 +15,16 @@
 #include <linux/dmaengine.h>
 #include <linux/freezer.h>
 #include <linux/init.h>
+#include <linux/iommu.h>
 #include <linux/kthread.h>
 #include <linux/module.h>
 #include <linux/moduleparam.h>
 #include <linux/random.h>
 #include <linux/slab.h>
 #include <linux/wait.h>
+
+#include <linux/platform_device.h>
+#include <asm/dma-iommu.h>
 
 static unsigned int test_buf_size = 16384;
 module_param(test_buf_size, uint, S_IRUGO | S_IWUSR);
@@ -719,6 +723,8 @@ static void dmatest_cleanup_channel(struct dmatest_chan *dtc)
 {
 	struct dmatest_thread	*thread;
 	struct dmatest_thread	*_thread;
+	struct dma_device	*dma_dev = dtc->chan->device;
+	struct dma_iommu_mapping *mapping;
 	int			ret;
 
 	list_for_each_entry_safe(thread, _thread, &dtc->threads, node) {
@@ -732,6 +738,14 @@ static void dmatest_cleanup_channel(struct dmatest_chan *dtc)
 
 	/* terminate all transfers on specified channels */
 	dmaengine_terminate_all(dtc->chan);
+
+	mapping = dma_dev->dev->archdata.mapping;
+	if (mapping) {
+		arm_iommu_detach_device(dma_dev->dev);
+		arm_iommu_release_mapping(mapping);
+		pr_info("device %s released mapping (%p)\n",
+			dev_name(dma_dev->dev), mapping);
+	}
 
 	kfree(dtc);
 }
@@ -783,6 +797,22 @@ static int dmatest_add_threads(struct dmatest_info *info,
 	return i;
 }
 
+static int iommu_fault_handler(struct iommu_domain *domain, struct device *dev,
+			       unsigned long iova, int flags, void *token)
+{
+	phys_addr_t paddr;
+
+	pr_info("dmatest fault handler invoked for at iova 0x%lx fault %d)\n",
+		iova, flags);
+
+	iova &= PAGE_MASK;
+	paddr = iommu_iova_to_phys(domain, iova);
+	iommu_map(domain, iova, paddr, PAGE_SIZE, IOMMU_READ | IOMMU_WRITE);
+
+	pr_info("remapped page as rw\n");
+	return 0;
+}
+
 static int dmatest_add_channel(struct dmatest_info *info,
 		struct dma_chan *chan)
 {
@@ -800,6 +830,32 @@ static int dmatest_add_channel(struct dmatest_info *info,
 	dtc->chan = chan;
 	INIT_LIST_HEAD(&dtc->threads);
 
+	if (!dma_dev->dev->archdata.mapping) {
+		int err;
+		struct dma_iommu_mapping *mapping = arm_iommu_create_mapping(&platform_bus_type, 0, 0xffffffff, 0);
+		if (IS_ERR(mapping)) {
+			pr_info("failed to create mapping for %s, continuing without translation...\n",
+				dev_name(dma_dev->dev));
+			goto no_iommu;
+		}
+
+		iommu_set_fault_handler(mapping->domain, iommu_fault_handler, NULL);
+
+		err = arm_iommu_attach_device(dma_dev->dev, mapping);
+		if (err) {
+			pr_info("failed to attach %s to mapping (%p), continuing without translation\n",
+				dev_name(dma_dev->dev), mapping);
+			arm_iommu_release_mapping(mapping);
+			goto no_iommu;
+		}
+		pr_info("device %s attached to mapping (%p)\n",
+			dev_name(dma_dev->dev), dma_dev->dev->archdata.mapping);
+	} else  {
+		pr_info("device %s already has mapping (%p)\n",
+			dev_name(dma_dev->dev), dma_dev->dev->archdata.mapping);
+	}
+
+no_iommu:
 	if (dma_has_cap(DMA_MEMCPY, dma_dev->cap_mask)) {
 		cnt = dmatest_add_threads(info, dtc, DMA_MEMCPY);
 		thread_count += cnt > 0 ? cnt : 0;
@@ -902,6 +958,8 @@ static void restart_threaded_test(struct dmatest_info *info, bool run)
 	 */
 	if (!info->did_init)
 		return;
+
+	pr_info("restart_threaded_test\n");
 
 	/* Stop any running test first */
 	stop_threaded_test(info);

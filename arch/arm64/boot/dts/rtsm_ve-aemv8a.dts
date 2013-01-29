@@ -41,21 +41,7 @@
 		cpu@1 {
 			device_type = "cpu";
 			compatible = "arm,armv8";
-			reg = <0x0 0x1>;
-			enable-method = "spin-table";
-			cpu-release-addr = <0x0 0x8000fff8>;
-		};
-		cpu@2 {
-			device_type = "cpu";
-			compatible = "arm,armv8";
-			reg = <0x0 0x2>;
-			enable-method = "spin-table";
-			cpu-release-addr = <0x0 0x8000fff8>;
-		};
-		cpu@3 {
-			device_type = "cpu";
-			compatible = "arm,armv8";
-			reg = <0x0 0x3>;
+			reg = <0x0 0x100>;
 			enable-method = "spin-table";
 			cpu-release-addr = <0x0 0x8000fff8>;
 		};
@@ -73,8 +59,8 @@
 		#address-cells = <0>;
 		interrupt-controller;
 		reg = <0x0 0x2c001000 0 0x1000>,
-		      <0x0 0x2c002000 0 0x1000>,
-		      <0x0 0x2c004000 0 0x2000>,
+		      <0x0 0x2c002000 0 0x2000>,
+		      <0x0 0x2c004000 0 0x1000>,
 		      <0x0 0x2c006000 0 0x2000>;
 		interrupts = <1 9 0xf04>;
 	};
@@ -94,6 +80,101 @@
 			     <0 61 4>,
 			     <0 62 4>,
 			     <0 63 4>;
+	};
+
+	smmu@3c0b0000 {
+                compatible = "arm,smmu-v2";
+                reg = <0x0 0x3c0e0000 0x0 0x10000>;
+                #global-interrupts = <2>;
+                interrupts = <0 128 4>,
+                             <0 129 4>,
+                             <0 130 4>,
+                             <0 131 4>,
+                             <0 132 4>,
+                             <0 133 4>,
+                             <0 134 4>,
+                             <0 135 4>,
+                             <0 136 4>;
+                mmu-masters = <&dma0 0x0 0x8>,
+                              <&dma1 0x1 0x9>,
+                              <&dma2 0x2 0xa>,
+                              <&dma3 0x3 0xb>;
+        };
+
+	dma0: dma@3c0a0000 {
+		compatible = "arm,pl330", "arm,primecell";
+		reg = <0 0x3c0a0000 0 0x10000>;
+		interrupts = <0 160 4>,
+			     <0 161 4>,
+			     <0 162 4>,
+			     <0 163 4>,
+			     <0 164 4>,
+			     <0 165 4>,
+			     <0 166 4>,
+			     <0 167 4>;
+		#dma-cells = <1>;
+		#stream-id-cells = <2>;
+		clocks = <&oscclk6a>;
+		clock-names = "apb_pclk";
+	};
+
+	dma1: dma@3c0b0000 {
+		compatible = "arm,pl330", "arm,primecell";
+		reg = <0 0x3c0b0000 0 0x10000>;
+		interrupts = <0 192 4>,
+			     <0 193 4>,
+			     <0 194 4>,
+			     <0 195 4>,
+			     <0 196 4>,
+			     <0 197 4>,
+			     <0 198 4>,
+			     <0 199 4>;
+		#dma-cells = <1>;
+		#stream-id-cells = <2>;
+		clocks = <&oscclk6a>;
+		clock-names = "apb_pclk";
+	};
+
+	dma2: dma@3c0c0000 {
+		compatible = "arm,pl330", "arm,primecell";
+		reg = <0 0x3c0c0000 0 0x10000>;
+		interrupts = <0 224 4>,
+			     <0 225 4>,
+			     <0 226 4>,
+			     <0 227 4>,
+			     <0 228 4>,
+			     <0 229 4>,
+			     <0 230 4>,
+			     <0 231 4>;
+		#dma-cells = <1>;
+		#stream-id-cells = <2>;
+		clocks = <&oscclk6a>;
+		clock-names = "apb_pclk";
+	};
+
+	dma3: dma@3c0d0000 {
+		compatible = "arm,pl330", "arm,primecell";
+		reg = <0 0x3c0d0000 0 0x10000>;
+		interrupts = <0 256 4>,
+			     <0 257 4>,
+			     <0 258 4>,
+			     <0 259 4>,
+			     <0 260 4>,
+			     <0 261 4>,
+			     <0 262 4>,
+			     <0 263 4>;
+		#dma-cells = <1>;
+		#stream-id-cells = <2>;
+		clocks = <&oscclk6a>;
+		clock-names = "apb_pclk";
+	};
+
+	oscclk6a: oscclk6a {
+		/* Reference 24MHz clock */
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-frequency = <24000000>;
+		clock-output-names = "oscclk6a";
 	};
 
 	smb {

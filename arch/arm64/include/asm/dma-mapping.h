@@ -47,6 +47,12 @@ static inline struct dma_map_ops *get_dma_ops(struct device *dev)
 		return __generic_dma_ops(dev);
 }
 
+static inline void set_dma_ops(struct device *dev, struct dma_map_ops *ops)
+{
+	BUG_ON(!dev);
+	dev->archdata.dma_ops = ops;
+}
+
 #include <asm-generic/dma-mapping-common.h>
 
 static inline dma_addr_t phys_to_dma(struct device *dev, phys_addr_t paddr)
@@ -61,9 +67,13 @@ static inline phys_addr_t dma_to_phys(struct device *dev, dma_addr_t dev_addr)
 
 static inline int dma_mapping_error(struct device *dev, dma_addr_t dev_addr)
 {
+	/*
 	struct dma_map_ops *ops = get_dma_ops(dev);
 	debug_dma_mapping_error(dev, dev_addr);
 	return ops->mapping_error(dev, dev_addr);
+	*/
+	debug_dma_mapping_error(dev, dev_addr);
+	return dev_addr == DMA_ERROR_CODE;
 }
 
 static inline int dma_supported(struct device *dev, u64 mask)
@@ -74,11 +84,7 @@ static inline int dma_supported(struct device *dev, u64 mask)
 
 static inline int dma_set_mask(struct device *dev, u64 mask)
 {
-	if (!dev->dma_mask || !dma_supported(dev, mask))
-		return -EIO;
-	*dev->dma_mask = mask;
-
-	return 0;
+	return get_dma_ops(dev)->set_dma_mask(dev, mask);
 }
 
 static inline bool dma_capable(struct device *dev, dma_addr_t addr, size_t size)
