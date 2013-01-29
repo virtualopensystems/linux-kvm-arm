@@ -300,6 +300,32 @@ TRACE_EVENT(kvm_hwirq,
 	TP_printk("harware IRQ at 0x%08lx", __entry->vcpu_pc)
 );
 
+TRACE_EVENT(kvm_user_mem_abort,
+	TP_PROTO(unsigned long vcpu_pc, unsigned long hsr,
+		 unsigned long hxfar,
+		 unsigned long long ipa),
+	TP_ARGS(vcpu_pc, hsr, hxfar, ipa),
+
+	TP_STRUCT__entry(
+		__field(	unsigned long,	vcpu_pc		)
+		__field(	unsigned long,	hsr		)
+		__field(	unsigned long,	hxfar		)
+		__field(   unsigned long long,	ipa		)
+	),
+
+	TP_fast_assign(
+		__entry->vcpu_pc		= vcpu_pc;
+		__entry->hsr			= hsr;
+		__entry->hxfar			= hxfar;
+		__entry->ipa			= ipa;
+	),
+
+	TP_printk("2nd stage user mem fault at PC %#08lx (hxfar %#08lx, "
+		  "ipa %#16llx, hsr %#08lx",
+		  __entry->vcpu_pc, __entry->hxfar,
+		  __entry->ipa, __entry->hsr)
+);
+
 #endif /* _TRACE_KVM_H */
 
 #undef TRACE_INCLUDE_PATH
