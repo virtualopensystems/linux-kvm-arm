@@ -12,6 +12,7 @@
 #include <linux/errno.h>
 #include <linux/smp.h>
 #include <linux/io.h>
+#include <linux/of.h>
 #include <linux/of_fdt.h>
 #include <linux/vexpress.h>
 
@@ -203,3 +204,14 @@ struct smp_operations __initdata vexpress_smp_ops = {
 	.cpu_die		= vexpress_cpu_die,
 #endif
 };
+
+void __init vexpress_smp_init_ops(void)
+{
+	struct smp_operations *ops = &vexpress_smp_ops;
+#ifdef CONFIG_MCPM
+	extern struct smp_operations mcpm_smp_ops;
+	if(of_find_compatible_node(NULL, NULL, "arm,cci"))
+		ops = &mcpm_smp_ops;
+#endif
+	smp_set_ops(ops);
+}
