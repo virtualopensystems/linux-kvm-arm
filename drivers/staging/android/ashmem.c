@@ -586,33 +586,29 @@ static int ashmem_get_pin_status(struct ashmem_area *asma, size_t pgstart,
 }
 
 static int ashmem_pin_unpin(struct ashmem_area *asma, unsigned long cmd,
-			    void __user *p)
+			    struct ashmem_pin *pin)
 {
-	struct ashmem_pin pin;
 	size_t pgstart, pgend;
 	int ret = -EINVAL;
 
 	if (unlikely(!asma->file))
 		return -EINVAL;
 
-	if (unlikely(copy_from_user(&pin, p, sizeof(pin))))
-		return -EFAULT;
-
 	/* per custom, you can pass zero for len to mean "everything onward" */
-	if (!pin.len)
-		pin.len = PAGE_ALIGN(asma->size) - pin.offset;
+	if (!pin->len)
+		pin->len = PAGE_ALIGN(asma->size) - pin->offset;
 
-	if (unlikely((pin.offset | pin.len) & ~PAGE_MASK))
+	if (unlikely((pin->offset | pin->len) & ~PAGE_MASK))
 		return -EINVAL;
 
-	if (unlikely(((size_t) -1) - pin.offset < pin.len))
+	if (unlikely(((size_t) -1) - pin->offset < pin->len))
 		return -EINVAL;
 
-	if (unlikely(PAGE_ALIGN(asma->size) < pin.offset + pin.len))
+	if (unlikely(PAGE_ALIGN(asma->size) < pin->offset + pin->len))
 		return -EINVAL;
 
-	pgstart = pin.offset / PAGE_SIZE;
-	pgend = pgstart + (pin.len / PAGE_SIZE) - 1;
+	pgstart = pin->offset / PAGE_SIZE;
+	pgend = pgstart + (pin->len / PAGE_SIZE) - 1;
 
 	mutex_lock(&ashmem_mutex);
 
@@ -636,6 +632,7 @@ static int ashmem_pin_unpin(struct ashmem_area *asma, unsigned long cmd,
 static long ashmem_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
 	struct ashmem_area *asma = file->private_data;
+	struct ashmem_pin pin;
 	long ret = -ENOTTY;
 
 	switch (cmd) {
@@ -664,7 +661,9 @@ static long ashmem_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	case ASHMEM_PIN:
 	case ASHMEM_UNPIN:
 	case ASHMEM_GET_PIN_STATUS:
-		ret = ashmem_pin_unpin(asma, cmd, (void __user *) arg);
+		if (unlikely(copy_from_user(&pin, (void __user *)arg, sizeof(pin))))
+			return -EFAULT;
+		ret = ashmem_pin_unpin(asma, cmd, &pin);
 		break;
 	case ASHMEM_PURGE_ALL_CACHES:
 		ret = -EPERM;
@@ -683,6 +682,42 @@ static long ashmem_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	return ret;
 }
 
+/* support of 32bit userspace on 64bit platforms */
+#ifdef CONFIG_COMPAT
+static long compat_ashmem_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
+{
+	struct compat_ashmem_pin c_pin;
+	struct ashmem_pin pin;
+
+	switch (cmd) {
+	case COMPAT_ASHMEM_SET_SIZE:
+		cmd = ASHMEM_SET_SIZE;
+		break;
+	case COMPAT_ASHMEM_SET_PROT_MASK:
+		cmd = ASHMEM_SET_PROT_MASK;
+		break;
+	case COMPAT_ASHMEM_PIN:
+	case COMPAT_ASHMEM_UNPIN:
+	case ASHMEM_GET_PIN_STATUS:
+		if (unlikely(copy_from_user(&c_pin, (void __user *)arg, sizeof(c_pin))))
+			return -EFAULT;
+		pin.offset = (size_t)c_pin.offset;
+		pin.len = (size_t)c_pin.len;
+		switch (cmd) {
+		case COMPAT_ASHMEM_PIN:
+			cmd = ASHMEM_PIN;
+			break;
+		case COMPAT_ASHMEM_UNPIN:
+			cmd = ASHMEM_UNPIN;
+			break;
+		}
+		return ashmem_pin_unpin(file->private_data, cmd, &pin);
+	}
+
+	return ashmem_ioctl(file, cmd, arg);
+}
+#endif /* CONFIG_COMPAT */
+
 static const struct file_operations ashmem_fops = {
 	.owner = THIS_MODULE,
 	.open = ashmem_open,
@@ -691,7 +726,9 @@ static const struct file_operations ashmem_fops = {
 	.llseek = ashmem_llseek,
 	.mmap = ashmem_mmap,
 	.unlocked_ioctl = ashmem_ioctl,
-	.compat_ioctl = ashmem_ioctl,
+#ifdef CONFIG_COMPAT
+	.compat_ioctl = compat_ashmem_ioctl,
+#endif
 };
 
 static struct miscdevice ashmem_misc = {
