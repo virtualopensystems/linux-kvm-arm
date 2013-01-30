@@ -605,7 +605,7 @@ static int ashmem_pin_unpin(struct ashmem_area *asma, unsigned long cmd,
 	if (unlikely((pin.offset | pin.len) & ~PAGE_MASK))
 		return -EINVAL;
 
-	if (unlikely(((__u32) -1) - pin.offset < pin.len))
+	if (unlikely(((size_t) -1) - pin.offset < pin.len))
 		return -EINVAL;
 
 	if (unlikely(PAGE_ALIGN(asma->size) < pin.offset + pin.len))
