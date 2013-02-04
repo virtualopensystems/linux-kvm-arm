@@ -430,6 +430,13 @@
 		};
 	};
 
+	hdmi {
+		hpd-gpio = <&gpx3 7 0xf 1 3>;
+		vdd_osc-supply = <&ldo10_reg>;
+		vdd_pll-supply = <&ldo8_reg>;
+		vdd-supply = <&ldo8_reg>;
+	};
+
 	mmc_reg: voltage-regulator {
 		compatible = "regulator-fixed";
 		regulator-name = "VDD_33ON_2.8V";
@@ -437,5 +444,10 @@
 		regulator-max-microvolt = <2800000>;
 		gpio = <&gpx1 1 0 0 2>;
 		enable-active-high;
+	};
+
+	reg_hdmi_en: fixedregulator@0 {
+		compatible = "regulator-fixed";
+		regulator-name = "hdmi-en";
 	};
 };
