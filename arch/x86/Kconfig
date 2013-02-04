@@ -580,6 +580,7 @@ config KVMTOOL_TEST_ENABLE
 	select NETWORK_FILESYSTEMS
 	select INET
 	select EXPERIMENTAL
+	select TTY
 	select SERIAL_8250
 	select SERIAL_8250_CONSOLE
 	select IP_PNP
