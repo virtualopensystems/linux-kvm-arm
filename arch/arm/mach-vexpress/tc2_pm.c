@@ -20,6 +20,7 @@
 #include <asm/bL_entry.h>
 #include <asm/proc-fns.h>
 #include <asm/cacheflush.h>
+#include <asm/hardware/gic.h>
 
 #include <mach/motherboard.h>
 
@@ -113,6 +114,8 @@ static void tc2_pm_power_down(void)
 		skip_wfi = true;
 	} else
 		BUG();
+
+	gic_cpu_if_down();
 
 	if (last_man && __bL_outbound_enter_critical(cpu, cluster)) {
 		arch_spin_unlock(&tc2_pm_lock);
