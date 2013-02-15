@@ -31,6 +31,27 @@ void printf(const char *fmt, ...)
 			}
 			print(p+1);
 			break;
+		case 'x':
+			fmt++;
+			val = va_arg(ap, int);
+			if (!val) {
+				putc('0');
+				continue;
+			}
+
+			p = &intbuf[7];
+			*(p--) = '\0';
+			while (val) {
+				unsigned rem = val % 16;
+				if (rem > 9)
+					*(p--) = (rem - 10) + 'a';
+				else
+					*(p--) = rem + '0';
+				val /= 16;
+			}
+			print(p+1);
+			break;
+
 		case 's':
 			fmt++;
 			p = va_arg(ap, char *);

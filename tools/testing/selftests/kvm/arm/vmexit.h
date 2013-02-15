@@ -1,0 +1,10 @@
+#ifndef _VMEXIT_H_
+#define _VMEXIT_H_
+
+#define FAKE_MMIO		0x1c020000
+
+#define VEXPRESS_VGIC_BASE	0x2c000000
+#define VGIC_DIST_BASE		(VEXPRESS_VGIC_BASE + 0x1000)
+#define VGIC_CPU_BASE		(VEXPRESS_VGIC_BASE + 0x2000)
+
+#endif /* _VMEXIT_H_ */

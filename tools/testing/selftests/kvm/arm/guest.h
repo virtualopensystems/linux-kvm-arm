@@ -15,6 +15,10 @@ static inline void print(const char *p)
 		putc(*(p++));
 }
 
+#ifndef NULL
+#define NULL ((void *)0)
+#endif
+
 #define stringify(expr)		stringify_1(expr)
 /* Double-indirection required to stringify expansions */
 #define stringify_1(expr)	#expr
@@ -30,6 +34,31 @@ static inline void print(const char *p)
 	} while(0)
 
 typedef uint32_t u32;
+
+
+static inline unsigned char readb(unsigned long addr)
+{
+	unsigned char out;
+	asm volatile("ldrb %0, [%1]" : "=r"(out) : "r"(addr));
+	return out;
+}
+
+static inline unsigned long readl(unsigned long addr)
+{
+	unsigned char out;
+	asm volatile("ldr %0, [%1]" : "=r"(out) : "r"(addr));
+	return out;
+}
+
+static inline void writeb(unsigned long addr, unsigned char val)
+{
+	asm volatile("strb %0, [%1]" : : "r"(val), "r"(addr));
+}
+
+static inline void writel(unsigned long addr, unsigned long val)
+{
+	asm volatile("str %0, [%1]" : : "r"(val), "r"(addr));
+}
 
 /* Each guest needs to write this. */
 int test(void);

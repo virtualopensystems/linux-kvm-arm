@@ -29,8 +29,10 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <linux/kvm.h>
+#include <asm/kvm.h>
 #include <elf.h>
 #include <err.h>
+#include <getopt.h>
 #include <stddef.h>
  
 #include "io_common.h"
@@ -177,6 +179,35 @@ static void init_vcpu(unsigned long start)
 		err(EXIT_SETUPFAIL, "error setting LR");
 }
 
+static void init_vgic(void)
+{
+	struct kvm_arm_device_addr kda;
+	int ret;
+
+	ret = ioctl(vm_fd, KVM_CREATE_IRQCHIP, 0);
+	if (ret) {
+		err(EXIT_SETUPFAIL, "error creating irqchip: %d", errno);
+	}
+
+	/* Set Vexpress VGIC base addresses */
+
+	kda.id = KVM_ARM_DEVICE_VGIC_V2 << KVM_ARM_DEVICE_ID_SHIFT;
+	kda.id |= KVM_VGIC_V2_ADDR_TYPE_DIST;
+	kda.addr = 0x2c000000 + 0x1000;
+
+	ret = ioctl(vm_fd, KVM_ARM_SET_DEVICE_ADDR, &kda);
+	if (ret)
+		err(EXIT_SETUPFAIL, "error setting dist addr: %d", errno);
+
+	kda.id = KVM_ARM_DEVICE_VGIC_V2 << KVM_ARM_DEVICE_ID_SHIFT;
+	kda.id |= KVM_VGIC_V2_ADDR_TYPE_CPU;
+	kda.addr = 0x2c000000 + 0x2000;
+
+	ret = ioctl(vm_fd, KVM_ARM_SET_DEVICE_ADDR, &kda);
+	if (ret)
+		err(EXIT_SETUPFAIL, "error setting cpu addr: %d", errno);
+}
+
 /* Returns true to shut down. */
 static bool handle_mmio(struct kvm_run *kvm_run,
 			bool (*test)(struct kvm_run *kvm_run, int vcpu_fd))
@@ -241,7 +272,8 @@ static void kvm_cpu_exec(bool (*test)(struct kvm_run *kvm_run, int vcpu_fd))
 /* Linker-generated symbols for GUEST_TEST() macros */
 extern struct test __start_tests[], __stop_tests[];
 
-static void usage(int argc, const char *argv[])
+
+static void usage(int argc, char * const *argv)
 {
 	struct test *i;
 	fprintf(stderr, "Usage: %s <testname>\n\n", argv[0]);
@@ -253,18 +285,33 @@ static void usage(int argc, const char *argv[])
 	errx(EXIT_SETUPFAIL, "failed");
 }
 
-int main(int argc, const char *argv[])
+
+int main(int argc, char * const *argv)
 {
 	struct test *i;
 	const char *file = NULL;
 	bool (*test)(struct kvm_run *kvm_run, int vcpu_fd);
 	unsigned long start;
+	int opt;
+	bool use_vgic = false;
+	char *test_name;
 
-	if (argc != 2)
+	while ((opt = getopt(argc, argv, "v")) != -1) {
+		switch (opt) {
+		case 'v':
+			use_vgic = true;
+			break;
+		default:
+			usage(argc, argv);
+		}
+	}
+
+	if (optind >= argc)
 		usage(argc, argv);
 
+	test_name = argv[optind];
 	for (i = __start_tests; i < __stop_tests; i++) {
-		if (strcmp(i->name, argv[1]) == 0) {
+		if (strcmp(i->name, test_name) == 0) {
 			test = i->mmiofn;
 			file = i->binname;
 			break;
@@ -281,6 +328,8 @@ int main(int argc, const char *argv[])
 
 	create_vm();
 	register_memregions();
+	if (use_vgic)
+		init_vgic();
 	start = load_code(file);
 	create_vcpu();
 	init_vcpu(start);

@@ -29,10 +29,35 @@
 #include <linux/kvm.h>
 
 #include "guest-driver.h"
+#include "vmexit.h"
 
 /* Return false to stop the VM */
 static bool vmexit_test(struct kvm_run *kvm_run, int vcpu_fd)
 {
+	unsigned long phys_addr;
+	unsigned long len;
+	bool is_write;
+	static unsigned long bogus = 0xdeadbeef;
+	unsigned long unused;
+
+	phys_addr = (unsigned long)kvm_run->mmio.phys_addr;
+	len = kvm_run->mmio.len;
+	is_write = kvm_run->mmio.is_write;
+
+	if (phys_addr == VGIC_DIST_BASE && len == 4 && !is_write) {
+		memcpy(kvm_run->mmio.data, &bogus, len);
+		return true;
+	}
+
+	if (phys_addr == FAKE_MMIO && len == 4) {
+		if (is_write)
+			memcpy(&unused, kvm_run->mmio.data, 4);
+		else
+			memcpy(kvm_run->mmio.data, &bogus, len);
+		return true;
+	}
+
+
 	return false;
 }
 

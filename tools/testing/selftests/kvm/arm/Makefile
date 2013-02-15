@@ -23,10 +23,13 @@ OBJCOPY=$(CROSS_COMPILE)objcopy
 
 LDFLAGS = -static
 
-CFLAGS = -I../../../../../include/uapi \
-	 -I../../../../../include \
-	 -I../../../../../arch/arm/include/uapi \
-	 -I../../../../../arch/arm/include \
+KERNEL_DIR ?= ../../../../..
+KDIR = $(shell echo $(KERNEL_DIR))
+
+CFLAGS = -I$(KDIR)/include/uapi \
+	 -I$(KDIR)/include \
+	 -I$(KDIR)/arch/arm/include/uapi \
+	 -I$(KDIR)/arch/arm/include \
 	 -Wall -D__EXPORTED_HEADERS__ -marm
 
 TESTS=mmio vfp cond cp15 helloworld vmexit
@@ -45,22 +48,22 @@ guest-driver: $(DRIVER_OBJS)
 	$(GCC) $(LDFLAGS) -o $@ $(DRIVER_OBJS)
 
 guest-base.o: guest-base.S
-	$(GCC) $(CFLAGS) -fno-builtin -ffreestanding -c -o $@ $<
+	$(GCC) $(CFLAGS) -fno-builtin -ffreestanding -O2 -c -o $@ $<
 
 lib1funcs.o: lib1funcs.S
-	$(GCC) $(CFLAGS) $(CFLAGS_$@) -fno-builtin -ffreestanding -c -o $@ $<
+	$(GCC) $(CFLAGS) $(CFLAGS_$@) -fno-builtin -ffreestanding -O2 -c -o $@ $<
 
 guest-util.o: guest-util.c
-	$(GCC) $(CFLAGS) $(CFLAGS_$@) -fno-builtin -ffreestanding -c -o $@ $<
+	$(GCC) $(CFLAGS) $(CFLAGS_$@) -fno-builtin -ffreestanding -O2 -c -o $@ $<
 
 %-guest.o: %-guest.c
-	$(GCC) $(CFLAGS) $(CFLAGS_$@) -fno-builtin -ffreestanding -c -o $@ $<
+	$(GCC) $(CFLAGS) $(CFLAGS_$@) -fno-builtin -ffreestanding -O2 -c -o $@ $<
 
 %-guest: %-guest.o guest.lds guest-base.o guest-util.o lib1funcs.o
 	$(LD) -o $@ --script=guest.lds $< guest-base.o guest-util.o lib1funcs.o
 
 %-host.o: %-host.c
-	$(GCC) $(CFLAGS) $(CFLAGS_$@) -c -o $@ $<
+	$(GCC) $(CFLAGS) $(CFLAGS_$@) -O2 -c -o $@ $<
 
 clean distclean:
 	rm -f $(GUESTS) $(HOST_DRIVERS) guest-driver guest-base.o $(OBJS)
