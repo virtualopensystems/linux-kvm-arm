@@ -629,7 +629,7 @@ config ARCH_PHYS_ADDR_T_64BIT
 	def_bool ARM_LPAE
 
 config ARCH_DMA_ADDR_T_64BIT
-	bool
+	def_bool ARM_LPAE
 
 config ARM_THUMB
 	bool "Support Thumb user binaries" if !CPU_THUMBONLY
