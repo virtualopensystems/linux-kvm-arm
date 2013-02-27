@@ -50,6 +50,8 @@
 		s5m8767_pmic@66 {
 			compatible = "samsung,s5m8767-pmic";
 			reg = <0x66>;
+			//interrupt-parent = <&gpx3>;
+			//interrupts = <2 0>, <3 0>;
 
 			s5m8767,pmic-buck2-dvs-voltage = <1300000>;
 			s5m8767,pmic-buck3-dvs-voltage = <1100000>;
@@ -207,7 +209,7 @@
 				};
 				
 				buck1_reg: BUCK1 {
-					regulator-name = "VDD_MIF_1.2V";
+					regulator-name = "vdd_mif";
 					regulator-min-microvolt = <950000>;
 					regulator-max-microvolt	= <1200000>;
 					regulator-always-on;
@@ -225,7 +227,7 @@
 				};
 
 				buck3_reg: BUCK3 {
-					regulator-name = "VDD_INT_1.0V";
+					regulator-name = "vdd_int";
 					regulator-min-microvolt = <900000>;
 					regulator-max-microvolt	= <1200000>;
 					regulator-always-on;
@@ -258,6 +260,21 @@
 		status = "disabled";
 	};
 
+	i2c@121D0000 {
+		samsung,i2c-sda-delay = <100>;
+                samsung,i2c-max-bus-freq = <40000>;
+		samsung,i2c-slave-addr = <0x38>;
+
+		sata-phy {
+			compatible = "samsung,sata-phy";
+			reg = <0x38>;
+		};
+	}; 
+
+	sata@122F0000 {
+		samsung,sata-freq = <66>;
+	};
+
 	i2c@12C80000 {
 		status = "disabled";
 	};
@@ -282,21 +299,6 @@
 		status = "disabled";
 	};
 
-	i2c@121D0000 {
-		samsung,i2c-sda-delay = <100>;
-		samsung,i2c-max-bus-freq = <40000>;
-		samsung,i2c-slave-addr = <0x38>;
-
-		sata-phy {
-			compatible = "samsung,sata-phy";
-			reg = <0x38>;
-		};
-	};
-
-	sata@122F0000 {
-		samsung,sata-freq = <66>;
-	};
-	
 	dwmmc_0: dwmmc0@12200000 {
 		num-slots = <1>;
 		supports-highspeed;
@@ -321,6 +323,7 @@
 	dwmmc_1: dwmmc1@12210000 {
 		status = "disabled";
 	};
+
 	dwmmc_2: dwmmc2@12220000 {
 		num-slots = <1>;
 		supports-highspeed;
