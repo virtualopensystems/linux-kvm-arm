@@ -14,6 +14,7 @@
 #include <linux/serial_core.h>
 #include <linux/memblock.h>
 #include <linux/io.h>
+#include <linux/fb.h>
 
 #include <asm/mach/arch.h>
 #include <mach/map.h>
@@ -147,8 +148,18 @@ static const struct of_dev_auxdata exynos5250_auxdata_lookup[] __initconst = {
 				"exynos-ohci", NULL),
 	OF_DEV_AUXDATA("samsung,exynos-ehci", 0x12110000,
 				"s5p-ehci", NULL),
+	OF_DEV_AUXDATA("samsung,exynos5-fimd", EXYNOS5_PA_FIMD1,
+			"exynos5-fb.1", NULL),
 	{},
 };
+
+static void __init exynos5_setup_fimd(void)
+{
+	unsigned int reg;
+	reg = __raw_readl(S3C_VA_SYS + 0x0214);
+	reg |= (1 << 15);
+	__raw_writel(reg, S3C_VA_SYS + 0x0214);
+}
 
 static const struct of_dev_auxdata exynos5440_auxdata_lookup[] __initconst = {
 	OF_DEV_AUXDATA("samsung,exynos4210-uart", EXYNOS5440_PA_UART0,
@@ -203,6 +214,7 @@ static void __init exynos5_dt_machine_init(void)
 	else if (of_machine_is_compatible("samsung,exynos5440"))
 		of_platform_populate(NULL, of_default_bus_match_table,
 				     exynos5440_auxdata_lookup, NULL);
+	exynos5_setup_fimd();
 }
 
 static char const *exynos5_dt_compat[] __initdata = {
