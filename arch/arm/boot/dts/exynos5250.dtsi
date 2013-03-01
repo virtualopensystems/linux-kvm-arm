@@ -658,6 +658,13 @@
 		interrupts = <0 88 0>;
 	};
 
+	fimd: fimd@14400000 {
+		compatible = "samsung,exynos5-fimd";
+		interrupt-parent = <&combiner>;
+		reg = <0x14400000 0x40000>;
+		interrupts = <18 5>, <18 4>, <18 6>;
+	};
+
 	hdmi {
 		compatible = "samsung,exynos5-hdmi";
 		reg = <0x14530000 0x70000>;
