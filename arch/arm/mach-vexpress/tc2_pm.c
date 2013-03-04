@@ -16,11 +16,11 @@
 #include <linux/kernel.h>
 #include <linux/spinlock.h>
 #include <linux/errno.h>
+#include <linux/irqchip/arm-gic.h>
 
 #include <asm/bL_entry.h>
 #include <asm/proc-fns.h>
 #include <asm/cacheflush.h>
-#include <asm/hardware/gic.h>
 
 #include <mach/motherboard.h>
 
