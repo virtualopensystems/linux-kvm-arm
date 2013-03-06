@@ -6,6 +6,8 @@
 
 obj-$(CONFIG_USB)		+= core/
 
+obj-$(CONFIG_USB_COMMON)	+= phy/
+
 obj-$(CONFIG_USB_OTG_UTILS)	+= otg/
 
 obj-$(CONFIG_USB_DWC3)		+= dwc3/
