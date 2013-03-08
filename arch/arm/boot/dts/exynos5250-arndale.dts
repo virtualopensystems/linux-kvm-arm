@@ -435,6 +435,39 @@
 		};
 	};
 
+	lcd_fimd0: lcd_panel0 {
+		compatible = "lcd-powercontrol";
+		lcd-reset-gpio = <&gph1 4 1 0 0>;
+		lcd-htiming = <64 16 48 1024>;
+		lcd-vtiming = <64 16 3 600>;
+	};
+
+	fimd: fimd@14400000 {
+		samsung,fimd-display = <&lcd_fimd0>;
+		samsung,fimd-vidout-rgb;
+		samsung,fimd-inv-hsync;
+		samsung,fimd-inv-vsync;
+		samsung,fimd-inv-vclk;
+		samsung,fimd-frame-rate = <60>;
+
+		gpios = <&gph1 0 2 0 0>,
+			<&gph1 1 2 0 0>;
+
+		window0 {
+			samsung,fimd-win-id = <0>;
+			samsung,fimd-win-bpp = <32 24>;
+			samsung,fimd-win-res = <1024 600>;
+			samsung,fimd-win-vres = <1024 600>;
+		};
+
+		window1 {
+			samsung,fimd-win-id = <1>;
+			samsung,fimd-win-bpp = <32 24>;
+			samsung,fimd-win-res = <1024 600>;
+			samsung,fimd-win-vres = <1024 600>;
+		};
+	};
+
 	gpio_keys {
 		compatible = "gpio-keys";
 		#address-cells = <1>;
