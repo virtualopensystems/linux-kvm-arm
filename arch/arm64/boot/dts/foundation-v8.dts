@@ -13,7 +13,7 @@
 	#address-cells = <2>;
 	#size-cells = <2>;
 
-	chosen { };
+	/* chosen */
 
 	aliases {
 		serial0 = &v2m_serial0;
