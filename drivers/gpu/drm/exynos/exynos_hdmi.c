@@ -1996,7 +1996,7 @@ static irqreturn_t hdmi_irq_thread(int irq, void *arg)
 	struct hdmi_context *hdata = ctx->ctx;
 
 	mutex_lock(&hdata->hdmi_mutex);
-	hdata->hpd = gpio_get_value(hdata->hpd_gpio);
+	hdata->hpd = true;
 	mutex_unlock(&hdata->hdmi_mutex);
 
 	if (ctx->drm_dev)
@@ -2340,7 +2340,7 @@ static int hdmi_resume(struct device *dev)
 
 	DRM_DEBUG_KMS("[%d] %s\n", __LINE__, __func__);
 
-	hdata->hpd = gpio_get_value(hdata->hpd_gpio);
+	hdata->hpd = true;
 
 	enable_irq(hdata->irq);
 
