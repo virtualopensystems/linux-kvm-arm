@@ -156,7 +156,7 @@ ENDPROC(stext)
  *
  * Returns:
  *  r0, r3, r5-r7 corrupted
- *  r4 = physical page table address
+ *  r4 = page table (see ARCH_PGD_SHIFT in asm/memory.h)
  */
 __create_page_tables:
 	pgtbl	r4, r8				@ page table address
@@ -331,6 +331,7 @@ __create_page_tables:
 #endif
 #ifdef CONFIG_ARM_LPAE
 	sub	r4, r4, #0x1000		@ point to the PGD table
+	mov	r4, r4, lsr #ARCH_PGD_SHIFT
 #endif
 	mov	pc, lr
 ENDPROC(__create_page_tables)
@@ -408,7 +409,7 @@ __secondary_data:
  *  r0  = cp#15 control register
  *  r1  = machine ID
  *  r2  = atags or dtb pointer
- *  r4  = page table pointer
+ *  r4 = page table (see ARCH_PGD_SHIFT in asm/memory.h)
  *  r9  = processor ID
  *  r13 = *virtual* address to jump to upon completion
  */
