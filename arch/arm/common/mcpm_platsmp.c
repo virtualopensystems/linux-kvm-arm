@@ -13,15 +13,16 @@
 
 #include <linux/init.h>
 #include <linux/smp.h>
+#include <linux/spinlock.h>
+
+#include <linux/irqchip/arm-gic.h>
 
 #include <asm/mcpm_entry.h>
 #include <asm/smp.h>
 #include <asm/smp_plat.h>
-#include <asm/hardware/gic.h>
 
 static void __init simple_smp_init_cpus(void)
 {
-	set_smp_cross_call(gic_raise_softirq);
 }
 
 static int __cpuinit mcpm_boot_secondary(unsigned int cpu, struct task_struct *idle)
