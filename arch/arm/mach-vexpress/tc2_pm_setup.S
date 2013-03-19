@@ -12,7 +12,7 @@
 
 
 #include <linux/linkage.h>
-#include <asm/bL_entry.h>
+#include <asm/mcpm_entry.h>
 
 
 #define SPC_PHYS_BASE		0x7FFF0000

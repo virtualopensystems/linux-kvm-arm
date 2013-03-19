@@ -18,9 +18,11 @@
 #include <linux/errno.h>
 #include <linux/irqchip/arm-gic.h>
 
-#include <asm/bL_entry.h>
+#include <asm/mcpm_entry.h>
 #include <asm/proc-fns.h>
 #include <asm/cacheflush.h>
+#include <asm/cputype.h>
+#include <asm/cp15.h>
 
 #include <mach/motherboard.h>
 
@@ -58,7 +60,7 @@ static int tc2_pm_power_up(unsigned int cpu, unsigned int cluster)
 	tc2_pm_use_count[cpu][cluster]++;
 	if (tc2_pm_use_count[cpu][cluster] == 1) {
 		vexpress_spc_write_bxaddr_reg(cluster, cpu,
-					      virt_to_phys(bL_entry_point));
+					      virt_to_phys(mcpm_entry_point));
 		vexpress_spc_set_cpu_wakeup_irq(cpu, cluster, 1);
 	} else if (tc2_pm_use_count[cpu][cluster] != 2) {
 		/*
@@ -83,16 +85,17 @@ static void tc2_pm_down(u64 residency)
 	unsigned int mpidr, cpu, cluster;
 	bool last_man = false, skip_wfi = false;
 
-	asm ("mrc p15, 0, %0, c0, c0, 5" : "=r" (mpidr));
-	cpu = mpidr & 0xff;
-	cluster = (mpidr >> 8) & 0xff;
+	mpidr = read_cpuid_mpidr();
+	cpu = MPIDR_AFFINITY_LEVEL(mpidr, 0);
+	cluster = MPIDR_AFFINITY_LEVEL(mpidr, 1);
 
 	pr_debug("%s: cpu %u cluster %u\n", __func__, cpu, cluster);
 	BUG_ON(cluster >= 2 || cpu >= vexpress_spc_get_nb_cpus(cluster));
 
-	__bL_cpu_going_down(cpu, cluster);
+	__mcpm_cpu_going_down(cpu, cluster);
 
 	arch_spin_lock(&tc2_pm_lock);
+	BUG_ON(__mcpm_cluster_state(cluster) != CLUSTER_UP);
 	tc2_pm_use_count[cpu][cluster]--;
 	if (tc2_pm_use_count[cpu][cluster] == 0) {
 		vexpress_spc_set_cpu_wakeup_irq(cpu, cluster, 1);
@@ -102,7 +105,6 @@ static void tc2_pm_down(u64 residency)
 		    (!residency || residency > 5000)) {
 			vexpress_spc_powerdown_enable(cluster, 1);
 			vexpress_spc_set_global_wakeup_intr(1);
-			BUG_ON(__bL_cluster_state(cluster) != CLUSTER_UP);
 			last_man = true;
 		}
 	} else if (tc2_pm_use_count[cpu][cluster] == 1) {
@@ -118,27 +120,13 @@ static void tc2_pm_down(u64 residency)
 
 	gic_cpu_if_down();
 
-	if (last_man && __bL_outbound_enter_critical(cpu, cluster)) {
+	if (last_man && __mcpm_outbound_enter_critical(cpu, cluster)) {
 		arch_spin_unlock(&tc2_pm_lock);
 
-		asm volatile (
-			"mrc	p15, 0, ip, c1, c0, 0 \n\t"
-			"bic	ip, ip, #(1 << 2) @ clear C bit \n\t"
-			"mcr	p15, 0, ip, c1, c0, 0 \n\t"
-			"dsb \n\t"
-			"isb"
-			: : : "ip" );
-
+		set_cr(get_cr() & ~CR_C);
 		flush_cache_all();
-
-		asm volatile (
-			"clrex	\n\t"
-			"mrc	p15, 0, ip, c1, c0, 1 \n\t"
-			"bic	ip, ip, #(1 << 6) @ clear SMP bit \n\t"
-			"mcr	p15, 0, ip, c1, c0, 1 \n\t"
-			"isb \n\t"
-			"dsb"
-			: : : "ip" );
+		asm volatile ("clrex");
+		set_auxcr(get_auxcr() & ~(1 << 6));
 
 		disable_cci(cluster);
 
@@ -150,9 +138,8 @@ static void tc2_pm_down(u64 residency)
 		 */
 		cpu_proc_fin();
 
-		__bL_outbound_leave_critical(cluster, CLUSTER_DOWN);
+		__mcpm_outbound_leave_critical(cluster, CLUSTER_DOWN);
 	} else {
-
 		/*
 		 * If last man then undo any setup done previously.
 		 */
@@ -163,27 +150,13 @@ static void tc2_pm_down(u64 residency)
 
 		arch_spin_unlock(&tc2_pm_lock);
 
-		asm volatile (
-			"mrc	p15, 0, ip, c1, c0, 0 \n\t"
-			"bic	ip, ip, #(1 << 2) @ clear C bit \n\t"
-			"mcr	p15, 0, ip, c1, c0, 0 \n\t"
-			"dsb \n\t"
-			"isb"
-			: : : "ip" );
-
+		set_cr(get_cr() & ~CR_C);
 		flush_cache_louis();
-
-		asm volatile (
-			"clrex	\n\t"
-			"mrc	p15, 0, ip, c1, c0, 1 \n\t"
-			"bic	ip, ip, #(1 << 6) @ clear SMP bit \n\t"
-			"mcr	p15, 0, ip, c1, c0, 1 \n\t"
-			"isb \n\t"
-			"dsb"
-			: : : "ip" );
+		asm volatile ("clrex");
+		set_auxcr(get_auxcr() & ~(1 << 6));
 	}
 
-	__bL_cpu_down(cpu, cluster);
+	__mcpm_cpu_down(cpu, cluster);
 
 	/* Now we are prepared for power-down, do it: */
 	if (!skip_wfi)
@@ -201,11 +174,11 @@ static void tc2_pm_suspend(u64 residency)
 {
 	unsigned int mpidr, cpu, cluster;
 
-	asm ("mrc p15, 0, %0, c0, c0, 5" : "=r" (mpidr));
-	cpu = mpidr & 0xff;
-	cluster = (mpidr >> 8) & 0xff;
+	mpidr = read_cpuid_mpidr();
+	cpu = MPIDR_AFFINITY_LEVEL(mpidr, 0);
+	cluster = MPIDR_AFFINITY_LEVEL(mpidr, 1);
 	vexpress_spc_write_bxaddr_reg(cluster, cpu,
-				      virt_to_phys(bL_entry_point));
+				      virt_to_phys(mcpm_entry_point));
 	tc2_pm_down(residency);
 }
 
@@ -214,9 +187,9 @@ static void tc2_pm_powered_up(void)
 	unsigned int mpidr, cpu, cluster;
 	unsigned long flags;
 
-	asm ("mrc p15, 0, %0, c0, c0, 5" : "=r" (mpidr));
-	cpu = mpidr & 0xff;
-	cluster = (mpidr >> 8) & 0xff;
+	mpidr = read_cpuid_mpidr();
+	cpu = MPIDR_AFFINITY_LEVEL(mpidr, 0);
+	cluster = MPIDR_AFFINITY_LEVEL(mpidr, 1);
 
 	pr_debug("%s: cpu %u cluster %u\n", __func__, cpu, cluster);
 	BUG_ON(cluster >= 2 || cpu >= vexpress_spc_get_nb_cpus(cluster));
@@ -241,7 +214,7 @@ static void tc2_pm_powered_up(void)
 	local_irq_restore(flags);
 }
 
-static const struct bL_platform_power_ops tc2_pm_power_ops = {
+static const struct mcpm_platform_ops tc2_pm_power_ops = {
 	.power_up	= tc2_pm_power_up,
 	.power_down	= tc2_pm_power_down,
 	.suspend	= tc2_pm_suspend,
@@ -252,16 +225,16 @@ static void __init tc2_pm_usage_count_init(void)
 {
 	unsigned int mpidr, cpu, cluster;
 
-	asm ("mrc p15, 0, %0, c0, c0, 5" : "=r" (mpidr));
-	cpu = mpidr & 0xff;
-	cluster = (mpidr >> 8) & 0xff;
+	mpidr = read_cpuid_mpidr();
+	cpu = MPIDR_AFFINITY_LEVEL(mpidr, 0);
+	cluster = MPIDR_AFFINITY_LEVEL(mpidr, 1);
 
 	pr_debug("%s: cpu %u cluster %u\n", __func__, cpu, cluster);
 	BUG_ON(cpu >= 3 || cluster >= 2);
 	tc2_pm_use_count[cpu][cluster] = 1;
 }
 
-extern void tc2_pm_power_up_setup(void);
+extern void tc2_pm_power_up_setup(unsigned int affinity_level);
 
 static int __init tc2_pm_init(void)
 {
@@ -272,9 +245,9 @@ static int __init tc2_pm_init(void)
 
 	tc2_pm_usage_count_init();
 
-	ret = bL_platform_power_register(&tc2_pm_power_ops);
+	ret = mcpm_platform_register(&tc2_pm_power_ops);
 	if (!ret)
-		ret = bL_cluster_sync_init(tc2_pm_power_up_setup);
+		ret = mcpm_sync_init(tc2_pm_power_up_setup);
 	if (!ret)
 		pr_info("TC2 power management initialized\n");
 	return ret;
