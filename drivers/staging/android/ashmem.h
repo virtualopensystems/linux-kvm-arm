@@ -28,9 +28,16 @@
 #define ASHMEM_IS_PINNED	1
 
 struct ashmem_pin {
-	__u32 offset;	/* offset into region, in bytes, page-aligned */
-	__u32 len;	/* length forward from offset, in bytes, page-aligned */
+	size_t offset;	/* offset into region, in bytes, page-aligned */
+	size_t len;	/* length forward from offset, in bytes, page-aligned */
 };
+
+#ifdef CONFIG_COMPAT
+struct compat_ashmem_pin {
+	compat_size_t offset;	/* offset into region, in bytes, page-aligned */
+	compat_size_t len;	/* length forward from offset, in bytes, page-aligned */
+};
+#endif
 
 #define __ASHMEMIOC		0x77
 
@@ -44,5 +51,13 @@ struct ashmem_pin {
 #define ASHMEM_UNPIN		_IOW(__ASHMEMIOC, 8, struct ashmem_pin)
 #define ASHMEM_GET_PIN_STATUS	_IO(__ASHMEMIOC, 9)
 #define ASHMEM_PURGE_ALL_CACHES	_IO(__ASHMEMIOC, 10)
+
+/* support of 32bit userspace on 64bit platforms */
+#ifdef CONFIG_COMPAT
+#define COMPAT_ASHMEM_SET_SIZE		_IOW(__ASHMEMIOC, 3, compat_size_t)
+#define COMPAT_ASHMEM_SET_PROT_MASK	_IOW(__ASHMEMIOC, 5, unsigned int)
+#define COMPAT_ASHMEM_PIN		_IOW(__ASHMEMIOC, 7, struct compat_ashmem_pin)
+#define COMPAT_ASHMEM_UNPIN		_IOW(__ASHMEMIOC, 8, struct compat_ashmem_pin)
+#endif
 
 #endif	/* _LINUX_ASHMEM_H */
