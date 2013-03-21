@@ -37,20 +37,6 @@ extern void *scu_base_addr;
 
 static struct cpuidle_device __percpu *calxeda_idle_cpuidle_devices;
 
-static inline unsigned int get_auxcr(void)
-{
-	unsigned int val;
-	asm("mrc p15, 0, %0, c1, c0, 1	@ get AUXCR" : "=r" (val) : : "cc");
-	return val;
-}
-
-static inline void set_auxcr(unsigned int val)
-{
-	asm volatile("mcr p15, 0, %0, c1, c0, 1	@ set AUXCR"
-	  : : "r" (val) : "cc");
-	isb();
-}
-
 static noinline void calxeda_idle_restore(void)
 {
 	set_cr(get_cr() | CR_C);
