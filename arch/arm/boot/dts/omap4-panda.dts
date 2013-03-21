@@ -57,6 +57,27 @@
 			"AFML", "Line In",
 			"AFMR", "Line In";
 	};
+
+	hubpower: fixedregulator@0 {
+			compatible = "regulator-fixed";
+			regulator-name = "vhub0";
+			regulator-min-microvolt = <3300000>;
+			regulator-max-microvolt = <3300000>;
+			gpio = <&gpio1 1 0>;		/* gpio 1 : HUB Power */
+			startup-delay-us = <70000>;
+			enable-active-high;
+	};
+
+	hubreset: fixedregulator@1 {
+			compatible = "regulator-fixed";
+			regulator-name = "hsusb0";	/* tag to associate with PORT 1 */
+			regulator-min-microvolt = <3300000>;
+			regulator-max-microvolt = <3300000>;
+			gpio = <&gpio2 30 0>;	/* gpio 62 : HUB & PHY Reset */
+			startup-delay-us = <70000>;
+			enable-active-high;
+			vin-supply = "vhub0"; /* Makes regulator f/w enable power before reset */
+	};
 };
 
 &omap4_pmx_core {
@@ -67,6 +88,7 @@
 			&mcbsp1_pins
 			&dss_hdmi_pins
 			&tpd12s015_pins
+			&usbb1_pins	/* port 0 of omap usb host port pin mux configuration */
 	>;
 
 	twl6040_pins: pinmux_twl6040_pins {
@@ -110,6 +132,23 @@
 			0x58 0x10b	/* hdmi_hpd.gpio_63 INPUT PULLDOWN | MODE3 */
 		>;
 	};
+
+	usbb1_pins: pinmux_usbb1_pins {
+		pinctrl-single,pins = <
+			0x82 0x10C  /* USBB1_ULPITLL_CLK_MUXMODE.usbb1_ulpiphy_clk INPUT | PULLDOWN */
+			0x84 0x4  /* USBB1_ULPITLL_CLK_MUXMODE.usbb1_ulpiphy_stp OUTPUT */
+			0x86 0x104  /* USBB1_ULPITLL_CLK_MUXMODE.usbb1_ulpiphy_dir INPUT | PULLDOWN */
+			0x88 0x104  /* USBB1_ULPITLL_CLK_MUXMODE.usbb1_ulpiphy_nxt INPUT | PULLDOWN */
+			0x8a 0x104  /* USBB1_ULPITLL_CLK_MUXMODE.usbb1_ulpiphy_dat0 INPUT | PULLDOWN */
+			0x8c 0x104  /* USBB1_ULPITLL_CLK_MUXMODE.usbb1_ulpiphy_dat1 INPUT | PULLDOWN */
+			0x8e 0x104  /* USBB1_ULPITLL_CLK_MUXMODE.usbb1_ulpiphy_dat2 INPUT | PULLDOWN */
+			0x90 0x104  /* USBB1_ULPITLL_CLK_MUXMODE.usbb1_ulpiphy_dat3 INPUT | PULLDOWN */
+			0x92 0x104  /* USBB1_ULPITLL_CLK_MUXMODE.usbb1_ulpiphy_dat4 INPUT | PULLDOWN */
+			0x94 0x104  /* USBB1_ULPITLL_CLK_MUXMODE.usbb1_ulpiphy_dat5 INPUT | PULLDOWN */
+			0x96 0x104  /* USBB1_ULPITLL_CLK_MUXMODE.usbb1_ulpiphy_dat6 INPUT | PULLDOWN */
+			0x98 0x104  /* USBB1_ULPITLL_CLK_MUXMODE.usbb1_ulpiphy_dat7 INPUT | PULLDOWN */
+		>;
+	};
 };
 
 &i2c1 {
@@ -133,6 +172,21 @@
 		vio-supply = <&v1v8>;
 		v2v1-supply = <&v2v1>;
 		enable-active-high;
+	};
+};
+
+
+&usbhost {
+	port@0 {
+		mode = <1>;		/* PHY mode */
+		clk = "auxclk3_ck";	/* PHY clock on FREF_CLK3_OUT */
+		clkrate = <19200000>;
+	};
+	port@1 {
+		mode = <0>;
+	};
+	port@2 {
+		mode = <0>;
 	};
 };
 

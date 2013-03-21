@@ -22,6 +22,8 @@
 #include <linux/platform_device.h>
 #include <linux/slab.h>
 #include <linux/dma-mapping.h>
+#include <linux/of.h>
+#include <linux/of_gpio.h>
 
 #include <asm/io.h>
 
@@ -526,3 +528,74 @@ void __init usbhs_init(struct usbhs_omap_platform_data *pdata)
 }
 
 #endif
+
+static struct usbhs_omap_platform_data bdata;
+
+#define USBHS_NODE "usb-host"
+
+/**
+ * usbhost_init_of - initialize USB Host subsystem from device tree
+ *
+ * Scans the device tree for required information and populates
+ * platform data for the OMAP USB High Speed Host subsystem
+ */
+void __init usbhost_init_of(void)
+{
+	int r;
+	struct device_node *node, *child;
+	int num_ports;
+	int i;
+
+	node = of_find_node_by_name(NULL, USBHS_NODE);
+	if (!node) {
+		pr_err("%s could not find OF node : %s\n",
+					__func__, USBHS_NODE);
+		return;
+	}
+
+	r = of_property_read_u32(node, "num_ports", &num_ports);
+	if (r) {
+		pr_err("%s num_ports not specified in OF node %s\n",
+				__func__, USBHS_NODE);
+	} else {
+		bdata.nports = num_ports;
+	}
+
+	r = of_property_read_bool(node, "phy_reset");
+	bdata.phy_reset = r;
+
+	i = 0;
+	for_each_child_of_node(node, child) {
+		int mode;
+		const char *clk_name;
+		u32 clk_rate;
+
+		r = of_property_read_u32(child, "mode", &mode);
+		if (r) {
+			pr_err("%s mode not specified in OF node %s port %d\n",
+				__func__, USBHS_NODE, i);
+			bdata.port_mode[i] = OMAP_USBHS_PORT_MODE_UNUSED;
+		} else {
+			bdata.port_mode[i] = mode;
+		}
+
+		r = of_get_named_gpio(child, "reset_gpio", 0);
+		if (gpio_is_valid(r))
+			bdata.reset_gpio_port[i] = r;
+		else
+			bdata.reset_gpio_port[i] = -EINVAL;
+
+		clk_name = of_get_property(child, "clk", NULL);
+		if (clk_name)
+			bdata.clk[i] = clk_name;
+
+		r = of_property_read_u32(child, "clkrate", &clk_rate);
+		if (!r)
+			bdata.clkrate[i] = clk_rate;
+
+		i++;
+	}
+
+	usbhs_init(&bdata);
+}
+

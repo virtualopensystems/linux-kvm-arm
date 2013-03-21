@@ -147,45 +147,73 @@ static struct usbhs_omap_platform_data usbhs_bdata __initdata = {
 	.phy_reset  = false,
 	.reset_gpio_port[0]  = -EINVAL,
 	.reset_gpio_port[1]  = -EINVAL,
-	.reset_gpio_port[2]  = -EINVAL
+	.reset_gpio_port[2]  = -EINVAL,
+	.clk[0] = "auxclk3_ck", /* FREF_CLK3 provides 19.2 MHz clock to PHY */
+	.clkrate[0] = 19200000,
 };
 
-static struct gpio panda_ehci_gpios[] __initdata = {
-	{ GPIO_HUB_POWER,	GPIOF_OUT_INIT_LOW,  "hub_power"  },
-	{ GPIO_HUB_NRESET,	GPIOF_OUT_INIT_LOW,  "hub_nreset" },
+/*
+ * hub_nreset also enables the ULPI PHY
+ * ULPI PHY is always powered
+ * hub_power enables a 3.3V regulator for (hub + eth) chip
+ * however there's no point having ULPI PHY in use alone
+ * since it's only connected to the (hub + eth) chip
+ */
+
+static struct regulator_init_data panda_hub = {
+	.constraints = {
+		.name = "vhub",
+		.valid_ops_mask = REGULATOR_CHANGE_STATUS,
+	},
 };
 
-static void __init omap4_ehci_init(void)
-{
-	int ret;
-	struct clk *phy_ref_clk;
+static struct fixed_voltage_config panda_vhub = {
+	.supply_name = "vhub",
+	.microvolts = 3300000,
+	.gpio = GPIO_HUB_POWER,
+	.startup_delay = 70000, /* 70msec */
+	.enable_high = 1,
+	.enabled_at_boot = 0,
+	.init_data = &panda_hub,
+};
 
-	/* FREF_CLK3 provides the 19.2 MHz reference clock to the PHY */
-	phy_ref_clk = clk_get(NULL, "auxclk3_ck");
-	if (IS_ERR(phy_ref_clk)) {
-		pr_err("Cannot request auxclk3\n");
-		return;
-	}
-	clk_set_rate(phy_ref_clk, 19200000);
-	clk_prepare_enable(phy_ref_clk);
+static struct platform_device omap_vhub_device = {
+	.name		= "reg-fixed-voltage",
+	.id		= 2,
+	.dev = {
+		.platform_data = &panda_vhub,
+	},
+};
 
-	/* disable the power to the usb hub prior to init and reset phy+hub */
-	ret = gpio_request_array(panda_ehci_gpios,
-				 ARRAY_SIZE(panda_ehci_gpios));
-	if (ret) {
-		pr_err("Unable to initialize EHCI power/reset\n");
-		return;
-	}
+static struct regulator_init_data panda_ulpireset = {
+	/*
+	 * idea is that when operating ulpireset, regulator api will make
+	 * sure that the hub+eth chip is powered, since it's the "parent"
+	 */
+	.supply_regulator = "vhub", /* we are a child of vhub */
+	.constraints = {
+		.name = "hsusb0",
+		.valid_ops_mask = REGULATOR_CHANGE_STATUS,
+	},
+};
 
-	gpio_export(GPIO_HUB_POWER, 0);
-	gpio_export(GPIO_HUB_NRESET, 0);
-	gpio_set_value(GPIO_HUB_NRESET, 1);
+static struct fixed_voltage_config panda_vulpireset = {
+	.supply_name = "hsusb0",  /* this name is magic for hsusb driver */
+	.microvolts = 3300000,
+	.gpio = GPIO_HUB_NRESET,
+	.startup_delay = 70000, /* 70msec */
+	.enable_high = 1,
+	.enabled_at_boot = 0,
+	.init_data = &panda_ulpireset,
+};
 
-	usbhs_init(&usbhs_bdata);
-
-	/* enable power to hub */
-	gpio_set_value(GPIO_HUB_POWER, 1);
-}
+static struct platform_device omap_vulpireset_device = {
+	.name		= "reg-fixed-voltage",
+	.id		= 3,
+	.dev = {
+		.platform_data = &panda_vulpireset,
+	},
+};
 
 static struct omap_musb_board_data musb_board_data = {
 	.interface_type		= MUSB_INTERFACE_UTMI,
@@ -444,10 +472,12 @@ static void __init omap4_panda_init(void)
 	omap4_panda_i2c_init();
 	platform_add_devices(panda_devices, ARRAY_SIZE(panda_devices));
 	platform_device_register(&omap_vwlan_device);
+	platform_device_register(&omap_vhub_device);
+	platform_device_register(&omap_vulpireset_device);
 	omap_serial_init();
 	omap_sdrc_init(NULL, NULL);
 	omap4_twl6030_hsmmc_init(mmc);
-	omap4_ehci_init();
+	usbhs_init(&usbhs_bdata);
 	usb_bind_phy("musb-hdrc.0.auto", 0, "omap-usb2.1.auto");
 	usb_musb_init(&musb_board_data);
 	omap4_panda_display_init();

@@ -88,12 +88,12 @@
 #define is_ehci_tll_mode(x)	(x == OMAP_EHCI_PORT_MODE_TLL)
 #define is_ehci_hsic_mode(x)	(x == OMAP_EHCI_PORT_MODE_HSIC)
 
-
 struct usbhs_hcd_omap {
 	int				nports;
 	struct clk			**utmi_clk;
 	struct clk			**hsic60m_clk;
 	struct clk			**hsic480m_clk;
+	struct clk			**aux_clk; /* board dependent clock */
 
 	struct clk			*xclk60mhsp1_ck;
 	struct clk			*xclk60mhsp2_ck;
@@ -284,6 +284,14 @@ static int usbhs_runtime_resume(struct device *dev)
 		clk_enable(omap->ehci_logic_fck);
 
 	for (i = 0; i < omap->nports; i++) {
+		if (!IS_ERR(omap->aux_clk[i])) {
+			r = clk_prepare_enable(omap->aux_clk[i]);
+			if (r) {
+				dev_err(dev,
+				 "Can't enable port %d aux clk %d\n", i, r);
+			}
+		}
+
 		switch (pdata->port_mode[i]) {
 		case OMAP_EHCI_PORT_MODE_HSIC:
 			if (!IS_ERR(omap->hsic60m_clk[i])) {
@@ -348,6 +356,9 @@ static int usbhs_runtime_suspend(struct device *dev)
 		default:
 			break;
 		}
+
+		if (!IS_ERR(omap->aux_clk[i]))
+			clk_disable(omap->aux_clk[i]);
 	}
 
 	if (!IS_ERR(omap->ehci_logic_fck))
@@ -581,11 +592,13 @@ static int usbhs_omap_probe(struct platform_device *pdev)
 	omap->utmi_clk = devm_kzalloc(dev, i, GFP_KERNEL);
 	omap->hsic480m_clk = devm_kzalloc(dev, i, GFP_KERNEL);
 	omap->hsic60m_clk = devm_kzalloc(dev, i, GFP_KERNEL);
+	omap->aux_clk = devm_kzalloc(dev, i, GFP_KERNEL);
 
-	if (!omap->utmi_clk || !omap->hsic480m_clk || !omap->hsic60m_clk) {
-		dev_err(dev, "Memory allocation failed\n");
-		ret = -ENOMEM;
-		goto err_mem;
+	if (!omap->utmi_clk || !omap->hsic480m_clk || !omap->hsic60m_clk ||
+		!omap->aux_clk) {
+			dev_err(dev, "Memory allocation failed\n");
+			ret = -ENOMEM;
+			goto err_mem;
 	}
 
 	need_logic_fck = false;
@@ -668,6 +681,23 @@ static int usbhs_omap_probe(struct platform_device *pdev)
 		if (IS_ERR(omap->hsic60m_clk[i]))
 			dev_dbg(dev, "Failed to get clock : %s : %ld\n",
 				clkname, PTR_ERR(omap->hsic60m_clk[i]));
+
+		/* get the auxiliary clock if required and set its rate */
+		if (pdata->clk[i] && pdata->clkrate[i]) {
+			omap->aux_clk[i] = clk_get(dev, pdata->clk[i]);
+			if (IS_ERR(omap->aux_clk[i])) {
+				dev_dbg(dev, "Failed to get clock %s\n",
+					pdata->clk[i]);
+			} else {
+				ret = clk_set_rate(omap->aux_clk[i],
+						pdata->clkrate[i]);
+				if (ret) {
+					dev_err(dev,
+					 "Failed to set clock %s to %luHz\n",
+					 pdata->clk[i], pdata->clkrate[i]);
+				}
+			}
+		}
 	}
 
 	if (is_ehci_phy_mode(pdata->port_mode[0])) {
@@ -718,6 +748,8 @@ err_alloc:
 			clk_put(omap->hsic60m_clk[i]);
 		if (!IS_ERR(omap->hsic480m_clk[i]))
 			clk_put(omap->hsic480m_clk[i]);
+		if (!IS_ERR(omap->aux_clk[i]))
+			clk_put(omap->aux_clk[i]);
 	}
 
 	clk_put(omap->init_60m_fclk);
@@ -764,6 +796,8 @@ static int usbhs_omap_remove(struct platform_device *pdev)
 			clk_put(omap->hsic60m_clk[i]);
 		if (!IS_ERR(omap->hsic480m_clk[i]))
 			clk_put(omap->hsic480m_clk[i]);
+		if (!IS_ERR(omap->aux_clk[i]))
+			clk_put(omap->aux_clk[i]);
 	}
 
 	clk_put(omap->init_60m_fclk);
