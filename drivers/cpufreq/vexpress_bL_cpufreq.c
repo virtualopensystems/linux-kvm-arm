@@ -91,10 +91,8 @@ static int vexpress_cpufreq_set_target(struct cpufreq_policy *policy,
 	/* Read current clock rate */
 	cur_cluster = get_current_cached_cluster(cpu);
 
-	if (vexpress_spc_get_performance(cur_cluster, &freq_tab_idx))
+	if (vexpress_spc_get_performance(cur_cluster, &freqs.old))
 		return -EIO;
-
-	freqs.old = freq_table[cur_cluster][freq_tab_idx].frequency;
 
 	/* Make sure that target_freq is within supported range */
 	if (target_freq > policy->max)
@@ -117,7 +115,7 @@ static int vexpress_cpufreq_set_target(struct cpufreq_policy *policy,
 	for_each_cpu(freqs.cpu, policy->cpus)
 		cpufreq_notify_transition(&freqs, CPUFREQ_PRECHANGE);
 
-	ret = vexpress_spc_set_performance(cur_cluster, freq_tab_idx);
+	ret = vexpress_spc_set_performance(cur_cluster, freqs.new);
 	if (ret) {
 		pr_err("Error %d while setting required OPP\n", ret);
 		return ret;
@@ -134,16 +132,16 @@ static int vexpress_cpufreq_set_target(struct cpufreq_policy *policy,
 /* Get current clock frequency */
 static unsigned int vexpress_cpufreq_get(unsigned int cpu)
 {
-	uint32_t freq_tab_idx = 0;
+	uint32_t freq = 0;
 	uint32_t cur_cluster = get_current_cached_cluster(cpu);
 
 	/*
 	 * Read current clock rate with vexpress_spc call
 	 */
-	if (vexpress_spc_get_performance(cur_cluster, &freq_tab_idx))
+	if (vexpress_spc_get_performance(cur_cluster, &freq))
 		return -EIO;
 
-	return freq_table[cur_cluster][freq_tab_idx].frequency;
+	return freq;
 }
 
 /* translate the integer array into cpufreq_frequency_table entries */
