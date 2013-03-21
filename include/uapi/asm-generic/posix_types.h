@@ -1,7 +1,12 @@
 #ifndef __ASM_GENERIC_POSIX_TYPES_H
 #define __ASM_GENERIC_POSIX_TYPES_H
 
+#if !defined(__arm__) && !defined(__aarch64__)
 #include <asm/bitsperlong.h>
+#else
+#include <asm-generic/bitsperlong.h>
+#endif
+
 /*
  * This file is generally used by user-level software, so you need to
  * be a little careful about namespace pollution etc.
