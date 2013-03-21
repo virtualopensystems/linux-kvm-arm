@@ -23,6 +23,7 @@
 
 #include <asm/arch_timer.h>
 #include <asm/localtimer.h>
+#include <asm/arch_timer.h>
 
 #include <plat/cpu.h>
 
@@ -482,4 +483,7 @@ void __init exynos4_timer_init(void)
 	exynos4_timer_resources();
 	exynos4_clocksource_init();
 	exynos4_clockevent_init();
+
+	if (arch_timer_of_register() != 0)
+		pr_err("Error registering architected timers\n");
 }

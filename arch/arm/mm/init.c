@@ -33,15 +33,17 @@
 
 #include <asm/mach/arch.h>
 #include <asm/mach/map.h>
+#include <asm/mmzone.h>
 
 #include "mm.h"
 
-static unsigned long phys_initrd_start __initdata = 0;
+static phys_addr_t phys_initrd_start __initdata = 0;
 static unsigned long phys_initrd_size __initdata = 0;
 
 static int __init early_initrd(char *p)
 {
-	unsigned long start, size;
+	phys_addr_t start;
+	unsigned long size;
 	char *endp;
 
 	start = memparse(p, &endp);
@@ -94,36 +96,56 @@ void show_mem(unsigned int filter)
 {
 	int free = 0, total = 0, reserved = 0;
 	int shared = 0, cached = 0, slab = 0, i;
-	struct meminfo * mi = &meminfo;
+	struct meminfo *mi = &meminfo;
+	struct memblock_region *reg;
 
 	printk("Mem-info:\n");
 	show_free_areas(filter);
 
 	for_each_bank (i, mi) {
 		struct membank *bank = &mi->bank[i];
-		unsigned int pfn1, pfn2;
-		struct page *page, *end;
+		unsigned int sbank, ebank;
 
-		pfn1 = bank_pfn_start(bank);
-		pfn2 = bank_pfn_end(bank);
+		sbank = bank_pfn_start(bank);
+		ebank = bank_pfn_end(bank);
 
-		page = pfn_to_page(pfn1);
-		end  = pfn_to_page(pfn2 - 1) + 1;
+		/* consider every memory block that intersects our memory bank */
+		for_each_memblock(memory, reg) {
+			struct page *page, *end;
+			unsigned int pfn1, pfn2;
+			unsigned int sblock = memblock_region_memory_base_pfn(reg);
+			unsigned int eblock = memblock_region_memory_end_pfn(reg);
 
-		do {
-			total++;
-			if (PageReserved(page))
-				reserved++;
-			else if (PageSwapCache(page))
-				cached++;
-			else if (PageSlab(page))
-				slab++;
-			else if (!page_count(page))
-				free++;
-			else
-				shared += page_count(page) - 1;
-			page++;
-		} while (page < end);
+			/* we're beyond the membank */
+			if (sblock >= ebank)
+				break;
+
+			/* we're not yet at the membank */
+			if (eblock <= sbank)
+				continue;
+
+			/* take the intersection between bank and block */
+			pfn1 = max(sblock, sbank);
+			pfn2 = min(eblock, ebank);
+
+			page = pfn_to_page(pfn1);
+			end = pfn_to_page(pfn2 - 1) + 1;
+
+			do {
+				total++;
+				if (PageReserved(page))
+					reserved++;
+				else if (PageSwapCache(page))
+					cached++;
+				else if (PageSlab(page))
+					slab++;
+				else if (!page_count(page))
+					free++;
+				else
+					shared += page_count(page) - 1;
+				page++;
+			} while (page < end);
+		}
 	}
 
 	printk("%d pages of RAM\n", total);
@@ -156,6 +178,12 @@ static void __init arm_bootmem_init(unsigned long start_pfn,
 	unsigned int boot_pages;
 	phys_addr_t bitmap;
 	pg_data_t *pgdat;
+
+	/*
+	 * If we have NUMA or discontiguous memory, allocate the required
+	 * nodes by reserving memblocks.
+	 */
+	arm_numa_alloc_nodes(end_pfn);
 
 	/*
 	 * Allocate the bootmem bitmap page.  This must be in a region
@@ -241,56 +269,31 @@ void __init setup_dma_zone(struct machine_desc *mdesc)
 static void __init arm_bootmem_free(unsigned long min, unsigned long max_low,
 	unsigned long max_high)
 {
-	unsigned long zone_size[MAX_NR_ZONES], zhole_size[MAX_NR_ZONES];
-	struct memblock_region *reg;
+	unsigned long max_zone_pfns[MAX_NR_ZONES];
 
+	/*
+	 * On NUMA systems we register a CPU notifier, split the memory between
+	 * the nodes and bring them online before free_area_init_nodes).
+	 *
+	 * Otherwise, we put all memory into node 0.
+	 */
+	arm_setup_nodes(min, max_high);
+	
 	/*
 	 * initialise the zones.
 	 */
-	memset(zone_size, 0, sizeof(zone_size));
+	memset(max_zone_pfns, 0, sizeof(max_zone_pfns));
+	max_zone_pfns[ZONE_NORMAL] = max_low;
 
-	/*
-	 * The memory size has already been determined.  If we need
-	 * to do anything fancy with the allocation of this memory
-	 * to the zones, now is the time to do it.
-	 */
-	zone_size[0] = max_low - min;
 #ifdef CONFIG_HIGHMEM
-	zone_size[ZONE_HIGHMEM] = max_high - max_low;
+	max_zone_pfns[ZONE_HIGHMEM] = max_high;
 #endif
 
-	/*
-	 * Calculate the size of the holes.
-	 *  holes = node_size - sum(bank_sizes)
-	 */
-	memcpy(zhole_size, zone_size, sizeof(zhole_size));
-	for_each_memblock(memory, reg) {
-		unsigned long start = memblock_region_memory_base_pfn(reg);
-		unsigned long end = memblock_region_memory_end_pfn(reg);
-
-		if (start < max_low) {
-			unsigned long low_end = min(end, max_low);
-			zhole_size[0] -= low_end - start;
-		}
-#ifdef CONFIG_HIGHMEM
-		if (end > max_low) {
-			unsigned long high_start = max(start, max_low);
-			zhole_size[ZONE_HIGHMEM] -= end - high_start;
-		}
-#endif
-	}
-
-#ifdef CONFIG_ZONE_DMA
-	/*
-	 * Adjust the sizes according to any special requirements for
-	 * this machine type.
-	 */
-	if (arm_dma_zone_size)
-		arm_adjust_dma_zone(zone_size, zhole_size,
-			arm_dma_zone_size >> PAGE_SHIFT);
+#ifdef CONFIG_DMA
+	max_zone_pfns[ZONE_DMA] = __phys_to_pfn(arm_dma_limit);
 #endif
 
-	free_area_init_node(0, zone_size, min, zhole_size);
+	free_area_init_nodes(max_zone_pfns);
 }
 
 #ifdef CONFIG_HAVE_ARCH_PFN_VALID
@@ -347,14 +350,14 @@ void __init arm_memblock_init(struct meminfo *mi, struct machine_desc *mdesc)
 #ifdef CONFIG_BLK_DEV_INITRD
 	if (phys_initrd_size &&
 	    !memblock_is_region_memory(phys_initrd_start, phys_initrd_size)) {
-		pr_err("INITRD: 0x%08lx+0x%08lx is not a memory region - disabling initrd\n",
-		       phys_initrd_start, phys_initrd_size);
+		pr_err("INITRD: 0x%08llx+0x%08lx is not a memory region - disabling initrd\n",
+		       (u64)phys_initrd_start, phys_initrd_size);
 		phys_initrd_start = phys_initrd_size = 0;
 	}
 	if (phys_initrd_size &&
 	    memblock_is_region_reserved(phys_initrd_start, phys_initrd_size)) {
-		pr_err("INITRD: 0x%08lx+0x%08lx overlaps in-use memory region - disabling initrd\n",
-		       phys_initrd_start, phys_initrd_size);
+		pr_err("INITRD: 0x%08llx+0x%08lx overlaps in-use memory region - disabling initrd\n",
+		       (u64)phys_initrd_start, phys_initrd_size);
 		phys_initrd_start = phys_initrd_size = 0;
 	}
 	if (phys_initrd_size) {
@@ -457,7 +460,7 @@ static inline void
 free_memmap(unsigned long start_pfn, unsigned long end_pfn)
 {
 	struct page *start_pg, *end_pg;
-	unsigned long pg, pgend;
+	phys_addr_t pg, pgend;
 
 	/*
 	 * Convert start_pfn/end_pfn to a struct page pointer.
@@ -469,8 +472,8 @@ free_memmap(unsigned long start_pfn, unsigned long end_pfn)
 	 * Convert to physical addresses, and
 	 * round start upwards and end downwards.
 	 */
-	pg = (unsigned long)PAGE_ALIGN(__pa(start_pg));
-	pgend = (unsigned long)__pa(end_pg) & PAGE_MASK;
+	pg = PAGE_ALIGN(__pa(start_pg));
+	pgend = __pa(end_pg) & PAGE_MASK;
 
 	/*
 	 * If there are free pages between these,
@@ -600,7 +603,9 @@ void __init mem_init(void)
 	extern u32 itcm_end;
 #endif
 
+#ifdef CONFIG_FLATMEM
 	max_mapnr   = pfn_to_page(max_pfn + PHYS_PFN_OFFSET) - mem_map;
+#endif
 
 	/* this will put all unused low memory onto the freelists */
 	free_unused_memmap(&meminfo);
@@ -619,22 +624,41 @@ void __init mem_init(void)
 
 	for_each_bank(i, &meminfo) {
 		struct membank *bank = &meminfo.bank[i];
-		unsigned int pfn1, pfn2;
-		struct page *page, *end;
+		unsigned int sbank, ebank;
 
-		pfn1 = bank_pfn_start(bank);
-		pfn2 = bank_pfn_end(bank);
+		sbank = bank_pfn_start(bank);
+		ebank = bank_pfn_end(bank);
 
-		page = pfn_to_page(pfn1);
-		end  = pfn_to_page(pfn2 - 1) + 1;
+		/* consider every memory block that intersects our memory bank */
+		for_each_memblock(memory, reg) {
+			struct page *page, *end;
+			unsigned int pfn1, pfn2;
+			unsigned int sblock = memblock_region_memory_base_pfn(reg);
+			unsigned int eblock = memblock_region_memory_end_pfn(reg);
 
-		do {
-			if (PageReserved(page))
-				reserved_pages++;
-			else if (!page_count(page))
-				free_pages++;
-			page++;
-		} while (page < end);
+			/* we're beyond the membank */
+			if (sblock >= ebank)
+				break;
+
+			/* we're not yet at the membank */
+			if (eblock <= sbank)
+				continue;
+
+			/* take the intersection between bank and block */
+			pfn1 = max(sblock, sbank);
+			pfn2 = min(eblock, ebank);
+
+			page = pfn_to_page(pfn1);
+			end = pfn_to_page(pfn2 - 1) + 1;
+
+			do {
+				if (PageReserved(page))
+					reserved_pages++;
+				else if (!page_count(page))
+					free_pages++;
+				page++;
+			} while (page < end);
+		}
 	}
 
 	/*

@@ -38,6 +38,7 @@
 #include <mach/regs-irq.h>
 #include <mach/regs-pmu.h>
 #include <mach/regs-gpio.h>
+#include <mach/irqs.h>
 
 #include <plat/cpu.h>
 #include <plat/clock.h>
@@ -464,6 +465,8 @@ void __init exynos4_init_irq(void)
 	 * uses GIC instead of VIC.
 	 */
 	s5p_init_irq(NULL, 0);
+
+	gic_arch_extn.irq_set_wake = s3c_irq_wake;
 }
 
 void __init exynos5_init_irq(void)
@@ -876,3 +879,30 @@ static int __init exynos_init_irq_eint(void)
 	return 0;
 }
 arch_initcall(exynos_init_irq_eint);
+
+static struct resource exynos4_pmu_resource[] = {
+	DEFINE_RES_IRQ(EXYNOS4_IRQ_PMU),
+	DEFINE_RES_IRQ(EXYNOS4_IRQ_PMU_CPU1),
+#if defined(CONFIG_SOC_EXYNOS4412)
+	DEFINE_RES_IRQ(EXYNOS4_IRQ_PMU_CPU2),
+	DEFINE_RES_IRQ(EXYNOS4_IRQ_PMU_CPU3),
+#endif
+};
+
+static struct platform_device exynos4_device_pmu = {
+	.name		= "arm-pmu",
+	.num_resources	= ARRAY_SIZE(exynos4_pmu_resource),
+	.resource	= exynos4_pmu_resource,
+};
+
+static int __init exynos_armpmu_init(void)
+{
+	if (!of_have_populated_dt()) {
+		if (soc_is_exynos4210() || soc_is_exynos4212())
+			exynos4_device_pmu.num_resources = 2;
+		platform_device_register(&exynos4_device_pmu);
+	}
+
+	return 0;
+}
+arch_initcall(exynos_armpmu_init);

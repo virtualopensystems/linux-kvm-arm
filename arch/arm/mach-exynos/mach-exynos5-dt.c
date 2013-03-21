@@ -14,6 +14,7 @@
 #include <linux/serial_core.h>
 #include <linux/memblock.h>
 #include <linux/io.h>
+#include <linux/fb.h>
 
 #include <asm/mach/arch.h>
 #include <mach/map.h>
@@ -79,11 +80,11 @@ static const struct of_dev_auxdata exynos5250_auxdata_lookup[] __initconst = {
 				"exynos4210-spi.1", NULL),
 	OF_DEV_AUXDATA("samsung,exynos4210-spi", EXYNOS5_PA_SPI2,
 				"exynos4210-spi.2", NULL),
-	OF_DEV_AUXDATA("samsung,exynos5-sata-ahci", 0x122F0000,
+	OF_DEV_AUXDATA("samsung,exynos5-sata-ahci", EXYNOS5_PA_SATA_BASE,
 				"exynos5-sata", NULL),
-	OF_DEV_AUXDATA("samsung,exynos5-sata-phy", 0x12170000,
+	OF_DEV_AUXDATA("samsung,exynos5-sata-phy", EXYNOS5_PA_SATA_PHY_CTRL,
 				"exynos5-sata-phy", NULL),
-	OF_DEV_AUXDATA("samsung,exynos5-sata-phy-i2c", 0x121D0000,
+	OF_DEV_AUXDATA("samsung,exynos5-sata-phy-i2c", EXYNOS5_PA_SATA_PHY_I2C,
 				"exynos5-sata-phy-i2c", NULL),
 	OF_DEV_AUXDATA("arm,pl330", EXYNOS5_PA_PDMA0, "dma-pl330.0", NULL),
 	OF_DEV_AUXDATA("arm,pl330", EXYNOS5_PA_PDMA1, "dma-pl330.1", NULL),
@@ -139,8 +140,26 @@ static const struct of_dev_auxdata exynos5250_auxdata_lookup[] __initconst = {
 			"exynos-sysmmu.13", NULL), /* FIMC-LITE1 */
 	OF_DEV_AUXDATA("samsung,exynos-sysmmu", 0x10A60000,
 			"exynos-sysmmu.14", NULL), /* G2D */
+	OF_DEV_AUXDATA("samsung,exynos-dwc3", 0x12000000,
+				"exynos-dwc3", NULL),
+	OF_DEV_AUXDATA("samsung,exynos5250-usbphy", 0x12130000,
+				"s3c-usbphy", NULL),
+	OF_DEV_AUXDATA("samsung,exynos-ohci", 0x12120000,
+				"exynos-ohci", NULL),
+	OF_DEV_AUXDATA("samsung,exynos-ehci", 0x12110000,
+				"s5p-ehci", NULL),
+	OF_DEV_AUXDATA("samsung,exynos4210-fimd", EXYNOS5_PA_FIMD1,
+			"exynos5-fb.1", NULL),
 	{},
 };
+
+static void __init exynos5_setup_fimd(void)
+{
+	unsigned int reg;
+	reg = __raw_readl(S3C_VA_SYS + 0x0214);
+	reg |= (1 << 15);
+	__raw_writel(reg, S3C_VA_SYS + 0x0214);
+}
 
 static const struct of_dev_auxdata exynos5440_auxdata_lookup[] __initconst = {
 	OF_DEV_AUXDATA("samsung,exynos4210-uart", EXYNOS5440_PA_UART0,
@@ -156,6 +175,11 @@ static void __init exynos5_dt_map_io(void)
 
 	if (of_flat_dt_is_compatible(root, "samsung,exynos5250"))
 		s3c24xx_init_clocks(24000000);
+}
+
+static void exynos5_i2c_setup(void)
+{	/* Setup the low-speed i2c controller interrupts */
+	writel(0x0, EXYNOS5_SYS_I2C_CFG);
 }
 
 static void __init exynos5_dt_machine_init(void)
@@ -182,12 +206,15 @@ static void __init exynos5_dt_machine_init(void)
 		}
 	}
 
+	exynos5_i2c_setup();
+
 	if (of_machine_is_compatible("samsung,exynos5250"))
 		of_platform_populate(NULL, of_default_bus_match_table,
 				     exynos5250_auxdata_lookup, NULL);
 	else if (of_machine_is_compatible("samsung,exynos5440"))
 		of_platform_populate(NULL, of_default_bus_match_table,
 				     exynos5440_auxdata_lookup, NULL);
+	exynos5_setup_fimd();
 }
 
 static char const *exynos5_dt_compat[] __initdata = {
