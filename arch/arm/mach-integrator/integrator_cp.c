@@ -268,7 +268,7 @@ static void __init cp_of_timer_init(void)
 	if (WARN_ON(!base))
 		return;
 	writel(0, base + TIMER_CTRL);
-	sp804_clocksource_init(base, node->name);
+	sp804_clocksource_init(base, node->name, NULL);
 
 	err = of_property_read_string(of_aliases,
 				"arm,timer-secondary", &path);
@@ -280,7 +280,7 @@ static void __init cp_of_timer_init(void)
 		return;
 	irq = irq_of_parse_and_map(node, 0);
 	writel(0, base + TIMER_CTRL);
-	sp804_clockevents_init(base, irq, node->name);
+	sp804_clockevents_init(base, irq, node->name, NULL);
 }
 
 static const struct of_device_id fpga_irq_of_match[] __initconst = {
@@ -514,8 +514,8 @@ static void __init cp_timer_init(void)
 	writel(0, TIMER1_VA_BASE + TIMER_CTRL);
 	writel(0, TIMER2_VA_BASE + TIMER_CTRL);
 
-	sp804_clocksource_init(TIMER2_VA_BASE, "timer2");
-	sp804_clockevents_init(TIMER1_VA_BASE, IRQ_TIMERINT1, "timer1");
+	sp804_clocksource_init(TIMER2_VA_BASE, "timer2", NULL);
+	sp804_clockevents_init(TIMER1_VA_BASE, IRQ_TIMERINT1, "timer1", NULL);
 }
 
 #define INTEGRATOR_CP_MMC_IRQS	{ IRQ_CP_MMCIINT0, IRQ_CP_MMCIINT1 }

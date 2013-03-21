@@ -116,8 +116,9 @@ static void __init highbank_timer_init(void)
 	lookup.clk = of_clk_get(np, 0);
 	clkdev_add(&lookup);
 
-	sp804_clocksource_and_sched_clock_init(timer_base + 0x20, "timer1");
-	sp804_clockevents_init(timer_base, irq, "timer0");
+	sp804_clocksource_and_sched_clock_init(timer_base + 0x20, "timer1",
+			NULL);
+	sp804_clockevents_init(timer_base, irq, "timer0", NULL);
 
 	twd_local_timer_of_register();
 
