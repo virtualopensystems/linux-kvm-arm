@@ -634,6 +634,7 @@ static void __init alloc_init_pte(pmd_t *pmd, unsigned long addr,
 {
 	pte_t *start_pte = early_pte_alloc(pmd);
 	pte_t *pte = start_pte + pte_index(addr);
+	early_pte_install(pmd, start_pte, type->prot_l1);
 
 	/* If replacing a section mapping, the whole section must be replaced */
 	BUG_ON(pmd_bad(*pmd) && ((addr | end) & ~PMD_MASK));
@@ -642,7 +643,6 @@ static void __init alloc_init_pte(pmd_t *pmd, unsigned long addr,
 		set_pte_ext(pte, pfn_pte(pfn, __pgprot(type->prot_pte)), 0);
 		pfn++;
 	} while (pte++, addr += PAGE_SIZE, addr != end);
-	early_pte_install(pmd, start_pte, type->prot_l1);
 }
 
 static void __init alloc_init_section(pud_t *pud, unsigned long addr,
