@@ -15,7 +15,9 @@
 #include <linux/syscalls.h>
 #include <linux/pagemap.h>
 #include <linux/splice.h>
+#include <linux/compat.h>
 #include "read_write.h"
+#include "internal.h"
 
 #include <asm/uaccess.h>
 #include <asm/unistd.h>
@@ -247,6 +249,13 @@ SYSCALL_DEFINE3(lseek, unsigned int, fd, off_t, offset, unsigned int, whence)
 	return retval;
 }
 
+#ifdef CONFIG_COMPAT
+COMPAT_SYSCALL_DEFINE3(lseek, unsigned int, fd, compat_off_t, offset, unsigned int, whence)
+{
+	return sys_lseek(fd, offset, whence);
+}
+#endif
+
 #ifdef __ARCH_WANT_SYS_LLSEEK
 SYSCALL_DEFINE5(llseek, unsigned int, fd, unsigned long, offset_high,
 		unsigned long, offset_low, loff_t __user *, result,
@@ -277,7 +286,6 @@ out_putf:
 	return retval;
 }
 #endif
-
 
 /*
  * rw_verify_area doesn't like huge counts. We limit
@@ -409,6 +417,33 @@ ssize_t do_sync_write(struct file *filp, const char __user *buf, size_t len, lof
 }
 
 EXPORT_SYMBOL(do_sync_write);
+
+ssize_t __kernel_write(struct file *file, const char *buf, size_t count, loff_t *pos)
+{
+	mm_segment_t old_fs;
+	const char __user *p;
+	ssize_t ret;
+
+	if (!file->f_op || (!file->f_op->write && !file->f_op->aio_write))
+		return -EINVAL;
+
+	old_fs = get_fs();
+	set_fs(get_ds());
+	p = (__force const char __user *)buf;
+	if (count > MAX_RW_COUNT)
+		count =  MAX_RW_COUNT;
+	if (file->f_op->write)
+		ret = file->f_op->write(file, p, count, pos);
+	else
+		ret = do_sync_write(file, p, count, pos);
+	set_fs(old_fs);
+	if (ret > 0) {
+		fsnotify_modify(file);
+		add_wchar(current, ret);
+	}
+	inc_syscw(current);
+	return ret;
+}
 
 ssize_t vfs_write(struct file *file, const char __user *buf, size_t count, loff_t *pos)
 {

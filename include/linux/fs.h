@@ -769,6 +769,7 @@ struct file {
 	} f_u;
 	struct path		f_path;
 #define f_dentry	f_path.dentry
+	struct inode		*f_inode;	/* cached value */
 	const struct file_operations	*f_op;
 
 	/*
@@ -1824,6 +1825,8 @@ struct file_system_type {
 	struct lock_class_key i_mutex_dir_key;
 };
 
+#define MODULE_ALIAS_FS(NAME) MODULE_ALIAS("fs-" NAME)
+
 extern struct dentry *mount_ns(struct file_system_type *fs_type, int flags,
 	void *data, int (*fill_super)(struct super_block *, void *, int));
 extern struct dentry *mount_bdev(struct file_system_type *fs_type,
@@ -2217,7 +2220,7 @@ static inline bool execute_ok(struct inode *inode)
 
 static inline struct inode *file_inode(struct file *f)
 {
-	return f->f_path.dentry->d_inode;
+	return f->f_inode;
 }
 
 /*

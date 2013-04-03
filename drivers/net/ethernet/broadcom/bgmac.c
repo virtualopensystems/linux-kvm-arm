@@ -15,7 +15,7 @@
 #include <linux/mii.h>
 #include <linux/interrupt.h>
 #include <linux/dma-mapping.h>
-#include <asm/mach-bcm47xx/nvram.h>
+#include <bcm47xx_nvram.h>
 
 static const struct bcma_device_id bgmac_bcma_tbl[] = {
 	BCMA_CORE(BCMA_MANUF_BCM, BCMA_CORE_4706_MAC_GBIT, BCMA_ANY_REV, BCMA_ANY_CLASS),
@@ -301,12 +301,16 @@ static int bgmac_dma_rx_read(struct bgmac *bgmac, struct bgmac_dma_ring *ring,
 			bgmac_err(bgmac, "Found poisoned packet at slot %d, DMA issue!\n",
 				  ring->start);
 		} else {
+			/* Omit CRC. */
+			len -= ETH_FCS_LEN;
+
 			new_skb = netdev_alloc_skb_ip_align(bgmac->net_dev, len);
 			if (new_skb) {
 				skb_put(new_skb, len);
 				skb_copy_from_linear_data_offset(skb, BGMAC_RX_FRAME_OFFSET,
 								 new_skb->data,
 								 len);
+				skb_checksum_none_assert(skb);
 				new_skb->protocol =
 					eth_type_trans(new_skb, bgmac->net_dev);
 				netif_receive_skb(new_skb);
@@ -908,7 +912,7 @@ static void bgmac_chip_reset(struct bgmac *bgmac)
 			     BGMAC_CHIPCTL_1_IF_TYPE_RMII;
 		char buf[2];
 
-		if (nvram_getenv("et_swtype", buf, 1) > 0) {
+		if (bcm47xx_nvram_getenv("et_swtype", buf, 1) > 0) {
 			if (kstrtou8(buf, 0, &et_swtype))
 				bgmac_err(bgmac, "Failed to parse et_swtype (%s)\n",
 					  buf);
@@ -1386,7 +1390,7 @@ static int bgmac_probe(struct bcma_device *core)
 	}
 
 	bgmac->int_mask = BGMAC_IS_ERRMASK | BGMAC_IS_RX | BGMAC_IS_TX_MASK;
-	if (nvram_getenv("et0_no_txint", NULL, 0) == 0)
+	if (bcm47xx_nvram_getenv("et0_no_txint", NULL, 0) == 0)
 		bgmac->int_mask &= ~BGMAC_IS_TX_MASK;
 
 	/* TODO: reset the external phy. Specs are needed */

@@ -87,7 +87,6 @@ extern unsigned int kobjsize(const void *objp);
 #define VM_PFNMAP	0x00000400	/* Page-ranges managed without "struct page", just pure PFN */
 #define VM_DENYWRITE	0x00000800	/* ETXTBSY on write attempts.. */
 
-#define VM_POPULATE     0x00001000
 #define VM_LOCKED	0x00002000
 #define VM_IO           0x00004000	/* Memory mapped I/O or similar */
 
@@ -114,6 +113,8 @@ extern unsigned int kobjsize(const void *objp);
 #elif defined(CONFIG_PPC)
 # define VM_SAO		VM_ARCH_1	/* Strong Access Ordering (powerpc) */
 #elif defined(CONFIG_PARISC)
+# define VM_GROWSUP	VM_ARCH_1
+#elif defined(CONFIG_METAG)
 # define VM_GROWSUP	VM_ARCH_1
 #elif defined(CONFIG_IA64)
 # define VM_GROWSUP	VM_ARCH_1
@@ -1333,24 +1334,6 @@ extern void free_bootmem_with_active_regions(int nid,
 						unsigned long max_low_pfn);
 extern void sparse_memory_present_with_active_regions(int nid);
 
-#define MOVABLEMEM_MAP_MAX MAX_NUMNODES
-struct movablemem_entry {
-	unsigned long start_pfn;    /* start pfn of memory segment */
-	unsigned long end_pfn;      /* end pfn of memory segment (exclusive) */
-};
-
-struct movablemem_map {
-	bool acpi;	/* true if using SRAT info */
-	int nr_map;
-	struct movablemem_entry map[MOVABLEMEM_MAP_MAX];
-	nodemask_t numa_nodes_hotplug;	/* on which nodes we specify memory */
-	nodemask_t numa_nodes_kernel;	/* on which nodes kernel resides in */
-};
-
-extern void __init insert_movablemem_map(unsigned long start_pfn,
-					 unsigned long end_pfn);
-extern int __init movablemem_map_overlap(unsigned long start_pfn,
-					 unsigned long end_pfn);
 #endif /* CONFIG_HAVE_MEMBLOCK_NODE_MAP */
 
 #if !defined(CONFIG_HAVE_MEMBLOCK_NODE_MAP) && \

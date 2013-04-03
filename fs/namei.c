@@ -451,7 +451,7 @@ int inode_permission(struct inode *inode, int mask)
  *
  * Given a path increment the reference count to the dentry and the vfsmount.
  */
-void path_get(struct path *path)
+void path_get(const struct path *path)
 {
 	mntget(path->mnt);
 	dget(path->dentry);
@@ -464,7 +464,7 @@ EXPORT_SYMBOL(path_get);
  *
  * Given a path decrement the reference count to the dentry and the vfsmount.
  */
-void path_put(struct path *path)
+void path_put(const struct path *path)
 {
 	dput(path->dentry);
 	mntput(path->mnt);
@@ -689,8 +689,6 @@ void nd_jump_link(struct nameidata *nd, struct path *path)
 	nd->path = *path;
 	nd->inode = nd->path.dentry->d_inode;
 	nd->flags |= LOOKUP_JUMPED;
-
-	BUG_ON(nd->inode->i_op->follow_link);
 }
 
 static inline void put_link(struct nameidata *nd, struct path *link, void *cookie)

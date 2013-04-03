@@ -43,6 +43,7 @@
 #include "cifs_fs_sb.h"
 #include "fscache.h"
 
+
 static inline int cifs_convert_flags(unsigned int flags)
 {
 	if ((flags & O_ACCMODE) == O_RDONLY)
@@ -72,10 +73,15 @@ static u32 cifs_posix_convert_flags(unsigned int flags)
 	else if ((flags & O_ACCMODE) == O_RDWR)
 		posix_flags = SMB_O_RDWR;
 
-	if (flags & O_CREAT)
+	if (flags & O_CREAT) {
 		posix_flags |= SMB_O_CREAT;
-	if (flags & O_EXCL)
-		posix_flags |= SMB_O_EXCL;
+		if (flags & O_EXCL)
+			posix_flags |= SMB_O_EXCL;
+	} else if (flags & O_EXCL)
+		cFYI(1, "Application %s pid %d has incorrectly set O_EXCL flag"
+			"but not O_CREAT on file open. Ignoring O_EXCL",
+			current->comm, current->tgid);
+
 	if (flags & O_TRUNC)
 		posix_flags |= SMB_O_TRUNC;
 	/* be safe and imply O_SYNC for O_DSYNC */
@@ -294,6 +300,8 @@ cifs_new_fileinfo(struct cifs_fid *fid, struct file *file,
 	INIT_WORK(&cfile->oplock_break, cifs_oplock_break);
 	mutex_init(&cfile->fh_mutex);
 
+	cifs_sb_active(inode->i_sb);
+
 	/*
 	 * If the server returned a read oplock and we have mandatory brlocks,
 	 * set oplock level to None.
@@ -343,7 +351,8 @@ void cifsFileInfo_put(struct cifsFileInfo *cifs_file)
 	struct cifs_tcon *tcon = tlink_tcon(cifs_file->tlink);
 	struct TCP_Server_Info *server = tcon->ses->server;
 	struct cifsInodeInfo *cifsi = CIFS_I(inode);
-	struct cifs_sb_info *cifs_sb = CIFS_SB(inode->i_sb);
+	struct super_block *sb = inode->i_sb;
+	struct cifs_sb_info *cifs_sb = CIFS_SB(sb);
 	struct cifsLockInfo *li, *tmp;
 	struct cifs_fid fid;
 	struct cifs_pending_open open;
@@ -408,6 +417,7 @@ void cifsFileInfo_put(struct cifsFileInfo *cifs_file)
 
 	cifs_put_tlink(cifs_file->tlink);
 	dput(cifs_file->dentry);
+	cifs_sb_deactive(sb);
 	kfree(cifs_file);
 }
 
