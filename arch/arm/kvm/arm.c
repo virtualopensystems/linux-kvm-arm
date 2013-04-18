@@ -217,27 +217,18 @@ long kvm_arch_dev_ioctl(struct file *filp,
 	return -EINVAL;
 }
 
-int kvm_arch_set_memory_region(struct kvm *kvm,
-			       struct kvm_userspace_memory_region *mem,
-			       struct kvm_memory_slot old,
-			       int user_alloc)
-{
-	return 0;
-}
-
 int kvm_arch_prepare_memory_region(struct kvm *kvm,
 				   struct kvm_memory_slot *memslot,
-				   struct kvm_memory_slot old,
 				   struct kvm_userspace_memory_region *mem,
-				   bool user_alloc)
+				   enum kvm_mr_change change)
 {
 	return 0;
 }
 
 void kvm_arch_commit_memory_region(struct kvm *kvm,
 				   struct kvm_userspace_memory_region *mem,
-				   struct kvm_memory_slot old,
-				   bool user_alloc)
+				   const struct kvm_memory_slot *old,
+				   enum kvm_mr_change change)
 {
 }
 
@@ -638,7 +629,8 @@ static int vcpu_interrupt_line(struct kvm_vcpu *vcpu, int number, bool level)
 	return 0;
 }
 
-int kvm_vm_ioctl_irq_line(struct kvm *kvm, struct kvm_irq_level *irq_level)
+int kvm_vm_ioctl_irq_line(struct kvm *kvm, struct kvm_irq_level *irq_level,
+			  bool line_status)
 {
 	u32 irq = irq_level->irq;
 	unsigned int irq_type, vcpu_idx, irq_num;

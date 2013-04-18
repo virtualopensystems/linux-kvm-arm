@@ -924,13 +924,15 @@ int kvm_arch_vcpu_ioctl_set_regs(struct kvm_vcpu *vcpu, struct kvm_regs *regs)
 	return 0;
 }
 
-int kvm_vm_ioctl_irq_line(struct kvm *kvm, struct kvm_irq_level *irq_event)
+int kvm_vm_ioctl_irq_line(struct kvm *kvm, struct kvm_irq_level *irq_event,
+		bool line_status)
 {
 	if (!irqchip_in_kernel(kvm))
 		return -ENXIO;
 
 	irq_event->status = kvm_set_irq(kvm, KVM_USERSPACE_IRQ_SOURCE_ID,
-					irq_event->irq, irq_event->level);
+					irq_event->irq, irq_event->level,
+					line_status);
 	return 0;
 }
 
@@ -942,24 +944,6 @@ long kvm_arch_vm_ioctl(struct file *filp,
 	int r = -ENOTTY;
 
 	switch (ioctl) {
-	case KVM_SET_MEMORY_REGION: {
-		struct kvm_memory_region kvm_mem;
-		struct kvm_userspace_memory_region kvm_userspace_mem;
-
-		r = -EFAULT;
-		if (copy_from_user(&kvm_mem, argp, sizeof kvm_mem))
-			goto out;
-		kvm_userspace_mem.slot = kvm_mem.slot;
-		kvm_userspace_mem.flags = kvm_mem.flags;
-		kvm_userspace_mem.guest_phys_addr =
-					kvm_mem.guest_phys_addr;
-		kvm_userspace_mem.memory_size = kvm_mem.memory_size;
-		r = kvm_vm_ioctl_set_memory_region(kvm,
-					&kvm_userspace_mem, false);
-		if (r)
-			goto out;
-		break;
-		}
 	case KVM_CREATE_IRQCHIP:
 		r = -EFAULT;
 		r = kvm_ioapic_init(kvm);
@@ -1578,9 +1562,8 @@ int kvm_arch_create_memslot(struct kvm_memory_slot *slot, unsigned long npages)
 
 int kvm_arch_prepare_memory_region(struct kvm *kvm,
 		struct kvm_memory_slot *memslot,
-		struct kvm_memory_slot old,
 		struct kvm_userspace_memory_region *mem,
-		bool user_alloc)
+		enum kvm_mr_change change)
 {
 	unsigned long i;
 	unsigned long pfn;
@@ -1610,8 +1593,8 @@ int kvm_arch_prepare_memory_region(struct kvm *kvm,
 
 void kvm_arch_commit_memory_region(struct kvm *kvm,
 		struct kvm_userspace_memory_region *mem,
-		struct kvm_memory_slot old,
-		bool user_alloc)
+		const struct kvm_memory_slot *old,
+		enum kvm_mr_change change)
 {
 	return;
 }
