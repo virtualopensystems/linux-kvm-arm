@@ -1566,14 +1566,6 @@ int mmc_attach_mmc(struct mmc_host *host)
 	host->ocr = mmc_select_voltage(host, ocr);
 
 	/*
-	 * Can we support the voltage of the card?
-	 */
-	if (!host->ocr) {
-		err = -EINVAL;
-		goto err;
-	}
-
-	/*
 	 * Detect and init the card.
 	 */
 	err = mmc_init_card(host, host->ocr, NULL);
