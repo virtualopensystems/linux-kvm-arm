@@ -845,23 +845,17 @@ static const u32 emulated_msrs[] = {
 	MSR_IA32_MCG_CTL,
 };
 
-static int set_efer(struct kvm_vcpu *vcpu, u64 efer)
+bool kvm_valid_efer(struct kvm_vcpu *vcpu, u64 efer)
 {
-	u64 old_efer = vcpu->arch.efer;
-
 	if (efer & efer_reserved_bits)
-		return 1;
-
-	if (is_paging(vcpu)
-	    && (vcpu->arch.efer & EFER_LME) != (efer & EFER_LME))
-		return 1;
+		return false;
 
 	if (efer & EFER_FFXSR) {
 		struct kvm_cpuid_entry2 *feat;
 
 		feat = kvm_find_cpuid_entry(vcpu, 0x80000001, 0);
 		if (!feat || !(feat->edx & bit(X86_FEATURE_FXSR_OPT)))
-			return 1;
+			return false;
 	}
 
 	if (efer & EFER_SVME) {
@@ -869,8 +863,23 @@ static int set_efer(struct kvm_vcpu *vcpu, u64 efer)
 
 		feat = kvm_find_cpuid_entry(vcpu, 0x80000001, 0);
 		if (!feat || !(feat->ecx & bit(X86_FEATURE_SVM)))
-			return 1;
+			return false;
 	}
+
+	return true;
+}
+EXPORT_SYMBOL_GPL(kvm_valid_efer);
+
+static int set_efer(struct kvm_vcpu *vcpu, u64 efer)
+{
+	u64 old_efer = vcpu->arch.efer;
+
+	if (!kvm_valid_efer(vcpu, efer))
+		return 1;
+
+	if (is_paging(vcpu)
+	    && (vcpu->arch.efer & EFER_LME) != (efer & EFER_LME))
+		return 1;
 
 	efer &= ~EFER_LMA;
 	efer |= vcpu->arch.efer & EFER_LMA;
@@ -2492,7 +2501,6 @@ int kvm_dev_ioctl_check_extension(long ext)
 	case KVM_CAP_USER_NMI:
 	case KVM_CAP_REINJECT_CONTROL:
 	case KVM_CAP_IRQ_INJECT_STATUS:
-	case KVM_CAP_ASSIGN_DEV_IRQ:
 	case KVM_CAP_IRQFD:
 	case KVM_CAP_IOEVENTFD:
 	case KVM_CAP_PIT2:
@@ -2510,10 +2518,12 @@ int kvm_dev_ioctl_check_extension(long ext)
 	case KVM_CAP_XSAVE:
 	case KVM_CAP_ASYNC_PF:
 	case KVM_CAP_GET_TSC_KHZ:
-	case KVM_CAP_PCI_2_3:
 	case KVM_CAP_KVMCLOCK_CTRL:
 	case KVM_CAP_READONLY_MEM:
-	case KVM_CAP_IRQFD_RESAMPLE:
+#ifdef CONFIG_KVM_DEVICE_ASSIGNMENT
+	case KVM_CAP_ASSIGN_DEV_IRQ:
+	case KVM_CAP_PCI_2_3:
+#endif
 		r = 1;
 		break;
 	case KVM_CAP_COALESCED_MMIO:
@@ -5683,7 +5693,7 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 	int r;
 	bool req_int_win = !irqchip_in_kernel(vcpu->kvm) &&
 		vcpu->run->request_interrupt_window;
-	bool req_immediate_exit = 0;
+	bool req_immediate_exit = false;
 
 	if (vcpu->requests) {
 		if (kvm_check_request(KVM_REQ_MMU_RELOAD, vcpu))
@@ -5725,8 +5735,6 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 			record_steal_time(vcpu);
 		if (kvm_check_request(KVM_REQ_NMI, vcpu))
 			process_nmi(vcpu);
-		req_immediate_exit =
-			kvm_check_request(KVM_REQ_IMMEDIATE_EXIT, vcpu);
 		if (kvm_check_request(KVM_REQ_PMU, vcpu))
 			kvm_handle_pmu_event(vcpu);
 		if (kvm_check_request(KVM_REQ_PMI, vcpu))
@@ -5748,7 +5756,8 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 		if (vcpu->arch.nmi_pending)
 			kvm_x86_ops->enable_nmi_window(vcpu);
 		else if (kvm_cpu_has_injectable_intr(vcpu) || req_int_win)
-			kvm_x86_ops->enable_irq_window(vcpu);
+			req_immediate_exit =
+				kvm_x86_ops->enable_irq_window(vcpu) != 0;
 
 		if (kvm_lapic_enabled(vcpu)) {
 			/*
@@ -6752,8 +6761,10 @@ int kvm_arch_vcpu_init(struct kvm_vcpu *vcpu)
 	}
 	vcpu->arch.mcg_cap = KVM_MAX_MCE_BANKS;
 
-	if (!zalloc_cpumask_var(&vcpu->arch.wbinvd_dirty_mask, GFP_KERNEL))
+	if (!zalloc_cpumask_var(&vcpu->arch.wbinvd_dirty_mask, GFP_KERNEL)) {
+		r = -ENOMEM;
 		goto fail_free_mce_banks;
+	}
 
 	r = fx_init(vcpu);
 	if (r)
@@ -6857,6 +6868,23 @@ void kvm_arch_sync_events(struct kvm *kvm)
 
 void kvm_arch_destroy_vm(struct kvm *kvm)
 {
+	if (current->mm == kvm->mm) {
+		/*
+		 * Free memory regions allocated on behalf of userspace,
+		 * unless the the memory map has changed due to process exit
+		 * or fd copying.
+		 */
+		struct kvm_userspace_memory_region mem;
+		memset(&mem, 0, sizeof(mem));
+		mem.slot = APIC_ACCESS_PAGE_PRIVATE_MEMSLOT;
+		kvm_set_memory_region(kvm, &mem);
+
+		mem.slot = IDENTITY_PAGETABLE_PRIVATE_MEMSLOT;
+		kvm_set_memory_region(kvm, &mem);
+
+		mem.slot = TSS_PRIVATE_MEMSLOT;
+		kvm_set_memory_region(kvm, &mem);
+	}
 	kvm_iommu_unmap_guest(kvm);
 	kfree(kvm->arch.vpic);
 	kfree(kvm->arch.vioapic);

@@ -31,7 +31,7 @@
 #include <asm/msr-index.h>
 #include <asm/asm.h>
 
-#define KVM_MAX_VCPUS 254
+#define KVM_MAX_VCPUS 255
 #define KVM_SOFT_MAX_VCPUS 160
 #define KVM_USER_MEM_SLOTS 125
 /* memory slots that are not exposed to userspace */
@@ -42,6 +42,8 @@
 
 #define KVM_PIO_PAGE_OFFSET 1
 #define KVM_COALESCED_MMIO_PAGE_OFFSET 2
+
+#define KVM_IRQCHIP_NUM_PINS  KVM_IOAPIC_NUM_PINS
 
 #define CR0_RESERVED_BITS                                               \
 	(~(unsigned long)(X86_CR0_PE | X86_CR0_MP | X86_CR0_EM | X86_CR0_TS \
@@ -694,7 +696,7 @@ struct kvm_x86_ops {
 	bool (*get_nmi_mask)(struct kvm_vcpu *vcpu);
 	void (*set_nmi_mask)(struct kvm_vcpu *vcpu, bool masked);
 	void (*enable_nmi_window)(struct kvm_vcpu *vcpu);
-	void (*enable_irq_window)(struct kvm_vcpu *vcpu);
+	int (*enable_irq_window)(struct kvm_vcpu *vcpu);
 	void (*update_cr8_intercept)(struct kvm_vcpu *vcpu, int tpr, int irr);
 	int (*vm_has_apicv)(struct kvm *kvm);
 	void (*hwapic_irr_update)(struct kvm_vcpu *vcpu, int max_irr);
@@ -809,6 +811,7 @@ static inline int emulate_instruction(struct kvm_vcpu *vcpu,
 }
 
 void kvm_enable_efer_bits(u64);
+bool kvm_valid_efer(struct kvm_vcpu *vcpu, u64 efer);
 int kvm_get_msr(struct kvm_vcpu *vcpu, u32 msr_index, u64 *data);
 int kvm_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr);
 
