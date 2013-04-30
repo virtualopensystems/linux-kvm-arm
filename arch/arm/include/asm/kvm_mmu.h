@@ -65,11 +65,6 @@ void kvm_clear_hyp_idmap(void);
 static inline void kvm_set_pte(pte_t *pte, pte_t new_pte)
 {
 	pte_val(*pte) = new_pte;
-	/*
-	 * flush_pmd_entry just takes a void pointer and cleans the necessary
-	 * cache entries, so we can reuse the function for ptes.
-	 */
-	flush_pmd_entry(pte);
 }
 
 static inline bool kvm_is_write_fault(unsigned long hsr)
@@ -83,9 +78,19 @@ static inline bool kvm_is_write_fault(unsigned long hsr)
 		return true;
 }
 
+static inline void kvm_clean_dcache_area(void *addr, size_t size)
+{
+	clean_dcache_area(addr, size);
+}
+
+static inline void kvm_clean_pte_entry(pte_t *pte)
+{
+	kvm_clean_dcache_area(pte, sizeof(*pte));
+}
+
 static inline void kvm_clean_pgd(pgd_t *pgd)
 {
-	clean_dcache_area(pgd, PTRS_PER_S2_PGD * sizeof(pgd_t));
+	kvm_clean_dcache_area(pgd, PTRS_PER_S2_PGD * sizeof(pgd_t));
 }
 
 static inline void kvm_clean_pmd_entry(pmd_t *pmd)

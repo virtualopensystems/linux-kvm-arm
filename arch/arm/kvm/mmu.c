@@ -113,6 +113,7 @@ static void clear_pte_entry(struct kvm *kvm, pte_t *pte, phys_addr_t addr)
 {
 	if (pte_present(*pte)) {
 		kvm_set_pte(pte, __pte(0));
+		kvm_clean_pte_entry(pte);
 		put_page(virt_to_page(pte));
 		kvm_tlb_flush_vmid_ipa(kvm, addr);
 	}
@@ -234,9 +235,10 @@ static void create_hyp_pte_mappings(pmd_t *pmd, unsigned long start,
 		pte = pte_offset_kernel(pmd, addr);
 		kvm_set_pte(pte, pfn_pte(pfn, prot));
 		get_page(virt_to_page(pte));
-		kvm_flush_dcache_to_poc(pte, sizeof(*pte));
 		pfn++;
 	} while (addr += PAGE_SIZE, addr != end);
+
+	kvm_clean_dcache_area((void *)start, end - start);
 }
 
 static int create_hyp_pmd_mappings(pud_t *pud, unsigned long start,
@@ -261,7 +263,6 @@ static int create_hyp_pmd_mappings(pud_t *pud, unsigned long start,
 			}
 			pmd_populate_kernel(NULL, pmd, pte);
 			get_page(virt_to_page(pmd));
-			kvm_flush_dcache_to_poc(pmd, sizeof(*pmd));
 		}
 
 		next = pmd_addr_end(addr, end);
@@ -299,7 +300,6 @@ static int __create_hyp_mappings(pgd_t *pgdp,
 			}
 			pud_populate(NULL, pud, pmd);
 			get_page(virt_to_page(pud));
-			kvm_flush_dcache_to_poc(pud, sizeof(*pud));
 		}
 
 		next = pgd_addr_end(addr, end);
@@ -469,6 +469,7 @@ static int stage2_set_pte(struct kvm *kvm, struct kvm_mmu_memory_cache *cache,
 	/* Create 2nd stage page table mapping - Level 3 */
 	old_pte = *pte;
 	kvm_set_pte(pte, *new_pte);
+	kvm_clean_pte_entry(pte);
 	if (pte_present(old_pte))
 		kvm_tlb_flush_vmid_ipa(kvm, addr);
 	else
