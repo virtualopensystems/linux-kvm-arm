@@ -60,7 +60,6 @@ pgprot_t pgprot_user;
 pgprot_t pgprot_kernel;
 pgprot_t pgprot_hyp_device;
 pgprot_t pgprot_s2;
-pgprot_t pgprot_s2_device;
 
 EXPORT_SYMBOL(pgprot_user);
 EXPORT_SYMBOL(pgprot_kernel);
@@ -343,7 +342,7 @@ static void __init build_mem_type_table(void)
 	struct cachepolicy *cp;
 	unsigned int cr = get_cr();
 	pteval_t user_pgprot, kern_pgprot, vecs_pgprot;
-	pteval_t hyp_device_pgprot, s2_pgprot, s2_device_pgprot;
+	pteval_t hyp_device_pgprot, s2_pgprot;
 	int cpu_arch = cpu_architecture();
 	int i;
 
@@ -456,7 +455,7 @@ static void __init build_mem_type_table(void)
 	cp = &cache_policies[cachepolicy];
 	vecs_pgprot = kern_pgprot = user_pgprot = cp->pte;
 	s2_pgprot = cp->pte_s2;
-	hyp_device_pgprot = s2_device_pgprot = mem_types[MT_DEVICE].prot_pte;
+	hyp_device_pgprot = mem_types[MT_DEVICE].prot_pte;
 
 	/*
 	 * ARMv6 and above have extended page tables.
@@ -536,7 +535,6 @@ static void __init build_mem_type_table(void)
 	pgprot_kernel = __pgprot(L_PTE_PRESENT | L_PTE_YOUNG |
 				 L_PTE_DIRTY | kern_pgprot);
 	pgprot_s2  = __pgprot(L_PTE_PRESENT | L_PTE_YOUNG | s2_pgprot);
-	pgprot_s2_device  = __pgprot(s2_device_pgprot);
 	pgprot_hyp_device  = __pgprot(hyp_device_pgprot);
 
 	mem_types[MT_LOW_VECTORS].prot_l1 |= ecc_mask;
