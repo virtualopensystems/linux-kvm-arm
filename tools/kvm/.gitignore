@@ -1,0 +1,12 @@
+/lkvm
+/vm
+*.o
+*.d
+.cscope
+tags
+include/common-cmds.h
+tests/boot/boot_test.iso
+tests/boot/rootfs/
+guest/init
+guest/init_stage2
+KVMTOOLS-VERSION-FILE

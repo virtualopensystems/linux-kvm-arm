@@ -602,6 +602,38 @@ menuconfig HYPERVISOR_GUEST
 	  If you say N, all options in this submenu will be skipped and
 	  disabled, and Linux guest support won't be built in.
 
+config KVMTOOL_TEST_ENABLE
+	bool "Enable options to create a bootable tools/kvm/ kernel"
+	select NET
+	select NETDEVICES
+	select PCI
+	select BLOCK
+	select BLK_DEV
+	select NETWORK_FILESYSTEMS
+	select INET
+	select EXPERIMENTAL
+	select TTY
+	select SERIAL_8250
+	select SERIAL_8250_CONSOLE
+	select IP_PNP
+	select IP_PNP_DHCP
+	select BINFMT_ELF
+	select PCI_MSI
+	select HAVE_ARCH_KGDB
+	select DEBUG_KERNEL
+	select KGDB
+	select KGDB_SERIAL_CONSOLE
+	select VIRTUALIZATION
+	select VIRTIO
+	select VIRTIO_RING
+	select VIRTIO_PCI
+	select VIRTIO_BLK
+	select VIRTIO_CONSOLE
+	select VIRTIO_NET
+	select 9P_FS
+	select NET_9P
+	select NET_9P_VIRTIO
+
 if HYPERVISOR_GUEST
 
 config PARAVIRT
