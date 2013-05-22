@@ -170,8 +170,7 @@ static void virtio_ccw_kvm_notify(struct virtqueue *vq)
 
 	vcdev = to_vc_device(info->vq->vdev);
 	ccw_device_get_schid(vcdev->cdev, &schid);
-	info->cookie = do_kvm_notify(schid, virtqueue_get_queue_index(vq),
-				     info->cookie);
+	info->cookie = do_kvm_notify(schid, vq->index, info->cookie);
 }
 
 static int virtio_ccw_read_vq_conf(struct virtio_ccw_device *vcdev,
@@ -193,7 +192,7 @@ static void virtio_ccw_del_vq(struct virtqueue *vq, struct ccw1 *ccw)
 	unsigned long flags;
 	unsigned long size;
 	int ret;
-	unsigned int index = virtqueue_get_queue_index(vq);
+	unsigned int index = vq->index;
 
 	/* Remove from our list. */
 	spin_lock_irqsave(&vcdev->lock, flags);
@@ -615,7 +614,7 @@ static struct virtqueue *virtio_ccw_vq_by_ind(struct virtio_ccw_device *vcdev,
 	vq = NULL;
 	spin_lock_irqsave(&vcdev->lock, flags);
 	list_for_each_entry(info, &vcdev->virtqueues, node) {
-		if (virtqueue_get_queue_index(info->vq) == index) {
+		if (info->vq->index == index) {
 			vq = info->vq;
 			break;
 		}

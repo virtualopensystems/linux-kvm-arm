@@ -555,6 +555,25 @@ void kvm_lmsw(struct kvm_vcpu *vcpu, unsigned long msw)
 }
 EXPORT_SYMBOL_GPL(kvm_lmsw);
 
+static void kvm_load_guest_xcr0(struct kvm_vcpu *vcpu)
+{
+	if (kvm_read_cr4_bits(vcpu, X86_CR4_OSXSAVE) &&
+			!vcpu->guest_xcr0_loaded) {
+		/* kvm_set_xcr() also depends on this */
+		xsetbv(XCR_XFEATURE_ENABLED_MASK, vcpu->arch.xcr0);
+		vcpu->guest_xcr0_loaded = 1;
+	}
+}
+
+static void kvm_put_guest_xcr0(struct kvm_vcpu *vcpu)
+{
+	if (vcpu->guest_xcr0_loaded) {
+		if (vcpu->arch.xcr0 != host_xcr0)
+			xsetbv(XCR_XFEATURE_ENABLED_MASK, host_xcr0);
+		vcpu->guest_xcr0_loaded = 0;
+	}
+}
+
 int __kvm_set_xcr(struct kvm_vcpu *vcpu, u32 index, u64 xcr)
 {
 	u64 xcr0;
@@ -571,8 +590,8 @@ int __kvm_set_xcr(struct kvm_vcpu *vcpu, u32 index, u64 xcr)
 		return 1;
 	if (xcr0 & ~host_xcr0)
 		return 1;
+	kvm_put_guest_xcr0(vcpu);
 	vcpu->arch.xcr0 = xcr0;
-	vcpu->guest_xcr0_loaded = 0;
 	return 0;
 }
 
@@ -1844,7 +1863,8 @@ static int kvm_pv_enable_async_pf(struct kvm_vcpu *vcpu, u64 data)
 		return 0;
 	}
 
-	if (kvm_gfn_to_hva_cache_init(vcpu->kvm, &vcpu->arch.apf.data, gpa))
+	if (kvm_gfn_to_hva_cache_init(vcpu->kvm, &vcpu->arch.apf.data, gpa,
+					sizeof(u32)))
 		return 1;
 
 	vcpu->arch.apf.send_user_only = !(data & KVM_ASYNC_PF_SEND_ALWAYS);
@@ -1973,12 +1993,9 @@ int kvm_set_msr_common(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 
 		gpa_offset = data & ~(PAGE_MASK | 1);
 
-		/* Check that the address is 32-byte aligned. */
-		if (gpa_offset & (sizeof(struct pvclock_vcpu_time_info) - 1))
-			break;
-
 		if (kvm_gfn_to_hva_cache_init(vcpu->kvm,
-		     &vcpu->arch.pv_time, data & ~1ULL))
+		     &vcpu->arch.pv_time, data & ~1ULL,
+		     sizeof(struct pvclock_vcpu_time_info)))
 			vcpu->arch.pv_time_enabled = false;
 		else
 			vcpu->arch.pv_time_enabled = true;
@@ -1998,7 +2015,8 @@ int kvm_set_msr_common(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 			return 1;
 
 		if (kvm_gfn_to_hva_cache_init(vcpu->kvm, &vcpu->arch.st.stime,
-							data & KVM_STEAL_VALID_BITS))
+						data & KVM_STEAL_VALID_BITS,
+						sizeof(struct kvm_steal_time)))
 			return 1;
 
 		vcpu->arch.st.msr_val = data;
@@ -2544,9 +2562,11 @@ int kvm_dev_ioctl_check_extension(long ext)
 	case KVM_CAP_PV_MMU:	/* obsolete */
 		r = 0;
 		break;
+#ifdef CONFIG_KVM_DEVICE_ASSIGNMENT
 	case KVM_CAP_IOMMU:
 		r = iommu_present(&pci_bus_type);
 		break;
+#endif
 	case KVM_CAP_MCE:
 		r = KVM_MAX_MCE_BANKS;
 		break;
@@ -5613,25 +5633,6 @@ static void inject_pending_event(struct kvm_vcpu *vcpu)
 	}
 }
 
-static void kvm_load_guest_xcr0(struct kvm_vcpu *vcpu)
-{
-	if (kvm_read_cr4_bits(vcpu, X86_CR4_OSXSAVE) &&
-			!vcpu->guest_xcr0_loaded) {
-		/* kvm_set_xcr() also depends on this */
-		xsetbv(XCR_XFEATURE_ENABLED_MASK, vcpu->arch.xcr0);
-		vcpu->guest_xcr0_loaded = 1;
-	}
-}
-
-static void kvm_put_guest_xcr0(struct kvm_vcpu *vcpu)
-{
-	if (vcpu->guest_xcr0_loaded) {
-		if (vcpu->arch.xcr0 != host_xcr0)
-			xsetbv(XCR_XFEATURE_ENABLED_MASK, host_xcr0);
-		vcpu->guest_xcr0_loaded = 0;
-	}
-}
-
 static void process_nmi(struct kvm_vcpu *vcpu)
 {
 	unsigned limit = 2;
@@ -5754,7 +5755,8 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 
 		/* enable NMI/IRQ window open exits if needed */
 		if (vcpu->arch.nmi_pending)
-			kvm_x86_ops->enable_nmi_window(vcpu);
+			req_immediate_exit =
+				kvm_x86_ops->enable_nmi_window(vcpu) != 0;
 		else if (kvm_cpu_has_injectable_intr(vcpu) || req_int_win)
 			req_immediate_exit =
 				kvm_x86_ops->enable_irq_window(vcpu) != 0;

@@ -2606,7 +2606,7 @@ static int hardware_enable(void *garbage)
 		ept_sync_global();
 	}
 
-	store_gdt(&__get_cpu_var(host_gdt));
+	native_store_gdt(&__get_cpu_var(host_gdt));
 
 	return 0;
 }
@@ -4417,22 +4417,20 @@ static int enable_irq_window(struct kvm_vcpu *vcpu)
 	return 0;
 }
 
-static void enable_nmi_window(struct kvm_vcpu *vcpu)
+static int enable_nmi_window(struct kvm_vcpu *vcpu)
 {
 	u32 cpu_based_vm_exec_control;
 
-	if (!cpu_has_virtual_nmis()) {
-		enable_irq_window(vcpu);
-		return;
-	}
+	if (!cpu_has_virtual_nmis())
+		return enable_irq_window(vcpu);
 
-	if (vmcs_read32(GUEST_INTERRUPTIBILITY_INFO) & GUEST_INTR_STATE_STI) {
-		enable_irq_window(vcpu);
-		return;
-	}
+	if (vmcs_read32(GUEST_INTERRUPTIBILITY_INFO) & GUEST_INTR_STATE_STI)
+		return enable_irq_window(vcpu);
+
 	cpu_based_vm_exec_control = vmcs_read32(CPU_BASED_VM_EXEC_CONTROL);
 	cpu_based_vm_exec_control |= CPU_BASED_VIRTUAL_NMI_PENDING;
 	vmcs_write32(CPU_BASED_VM_EXEC_CONTROL, cpu_based_vm_exec_control);
+	return 0;
 }
 
 static void vmx_inject_irq(struct kvm_vcpu *vcpu)
@@ -5434,6 +5432,12 @@ static int handle_invalid_guest_state(struct kvm_vcpu *vcpu)
 			vcpu->run->internal.suberror = KVM_INTERNAL_ERROR_EMULATION;
 			vcpu->run->internal.ndata = 0;
 			return 0;
+		}
+
+		if (vcpu->arch.halt_request) {
+			vcpu->arch.halt_request = 0;
+			ret = kvm_emulate_halt(vcpu);
+			goto out;
 		}
 
 		if (signal_pending(current))
