@@ -52,6 +52,7 @@
 #define FEC_R_FIFO_RSEM		0x194 /* Receive FIFO section empty threshold */
 #define FEC_R_FIFO_RAEM		0x198 /* Receive FIFO almost empty threshold */
 #define FEC_R_FIFO_RAFL		0x19c /* Receive FIFO almost full threshold */
+#define FEC_RACC		0x1C4 /* Receive Accelerator function */
 #define FEC_MIIGSK_CFGR		0x300 /* MIIGSK Configuration reg */
 #define FEC_MIIGSK_ENR		0x308 /* MIIGSK Enable reg */
 
@@ -97,6 +98,13 @@ struct bufdesc {
 	unsigned short cbd_sc;	/* Control and status info */
 	unsigned long cbd_bufaddr;	/* Buffer address */
 };
+#else
+struct bufdesc {
+	unsigned short	cbd_sc;			/* Control and status info */
+	unsigned short	cbd_datlen;		/* Data length */
+	unsigned long	cbd_bufaddr;		/* Buffer address */
+};
+#endif
 
 struct bufdesc_ex {
 	struct bufdesc desc;
@@ -106,14 +114,6 @@ struct bufdesc_ex {
 	unsigned long ts;
 	unsigned short res0[4];
 };
-
-#else
-struct bufdesc {
-	unsigned short	cbd_sc;			/* Control and status info */
-	unsigned short	cbd_datlen;		/* Data length */
-	unsigned long	cbd_bufaddr;		/* Buffer address */
-};
-#endif
 
 /*
  *	The following definitions courtesy of commproc.h, which where
@@ -165,9 +165,11 @@ struct bufdesc {
 #define BD_ENET_TX_CSL          ((ushort)0x0001)
 #define BD_ENET_TX_STATS        ((ushort)0x03ff)        /* All status bits */
 
-/*enhanced buffer desciptor control/status used by Ethernet transmit*/
+/*enhanced buffer descriptor control/status used by Ethernet transmit*/
 #define BD_ENET_TX_INT          0x40000000
 #define BD_ENET_TX_TS           0x20000000
+#define BD_ENET_TX_PINS         0x10000000
+#define BD_ENET_TX_IINS         0x08000000
 
 
 /* This device has up to three irqs on some platforms */
@@ -191,6 +193,15 @@ struct bufdesc {
 
 #define BD_ENET_RX_INT          0x00800000
 #define BD_ENET_RX_PTP          ((ushort)0x0400)
+#define BD_ENET_RX_ICE		0x00000020
+#define BD_ENET_RX_PCR		0x00000010
+#define FLAG_RX_CSUM_ENABLED	(BD_ENET_RX_ICE | BD_ENET_RX_PCR)
+#define FLAG_RX_CSUM_ERROR	(BD_ENET_RX_ICE | BD_ENET_RX_PCR)
+
+struct fec_enet_delayed_work {
+	struct delayed_work delay_work;
+	bool timeout;
+};
 
 /* The FEC buffer descriptors track the ring buffers.  The rx_bd_base and
  * tx_bd_base always point to the base of the buffer descriptors.  The
@@ -208,14 +219,13 @@ struct fec_enet_private {
 
 	struct clk *clk_ipg;
 	struct clk *clk_ahb;
+	struct clk *clk_enet_out;
 	struct clk *clk_ptp;
 
 	/* The saved address of a sent-in-place packet/buffer, for skfree(). */
 	unsigned char *tx_bounce[TX_RING_SIZE];
 	struct	sk_buff *tx_skbuff[TX_RING_SIZE];
 	struct	sk_buff *rx_skbuff[RX_RING_SIZE];
-	ushort	skb_cur;
-	ushort	skb_dirty;
 
 	/* CPM dual port RAM relative addresses */
 	dma_addr_t	bd_dma;
@@ -226,10 +236,6 @@ struct fec_enet_private {
 	struct bufdesc	*cur_rx, *cur_tx;
 	/* The ring entries to be free()ed */
 	struct bufdesc	*dirty_tx;
-
-	uint	tx_full;
-	/* hold while accessing the HW like ringbuffer for tx/rx but not MAC */
-	spinlock_t hw_lock;
 
 	struct	platform_device *pdev;
 
@@ -244,12 +250,14 @@ struct fec_enet_private {
 	phy_interface_t	phy_interface;
 	int	link;
 	int	full_duplex;
+	int	speed;
 	struct	completion mdio_done;
 	int	irq[FEC_IRQ_NUM];
 	int	bufdesc_ex;
 	int	pause_flag;
 
 	struct	napi_struct napi;
+	int	csum_flags;
 
 	struct ptp_clock *ptp_clock;
 	struct ptp_clock_info ptp_caps;
@@ -263,7 +271,7 @@ struct fec_enet_private {
 	int hwts_rx_en;
 	int hwts_tx_en;
 	struct timer_list time_keep;
-
+	struct fec_enet_delayed_work delay_work;
 };
 
 void fec_ptp_init(struct net_device *ndev, struct platform_device *pdev);

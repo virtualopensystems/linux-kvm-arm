@@ -14,9 +14,6 @@
 #define NFS_DEF_FILE_IO_SIZE	(4096U)
 #define NFS_MIN_FILE_IO_SIZE	(1024U)
 
-/* Forward declaration for NFS v3 */
-struct nfs4_secinfo_flavors;
-
 struct nfs4_string {
 	unsigned int len;
 	char *data;
@@ -233,6 +230,7 @@ struct nfs4_layoutget_args {
 	struct inode *inode;
 	struct nfs_open_context *ctx;
 	nfs4_stateid stateid;
+	unsigned long timestamp;
 	struct nfs4_layoutdriver_data layout;
 };
 
@@ -348,6 +346,7 @@ struct nfs_openargs {
 	const u32 *		bitmask;
 	const u32 *		open_bitmap;
 	__u32			claim;
+	enum createmode4	createmode;
 };
 
 struct nfs_openres {
@@ -485,6 +484,7 @@ struct nfs_readargs {
 	struct nfs_fh *		fh;
 	struct nfs_open_context *context;
 	struct nfs_lock_context *lock_context;
+	nfs4_stateid		stateid;
 	__u64			offset;
 	__u32			count;
 	unsigned int		pgbase;
@@ -506,6 +506,7 @@ struct nfs_writeargs {
 	struct nfs_fh *		fh;
 	struct nfs_open_context *context;
 	struct nfs_lock_context *lock_context;
+	nfs4_stateid		stateid;
 	__u64			offset;
 	__u32			count;
 	enum nfs3_stable_how	stable;
@@ -1049,25 +1050,14 @@ struct nfs4_fs_locations_res {
 	struct nfs4_fs_locations       *fs_locations;
 };
 
-struct nfs4_secinfo_oid {
-	unsigned int len;
-	char data[GSS_OID_MAX_LEN];
-};
-
-struct nfs4_secinfo_gss {
-	struct nfs4_secinfo_oid sec_oid4;
-	unsigned int qop4;
-	unsigned int service;
-};
-
-struct nfs4_secinfo_flavor {
-	unsigned int 		flavor;
-	struct nfs4_secinfo_gss	gss;
+struct nfs4_secinfo4 {
+	u32			flavor;
+	struct rpcsec_gss_info	flavor_info;
 };
 
 struct nfs4_secinfo_flavors {
-	unsigned int num_flavors;
-	struct nfs4_secinfo_flavor flavors[0];
+	unsigned int		num_flavors;
+	struct nfs4_secinfo4	flavors[0];
 };
 
 struct nfs4_secinfo_arg {
@@ -1186,7 +1176,7 @@ struct nfs41_test_stateid_res {
 
 struct nfs41_free_stateid_args {
 	struct nfs4_sequence_args	seq_args;
-	nfs4_stateid			*stateid;
+	nfs4_stateid			stateid;
 };
 
 struct nfs41_free_stateid_res {

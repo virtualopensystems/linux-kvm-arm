@@ -36,7 +36,6 @@
 #define GPMI_NAND_GPMI_REGS_ADDR_RES_NAME  "gpmi-nand"
 #define GPMI_NAND_BCH_REGS_ADDR_RES_NAME   "bch"
 #define GPMI_NAND_BCH_INTERRUPT_RES_NAME   "bch"
-#define GPMI_NAND_DMA_INTERRUPT_RES_NAME   "gpmi-dma"
 
 /* add our owner bbt descriptor */
 static uint8_t scan_ff_pattern[] = { 0xff };
@@ -94,6 +93,25 @@ static inline int get_ecc_strength(struct gpmi_nand_data *this)
 	return round_down(ecc_strength, 2);
 }
 
+static inline bool gpmi_check_ecc(struct gpmi_nand_data *this)
+{
+	struct bch_geometry *geo = &this->bch_geometry;
+
+	/* Do the sanity check. */
+	if (GPMI_IS_MX23(this) || GPMI_IS_MX28(this)) {
+		/* The mx23/mx28 only support the GF13. */
+		if (geo->gf_len == 14)
+			return false;
+
+		if (geo->ecc_strength > MXS_ECC_STRENGTH_MAX)
+			return false;
+	} else if (GPMI_IS_MX6Q(this)) {
+		if (geo->ecc_strength > MX6_ECC_STRENGTH_MAX)
+			return false;
+	}
+	return true;
+}
+
 int common_nfc_set_geometry(struct gpmi_nand_data *this)
 {
 	struct bch_geometry *geo = &this->bch_geometry;
@@ -112,17 +130,24 @@ int common_nfc_set_geometry(struct gpmi_nand_data *this)
 	/* The default for the length of Galois Field. */
 	geo->gf_len = 13;
 
-	/* The default for chunk size. There is no oobsize greater then 512. */
+	/* The default for chunk size. */
 	geo->ecc_chunk_size = 512;
-	while (geo->ecc_chunk_size < mtd->oobsize)
+	while (geo->ecc_chunk_size < mtd->oobsize) {
 		geo->ecc_chunk_size *= 2; /* keep C >= O */
+		geo->gf_len = 14;
+	}
 
 	geo->ecc_chunk_count = mtd->writesize / geo->ecc_chunk_size;
 
 	/* We use the same ECC strength for all chunks. */
 	geo->ecc_strength = get_ecc_strength(this);
-	if (!geo->ecc_strength) {
-		pr_err("wrong ECC strength.\n");
+	if (!gpmi_check_ecc(this)) {
+		dev_err(this->dev,
+			"We can not support this nand chip."
+			" Its required ecc strength(%d) is beyond our"
+			" capability(%d).\n", geo->ecc_strength,
+			(GPMI_IS_MX6Q(this) ? MX6_ECC_STRENGTH_MAX
+					: MXS_ECC_STRENGTH_MAX));
 		return -EINVAL;
 	}
 
@@ -394,28 +419,6 @@ static void release_bch_irq(struct gpmi_nand_data *this)
 		free_irq(i, this);
 }
 
-static bool gpmi_dma_filter(struct dma_chan *chan, void *param)
-{
-	struct gpmi_nand_data *this = param;
-	int dma_channel = (int)this->private;
-
-	if (!mxs_dma_is_apbh(chan))
-		return false;
-	/*
-	 * only catch the GPMI dma channels :
-	 *	for mx23 :	MX23_DMA_GPMI0 ~ MX23_DMA_GPMI3
-	 *		(These four channels share the same IRQ!)
-	 *
-	 *	for mx28 :	MX28_DMA_GPMI0 ~ MX28_DMA_GPMI7
-	 *		(These eight channels share the same IRQ!)
-	 */
-	if (dma_channel == chan->chan_id) {
-		chan->private = &this->dma_data;
-		return true;
-	}
-	return false;
-}
-
 static void release_dma_channels(struct gpmi_nand_data *this)
 {
 	unsigned int i;
@@ -429,36 +432,10 @@ static void release_dma_channels(struct gpmi_nand_data *this)
 static int acquire_dma_channels(struct gpmi_nand_data *this)
 {
 	struct platform_device *pdev = this->pdev;
-	struct resource *r_dma;
-	struct device_node *dn;
-	u32 dma_channel;
-	int ret;
 	struct dma_chan *dma_chan;
-	dma_cap_mask_t mask;
-
-	/* dma channel, we only use the first one. */
-	dn = pdev->dev.of_node;
-	ret = of_property_read_u32(dn, "fsl,gpmi-dma-channel", &dma_channel);
-	if (ret) {
-		pr_err("unable to get DMA channel from dt.\n");
-		goto acquire_err;
-	}
-	this->private = (void *)dma_channel;
-
-	/* gpmi dma interrupt */
-	r_dma = platform_get_resource_byname(pdev, IORESOURCE_IRQ,
-					GPMI_NAND_DMA_INTERRUPT_RES_NAME);
-	if (!r_dma) {
-		pr_err("Can't get resource for DMA\n");
-		goto acquire_err;
-	}
-	this->dma_data.chan_irq = r_dma->start;
 
 	/* request dma channel */
-	dma_cap_zero(mask);
-	dma_cap_set(DMA_SLAVE, mask);
-
-	dma_chan = dma_request_channel(mask, gpmi_dma_filter, this);
+	dma_chan = dma_request_slave_channel(&pdev->dev, "rx-tx");
 	if (!dma_chan) {
 		pr_err("Failed to request DMA channel.\n");
 		goto acquire_err;
@@ -920,8 +897,7 @@ static int gpmi_ecc_read_page(struct mtd_info *mtd, struct nand_chip *chip,
 	dma_addr_t    auxiliary_phys;
 	unsigned int  i;
 	unsigned char *status;
-	unsigned int  failed;
-	unsigned int  corrected;
+	unsigned int  max_bitflips = 0;
 	int           ret;
 
 	pr_debug("page number is : %d\n", page);
@@ -945,35 +921,25 @@ static int gpmi_ecc_read_page(struct mtd_info *mtd, struct nand_chip *chip,
 			payload_virt, payload_phys);
 	if (ret) {
 		pr_err("Error in ECC-based read: %d\n", ret);
-		goto exit_nfc;
+		return ret;
 	}
 
 	/* handle the block mark swapping */
 	block_mark_swapping(this, payload_virt, auxiliary_virt);
 
 	/* Loop over status bytes, accumulating ECC status. */
-	failed		= 0;
-	corrected	= 0;
-	status		= auxiliary_virt + nfc_geo->auxiliary_status_offset;
+	status = auxiliary_virt + nfc_geo->auxiliary_status_offset;
 
 	for (i = 0; i < nfc_geo->ecc_chunk_count; i++, status++) {
 		if ((*status == STATUS_GOOD) || (*status == STATUS_ERASED))
 			continue;
 
 		if (*status == STATUS_UNCORRECTABLE) {
-			failed++;
+			mtd->ecc_stats.failed++;
 			continue;
 		}
-		corrected += *status;
-	}
-
-	/*
-	 * Propagate ECC status to the owning MTD only when failed or
-	 * corrected times nearly reaches our ECC correction threshold.
-	 */
-	if (failed || corrected >= (nfc_geo->ecc_strength - 1)) {
-		mtd->ecc_stats.failed    += failed;
-		mtd->ecc_stats.corrected += corrected;
+		mtd->ecc_stats.corrected += *status;
+		max_bitflips = max_t(unsigned int, max_bitflips, *status);
 	}
 
 	if (oob_required) {
@@ -995,8 +961,8 @@ static int gpmi_ecc_read_page(struct mtd_info *mtd, struct nand_chip *chip,
 			this->payload_virt, this->payload_phys,
 			nfc_geo->payload_size,
 			payload_virt, payload_phys);
-exit_nfc:
-	return ret;
+
+	return max_bitflips;
 }
 
 static int gpmi_ecc_write_page(struct mtd_info *mtd, struct nand_chip *chip,
@@ -1668,8 +1634,8 @@ exit_nfc_init:
 	release_resources(this);
 exit_acquire_resources:
 	platform_set_drvdata(pdev, NULL);
-	kfree(this);
 	dev_err(this->dev, "driver registration failed: %d\n", ret);
+	kfree(this);
 
 	return ret;
 }

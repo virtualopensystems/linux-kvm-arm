@@ -257,15 +257,7 @@ DECLARE_EVENT_CLASS(ext4__write_end,
 		  __entry->pos, __entry->len, __entry->copied)
 );
 
-DEFINE_EVENT(ext4__write_end, ext4_ordered_write_end,
-
-	TP_PROTO(struct inode *inode, loff_t pos, unsigned int len,
-		 unsigned int copied),
-
-	TP_ARGS(inode, pos, len, copied)
-);
-
-DEFINE_EVENT(ext4__write_end, ext4_writeback_write_end,
+DEFINE_EVENT(ext4__write_end, ext4_write_end,
 
 	TP_PROTO(struct inode *inode, loff_t pos, unsigned int len,
 		 unsigned int copied),
@@ -1956,7 +1948,7 @@ TRACE_EVENT(ext4_remove_blocks,
 		__entry->to		= to;
 		__entry->partial	= partial_cluster;
 		__entry->ee_pblk	= ext4_ext_pblock(ex);
-		__entry->ee_lblk	= cpu_to_le32(ex->ee_block);
+		__entry->ee_lblk	= le32_to_cpu(ex->ee_block);
 		__entry->ee_len		= ext4_ext_get_actual_len(ex);
 	),
 
@@ -2060,7 +2052,7 @@ TRACE_EVENT(ext4_ext_remove_space,
 
 TRACE_EVENT(ext4_ext_remove_space_done,
 	TP_PROTO(struct inode *inode, ext4_lblk_t start, int depth,
-		ext4_lblk_t partial, unsigned short eh_entries),
+		ext4_lblk_t partial, __le16 eh_entries),
 
 	TP_ARGS(inode, start, depth, partial, eh_entries),
 
@@ -2079,7 +2071,7 @@ TRACE_EVENT(ext4_ext_remove_space_done,
 		__entry->start		= start;
 		__entry->depth		= depth;
 		__entry->partial	= partial;
-		__entry->eh_entries	= eh_entries;
+		__entry->eh_entries	= le16_to_cpu(eh_entries);
 	),
 
 	TP_printk("dev %d,%d ino %lu since %u depth %d partial %u "
@@ -2147,7 +2139,7 @@ TRACE_EVENT(ext4_es_remove_extent,
 		  __entry->lblk, __entry->len)
 );
 
-TRACE_EVENT(ext4_es_find_delayed_extent_enter,
+TRACE_EVENT(ext4_es_find_delayed_extent_range_enter,
 	TP_PROTO(struct inode *inode, ext4_lblk_t lblk),
 
 	TP_ARGS(inode, lblk),
@@ -2169,7 +2161,7 @@ TRACE_EVENT(ext4_es_find_delayed_extent_enter,
 		  (unsigned long) __entry->ino, __entry->lblk)
 );
 
-TRACE_EVENT(ext4_es_find_delayed_extent_exit,
+TRACE_EVENT(ext4_es_find_delayed_extent_range_exit,
 	TP_PROTO(struct inode *inode, struct extent_status *es),
 
 	TP_ARGS(inode, es),
@@ -2255,64 +2247,48 @@ TRACE_EVENT(ext4_es_lookup_extent_exit,
 		  __entry->found ? __entry->status : 0)
 );
 
-TRACE_EVENT(ext4_es_reclaim_extents_count,
-	TP_PROTO(struct super_block *sb, int nr_cached),
-
-	TP_ARGS(sb, nr_cached),
-
-	TP_STRUCT__entry(
-		__field(	dev_t,	dev			)
-		__field(	int,	nr_cached		)
-	),
-
-	TP_fast_assign(
-		__entry->dev		= sb->s_dev;
-		__entry->nr_cached	= nr_cached;
-	),
-
-	TP_printk("dev %d,%d cached objects nr %d",
-		  MAJOR(__entry->dev), MINOR(__entry->dev),
-		  __entry->nr_cached)
-);
-
 TRACE_EVENT(ext4_es_shrink_enter,
-	TP_PROTO(struct super_block *sb, int nr_to_scan),
+	TP_PROTO(struct super_block *sb, int nr_to_scan, int cache_cnt),
 
-	TP_ARGS(sb, nr_to_scan),
+	TP_ARGS(sb, nr_to_scan, cache_cnt),
 
 	TP_STRUCT__entry(
 		__field(	dev_t,	dev			)
 		__field(	int,	nr_to_scan		)
+		__field(	int,	cache_cnt		)
 	),
 
 	TP_fast_assign(
 		__entry->dev		= sb->s_dev;
 		__entry->nr_to_scan	= nr_to_scan;
+		__entry->cache_cnt	= cache_cnt;
 	),
 
-	TP_printk("dev %d,%d nr to scan %d",
+	TP_printk("dev %d,%d nr_to_scan %d cache_cnt %d",
 		  MAJOR(__entry->dev), MINOR(__entry->dev),
-		  __entry->nr_to_scan)
+		  __entry->nr_to_scan, __entry->cache_cnt)
 );
 
 TRACE_EVENT(ext4_es_shrink_exit,
-	TP_PROTO(struct super_block *sb, int shrunk_nr),
+	TP_PROTO(struct super_block *sb, int shrunk_nr, int cache_cnt),
 
-	TP_ARGS(sb, shrunk_nr),
+	TP_ARGS(sb, shrunk_nr, cache_cnt),
 
 	TP_STRUCT__entry(
 		__field(	dev_t,	dev			)
 		__field(	int,	shrunk_nr		)
+		__field(	int,	cache_cnt		)
 	),
 
 	TP_fast_assign(
 		__entry->dev		= sb->s_dev;
 		__entry->shrunk_nr	= shrunk_nr;
+		__entry->cache_cnt	= cache_cnt;
 	),
 
-	TP_printk("dev %d,%d nr to scan %d",
+	TP_printk("dev %d,%d shrunk_nr %d cache_cnt %d",
 		  MAJOR(__entry->dev), MINOR(__entry->dev),
-		  __entry->shrunk_nr)
+		  __entry->shrunk_nr, __entry->cache_cnt)
 );
 
 #endif /* _TRACE_EXT4_H */

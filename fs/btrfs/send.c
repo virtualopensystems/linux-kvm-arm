@@ -85,6 +85,7 @@ struct send_ctx {
 	u32 send_max_size;
 	u64 total_send_size;
 	u64 cmd_send_size[BTRFS_SEND_C_MAX + 1];
+	u64 flags;	/* 'flags' member of btrfs_ioctl_send_args is u64 */
 
 	struct vfsmount *mnt;
 
@@ -386,7 +387,7 @@ static struct btrfs_path *alloc_path_for_send(void)
 	return path;
 }
 
-int write_buf(struct file *filp, const void *buf, u32 len, loff_t *off)
+static int write_buf(struct file *filp, const void *buf, u32 len, loff_t *off)
 {
 	int ret;
 	mm_segment_t old_fs;
@@ -3478,7 +3479,6 @@ static int __process_changed_new_xattr(int num, struct btrfs_key *di_key,
 	struct send_ctx *sctx = ctx;
 	char *found_data = NULL;
 	int found_data_len  = 0;
-	struct fs_path *p = NULL;
 
 	ret = find_xattr(sctx, sctx->parent_root, sctx->right_path,
 			sctx->cmp_key, name, name_len, &found_data,
@@ -3497,7 +3497,6 @@ static int __process_changed_new_xattr(int num, struct btrfs_key *di_key,
 	}
 
 	kfree(found_data);
-	fs_path_free(sctx, p);
 	return ret;
 }
 
@@ -3709,6 +3708,39 @@ out:
 	return ret;
 }
 
+/*
+ * Send an update extent command to user space.
+ */
+static int send_update_extent(struct send_ctx *sctx,
+			      u64 offset, u32 len)
+{
+	int ret = 0;
+	struct fs_path *p;
+
+	p = fs_path_alloc(sctx);
+	if (!p)
+		return -ENOMEM;
+
+	ret = begin_cmd(sctx, BTRFS_SEND_C_UPDATE_EXTENT);
+	if (ret < 0)
+		goto out;
+
+	ret = get_cur_path(sctx, sctx->cur_ino, sctx->cur_inode_gen, p);
+	if (ret < 0)
+		goto out;
+
+	TLV_PUT_PATH(sctx, BTRFS_SEND_A_PATH, p);
+	TLV_PUT_U64(sctx, BTRFS_SEND_A_FILE_OFFSET, offset);
+	TLV_PUT_U64(sctx, BTRFS_SEND_A_SIZE, len);
+
+	ret = send_cmd(sctx);
+
+tlv_put_failure:
+out:
+	fs_path_free(sctx, p);
+	return ret;
+}
+
 static int send_write_or_clone(struct send_ctx *sctx,
 			       struct btrfs_path *path,
 			       struct btrfs_key *key,
@@ -3744,7 +3776,11 @@ static int send_write_or_clone(struct send_ctx *sctx,
 		goto out;
 	}
 
-	if (!clone_root) {
+	if (clone_root) {
+		ret = send_clone(sctx, offset, len, clone_root);
+	} else if (sctx->flags & BTRFS_SEND_FLAG_NO_FILE_DATA) {
+		ret = send_update_extent(sctx, offset, len);
+	} else {
 		while (pos < len) {
 			l = len - pos;
 			if (l > BTRFS_SEND_READ_SIZE)
@@ -3757,10 +3793,7 @@ static int send_write_or_clone(struct send_ctx *sctx,
 			pos += ret;
 		}
 		ret = 0;
-	} else {
-		ret = send_clone(sctx, offset, len, clone_root);
 	}
-
 out:
 	return ret;
 }
@@ -3910,12 +3943,10 @@ static int is_extent_unchanged(struct send_ctx *sctx,
 		    found_key.type != key.type) {
 			key.offset += right_len;
 			break;
-		} else {
-			if (found_key.offset != key.offset + right_len) {
-				/* Should really not happen */
-				ret = -EIO;
-				goto out;
-			}
+		}
+		if (found_key.offset != key.offset + right_len) {
+			ret = 0;
+			goto out;
 		}
 		key = found_key;
 	}
@@ -4496,9 +4527,11 @@ static int send_subvol(struct send_ctx *sctx)
 {
 	int ret;
 
-	ret = send_header(sctx);
-	if (ret < 0)
-		goto out;
+	if (!(sctx->flags & BTRFS_SEND_FLAG_OMIT_STREAM_HEADER)) {
+		ret = send_header(sctx);
+		if (ret < 0)
+			goto out;
+	}
 
 	ret = send_subvol_begin(sctx);
 	if (ret < 0)
@@ -4536,7 +4569,6 @@ long btrfs_ioctl_send(struct file *mnt_file, void __user *arg_)
 	struct btrfs_fs_info *fs_info;
 	struct btrfs_ioctl_send_args *arg = NULL;
 	struct btrfs_key key;
-	struct file *filp = NULL;
 	struct send_ctx *sctx = NULL;
 	u32 i;
 	u64 *clone_sources_tmp = NULL;
@@ -4561,6 +4593,11 @@ long btrfs_ioctl_send(struct file *mnt_file, void __user *arg_)
 		goto out;
 	}
 
+	if (arg->flags & ~BTRFS_SEND_FLAG_MASK) {
+		ret = -EINVAL;
+		goto out;
+	}
+
 	sctx = kzalloc(sizeof(struct send_ctx), GFP_NOFS);
 	if (!sctx) {
 		ret = -ENOMEM;
@@ -4572,9 +4609,11 @@ long btrfs_ioctl_send(struct file *mnt_file, void __user *arg_)
 	INIT_RADIX_TREE(&sctx->name_cache, GFP_NOFS);
 	INIT_LIST_HEAD(&sctx->name_cache_list);
 
+	sctx->flags = arg->flags;
+
 	sctx->send_filp = fget(arg->send_fd);
-	if (IS_ERR(sctx->send_filp)) {
-		ret = PTR_ERR(sctx->send_filp);
+	if (!sctx->send_filp) {
+		ret = -EBADF;
 		goto out;
 	}
 
@@ -4665,16 +4704,16 @@ long btrfs_ioctl_send(struct file *mnt_file, void __user *arg_)
 	if (ret < 0)
 		goto out;
 
-	ret = begin_cmd(sctx, BTRFS_SEND_C_END);
-	if (ret < 0)
-		goto out;
-	ret = send_cmd(sctx);
-	if (ret < 0)
-		goto out;
+	if (!(sctx->flags & BTRFS_SEND_FLAG_OMIT_END_CMD)) {
+		ret = begin_cmd(sctx, BTRFS_SEND_C_END);
+		if (ret < 0)
+			goto out;
+		ret = send_cmd(sctx);
+		if (ret < 0)
+			goto out;
+	}
 
 out:
-	if (filp)
-		fput(filp);
 	kfree(arg);
 	vfree(clone_sources_tmp);
 

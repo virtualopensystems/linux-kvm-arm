@@ -40,7 +40,7 @@ __SYSCALL(15,  sys_chmod)
 __SYSCALL(16,  sys_lchown16)
 __SYSCALL(17,  sys_ni_syscall)			/* 17 was sys_break */
 __SYSCALL(18,  sys_ni_syscall)			/* 18 was sys_stat */
-__SYSCALL(19,  compat_sys_lseek_wrapper)
+__SYSCALL(19,  compat_sys_lseek)
 __SYSCALL(20,  sys_getpid)
 __SYSCALL(21,  compat_sys_mount)
 __SYSCALL(22,  sys_ni_syscall)			/* 22 was sys_umount */
@@ -113,8 +113,8 @@ __SYSCALL(88,  sys_reboot)
 __SYSCALL(89,  sys_ni_syscall)			/* 89 was sys_readdir */
 __SYSCALL(90,  sys_ni_syscall)			/* 90 was sys_mmap */
 __SYSCALL(91,  sys_munmap)
-__SYSCALL(92,  sys_truncate)
-__SYSCALL(93,  sys_ftruncate)
+__SYSCALL(92,  compat_sys_truncate)
+__SYSCALL(93,  compat_sys_ftruncate)
 __SYSCALL(94,  sys_fchmod)
 __SYSCALL(95,  sys_fchown16)
 __SYSCALL(96,  sys_getpriority)
@@ -389,7 +389,7 @@ __SYSCALL(364, sys_perf_event_open)
 __SYSCALL(365, compat_sys_recvmmsg)
 __SYSCALL(366, sys_accept4)
 __SYSCALL(367, sys_fanotify_init)
-__SYSCALL(368, compat_sys_fanotify_mark_wrapper)
+__SYSCALL(368, compat_sys_fanotify_mark)
 __SYSCALL(369, sys_prlimit64)
 __SYSCALL(370, sys_name_to_handle_at)
 __SYSCALL(371, compat_sys_open_by_handle_at)

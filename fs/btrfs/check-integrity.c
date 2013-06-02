@@ -813,8 +813,7 @@ static int btrfsic_process_superblock_dev_mirror(
 	    (bh->b_data + (dev_bytenr & 4095));
 
 	if (btrfs_super_bytenr(super_tmp) != dev_bytenr ||
-	    strncmp((char *)(&(super_tmp->magic)), BTRFS_MAGIC,
-		    sizeof(super_tmp->magic)) ||
+	    super_tmp->magic != cpu_to_le64(BTRFS_MAGIC) ||
 	    memcmp(device->uuid, super_tmp->dev_item.uuid, BTRFS_UUID_SIZE) ||
 	    btrfs_super_nodesize(super_tmp) != state->metablock_size ||
 	    btrfs_super_leafsize(super_tmp) != state->metablock_size ||
@@ -1701,7 +1700,7 @@ static int btrfsic_read_block(struct btrfsic_state *state,
 		unsigned int j;
 		DECLARE_COMPLETION_ONSTACK(complete);
 
-		bio = bio_alloc(GFP_NOFS, num_pages - i);
+		bio = btrfs_io_bio_alloc(GFP_NOFS, num_pages - i);
 		if (!bio) {
 			printk(KERN_INFO
 			       "btrfsic: bio_alloc() for %u pages failed!\n",

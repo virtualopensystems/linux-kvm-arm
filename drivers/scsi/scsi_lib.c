@@ -71,9 +71,14 @@ struct kmem_cache *scsi_sdb_cache;
 #ifdef CONFIG_ACPI
 #include <acpi/acpi_bus.h>
 
+static bool acpi_scsi_bus_match(struct device *dev)
+{
+	return dev->bus == &scsi_bus_type;
+}
+
 int scsi_register_acpi_bus_type(struct acpi_bus_type *bus)
 {
-        bus->bus = &scsi_bus_type;
+        bus->match = acpi_scsi_bus_match;
         return register_acpi_bus_type(bus);
 }
 EXPORT_SYMBOL_GPL(scsi_register_acpi_bus_type);
@@ -271,11 +276,10 @@ int scsi_execute(struct scsi_device *sdev, const unsigned char *cmd,
 }
 EXPORT_SYMBOL(scsi_execute);
 
-
-int scsi_execute_req(struct scsi_device *sdev, const unsigned char *cmd,
+int scsi_execute_req_flags(struct scsi_device *sdev, const unsigned char *cmd,
 		     int data_direction, void *buffer, unsigned bufflen,
 		     struct scsi_sense_hdr *sshdr, int timeout, int retries,
-		     int *resid)
+		     int *resid, int flags)
 {
 	char *sense = NULL;
 	int result;
@@ -286,14 +290,14 @@ int scsi_execute_req(struct scsi_device *sdev, const unsigned char *cmd,
 			return DRIVER_ERROR << 24;
 	}
 	result = scsi_execute(sdev, cmd, data_direction, buffer, bufflen,
-			      sense, timeout, retries, 0, resid);
+			      sense, timeout, retries, flags, resid);
 	if (sshdr)
 		scsi_normalize_sense(sense, SCSI_SENSE_BUFFERSIZE, sshdr);
 
 	kfree(sense);
 	return result;
 }
-EXPORT_SYMBOL(scsi_execute_req);
+EXPORT_SYMBOL(scsi_execute_req_flags);
 
 /*
  * Function:    scsi_init_cmd_errh()

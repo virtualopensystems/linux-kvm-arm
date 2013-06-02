@@ -35,6 +35,7 @@
 #include <asm/war.h>
 #include <asm/vdso.h>
 #include <asm/dsp.h>
+#include <asm/inst.h>
 
 #include "signal-common.h"
 
@@ -412,7 +413,7 @@ give_sigsegv:
 #endif
 
 static int setup_rt_frame(void *sig_return, struct k_sigaction *ka,
-			  struct pt_regs *regs,	int signr, sigset_t *set,
+			  struct pt_regs *regs, int signr, sigset_t *set,
 			  siginfo_t *info)
 {
 	struct rt_sigframe __user *frame;
@@ -425,7 +426,7 @@ static int setup_rt_frame(void *sig_return, struct k_sigaction *ka,
 	/* Create siginfo.  */
 	err |= copy_siginfo_to_user(&frame->rs_info, info);
 
-	/* Create the ucontext.  */
+	/* Create the ucontext.	 */
 	err |= __put_user(0, &frame->rs_uc.uc_flags);
 	err |= __put_user(NULL, &frame->rs_uc.uc_link);
 	err |= __save_altstack(&frame->rs_uc.uc_stack, regs->regs[29]);
@@ -468,7 +469,7 @@ struct mips_abi mips_abi = {
 	.setup_frame	= setup_frame,
 	.signal_return_offset = offsetof(struct mips_vdso, signal_trampoline),
 #endif
-	.setup_rt_frame	= setup_rt_frame,
+	.setup_rt_frame = setup_rt_frame,
 	.rt_signal_return_offset =
 		offsetof(struct mips_vdso, rt_signal_trampoline),
 	.restart	= __NR_restart_syscall
@@ -480,7 +481,15 @@ static void handle_signal(unsigned long sig, siginfo_t *info,
 	sigset_t *oldset = sigmask_to_save();
 	int ret;
 	struct mips_abi *abi = current->thread.abi;
+#ifdef CONFIG_CPU_MICROMIPS
+	void *vdso;
+	unsigned int tmp = (unsigned int)current->mm->context.vdso;
+
+	set_isa16_mode(tmp);
+	vdso = (void *)tmp;
+#else
 	void *vdso = current->mm->context.vdso;
+#endif
 
 	if (regs->regs[0]) {
 		switch(regs->regs[2]) {
@@ -500,7 +509,7 @@ static void handle_signal(unsigned long sig, siginfo_t *info,
 			regs->cp0_epc -= 4;
 		}
 
-		regs->regs[0] = 0;		/* Don't deal with this again.  */
+		regs->regs[0] = 0;		/* Don't deal with this again.	*/
 	}
 
 	if (sig_uses_siginfo(ka))
@@ -524,7 +533,7 @@ static void do_signal(struct pt_regs *regs)
 
 	signr = get_signal_to_deliver(&info, &ka, regs, NULL);
 	if (signr > 0) {
-		/* Whee!  Actually deliver the signal.  */
+		/* Whee!  Actually deliver the signal.	*/
 		handle_signal(signr, &info, &ka, regs);
 		return;
 	}
@@ -545,7 +554,7 @@ static void do_signal(struct pt_regs *regs)
 			regs->cp0_epc -= 4;
 			break;
 		}
-		regs->regs[0] = 0;	/* Don't deal with this again.  */
+		regs->regs[0] = 0;	/* Don't deal with this again.	*/
 	}
 
 	/*

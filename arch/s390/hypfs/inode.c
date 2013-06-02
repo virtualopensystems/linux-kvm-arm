@@ -21,6 +21,7 @@
 #include <linux/module.h>
 #include <linux/seq_file.h>
 #include <linux/mount.h>
+#include <linux/aio.h>
 #include <asm/ebcdic.h>
 #include "hypfs.h"
 
@@ -171,12 +172,10 @@ static ssize_t hypfs_aio_write(struct kiocb *iocb, const struct iovec *iov,
 			      unsigned long nr_segs, loff_t offset)
 {
 	int rc;
-	struct super_block *sb;
-	struct hypfs_sb_info *fs_info;
+	struct super_block *sb = file_inode(iocb->ki_filp)->i_sb;
+	struct hypfs_sb_info *fs_info = sb->s_fs_info;
 	size_t count = iov_length(iov, nr_segs);
 
-	sb = iocb->ki_filp->f_path.dentry->d_inode->i_sb;
-	fs_info = sb->s_fs_info;
 	/*
 	 * Currently we only allow one update per second for two reasons:
 	 * 1. diag 204 is VERY expensive
@@ -458,6 +457,7 @@ static struct file_system_type hypfs_type = {
 	.mount		= hypfs_mount,
 	.kill_sb	= hypfs_kill_super
 };
+MODULE_ALIAS_FS("s390_hypfs");
 
 static const struct super_operations hypfs_s_ops = {
 	.statfs		= simple_statfs,

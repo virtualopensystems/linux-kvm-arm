@@ -191,19 +191,16 @@ static void vmem_remove_range(unsigned long start, unsigned long size)
 /*
  * Add a backed mem_map array to the virtual mem_map array.
  */
-int __meminit vmemmap_populate(struct page *start, unsigned long nr, int node)
+int __meminit vmemmap_populate(unsigned long start, unsigned long end, int node)
 {
-	unsigned long address, start_addr, end_addr;
+	unsigned long address = start;
 	pgd_t *pg_dir;
 	pud_t *pu_dir;
 	pmd_t *pm_dir;
 	pte_t *pt_dir;
 	int ret = -ENOMEM;
 
-	start_addr = (unsigned long) start;
-	end_addr = (unsigned long) (start + nr);
-
-	for (address = start_addr; address < end_addr;) {
+	for (address = start; address < end;) {
 		pg_dir = pgd_offset_k(address);
 		if (pgd_none(*pg_dir)) {
 			pu_dir = vmem_pud_alloc();
@@ -236,7 +233,8 @@ int __meminit vmemmap_populate(struct page *start, unsigned long nr, int node)
 				if (!new_page)
 					goto out;
 				pmd_val(*pm_dir) = __pa(new_page) |
-					_SEGMENT_ENTRY | _SEGMENT_ENTRY_LARGE;
+					_SEGMENT_ENTRY | _SEGMENT_ENTRY_LARGE |
+					_SEGMENT_ENTRY_CO;
 				address = (address + PMD_SIZE) & PMD_MASK;
 				continue;
 			}
@@ -261,14 +259,14 @@ int __meminit vmemmap_populate(struct page *start, unsigned long nr, int node)
 		}
 		address += PAGE_SIZE;
 	}
-	memset(start, 0, nr * sizeof(struct page));
+	memset((void *)start, 0, end - start);
 	ret = 0;
 out:
-	flush_tlb_kernel_range(start_addr, end_addr);
+	flush_tlb_kernel_range(start, end);
 	return ret;
 }
 
-void vmemmap_free(struct page *memmap, unsigned long nr_pages)
+void vmemmap_free(unsigned long start, unsigned long end)
 {
 }
 
@@ -377,9 +375,8 @@ void __init vmem_map_init(void)
 
 	ro_start = PFN_ALIGN((unsigned long)&_stext);
 	ro_end = (unsigned long)&_eshared & PAGE_MASK;
-	for (i = 0; i < MEMORY_CHUNKS && memory_chunk[i].size > 0; i++) {
-		if (memory_chunk[i].type == CHUNK_CRASHK ||
-		    memory_chunk[i].type == CHUNK_OLDMEM)
+	for (i = 0; i < MEMORY_CHUNKS; i++) {
+		if (!memory_chunk[i].size)
 			continue;
 		start = memory_chunk[i].addr;
 		end = memory_chunk[i].addr + memory_chunk[i].size;
@@ -413,9 +410,6 @@ static int __init vmem_convert_memory_chunk(void)
 	mutex_lock(&vmem_mutex);
 	for (i = 0; i < MEMORY_CHUNKS; i++) {
 		if (!memory_chunk[i].size)
-			continue;
-		if (memory_chunk[i].type == CHUNK_CRASHK ||
-		    memory_chunk[i].type == CHUNK_OLDMEM)
 			continue;
 		seg = kzalloc(sizeof(*seg), GFP_KERNEL);
 		if (!seg)

@@ -34,6 +34,7 @@
 #include <linux/mtd/partitions.h>
 #include <linux/slab.h>
 #include <linux/of_device.h>
+#include <linux/of.h>
 
 #include <linux/platform_data/mtd-davinci.h>
 #include <linux/platform_data/mtd-davinci-aemif.h>
@@ -577,7 +578,6 @@ static struct davinci_nand_pdata
 	return pdev->dev.platform_data;
 }
 #else
-#define davinci_nand_of_match NULL
 static struct davinci_nand_pdata
 	*nand_davinci_get_pdata(struct platform_device *pdev)
 {
@@ -606,7 +606,7 @@ static int __init nand_davinci_probe(struct platform_device *pdev)
 	if (pdev->id < 0 || pdev->id > 3)
 		return -ENODEV;
 
-	info = kzalloc(sizeof(*info), GFP_KERNEL);
+	info = devm_kzalloc(&pdev->dev, sizeof(*info), GFP_KERNEL);
 	if (!info) {
 		dev_err(&pdev->dev, "unable to allocate memory\n");
 		ret = -ENOMEM;
@@ -623,11 +623,11 @@ static int __init nand_davinci_probe(struct platform_device *pdev)
 		goto err_nomem;
 	}
 
-	vaddr = ioremap(res1->start, resource_size(res1));
-	base = ioremap(res2->start, resource_size(res2));
+	vaddr = devm_request_and_ioremap(&pdev->dev, res1);
+	base = devm_request_and_ioremap(&pdev->dev, res2);
 	if (!vaddr || !base) {
 		dev_err(&pdev->dev, "ioremap failed\n");
-		ret = -EINVAL;
+		ret = -EADDRNOTAVAIL;
 		goto err_ioremap;
 	}
 
@@ -717,7 +717,7 @@ static int __init nand_davinci_probe(struct platform_device *pdev)
 	}
 	info->chip.ecc.mode = ecc_mode;
 
-	info->clk = clk_get(&pdev->dev, "aemif");
+	info->clk = devm_clk_get(&pdev->dev, "aemif");
 	if (IS_ERR(info->clk)) {
 		ret = PTR_ERR(info->clk);
 		dev_dbg(&pdev->dev, "unable to get AEMIF clock, err %d\n", ret);
@@ -845,8 +845,6 @@ err_timing:
 	clk_disable_unprepare(info->clk);
 
 err_clk_enable:
-	clk_put(info->clk);
-
 	spin_lock_irq(&davinci_nand_lock);
 	if (ecc_mode == NAND_ECC_HW_SYNDROME)
 		ecc4_busy = false;
@@ -855,13 +853,7 @@ err_clk_enable:
 err_ecc:
 err_clk:
 err_ioremap:
-	if (base)
-		iounmap(base);
-	if (vaddr)
-		iounmap(vaddr);
-
 err_nomem:
-	kfree(info);
 	return ret;
 }
 
@@ -874,15 +866,9 @@ static int __exit nand_davinci_remove(struct platform_device *pdev)
 		ecc4_busy = false;
 	spin_unlock_irq(&davinci_nand_lock);
 
-	iounmap(info->base);
-	iounmap(info->vaddr);
-
 	nand_release(&info->mtd);
 
 	clk_disable_unprepare(info->clk);
-	clk_put(info->clk);
-
-	kfree(info);
 
 	return 0;
 }
@@ -892,22 +878,12 @@ static struct platform_driver nand_davinci_driver = {
 	.driver		= {
 		.name	= "davinci_nand",
 		.owner	= THIS_MODULE,
-		.of_match_table = davinci_nand_of_match,
+		.of_match_table = of_match_ptr(davinci_nand_of_match),
 	},
 };
 MODULE_ALIAS("platform:davinci_nand");
 
-static int __init nand_davinci_init(void)
-{
-	return platform_driver_probe(&nand_davinci_driver, nand_davinci_probe);
-}
-module_init(nand_davinci_init);
-
-static void __exit nand_davinci_exit(void)
-{
-	platform_driver_unregister(&nand_davinci_driver);
-}
-module_exit(nand_davinci_exit);
+module_platform_driver_probe(nand_davinci_driver, nand_davinci_probe);
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Texas Instruments");

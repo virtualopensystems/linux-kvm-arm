@@ -247,6 +247,11 @@ void __cpuinit build_clear_page(void)
 	struct uasm_label *l = labels;
 	struct uasm_reloc *r = relocs;
 	int i;
+	static atomic_t run_once = ATOMIC_INIT(0);
+
+	if (atomic_xchg(&run_once, 1)) {
+		return;
+	}
 
 	memset(labels, 0, sizeof(labels));
 	memset(relocs, 0, sizeof(relocs));
@@ -271,7 +276,7 @@ void __cpuinit build_clear_page(void)
 		uasm_i_lui(&buf, AT, 0xa000);
 
 	off = cache_line_size ? min(8, pref_bias_clear_store / cache_line_size)
-	                        * cache_line_size : 0;
+				* cache_line_size : 0;
 	while (off) {
 		build_clear_pref(&buf, -off);
 		off -= cache_line_size;
@@ -389,6 +394,11 @@ void __cpuinit build_copy_page(void)
 	struct uasm_label *l = labels;
 	struct uasm_reloc *r = relocs;
 	int i;
+	static atomic_t run_once = ATOMIC_INIT(0);
+
+	if (atomic_xchg(&run_once, 1)) {
+		return;
+	}
 
 	memset(labels, 0, sizeof(labels));
 	memset(relocs, 0, sizeof(relocs));
@@ -417,13 +427,13 @@ void __cpuinit build_copy_page(void)
 		uasm_i_lui(&buf, AT, 0xa000);
 
 	off = cache_line_size ? min(8, pref_bias_copy_load / cache_line_size) *
-	                        cache_line_size : 0;
+				cache_line_size : 0;
 	while (off) {
 		build_copy_load_pref(&buf, -off);
 		off -= cache_line_size;
 	}
 	off = cache_line_size ? min(8, pref_bias_copy_store / cache_line_size) *
-	                        cache_line_size : 0;
+				cache_line_size : 0;
 	while (off) {
 		build_copy_store_pref(&buf, -off);
 		off -= cache_line_size;

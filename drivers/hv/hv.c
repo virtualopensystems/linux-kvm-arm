@@ -272,7 +272,7 @@ u16 hv_signal_event(void *con_id)
  * retrieve the initialized message and event pages.  Otherwise, we create and
  * initialize the message and event pages.
  */
-void hv_synic_init(void *irqarg)
+void hv_synic_init(void *arg)
 {
 	u64 version;
 	union hv_synic_simp simp;
@@ -281,7 +281,6 @@ void hv_synic_init(void *irqarg)
 	union hv_synic_scontrol sctrl;
 	u64 vp_index;
 
-	u32 irq_vector = *((u32 *)(irqarg));
 	int cpu = smp_processor_id();
 
 	if (!hv_context.hypercall_page)
@@ -290,9 +289,8 @@ void hv_synic_init(void *irqarg)
 	/* Check the version */
 	rdmsrl(HV_X64_MSR_SVERSION, version);
 
-	hv_context.event_dpc[cpu] = (struct tasklet_struct *)
-					kmalloc(sizeof(struct tasklet_struct),
-						GFP_ATOMIC);
+	hv_context.event_dpc[cpu] = kmalloc(sizeof(struct tasklet_struct),
+					    GFP_ATOMIC);
 	if (hv_context.event_dpc[cpu] == NULL) {
 		pr_err("Unable to allocate event dpc\n");
 		goto cleanup;
@@ -335,7 +333,7 @@ void hv_synic_init(void *irqarg)
 	rdmsrl(HV_X64_MSR_SINT0 + VMBUS_MESSAGE_SINT, shared_sint.as_uint64);
 
 	shared_sint.as_uint64 = 0;
-	shared_sint.vector = irq_vector; /* HV_SHARED_SINT_IDT_VECTOR + 0x20; */
+	shared_sint.vector = HYPERVISOR_CALLBACK_VECTOR;
 	shared_sint.masked = false;
 	shared_sint.auto_eoi = true;
 

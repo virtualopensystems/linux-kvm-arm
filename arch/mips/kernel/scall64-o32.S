@@ -10,7 +10,7 @@
  *
  * Hairy, the userspace application uses a different argument passing
  * convention than the kernel, so we have to translate things from o32
- * to ABI64 calling convention.  64-bit syscalls are also processed
+ * to ABI64 calling convention.	 64-bit syscalls are also processed
  * here for now.
  */
 #include <linux/errno.h>
@@ -24,7 +24,7 @@
 #include <asm/unistd.h>
 #include <asm/sysmips.h>
 
-	.align  5
+	.align	5
 NESTED(handle_sys, PT_SIZE, sp)
 	.set	noat
 	SAVE_SOME
@@ -185,7 +185,7 @@ LEAF(sys32_syscall)
 	jr	t2
 	/* Unreached */
 
-einval:	li	v0, -ENOSYS
+einval: li	v0, -ENOSYS
 	jr	ra
 	END(sys32_syscall)
 
@@ -284,8 +284,8 @@ sys_call_table:
 	PTR	compat_sys_old_readdir
 	PTR	sys_mips_mmap			/* 4090 */
 	PTR	sys_munmap
-	PTR	sys_truncate
-	PTR	sys_ftruncate
+	PTR	compat_sys_truncate
+	PTR	compat_sys_ftruncate
 	PTR	sys_fchmod
 	PTR	sys_fchown			/* 4095 */
 	PTR	sys_getpriority
@@ -309,7 +309,7 @@ sys_call_table:
 	PTR	compat_sys_wait4
 	PTR	sys_swapoff			/* 4115 */
 	PTR	compat_sys_sysinfo
-	PTR	sys_32_ipc
+	PTR	compat_sys_ipc
 	PTR	sys_fsync
 	PTR	sys32_sigreturn
 	PTR	__sys_clone			/* 4120 */
@@ -329,7 +329,7 @@ sys_call_table:
 	PTR	sys_bdflush
 	PTR	sys_sysfs			/* 4135 */
 	PTR	sys_32_personality
-	PTR	sys_ni_syscall	 		/* for afs_syscall */
+	PTR	sys_ni_syscall			/* for afs_syscall */
 	PTR	sys_setfsuid
 	PTR	sys_setfsgid
 	PTR	sys_32_llseek			/* 4140 */
@@ -352,12 +352,12 @@ sys_call_table:
 	PTR	sys_munlockall
 	PTR	sys_sched_setparam
 	PTR	sys_sched_getparam
-	PTR	sys_sched_setscheduler 		/* 4160 */
+	PTR	sys_sched_setscheduler		/* 4160 */
 	PTR	sys_sched_getscheduler
 	PTR	sys_sched_yield
 	PTR	sys_sched_get_priority_max
 	PTR	sys_sched_get_priority_min
-	PTR	compat_sys_sched_rr_get_interval 	/* 4165 */
+	PTR	compat_sys_sched_rr_get_interval	/* 4165 */
 	PTR	compat_sys_nanosleep
 	PTR	sys_mremap
 	PTR	sys_accept
@@ -387,7 +387,7 @@ sys_call_table:
 	PTR	sys_prctl
 	PTR	sys32_rt_sigreturn
 	PTR	compat_sys_rt_sigaction
-	PTR	compat_sys_rt_sigprocmask 	/* 4195 */
+	PTR	compat_sys_rt_sigprocmask	/* 4195 */
 	PTR	compat_sys_rt_sigpending
 	PTR	compat_sys_rt_sigtimedwait
 	PTR	compat_sys_rt_sigqueueinfo
@@ -399,7 +399,7 @@ sys_call_table:
 	PTR	sys_capget
 	PTR	sys_capset			/* 4205 */
 	PTR	compat_sys_sigaltstack
-	PTR	sys_32_sendfile
+	PTR	compat_sys_sendfile
 	PTR	sys_ni_syscall
 	PTR	sys_ni_syscall
 	PTR	sys_mips_mmap2			/* 4210 */
@@ -439,7 +439,7 @@ sys_call_table:
 	PTR	compat_sys_io_submit
 	PTR	sys_io_cancel			/* 4245 */
 	PTR	sys_exit_group
-	PTR	sys32_lookup_dcookie
+	PTR	compat_sys_lookup_dcookie
 	PTR	sys_epoll_create
 	PTR	sys_epoll_ctl
 	PTR	sys_epoll_wait			/* 4250 */
@@ -529,7 +529,7 @@ sys_call_table:
 	PTR	sys_accept4
 	PTR	compat_sys_recvmmsg		/* 4335 */
 	PTR	sys_fanotify_init
-	PTR	sys_32_fanotify_mark
+	PTR	compat_sys_fanotify_mark
 	PTR	sys_prlimit64
 	PTR	sys_name_to_handle_at
 	PTR	compat_sys_open_by_handle_at	/* 4340 */

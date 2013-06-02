@@ -36,7 +36,7 @@
  * Default data server connection timeout and retrans vaules.
  * Set by module paramters dataserver_timeo and dataserver_retrans.
  */
-#define NFS4_DEF_DS_TIMEO   60
+#define NFS4_DEF_DS_TIMEO   600 /* in tenths of a second */
 #define NFS4_DEF_DS_RETRANS 5
 
 /*
@@ -70,6 +70,8 @@ struct nfs4_pnfs_ds {
 	struct list_head	ds_addrs;
 	struct nfs_client	*ds_clp;
 	atomic_t		ds_count;
+	unsigned long		ds_state;
+#define NFS4DS_CONNECTING	0	/* ds is establishing connection */
 };
 
 struct nfs4_file_layout_dsaddr {

@@ -76,7 +76,7 @@
 	ENTRY_SAME(socket)
 	/* struct stat is MAYBE identical wide and narrow ?? */
 	ENTRY_COMP(newstat)
-	ENTRY_DIFF(lseek)
+	ENTRY_COMP(lseek)
 	ENTRY_SAME(getpid)		/* 20 */
 	/* the 'void * data' parameter may need re-packing in wide */
 	ENTRY_COMP(mount)
@@ -165,8 +165,8 @@
 	ENTRY_SAME(mmap2)
 	ENTRY_SAME(mmap)		/* 90 */
 	ENTRY_SAME(munmap)
-	ENTRY_SAME(truncate)
-	ENTRY_SAME(ftruncate)
+	ENTRY_COMP(truncate)
+	ENTRY_COMP(ftruncate)
 	ENTRY_SAME(fchmod)
 	ENTRY_SAME(fchown)		/* 95 */
 	ENTRY_SAME(getpriority)
@@ -198,7 +198,7 @@
 	ENTRY_SAME(madvise)
 	ENTRY_SAME(clone_wrapper)	/* 120 */
 	ENTRY_SAME(setdomainname)
-	ENTRY_DIFF(sendfile)
+	ENTRY_COMP(sendfile)
 	/* struct sockaddr... */
 	ENTRY_SAME(recvfrom)
 	/* struct timex contains longs */
@@ -282,7 +282,7 @@
 	ENTRY_COMP(recvmsg)
 	ENTRY_SAME(semop)		/* 185 */
 	ENTRY_SAME(semget)
-	ENTRY_DIFF(semctl)
+	ENTRY_COMP(semctl)
 	ENTRY_COMP(msgsnd)
 	ENTRY_COMP(msgrcv)
 	ENTRY_SAME(msgget)		/* 190 */
@@ -304,21 +304,21 @@
 	ENTRY_SAME(gettid)
 	ENTRY_OURS(readahead)
 	ENTRY_SAME(tkill)
-	ENTRY_DIFF(sendfile64)
+	ENTRY_COMP(sendfile64)
 	ENTRY_COMP(futex)		/* 210 */
 	ENTRY_COMP(sched_setaffinity)
 	ENTRY_COMP(sched_getaffinity)
 	ENTRY_SAME(ni_syscall)	/* set_thread_area */
 	ENTRY_SAME(ni_syscall)	/* get_thread_area */
-	ENTRY_SAME(io_setup)		/* 215 */
+	ENTRY_COMP(io_setup)		/* 215 */
 	ENTRY_SAME(io_destroy)
-	ENTRY_SAME(io_getevents)
-	ENTRY_SAME(io_submit)
+	ENTRY_COMP(io_getevents)
+	ENTRY_COMP(io_submit)
 	ENTRY_SAME(io_cancel)
 	ENTRY_SAME(alloc_hugepages)	/* 220 */
 	ENTRY_SAME(free_hugepages)
 	ENTRY_SAME(exit_group)
-	ENTRY_DIFF(lookup_dcookie)
+	ENTRY_COMP(lookup_dcookie)
 	ENTRY_SAME(epoll_create)
 	ENTRY_SAME(epoll_ctl)		/* 225 */
 	ENTRY_SAME(epoll_wait)

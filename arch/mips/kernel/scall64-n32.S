@@ -22,7 +22,7 @@
 #define handle_sysn32 handle_sys
 #endif
 
-	.align  5
+	.align	5
 NESTED(handle_sysn32, PT_SIZE, sp)
 #ifndef CONFIG_MIPS32_O32
 	.set	noat
@@ -33,7 +33,7 @@ NESTED(handle_sysn32, PT_SIZE, sp)
 #endif
 
 	dsubu	t0, v0, __NR_N32_Linux	# check syscall number
-	sltiu	t0, t0,	__NR_N32_Linux_syscalls + 1
+	sltiu	t0, t0, __NR_N32_Linux_syscalls + 1
 
 #ifndef CONFIG_MIPS32_O32
 	ld	t1, PT_EPC(sp)		# skip syscall on return
@@ -143,7 +143,7 @@ EXPORT(sysn32_call_table)
 	PTR	compat_sys_setitimer
 	PTR	sys_alarm
 	PTR	sys_getpid
-	PTR	sys_32_sendfile
+	PTR	compat_sys_sendfile
 	PTR	sys_socket			/* 6040 */
 	PTR	sys_connect
 	PTR	sys_accept
@@ -168,11 +168,11 @@ EXPORT(sysn32_call_table)
 	PTR	sys_newuname
 	PTR	sys_semget
 	PTR	sys_semop
-	PTR	sys_n32_semctl
+	PTR	compat_sys_semctl
 	PTR	sys_shmdt			/* 6065 */
 	PTR	sys_msgget
-	PTR	sys_n32_msgsnd
-	PTR	sys_n32_msgrcv
+	PTR	compat_sys_msgsnd
+	PTR	compat_sys_msgrcv
 	PTR	compat_sys_msgctl
 	PTR	compat_sys_fcntl		/* 6070 */
 	PTR	sys_flock
@@ -279,7 +279,7 @@ EXPORT(sysn32_call_table)
 	PTR	sys_quotactl
 	PTR	sys_ni_syscall			/* was nfsservctl */
 	PTR	sys_ni_syscall			/* res. for getpmsg */
-	PTR	sys_ni_syscall			/* 6175  for putpmsg */
+	PTR	sys_ni_syscall			/* 6175	 for putpmsg */
 	PTR	sys_ni_syscall			/* res. for afs_syscall */
 	PTR	sys_ni_syscall			/* res. for security */
 	PTR	sys_gettid
@@ -402,8 +402,8 @@ EXPORT(sysn32_call_table)
 	PTR	compat_sys_rt_tgsigqueueinfo	/* 6295 */
 	PTR	sys_perf_event_open
 	PTR	sys_accept4
-	PTR     compat_sys_recvmmsg
-	PTR     sys_getdents64
+	PTR	compat_sys_recvmmsg
+	PTR	sys_getdents64
 	PTR	sys_fanotify_init		/* 6300 */
 	PTR	sys_fanotify_mark
 	PTR	sys_prlimit64

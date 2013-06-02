@@ -13,6 +13,7 @@
 #include <linux/dw_dmac.h>
 
 #define DW_DMA_MAX_NR_CHANNELS	8
+#define DW_DMA_MAX_NR_REQUESTS	16
 
 /* flow controller */
 enum dw_dma_fc {
@@ -212,6 +213,11 @@ struct dw_dma_chan {
 	unsigned int		block_size;
 	bool			nollp;
 
+	/* custom slave configuration */
+	unsigned int		request_line;
+	unsigned char		src_master;
+	unsigned char		dst_master;
+
 	/* configuration passed via DMA_SLAVE_CONFIG */
 	struct dma_slave_config dma_sconfig;
 };
@@ -238,10 +244,6 @@ struct dw_dma {
 	struct dma_pool		*desc_pool;
 	struct tasklet_struct	tasklet;
 	struct clk		*clk;
-
-	/* slave information */
-	struct dw_dma_slave	*sd;
-	unsigned int		sd_count;
 
 	u8			all_chan_mask;
 

@@ -493,6 +493,7 @@ struct ipr_hrr_queue {
 	u8 allow_interrupts:1;
 	u8 ioa_is_dead:1;
 	u8 allow_cmds:1;
+	u8 removing_ioa:1;
 
 	struct blk_iopoll iopoll;
 };
@@ -551,7 +552,7 @@ struct ipr_ioarcb_ata_regs {	/* 22 bytes */
 	u8 hob_lbam;
 	u8 hob_lbah;
 	u8 ctl;
-}__attribute__ ((packed, aligned(4)));
+}__attribute__ ((packed, aligned(2)));
 
 struct ipr_ioadl_desc {
 	__be32 flags_and_data_len;
