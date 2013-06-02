@@ -26,7 +26,8 @@
 #include <asm/cputype.h>
 #include <asm/kvm_arm.h>
 #include <asm/kvm_coproc.h>
-#include <asm/kvm_arch_timer.h>
+
+#include <kvm/arm_arch_timer.h>
 
 /******************************************************************************
  * Cortex-A15 Reset Values
