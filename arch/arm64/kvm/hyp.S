@@ -604,6 +604,8 @@ END(__kvm_vcpu_run)
 
 // void __kvm_tlb_flush_vmid_ipa(struct kvm *kvm, phys_addr_t ipa);
 ENTRY(__kvm_tlb_flush_vmid_ipa)
+	dsb	sy	// Make sure previous writes are observable
+
 	kern_hyp_va	x0
 	ldr	x2, [x0, #KVM_VTTBR]
 	msr	vttbr_el2, x2
