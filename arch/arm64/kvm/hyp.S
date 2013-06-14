@@ -576,6 +576,14 @@ __kvm_vcpu_return:
 	// Assume x0 is the vcpu pointer, x1 the return code
 	// Guest's x0-x3 are on the stack
 
+	/*
+	 * We may have preempted the guest while it was performing a
+	 * maintainance operation (TLB invalidation, for example). Make
+	 * sure it completes before we do anything else.
+	 */
+	dsb	sy
+	isb
+
 	// Guest context
 	add	x2, x0, #VCPU_CONTEXT
 
