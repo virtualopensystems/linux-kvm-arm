@@ -84,6 +84,7 @@ struct kvm_stats_debugfs_item debugfs_entries[] = {
 };
 
 static unsigned long long *facilities;
+static struct gmap_notifier gmap_notifier;
 
 /* Section: not file related */
 int kvm_arch_hardware_enable(void *garbage)
@@ -96,13 +97,18 @@ void kvm_arch_hardware_disable(void *garbage)
 {
 }
 
+static void kvm_gmap_notifier(struct gmap *gmap, unsigned long address);
+
 int kvm_arch_hardware_setup(void)
 {
+	gmap_notifier.notifier_call = kvm_gmap_notifier;
+	gmap_register_ipte_notifier(&gmap_notifier);
 	return 0;
 }
 
 void kvm_arch_hardware_unsetup(void)
 {
+	gmap_unregister_ipte_notifier(&gmap_notifier);
 }
 
 void kvm_arch_check_processor_compat(void *rtn)
@@ -239,6 +245,7 @@ int kvm_arch_init_vm(struct kvm *kvm, unsigned long type)
 		kvm->arch.gmap = gmap_alloc(current->mm);
 		if (!kvm->arch.gmap)
 			goto out_nogmap;
+		kvm->arch.gmap->private = kvm;
 	}
 
 	kvm->arch.css_support = 0;
@@ -309,6 +316,7 @@ int kvm_arch_vcpu_init(struct kvm_vcpu *vcpu)
 		vcpu->arch.gmap = gmap_alloc(current->mm);
 		if (!vcpu->arch.gmap)
 			return -ENOMEM;
+		vcpu->arch.gmap->private = vcpu->kvm;
 		return 0;
 	}
 
@@ -452,6 +460,50 @@ int kvm_arch_vcpu_runnable(struct kvm_vcpu *vcpu)
 	/* kvm common code refers to this, but never calls it */
 	BUG();
 	return 0;
+}
+
+void s390_vcpu_block(struct kvm_vcpu *vcpu)
+{
+	atomic_set_mask(PROG_BLOCK_SIE, &vcpu->arch.sie_block->prog20);
+}
+
+void s390_vcpu_unblock(struct kvm_vcpu *vcpu)
+{
+	atomic_clear_mask(PROG_BLOCK_SIE, &vcpu->arch.sie_block->prog20);
+}
+
+/*
+ * Kick a guest cpu out of SIE and wait until SIE is not running.
+ * If the CPU is not running (e.g. waiting as idle) the function will
+ * return immediately. */
+void exit_sie(struct kvm_vcpu *vcpu)
+{
+	atomic_set_mask(CPUSTAT_STOP_INT, &vcpu->arch.sie_block->cpuflags);
+	while (vcpu->arch.sie_block->prog0c & PROG_IN_SIE)
+		cpu_relax();
+}
+
+/* Kick a guest cpu out of SIE and prevent SIE-reentry */
+void exit_sie_sync(struct kvm_vcpu *vcpu)
+{
+	s390_vcpu_block(vcpu);
+	exit_sie(vcpu);
+}
+
+static void kvm_gmap_notifier(struct gmap *gmap, unsigned long address)
+{
+	int i;
+	struct kvm *kvm = gmap->private;
+	struct kvm_vcpu *vcpu;
+
+	kvm_for_each_vcpu(i, vcpu, kvm) {
+		/* match against both prefix pages */
+		if (vcpu->arch.sie_block->prefix == (address & ~0x1000UL)) {
+			VCPU_EVENT(vcpu, 2, "gmap notifier for %lx", address);
+			kvm_make_request(KVM_REQ_MMU_RELOAD, vcpu);
+			exit_sie_sync(vcpu);
+		}
+	}
 }
 
 int kvm_arch_vcpu_should_kick(struct kvm_vcpu *vcpu)
@@ -606,6 +658,27 @@ int kvm_arch_vcpu_ioctl_set_mpstate(struct kvm_vcpu *vcpu,
 	return -EINVAL; /* not implemented yet */
 }
 
+static int kvm_s390_handle_requests(struct kvm_vcpu *vcpu)
+{
+	/*
+	 * We use MMU_RELOAD just to re-arm the ipte notifier for the
+	 * guest prefix page. gmap_ipte_notify will wait on the ptl lock.
+	 * This ensures that the ipte instruction for this request has
+	 * already finished. We might race against a second unmapper that
+	 * wants to set the blocking bit. Lets just retry the request loop.
+	 */
+	while (kvm_check_request(KVM_REQ_MMU_RELOAD, vcpu)) {
+		int rc;
+		rc = gmap_ipte_notify(vcpu->arch.gmap,
+				      vcpu->arch.sie_block->prefix,
+				      PAGE_SIZE * 2);
+		if (rc)
+			return rc;
+		s390_vcpu_unblock(vcpu);
+	}
+	return 0;
+}
+
 static int __vcpu_run(struct kvm_vcpu *vcpu)
 {
 	int rc;
@@ -621,6 +694,10 @@ static int __vcpu_run(struct kvm_vcpu *vcpu)
 	if (!kvm_is_ucontrol(vcpu->kvm))
 		kvm_s390_deliver_pending_interrupts(vcpu);
 
+	rc = kvm_s390_handle_requests(vcpu);
+	if (rc)
+		return rc;
+
 	vcpu->arch.sie_block->icptcode = 0;
 	preempt_disable();
 	kvm_guest_enter();
@@ -630,7 +707,9 @@ static int __vcpu_run(struct kvm_vcpu *vcpu)
 	trace_kvm_s390_sie_enter(vcpu,
 				 atomic_read(&vcpu->arch.sie_block->cpuflags));
 	rc = sie64a(vcpu->arch.sie_block, vcpu->run->s.regs.gprs);
-	if (rc) {
+	if (rc > 0)
+		rc = 0;
+	if (rc < 0) {
 		if (kvm_is_ucontrol(vcpu->kvm)) {
 			rc = SIE_INTERCEPT_UCONTROL;
 		} else {
