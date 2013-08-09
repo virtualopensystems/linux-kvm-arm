@@ -34,6 +34,25 @@
 			samsung,pin-pud = <0>;
 			samsung,pin-drv = <0>;
 		};
+		sd_wp: sd-wp {
+			samsung,pins = "gpc2-1";
+			samsung,pin-function = <0>;
+			samsung,pin-pud = <0>;
+			samsung,pin-drv = <0>;
+		};
+		wifi_en: wifi-en {
+			samsung,pins = "gpx0-1";
+			samsung,pin-function = <1>;
+			samsung,pin-pud = <0>;
+			samsung,pin-drv = <0>;
+		};
+
+		wifi_rst: wifi-rst {
+			samsung,pins = "gpx0-2";
+			samsung,pin-function = <1>;
+			samsung,pin-pud = <0>;
+			samsung,pin-drv = <0>;
+		};
 	};
 
 	i2c@12C60000 {
@@ -180,6 +199,21 @@
 					regulator-max-microvolt = <2850000>;
 					regulator-always-on;
 				};
+
+				en32khz_ap: EN32KHZ_AP {
+					regulator-name = "en32khz_ap";
+					regulator-always-on;
+				};
+
+				en32khz_cp: EN32KHZ_CP {
+					regulator-name = "en32khz_cp";
+					regulator-always-on;
+				};
+
+				p32khz: P32KHZ {
+					regulator-name = "p32khz";
+					regulator-always-on;
+				};
 			};
 		};
 	};
@@ -272,7 +306,7 @@
 		samsung,dw-mshc-sdr-timing = <2 3>;
 		samsung,dw-mshc-ddr-timing = <1 2>;
 		pinctrl-names = "default";
-		pinctrl-0 = <&sd2_clk &sd2_cmd &sd2_cd &sd2_bus4>;
+		pinctrl-0 = <&sd2_clk &sd2_cmd &sd2_cd &sd2_bus4 &sd_wp>;
 
 		slot@0 {
 			reg = <0>;
@@ -285,6 +319,7 @@
 		num-slots = <1>;
 		supports-highspeed;
 		broken-cd;
+		keep-power-in-suspend;
 		fifo-depth = <0x80>;
 		card-detect-delay = <200>;
 		samsung,dw-mshc-ciu-div = <3>;
@@ -313,6 +348,36 @@
 
 	hdmi {
 		hpd-gpio = <&gpx3 7 0>;
+	};
+
+	/* Chain regulators to ensure proper Wifi turn on sequence */
+	wifi_rst_regulator: wifi-rst-regulator {
+		compatible = "regulator-fixed";
+		regulator-name = "wifi-rst-l";
+		gpio = <&gpx0 2 0>;
+		enable-active-high;
+		startup-delay-us = <1500>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&wifi_rst>;
+
+		/*
+		 * Technically we should have a vin-supply of the 32k clock.
+		 * ...but that causes a deferred probe of this regulator
+		 * despite the fact that we don't need to enable it until
+		 * much later.  Skip the dependency since we know that the
+		 * 32k clock will always be kept on from early boot.
+		 *
+		 * vin-supply = <&en32khz_cp>;
+		 */
+	};
+	wifi_en_regulator: wifi-en-regulator {
+		compatible = "regulator-fixed";
+		regulator-name = "wifi-en";
+		gpio = <&gpx0 1 0>;
+		enable-active-high;
+		pinctrl-names = "default";
+		pinctrl-0 = <&wifi_en>;
+		vin-supply = <&wifi_rst_regulator>;
 	};
 
 	gpio-keys {
