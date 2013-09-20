@@ -1,7 +1,7 @@
 ifneq ($(CONFIG_OF),)
 obj-y					+= clk.o dpll.o autoidle.o divider.o \
 					   fixed-factor.o gate.o clockdomain.o \
-					   composite.o mux.o apll.o
+					   composite.o mux.o apll.o clk-43xx.o
 obj-$(CONFIG_SOC_AM33XX)		+= clk-33xx.o
 obj-$(CONFIG_ARCH_OMAP3)		+= interface.o clk-3xxx.o
 obj-$(CONFIG_ARCH_OMAP4)		+= clk-44xx.o
