@@ -15,6 +15,11 @@
 #ifndef VFIO_PLATFORM_PRIVATE_H
 #define VFIO_PLATFORM_PRIVATE_H
 
+struct vfio_platform_irq {
+	u32			flags;
+	u32			count;
+};
+
 struct vfio_platform_region {
 	u64			addr;
 	resource_size_t		size;
@@ -25,6 +30,12 @@ struct vfio_platform_device {
 	struct platform_device		*pdev;
 	struct vfio_platform_region	*region;
 	u32				num_regions;
+	struct vfio_platform_irq	*irq;
+	u32				num_irqs;
 };
+
+extern int vfio_platform_irq_init(struct vfio_platform_device *vdev);
+
+extern void vfio_platform_irq_cleanup(struct vfio_platform_device *vdev);
 
 #endif /* VFIO_PCI_PRIVATE_H */
