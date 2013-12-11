@@ -55,7 +55,8 @@ static int vfio_platform_regions_init(struct vfio_platform_device *vdev)
 
 		region.addr = res->start;
 		region.size = resource_size(res);
-		region.flags = 0;
+		region.flags = VFIO_REGION_INFO_FLAG_READ
+				| VFIO_REGION_INFO_FLAG_WRITE;
 
 		vdev->region[i] = region;
 	}
@@ -150,13 +151,134 @@ static long vfio_platform_ioctl(void *device_data,
 static ssize_t vfio_platform_read(void *device_data, char __user *buf,
 			     size_t count, loff_t *ppos)
 {
-	return 0;
+	struct vfio_platform_device *vdev = device_data;
+	unsigned int *io;
+	int i;
+
+	for (i = 0; i < vdev->num_regions; i++) {
+		struct vfio_platform_region region = vdev->region[i];
+		unsigned int done = 0;
+		loff_t off;
+
+		if ((*ppos < region.addr)
+		     || (*ppos + count - 1) >= (region.addr + region.size))
+			continue;
+
+		io = ioremap_nocache(region.addr, region.size);
+
+		off = *ppos - region.addr;
+
+		while (count) {
+			size_t filled;
+
+			if (count >= 4 && !(off % 4)) {
+				u32 val;
+
+				val = ioread32(io + off);
+				if (copy_to_user(buf, &val, 4))
+					goto err;
+
+				filled = 4;
+			} else if (count >= 2 && !(off % 2)) {
+				u16 val;
+
+				val = ioread16(io + off);
+				if (copy_to_user(buf, &val, 2))
+					goto err;
+
+				filled = 2;
+			} else {
+				u8 val;
+
+				val = ioread8(io + off);
+				if (copy_to_user(buf, &val, 1))
+					goto err;
+
+				filled = 1;
+			}
+
+
+			count -= filled;
+			done += filled;
+			off += filled;
+			buf += filled;
+		}
+
+		iounmap(io);
+		return done;
+	}
+
+	return -EFAULT;
+
+err:
+	iounmap(io);
+	return -EFAULT;
 }
 
 static ssize_t vfio_platform_write(void *device_data, const char __user *buf,
 			      size_t count, loff_t *ppos)
 {
-	return 0;
+	struct vfio_platform_device *vdev = device_data;
+	unsigned int *io;
+	int i;
+
+	for (i = 0; i < vdev->num_regions; i++) {
+		struct vfio_platform_region region = vdev->region[i];
+		unsigned int done = 0;
+		loff_t off;
+
+		if ((*ppos < region.addr)
+		     || (*ppos + count - 1) >= (region.addr + region.size))
+			continue;
+
+		io = ioremap_nocache(region.addr, region.size);
+
+		off = *ppos - region.addr;
+
+		while (count) {
+			size_t filled;
+
+			if (count >= 4 && !(off % 4)) {
+				u32 val;
+
+				if (copy_from_user(&val, buf, 4))
+					goto err;
+				iowrite32(val, io + off);
+
+				filled = 4;
+			} else if (count >= 2 && !(off % 2)) {
+				u16 val;
+
+				if (copy_from_user(&val, buf, 2))
+					goto err;
+				iowrite16(val, io + off);
+
+				filled = 2;
+			} else {
+				u8 val;
+
+				if (copy_from_user(&val, buf, 1))
+					goto err;
+				iowrite8(val, io + off);
+
+				filled = 1;
+			}
+
+			count -= filled;
+			done += filled;
+			off += filled;
+			buf += filled;
+		}
+
+		iounmap(io);
+		return done;
+	}
+
+	return -EINVAL;
+
+err:
+	iounmap(io);
+	return -EFAULT;
 }
 
 static int vfio_platform_mmap(void *device_data, struct vm_area_struct *vma)
