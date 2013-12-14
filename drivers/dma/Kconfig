@@ -377,4 +377,10 @@ config DMATEST
 	  Simple DMA test client. Say N unless you're debugging a
 	  DMA Device driver.
 
+config VOSYS_DMATEST
+	tristate "Vosys DMA Test Module"
+	depends on DMA_ENGINE
+	help
+	  DMA test client
+
 endif
