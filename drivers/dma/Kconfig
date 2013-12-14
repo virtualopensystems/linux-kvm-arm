@@ -401,4 +401,10 @@ config DMATEST
 config DMA_ENGINE_RAID
 	bool
 
+config VOSYS_DMATEST
+	tristate "Vosys DMA Test Module"
+	depends on DMA_ENGINE
+	help
+	  DMA test client
+
 endif
