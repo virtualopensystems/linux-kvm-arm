@@ -420,4 +420,11 @@ config QCOM_BAM_DMA
 	  Enable support for the QCOM BAM DMA controller.  This controller
 	  provides DMA capabilities for a variety of on-chip devices.
 
+config VOSYS_DMATEST
+	tristate "Vosys DMA Test Module"
+	depends on DMA_ENGINE
+	help
+	  DMA test client
+
+
 endif
