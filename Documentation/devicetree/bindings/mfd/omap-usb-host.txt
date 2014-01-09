@@ -32,6 +32,10 @@ Optional properties:
 - single-ulpi-bypass: Must be present if the controller contains a single
   ULPI bypass control bit. e.g. OMAP3 silicon <= ES2.1
 
+- clocks: phandle to 60MHz functional clock to the USB Host module.
+
+- clock-names: must be "init_60m_fclk"
+
 Required properties if child node exists:
 
 - #address-cells: Must be 1
