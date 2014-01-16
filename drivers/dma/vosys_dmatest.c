@@ -83,20 +83,24 @@ struct dmatest_info {
 
 	// mutex to lock this structure
 	struct mutex lock;
+
+	// dma address for source and destination
+	dma_addr_t dma_src;
+	dma_addr_t dma_dst;
 };
 
 static struct dmatest_info info_test;
 
 static void async_tx_done(void *arg)
 {
-	bool *done = arg;
-	*done = true;
+	struct dmatest_info *info = (struct dmatest_info *)arg;
+	info->is_running = false;
 
-	dmatest_debug("tx completed");
+	dmatest_debug("callback: transfer completed\n");
 }
 
 dma_cookie_t cpy_mem_to_mem(struct dma_chan *channel, void *dst,
-		void *src, size_t len, dma_async_tx_callback done_callback)
+		void *src, size_t len, dma_async_tx_callback done_callback, struct dmatest_info *info)
 {
 	struct dma_device *dev = channel->device;
 	struct dma_async_tx_descriptor *tx;
@@ -107,9 +111,10 @@ dma_cookie_t cpy_mem_to_mem(struct dma_chan *channel, void *dst,
 	dma_src = dma_map_single(dev->dev, src, len, DMA_TO_DEVICE);
 	dma_dst = dma_map_single(dev->dev, dst, len, DMA_FROM_DEVICE);
 
-	flags = DMA_CTRL_ACK |
-		DMA_COMPL_SRC_UNMAP_SINGLE |
-		DMA_COMPL_DEST_UNMAP_SINGLE;
+	info->dma_src = dma_src;
+	info->dma_dst = dma_dst;
+
+	flags = DMA_CTRL_ACK;
 
 	tx = dev->device_prep_dma_memcpy(channel, dma_dst, dma_src,
 			len, flags);
@@ -120,6 +125,7 @@ dma_cookie_t cpy_mem_to_mem(struct dma_chan *channel, void *dst,
 	}
 
 	tx->callback = done_callback;
+	tx->callback_param = info;
 	cookie = tx->tx_submit(tx);
 
 	preempt_disable();
@@ -128,6 +134,14 @@ dma_cookie_t cpy_mem_to_mem(struct dma_chan *channel, void *dst,
 	preempt_enable();
 
 	return cookie;
+}
+
+void unmap_mem_to_mem(struct dma_chan *channel, struct dmatest_info *info, size_t len)
+{
+	struct dma_device *dev = channel->device;
+
+	dma_unmap_single(dev->dev, info->dma_src, len, DMA_TO_DEVICE);
+	dma_unmap_single(dev->dev, info->dma_dst, len, DMA_FROM_DEVICE);
 }
 
 static bool start_test_thread(struct dmatest_info *info)
@@ -156,9 +170,9 @@ static bool start_test_thread(struct dmatest_info *info)
 	dma_cap_set(DMA_MEMCPY, mask);
 	channel = dma_request_channel(mask, NULL, NULL);
 
-	// set DMA flags
-	flags = DMA_CTRL_ACK | DMA_PREP_INTERRUPT
-	      | DMA_COMPL_SKIP_DEST_UNMAP | DMA_COMPL_SRC_UNMAP_SINGLE;
+	// set DMA flags, for now we are not triggering interrupts
+	flags = /*DMA_CTRL_ACK | */DMA_PREP_INTERRUPT;
+	      /*| DMA_COMPL_SKIP_DEST_UNMAP | DMA_COMPL_SRC_UNMAP_SINGLE;*/
 
 	if (!channel) {
 		dmatest_err("no DMA channel available\n");
@@ -184,7 +198,7 @@ static bool start_test_thread(struct dmatest_info *info)
 	}
 
 	res_cookie = cpy_mem_to_mem(channel, dst_buf_ptr, src_buf_ptr,
-			buf_size, async_tx_done);
+			buf_size, async_tx_done, info);
 
 	if (dma_submit_error(res_cookie)) {
 		dmatest_err("error during copy\n");
@@ -205,7 +219,7 @@ static bool start_test_thread(struct dmatest_info *info)
 		case DMA_ERROR:
 			dmatest_err("tx error\n");
 
-		case DMA_SUCCESS:
+		case DMA_COMPLETE:
 		default:
 			dmatest_debug("tx completed\n");
 	}
@@ -219,6 +233,8 @@ static bool start_test_thread(struct dmatest_info *info)
 	}
 
 	dmatest_debug("source and destination match.\n");
+
+	dma_release_channel(channel);
 	return true;
 }
 
@@ -293,14 +309,14 @@ static int dmatest_register_dbgfs(struct dmatest_info *info)
 	info->root = d;
 
 	/* Run or stop test */
-	debugfs_create_file("vosys_start_dmatest", S_IWUSR | S_IRUGO,
+	debugfs_create_file("start", S_IWUSR | S_IRUGO,
 			info->root, info, &start_test_fops);
 
 	params = &info->params;
-	debugfs_create_u8("vosys_set_dmatest_type", S_IWUSR | S_IRUGO, 
+	debugfs_create_u8("type", S_IWUSR | S_IRUGO, 
 			info->root, &params->type);
 	
-	debugfs_create_u32("vosys_set_dmatest_size", S_IWUSR | S_IRUGO,
+	debugfs_create_u32("size", S_IWUSR | S_IRUGO,
 			info->root, &params->buffer_size);
 	return 0;
 
