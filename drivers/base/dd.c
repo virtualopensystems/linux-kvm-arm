@@ -384,6 +384,7 @@ int driver_probe_device(struct device_driver *drv, struct device *dev)
 
 	return ret;
 }
+EXPORT_SYMBOL_GPL(driver_probe_device);
 
 static int __device_attach(struct device_driver *drv, void *data)
 {
