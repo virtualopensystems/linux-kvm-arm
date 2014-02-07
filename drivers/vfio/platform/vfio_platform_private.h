@@ -15,8 +15,16 @@
 #ifndef VFIO_PLATFORM_PRIVATE_H
 #define VFIO_PLATFORM_PRIVATE_H
 
+struct vfio_platform_region {
+	u64			addr;
+	resource_size_t		size;
+	u32			flags;
+};
+
 struct vfio_platform_device {
 	struct platform_device		*pdev;
+	struct vfio_platform_region	*region;
+	u32				num_regions;
 };
 
 #endif /* VFIO_PCI_PRIVATE_H */
