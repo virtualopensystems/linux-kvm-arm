@@ -52,9 +52,16 @@ int vfio_platform_irq_init(struct vfio_platform_device *vdev)
 		struct vfio_platform_irq irq;
 		int hwirq = platform_get_irq(vdev->pdev, i);
 
-		irq.flags = VFIO_IRQ_INFO_EVENTFD;
+		spin_lock_init(&irq.lock);
+
+		irq.flags = VFIO_IRQ_INFO_EVENTFD | VFIO_IRQ_INFO_MASKABLE;
+
+		if (irq_get_trigger_type(hwirq) & IRQ_TYPE_LEVEL_MASK)
+			irq.flags |= VFIO_IRQ_INFO_AUTOMASKED;
+
 		irq.count = 1;
 		irq.hwirq = hwirq;
+		irq.masked = false;
 
 		vdev->irq[i] = irq;
 	}
@@ -66,19 +73,39 @@ void vfio_platform_irq_cleanup(struct vfio_platform_device *vdev)
 {
 	int i;
 
-	for (i = 0; i < vdev->num_irqs; i++)
+	for (i = 0; i < vdev->num_irqs; i++) {
 		vfio_set_trigger(vdev, i, -1);
+
+		if (vdev->irq[i].masked)
+			enable_irq(vdev->irq[i].hwirq);
+	}
 
 	kfree(vdev->irq);
 }
 
 static irqreturn_t vfio_irq_handler(int irq, void *dev_id)
 {
-	struct eventfd_ctx *trigger = dev_id;
+	struct vfio_platform_irq *irq_ctx = dev_id;
+	unsigned long flags;
+	int ret = IRQ_NONE;
 
-	eventfd_signal(trigger, 1);
+	spin_lock_irqsave(&irq_ctx->lock, flags);
 
-	return IRQ_HANDLED;
+	if (!irq_ctx->masked) {
+		ret = IRQ_HANDLED;
+
+		if (irq_ctx->flags & VFIO_IRQ_INFO_AUTOMASKED) {
+			disable_irq_nosync(irq_ctx->hwirq);
+			irq_ctx->masked = true;
+		}
+	}
+
+	spin_unlock_irqrestore(&irq_ctx->lock, flags);
+
+	if (ret == IRQ_HANDLED)
+		eventfd_signal(irq_ctx->trigger, 1);
+
+	return ret;
 }
 
 static int vfio_set_trigger(struct vfio_platform_device *vdev,
@@ -159,6 +186,82 @@ static int vfio_platform_set_irq_trigger(struct vfio_platform_device *vdev,
 	return -EFAULT;
 }
 
+static int vfio_platform_set_irq_unmask(struct vfio_platform_device *vdev,
+				    unsigned index, unsigned start,
+				    unsigned count, uint32_t flags, void *data)
+{
+	uint8_t arr;
+
+	if (start != 0 || count != 1)
+		return -EINVAL;
+
+	switch (flags & VFIO_IRQ_SET_DATA_TYPE_MASK) {
+	case VFIO_IRQ_SET_DATA_BOOL:
+		if (copy_from_user(&arr, data, sizeof(uint8_t)))
+			return -EFAULT;
+
+		if (arr != 0x1)
+			return -EINVAL;
+
+	case VFIO_IRQ_SET_DATA_NONE:
+
+		spin_lock_irq(&vdev->irq[index].lock);
+
+		if (vdev->irq[index].masked) {
+			enable_irq(vdev->irq[index].hwirq);
+			vdev->irq[index].masked = false;
+		}
+
+		spin_unlock_irq(&vdev->irq[index].lock);
+
+		return 0;
+
+	case VFIO_IRQ_SET_DATA_EVENTFD: /* XXX not implemented yet */
+	default:
+		return -ENOTTY;
+	}
+
+	return 0;
+}
+
+static int vfio_platform_set_irq_mask(struct vfio_platform_device *vdev,
+				    unsigned index, unsigned start,
+				    unsigned count, uint32_t flags, void *data)
+{
+	uint8_t arr;
+
+	if (start != 0 || count != 1)
+		return -EINVAL;
+
+	switch (flags & VFIO_IRQ_SET_DATA_TYPE_MASK) {
+	case VFIO_IRQ_SET_DATA_BOOL:
+		if (copy_from_user(&arr, data, sizeof(uint8_t)))
+			return -EFAULT;
+
+		if (arr != 0x1)
+			return -EINVAL;
+
+	case VFIO_IRQ_SET_DATA_NONE:
+
+		spin_lock_irq(&vdev->irq[index].lock);
+
+		if (!vdev->irq[index].masked) {
+			disable_irq(vdev->irq[index].hwirq);
+			vdev->irq[index].masked = true;
+		}
+
+		spin_unlock_irq(&vdev->irq[index].lock);
+
+		return 0;
+
+	case VFIO_IRQ_SET_DATA_EVENTFD: /* XXX not implemented yet */
+	default:
+		return -ENOTTY;
+	}
+
+	return 0;
+}
+
 int vfio_platform_set_irqs_ioctl(struct vfio_platform_device *vdev,
 				 uint32_t flags, unsigned index, unsigned start,
 				 unsigned count, void *data)
@@ -169,8 +272,10 @@ int vfio_platform_set_irqs_ioctl(struct vfio_platform_device *vdev,
 
 	switch (flags & VFIO_IRQ_SET_ACTION_TYPE_MASK) {
 	case VFIO_IRQ_SET_ACTION_MASK:
+		func = vfio_platform_set_irq_mask;
+		break;
 	case VFIO_IRQ_SET_ACTION_UNMASK:
-		/* XXX not implemented */
+		func = vfio_platform_set_irq_unmask;
 		break;
 	case VFIO_IRQ_SET_ACTION_TRIGGER:
 		func = vfio_platform_set_irq_trigger;
