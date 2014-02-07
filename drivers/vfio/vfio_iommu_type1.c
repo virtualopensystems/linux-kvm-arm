@@ -557,6 +557,8 @@ static int vfio_dma_do_map(struct vfio_iommu *iommu,
 		prot |= IOMMU_WRITE;
 	if (map->flags & VFIO_DMA_MAP_FLAG_READ)
 		prot |= IOMMU_READ;
+	if (map->flags & VFIO_DMA_MAP_FLAG_EXEC)
+		prot |= IOMMU_EXEC;
 
 	if (!prot)
 		return -EINVAL; /* No READ/WRITE? */
@@ -865,7 +867,8 @@ static long vfio_iommu_type1_ioctl(void *iommu_data,
 	} else if (cmd == VFIO_IOMMU_MAP_DMA) {
 		struct vfio_iommu_type1_dma_map map;
 		uint32_t mask = VFIO_DMA_MAP_FLAG_READ |
-				VFIO_DMA_MAP_FLAG_WRITE;
+				VFIO_DMA_MAP_FLAG_WRITE |
+				VFIO_DMA_MAP_FLAG_EXEC;
 
 		minsz = offsetofend(struct vfio_iommu_type1_dma_map, size);
 
