@@ -30,7 +30,8 @@
 #include <linux/iommu.h>
 #include <linux/module.h>
 #include <linux/mm.h>
-#include <linux/pci.h>		/* pci_bus_type */
+#include <linux/pci.h>			/* pci_bus_type */
+#include <linux/platform_device.h>	/* platform_bus_type */
 #include <linux/rbtree.h>
 #include <linux/sched.h>
 #include <linux/slab.h>
@@ -47,6 +48,8 @@ module_param_named(allow_unsafe_interrupts,
 		   allow_unsafe_interrupts, bool, S_IRUGO | S_IWUSR);
 MODULE_PARM_DESC(allow_unsafe_interrupts,
 		 "Enable VFIO IOMMU support for on platforms without interrupt remapping support.");
+static struct bus_type *iommu_bus_type = NULL;
+static bool require_cap_intr_remap = false;
 
 static bool disable_hugepages;
 module_param_named(disable_hugepages,
@@ -785,7 +788,8 @@ static void *vfio_iommu_type1_open(unsigned long arg)
 	/*
 	 * Wish we didn't have to know about bus_type here.
 	 */
-	iommu->domain = iommu_domain_alloc(&pci_bus_type);
+	iommu->domain = iommu_domain_alloc(iommu_bus_type);
+
 	if (!iommu->domain) {
 		kfree(iommu);
 		return ERR_PTR(-EIO);
@@ -797,7 +801,7 @@ static void *vfio_iommu_type1_open(unsigned long arg)
 	 * the way.  Fortunately we know interrupt remapping is global for
 	 * our iommus.
 	 */
-	if (!allow_unsafe_interrupts &&
+	if (require_cap_intr_remap && !allow_unsafe_interrupts &&
 	    !iommu_domain_has_cap(iommu->domain, IOMMU_CAP_INTR_REMAP)) {
 		pr_warn("%s: No interrupt remapping support.  Use the module param \"allow_unsafe_interrupts\" to enable VFIO IOMMU support on this platform\n",
 		       __func__);
@@ -914,7 +918,17 @@ static const struct vfio_iommu_driver_ops vfio_iommu_driver_ops_type1 = {
 
 static int __init vfio_iommu_type1_init(void)
 {
-	if (!iommu_present(&pci_bus_type))
+#ifdef CONFIG_PCI
+	if (iommu_present(&pci_bus_type)) {
+		iommu_bus_type = &pci_bus_type;
+		/* For PCI targets, IOMMU_CAP_INTR_REMAP is required */
+		require_cap_intr_remap = true;
+	}
+#endif
+	if (!iommu_bus_type && iommu_present(&platform_bus_type))
+		iommu_bus_type = &platform_bus_type;
+
+	if(!iommu_bus_type)
 		return -ENODEV;
 
 	return vfio_register_iommu_driver(&vfio_iommu_driver_ops_type1);
