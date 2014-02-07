@@ -25,8 +25,11 @@
 	((u64)(index) << VFIO_PLATFORM_OFFSET_SHIFT)
 
 struct vfio_platform_irq {
+	struct eventfd_ctx	*trigger;
 	u32			flags;
 	u32			count;
+	int			hwirq;
+	char			*name;
 };
 
 struct vfio_platform_region {
@@ -46,5 +49,9 @@ struct vfio_platform_device {
 extern int vfio_platform_irq_init(struct vfio_platform_device *vdev);
 
 extern void vfio_platform_irq_cleanup(struct vfio_platform_device *vdev);
+
+extern int vfio_platform_set_irqs_ioctl(struct vfio_platform_device *vdev,
+			uint32_t flags, unsigned index, unsigned start,
+			unsigned count, void *data);
 
 #endif /* VFIO_PLATFORM_PRIVATE_H */
