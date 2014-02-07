@@ -58,6 +58,11 @@ static int vfio_platform_regions_init(struct vfio_platform_device *vdev)
 		region.flags = VFIO_REGION_INFO_FLAG_READ
 				| VFIO_REGION_INFO_FLAG_WRITE;
 
+		/* Only regions addressed with PAGE granularity can be MMAPed
+		 * securely. */
+		if (!(region.addr & ~PAGE_MASK) && !(region.size & ~PAGE_MASK))
+			region.flags |= VFIO_REGION_INFO_FLAG_MMAP;
+
 		vdev->region[i] = region;
 	}
 
@@ -283,6 +288,34 @@ err:
 
 static int vfio_platform_mmap(void *device_data, struct vm_area_struct *vma)
 {
+	struct vfio_platform_device *vdev = device_data;
+	u64 req_len = vma->vm_end - vma->vm_start;
+	u64 addr = vma->vm_pgoff << PAGE_SHIFT;
+	int i;
+
+	if (vma->vm_end < vma->vm_start)
+		return -EINVAL;
+	if (vma->vm_start & ~PAGE_MASK)
+		return -EINVAL;
+	if (vma->vm_end & ~PAGE_MASK)
+		return -EINVAL;
+	if ((vma->vm_flags & VM_SHARED) == 0)
+		return -EINVAL;
+
+	for (i = 0; i < vdev->num_regions; i++) {
+		struct vfio_platform_region region = vdev->region[i];
+
+		if ((addr < region.addr)
+		     || (addr + req_len - 1) >= (region.addr + region.size))
+			continue;
+
+		vma->vm_private_data = vdev;
+		vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
+
+		return remap_pfn_range(vma, vma->vm_start, vma->vm_pgoff,
+				       req_len, vma->vm_page_prot);
+	}
+
 	return -EINVAL;
 }
 
