@@ -23,6 +23,7 @@ config KVM
 	select HAVE_KVM_CPU_RELAX_INTERCEPT
 	select KVM_MMIO
 	select KVM_ARM_HOST
+	select KVM_VFIO
 	depends on ARM_VIRT_EXT && ARM_LPAE && !CPU_BIG_ENDIAN
 	select HAVE_KVM_EVENTFD
 	---help---
