@@ -539,7 +539,7 @@ int kvm_alloc_stage2_pgd(struct kvm *kvm)
  * destroying the VM), otherwise another faulting VCPU may come in and mess
  * with things behind our backs.
  */
-static void unmap_stage2_range(struct kvm *kvm, phys_addr_t start, u64 size)
+void unmap_stage2_range(struct kvm *kvm, phys_addr_t start, u64 size)
 {
 	unmap_range(kvm, kvm->arch.pgd, start, size);
 }

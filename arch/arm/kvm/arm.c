@@ -241,6 +241,15 @@ void kvm_arch_commit_memory_region(struct kvm *kvm,
 				   const struct kvm_memory_slot *old,
 				   enum kvm_mr_change change)
 {
+        if (change == KVM_MR_DELETE) {
+            gpa_t gpa = old->base_gfn << PAGE_SHIFT;
+            u64 size = old->npages << PAGE_SHIFT;
+
+             spin_lock(&kvm->mmu_lock);
+             unmap_stage2_range(kvm, gpa, size);
+             spin_unlock(&kvm->mmu_lock);
+
+        }
 }
 
 void kvm_arch_flush_shadow_all(struct kvm *kvm)
