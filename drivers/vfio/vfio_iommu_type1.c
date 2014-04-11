@@ -498,12 +498,15 @@ static int map_try_harder(struct vfio_domain *domain, dma_addr_t iova,
 }
 
 static int vfio_iommu_map(struct vfio_iommu *iommu, dma_addr_t iova,
-			  unsigned long pfn, long npage, int prot)
+			  unsigned long pfn, long npage, int prot, bool exec)
 {
 	struct vfio_domain *d;
 	int ret;
 
 	list_for_each_entry(d, &iommu->domain_list, next) {
+		if (exec && iommu_domain_has_cap(d->domain, IOMMU_CAP_DMA_EXEC))
+			prot |= IOMMU_EXEC;
+
 		ret = iommu_map(d->domain, iova, (phys_addr_t)pfn << PAGE_SHIFT,
 				npage << PAGE_SHIFT, prot | d->prot);
 		if (ret) {
@@ -530,6 +533,7 @@ static int vfio_dma_do_map(struct vfio_iommu *iommu,
 	size_t size = map->size;
 	long npage;
 	int ret = 0, prot = 0;
+	bool prot_exec = false;
 	uint64_t mask;
 	struct vfio_dma *dma;
 	unsigned long pfn;
@@ -543,6 +547,8 @@ static int vfio_dma_do_map(struct vfio_iommu *iommu,
 		prot |= IOMMU_WRITE;
 	if (map->flags & VFIO_DMA_MAP_FLAG_READ)
 		prot |= IOMMU_READ;
+	if (map->flags & VFIO_DMA_MAP_FLAG_EXEC)
+		prot_exec = true;
 
 	if (!prot)
 		return -EINVAL; /* No READ/WRITE? */
@@ -595,7 +601,7 @@ static int vfio_dma_do_map(struct vfio_iommu *iommu,
 		}
 
 		/* Map it! */
-		ret = vfio_iommu_map(iommu, iova, pfn, npage, prot);
+		ret = vfio_iommu_map(iommu, iova, pfn, npage, prot, prot_exec);
 		if (ret) {
 			vfio_unpin_pages(pfn, npage, prot, true);
 			break;
@@ -887,6 +893,23 @@ static int vfio_domains_have_iommu_cache(struct vfio_iommu *iommu)
 	return ret;
 }
 
+static int vfio_domains_have_iommu_exec(struct vfio_iommu *iommu)
+{
+	struct vfio_domain *d;
+	int ret = 0;
+
+	mutex_lock(&iommu->lock);
+	list_for_each_entry(d, &iommu->domain_list, next) {
+		if (iommu_domain_has_cap(d->domain, IOMMU_CAP_DMA_EXEC)) {
+			ret = 1;
+			break;
+		}
+	}
+	mutex_unlock(&iommu->lock);
+
+	return ret;
+}
+
 static long vfio_iommu_type1_ioctl(void *iommu_data,
 				   unsigned int cmd, unsigned long arg)
 {
@@ -902,6 +925,10 @@ static long vfio_iommu_type1_ioctl(void *iommu_data,
 			if (!iommu)
 				return 0;
 			return vfio_domains_have_iommu_cache(iommu);
+		case VFIO_IOMMU_PROT_EXEC:
+			if (!iommu)
+				return 0;
+			return vfio_domains_have_iommu_exec(iommu);
 		default:
 			return 0;
 		}
@@ -925,7 +952,8 @@ static long vfio_iommu_type1_ioctl(void *iommu_data,
 	} else if (cmd == VFIO_IOMMU_MAP_DMA) {
 		struct vfio_iommu_type1_dma_map map;
 		uint32_t mask = VFIO_DMA_MAP_FLAG_READ |
-				VFIO_DMA_MAP_FLAG_WRITE;
+				VFIO_DMA_MAP_FLAG_WRITE |
+				VFIO_DMA_MAP_FLAG_EXEC;
 
 		minsz = offsetofend(struct vfio_iommu_type1_dma_map, size);
 
