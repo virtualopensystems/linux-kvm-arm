@@ -57,8 +57,9 @@ struct iommu_domain {
 	struct iommu_domain_geometry geometry;
 };
 
-#define IOMMU_CAP_CACHE_COHERENCY	0x1
-#define IOMMU_CAP_INTR_REMAP		0x2	/* isolates device intrs */
+#define IOMMU_CAP_CACHE_COHERENCY	(1 << 0)
+#define IOMMU_CAP_INTR_REMAP		(1 << 1) /* isolates device intrs */
+#define IOMMU_CAP_DMA_EXEC		(1 << 2) /* EXEC protection flag */
 
 /*
  * Following constraints are specifc to FSL_PAMUV1:
