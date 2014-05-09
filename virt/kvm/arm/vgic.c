@@ -1259,7 +1259,10 @@ epilog:
 static bool vgic_process_maintenance(struct kvm_vcpu *vcpu)
 {
 	struct vgic_cpu *vgic_cpu = &vcpu->arch.vgic_cpu;
+	struct vgic_dist *dist = &vcpu->kvm->arch.vgic;
 	bool level_pending = false;
+	struct kvm *kvm = vcpu->kvm;
+	int is_assigned_irq;
 
 	kvm_debug("MISR = %08x\n", vgic_cpu->vgic_misr);
 
@@ -1273,6 +1276,7 @@ static bool vgic_process_maintenance(struct kvm_vcpu *vcpu)
 		for_each_set_bit(lr, (unsigned long *)vgic_cpu->vgic_eisr,
 				 vgic_cpu->nr_lr) {
 			irq = vgic_cpu->vgic_lr[lr] & GICH_LR_VIRTUALID;
+			spin_lock(&dist->lock);
 			BUG_ON(vgic_irq_is_edge(vcpu, irq));
 
 			vgic_irq_clear_queued(vcpu, irq);
@@ -1285,6 +1289,17 @@ static bool vgic_process_maintenance(struct kvm_vcpu *vcpu)
 			 * interrupt.
 			 */
 			vgic_dist_irq_clear_soft_pend(vcpu, irq);
+			spin_unlock(&dist->lock);
+
+			is_assigned_irq = kvm_irq_has_notifier(kvm, 0,
+						irq - VGIC_NR_PRIVATE_IRQS);
+
+			if (is_assigned_irq) {
+				kvm_debug("EOI irqchip routed vIRQ %d\n", irq);
+				kvm_notify_acked_irq(kvm, 0,
+					irq - VGIC_NR_PRIVATE_IRQS);
+			}
+			spin_lock(&dist->lock);
 
 			/* Any additional pending interrupt? */
 			if (vgic_dist_irq_get_level(vcpu, irq)) {
@@ -1305,6 +1320,7 @@ static bool vgic_process_maintenance(struct kvm_vcpu *vcpu)
 			 */
 			set_bit(lr, (unsigned long *)vgic_cpu->vgic_elrsr);
 			vgic_cpu->vgic_lr[lr] &= ~GICH_LR_ACTIVE_BIT;
+			spin_unlock(&dist->lock);
 		}
 	}
 
@@ -1344,8 +1360,10 @@ static void __kvm_vgic_sync_hwstate(struct kvm_vcpu *vcpu)
 	/* Check if we still have something up our sleeve... */
 	pending = find_first_zero_bit((unsigned long *)vgic_cpu->vgic_elrsr,
 				      vgic_cpu->nr_lr);
+	spin_lock(&dist->lock);
 	if (level_pending || pending < vgic_cpu->nr_lr)
 		set_bit(vcpu->vcpu_id, &dist->irq_pending_on_cpu);
+	spin_unlock(&dist->lock);
 }
 
 void kvm_vgic_flush_hwstate(struct kvm_vcpu *vcpu)
@@ -1362,14 +1380,10 @@ void kvm_vgic_flush_hwstate(struct kvm_vcpu *vcpu)
 
 void kvm_vgic_sync_hwstate(struct kvm_vcpu *vcpu)
 {
-	struct vgic_dist *dist = &vcpu->kvm->arch.vgic;
-
 	if (!irqchip_in_kernel(vcpu->kvm))
 		return;
 
-	spin_lock(&dist->lock);
 	__kvm_vgic_sync_hwstate(vcpu);
-	spin_unlock(&dist->lock);
 }
 
 int kvm_vgic_vcpu_pending_irq(struct kvm_vcpu *vcpu)
@@ -2146,3 +2160,35 @@ struct kvm_device_ops kvm_arm_vgic_v2_ops = {
 	.get_attr = vgic_get_attr,
 	.has_attr = vgic_has_attr,
 };
+
+int kvm_irq_map_gsi(struct kvm *kvm,
+		    struct kvm_kernel_irq_routing_entry *entries, int gsi)
+{
+	return gsi;
+}
+
+int kvm_irq_map_chip_pin(struct kvm *kvm, unsigned irqchip, unsigned pin)
+{
+	return pin;
+}
+
+int kvm_set_irq(struct kvm *kvm, int irq_source_id, u32 irq, int level,
+		bool line_status)
+{
+	int r = -EINVAL;
+	unsigned int spi = irq + VGIC_NR_PRIVATE_IRQS;
+
+	if (spi > KVM_ARM_IRQ_GIC_MAX)
+		return r;
+
+	kvm_debug("Inject irqchip routed vIRQ %d\n", irq);
+	r = kvm_vgic_inject_irq(kvm, 0, spi, level);
+	return r;
+}
+
+/* MSI not implemented yet */
+int kvm_set_msi(struct kvm_kernel_irq_routing_entry *e,
+		struct kvm *kvm, int irq_source_id, int level, bool line_status)
+{
+	return 0;
+}
