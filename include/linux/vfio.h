@@ -104,10 +104,10 @@ extern long vfio_external_check_extension(struct vfio_group *group,
  * IRQFD support
  */
 struct virqfd {
-	struct vfio_pci_device	*vdev;
+	void			*opaque;
 	struct eventfd_ctx	*eventfd;
-	int			(*handler)(struct vfio_pci_device *, void *);
-	void			(*thread)(struct vfio_pci_device *, void *);
+	int			(*handler)(void *, void *);
+	void			(*thread)(void *, void *);
 	void			*data;
 	struct work_struct	inject;
 	wait_queue_t		wait;
@@ -118,9 +118,9 @@ struct virqfd {
 
 extern int vfio_pci_virqfd_init(void);
 extern void vfio_pci_virqfd_exit(void);
-extern int virqfd_enable(struct vfio_pci_device *vdev,
-			 int (*handler)(struct vfio_pci_device *, void *),
-			 void (*thread)(struct vfio_pci_device *, void *),
+extern int virqfd_enable(void *opaque,
+			 int (*handler)(void *, void *),
+			 void (*thread)(void *, void *),
 			 void *data, struct virqfd **pvirqfd, int fd);
 extern void virqfd_disable(struct virqfd **pvirqfd);
 
