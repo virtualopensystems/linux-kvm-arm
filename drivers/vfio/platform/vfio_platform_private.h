@@ -28,6 +28,7 @@ struct vfio_platform_region {
 	u64			addr;
 	resource_size_t		size;
 	u32			flags;
+	void __iomem		*ioaddr;
 };
 
 struct vfio_platform_device {
