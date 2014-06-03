@@ -30,6 +30,8 @@ struct vfio_platform_irq {
 	u32			count;
 	int			hwirq;
 	char			*name;
+	bool			masked;
+	spinlock_t		lock;
 };
 
 struct vfio_platform_region {
