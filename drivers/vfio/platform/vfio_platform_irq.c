@@ -108,6 +108,52 @@ static irqreturn_t vfio_irq_handler(int irq, void *dev_id)
 	return ret;
 }
 
+static void vfio_platform_unmask(struct vfio_platform_irq *irq_ctx)
+{
+	unsigned long flags;
+
+	spin_lock_irqsave(&irq_ctx->lock, flags);
+
+	if (irq_ctx->masked) {
+		enable_irq(irq_ctx->hwirq);
+		irq_ctx->masked = false;
+	}
+
+	spin_unlock_irqrestore(&irq_ctx->lock, flags);
+}
+
+static void vfio_platform_mask(struct vfio_platform_irq *irq_ctx)
+{
+	unsigned long flags;
+
+	spin_lock_irqsave(&irq_ctx->lock, flags);
+
+	if (!irq_ctx->masked) {
+		disable_irq(irq_ctx->hwirq);
+		irq_ctx->masked = true;
+	}
+
+	spin_unlock_irqrestore(&irq_ctx->lock, flags);
+}
+
+static int vfio_platform_unmask_handler(void *opaque, void *unused)
+{
+	struct vfio_platform_irq *irq_ctx = opaque;
+
+	vfio_platform_unmask(irq_ctx);
+
+	return 0;
+}
+
+static int vfio_platform_mask_handler(void *opaque, void *unused)
+{
+	struct vfio_platform_irq *irq_ctx = opaque;
+
+	vfio_platform_mask(irq_ctx);
+
+	return 0;
+}
+
 static int vfio_set_trigger(struct vfio_platform_device *vdev,
 			    int index, int fd)
 {
@@ -191,6 +237,7 @@ static int vfio_platform_set_irq_unmask(struct vfio_platform_device *vdev,
 				    unsigned count, uint32_t flags, void *data)
 {
 	uint8_t arr;
+	int32_t fd;
 
 	if (start != 0 || count != 1)
 		return -EINVAL;
@@ -204,19 +251,22 @@ static int vfio_platform_set_irq_unmask(struct vfio_platform_device *vdev,
 			return -EINVAL;
 
 	case VFIO_IRQ_SET_DATA_NONE:
-
-		spin_lock_irq(&vdev->irq[index].lock);
-
-		if (vdev->irq[index].masked) {
-			enable_irq(vdev->irq[index].hwirq);
-			vdev->irq[index].masked = false;
-		}
-
-		spin_unlock_irq(&vdev->irq[index].lock);
-
+		vfio_platform_unmask(&vdev->irq[index]);
 		return 0;
 
-	case VFIO_IRQ_SET_DATA_EVENTFD: /* XXX not implemented yet */
+	case VFIO_IRQ_SET_DATA_EVENTFD:
+		if (copy_from_user(&fd, data, sizeof(int32_t)))
+			return -EFAULT;
+
+		if (fd >= 0)
+			return virqfd_enable((void *) &vdev->irq[index],
+					     vfio_platform_unmask_handler,
+					     NULL, NULL,
+					     &vdev->irq[index].unmask, fd);
+
+		virqfd_disable(&vdev->irq[index].unmask);
+		return 0;
+
 	default:
 		return -ENOTTY;
 	}
@@ -229,6 +279,7 @@ static int vfio_platform_set_irq_mask(struct vfio_platform_device *vdev,
 				    unsigned count, uint32_t flags, void *data)
 {
 	uint8_t arr;
+	int32_t fd;
 
 	if (start != 0 || count != 1)
 		return -EINVAL;
@@ -242,19 +293,22 @@ static int vfio_platform_set_irq_mask(struct vfio_platform_device *vdev,
 			return -EINVAL;
 
 	case VFIO_IRQ_SET_DATA_NONE:
-
-		spin_lock_irq(&vdev->irq[index].lock);
-
-		if (!vdev->irq[index].masked) {
-			disable_irq(vdev->irq[index].hwirq);
-			vdev->irq[index].masked = true;
-		}
-
-		spin_unlock_irq(&vdev->irq[index].lock);
-
+		vfio_platform_mask(&vdev->irq[index]);
 		return 0;
 
-	case VFIO_IRQ_SET_DATA_EVENTFD: /* XXX not implemented yet */
+	case VFIO_IRQ_SET_DATA_EVENTFD:
+		if (copy_from_user(&fd, data, sizeof(int32_t)))
+			return -EFAULT;
+
+		if (fd >= 0)
+			return virqfd_enable((void *) &vdev->irq[index],
+					     vfio_platform_mask_handler,
+					     NULL, NULL,
+					     &vdev->irq[index].mask, fd);
+
+		virqfd_disable(&vdev->irq[index].mask);
+		return 0;
+
 	default:
 		return -ENOTTY;
 	}
