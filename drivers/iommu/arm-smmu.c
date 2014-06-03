@@ -1544,7 +1544,7 @@ static int arm_smmu_domain_has_cap(struct iommu_domain *domain,
 	if (smmu_domain->root_cfg.smmu->features & ARM_SMMU_FEAT_COHERENT_WALK)
 		caps |= IOMMU_CAP_CACHE_COHERENCY;
 
-	caps |= IOMMU_CAP_NOEXEC;
+	caps |= IOMMU_CAP_NOEXEC | IOMMU_CAP_INTR_REMAP;
 
 	return !!(cap & caps);
 }
