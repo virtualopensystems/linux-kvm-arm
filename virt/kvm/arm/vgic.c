@@ -67,6 +67,11 @@
  * - When the interrupt is EOIed, the maintenance interrupt fires,
  *   and clears the corresponding bit in irq_queued. This allow the
  *   interrupt line to be sampled again.
+ * - Note that level-triggered interrupts can also be set to pending from
+ *   writes to GICD_ISPENDRn and lowering the external input line does not
+ *   cause the interrupt to become inactive in such a situation.
+ *   Conversely, writes to GICD_ICPENDRn do not cause the interrupt to become
+ *   inactive as long as the external input line is held high.
  */
 
 #define VGIC_ADDR_UNDEF		(-1)
@@ -198,6 +203,41 @@ static void vgic_irq_clear_queued(struct kvm_vcpu *vcpu, int irq)
 	struct vgic_dist *dist = &vcpu->kvm->arch.vgic;
 
 	vgic_bitmap_set_irq_val(&dist->irq_queued, vcpu->vcpu_id, irq, 0);
+}
+
+static int vgic_dist_irq_get_level(struct kvm_vcpu *vcpu, int irq)
+{
+	struct vgic_dist *dist = &vcpu->kvm->arch.vgic;
+
+	return vgic_bitmap_get_irq_val(&dist->irq_level, vcpu->vcpu_id, irq);
+}
+
+static void vgic_dist_irq_set_level(struct kvm_vcpu *vcpu, int irq)
+{
+	struct vgic_dist *dist = &vcpu->kvm->arch.vgic;
+
+	vgic_bitmap_set_irq_val(&dist->irq_level, vcpu->vcpu_id, irq, 1);
+}
+
+static void vgic_dist_irq_clear_level(struct kvm_vcpu *vcpu, int irq)
+{
+	struct vgic_dist *dist = &vcpu->kvm->arch.vgic;
+
+	vgic_bitmap_set_irq_val(&dist->irq_level, vcpu->vcpu_id, irq, 0);
+}
+
+static int vgic_dist_irq_soft_pend(struct kvm_vcpu *vcpu, int irq)
+{
+	struct vgic_dist *dist = &vcpu->kvm->arch.vgic;
+
+	return vgic_bitmap_get_irq_val(&dist->irq_soft_pend, vcpu->vcpu_id, irq);
+}
+
+static void vgic_dist_irq_clear_soft_pend(struct kvm_vcpu *vcpu, int irq)
+{
+	struct vgic_dist *dist = &vcpu->kvm->arch.vgic;
+
+	vgic_bitmap_set_irq_val(&dist->irq_soft_pend, vcpu->vcpu_id, irq, 0);
 }
 
 static int vgic_dist_irq_is_pending(struct kvm_vcpu *vcpu, int irq)
@@ -392,11 +432,26 @@ static bool handle_mmio_set_pending_reg(struct kvm_vcpu *vcpu,
 					struct kvm_exit_mmio *mmio,
 					phys_addr_t offset)
 {
-	u32 *reg = vgic_bitmap_get_reg(&vcpu->kvm->arch.vgic.irq_pending,
-				       vcpu->vcpu_id, offset);
+	u32 *reg;
+	u32 level_mask;
+	struct vgic_dist *dist = &vcpu->kvm->arch.vgic;
+
+	reg = vgic_bitmap_get_reg(&dist->irq_cfg, vcpu->vcpu_id, offset);
+	level_mask = (~(*reg));
+
+	/* Mark both level and edge triggered irqs as pending */
+	reg = vgic_bitmap_get_reg(&dist->irq_pending, vcpu->vcpu_id, offset);
 	vgic_reg_access(mmio, reg, offset,
 			ACCESS_READ_VALUE | ACCESS_WRITE_SETBIT);
+
 	if (mmio->is_write) {
+		/* Set the soft-pending flag only for level-triggered irqs */
+		reg = vgic_bitmap_get_reg(&dist->irq_soft_pend,
+					  vcpu->vcpu_id, offset);
+		vgic_reg_access(mmio, reg, offset,
+				ACCESS_READ_VALUE | ACCESS_WRITE_SETBIT);
+		*reg &= level_mask;
+
 		vgic_update_state(vcpu->kvm);
 		return true;
 	}
@@ -408,11 +463,27 @@ static bool handle_mmio_clear_pending_reg(struct kvm_vcpu *vcpu,
 					  struct kvm_exit_mmio *mmio,
 					  phys_addr_t offset)
 {
-	u32 *reg = vgic_bitmap_get_reg(&vcpu->kvm->arch.vgic.irq_pending,
-				       vcpu->vcpu_id, offset);
+	u32 *level_active;
+	u32 *reg;
+	struct vgic_dist *dist = &vcpu->kvm->arch.vgic;
+
+	reg = vgic_bitmap_get_reg(&dist->irq_pending, vcpu->vcpu_id, offset);
 	vgic_reg_access(mmio, reg, offset,
 			ACCESS_READ_VALUE | ACCESS_WRITE_CLEARBIT);
 	if (mmio->is_write) {
+		/* Re-set level triggered level-active interrupts */
+		level_active = vgic_bitmap_get_reg(&dist->irq_level,
+					  vcpu->vcpu_id, offset);
+		reg = vgic_bitmap_get_reg(&dist->irq_pending,
+					  vcpu->vcpu_id, offset);
+		*reg |= *level_active;
+
+		/* Clear soft-pending flags */
+		reg = vgic_bitmap_get_reg(&dist->irq_soft_pend,
+					  vcpu->vcpu_id, offset);
+		vgic_reg_access(mmio, reg, offset,
+				ACCESS_READ_VALUE | ACCESS_WRITE_CLEARBIT);
+
 		vgic_update_state(vcpu->kvm);
 		return true;
 	}
@@ -1187,15 +1258,29 @@ static bool vgic_process_maintenance(struct kvm_vcpu *vcpu)
 		for_each_set_bit(lr, (unsigned long *)vgic_cpu->vgic_eisr,
 				 vgic_cpu->nr_lr) {
 			irq = vgic_cpu->vgic_lr[lr] & GICH_LR_VIRTUALID;
+			BUG_ON(vgic_irq_is_edge(vcpu, irq));
 
 			vgic_irq_clear_queued(vcpu, irq);
 			vgic_cpu->vgic_lr[lr] &= ~GICH_LR_EOI;
 
+			/*
+			 * If the IRQ was EOIed it was most certainly also
+			 * ACKed and we can therefore always clear the soft
+			 * pending state (should it had been set) of this
+			 * interrupt.
+			 */
+			vgic_dist_irq_clear_soft_pend(vcpu, irq);
+
 			/* Any additional pending interrupt? */
-			if (vgic_dist_irq_is_pending(vcpu, irq)) {
+			if (vgic_dist_irq_get_level(vcpu, irq)) {
+				/*
+				 * XXX: vgic_cpu_irq_set not always be true in
+				 * this case?
+				 */
 				vgic_cpu_irq_set(vcpu, irq);
 				level_pending = true;
 			} else {
+				vgic_dist_irq_clear_pending(vcpu, irq);
 				vgic_cpu_irq_clear(vcpu, irq);
 			}
 
@@ -1300,17 +1385,19 @@ static void vgic_kick_vcpus(struct kvm *kvm)
 static int vgic_validate_injection(struct kvm_vcpu *vcpu, int irq, int level)
 {
 	int edge_triggered = vgic_irq_is_edge(vcpu, irq);
-	int state = vgic_dist_irq_is_pending(vcpu, irq);
 
 	/*
 	 * Only inject an interrupt if:
 	 * - edge triggered and we have a rising edge
 	 * - level triggered and we change level
 	 */
-	if (edge_triggered)
+	if (edge_triggered) {
+		int state = vgic_dist_irq_is_pending(vcpu, irq);
 		return level > state;
-	else
+	} else {
+		int state = vgic_dist_irq_get_level(vcpu, irq);
 		return level != state;
+	}
 }
 
 static bool vgic_update_irq_pending(struct kvm *kvm, int cpuid,
@@ -1340,10 +1427,19 @@ static bool vgic_update_irq_pending(struct kvm *kvm, int cpuid,
 
 	kvm_debug("Inject IRQ%d level %d CPU%d\n", irq_num, level, cpuid);
 
-	if (level)
+	if (level) {
+		if (level_triggered)
+			vgic_dist_irq_set_level(vcpu, irq_num);
 		vgic_dist_irq_set_pending(vcpu, irq_num);
-	else
-		vgic_dist_irq_clear_pending(vcpu, irq_num);
+	} else {
+		if (level_triggered) {
+			vgic_dist_irq_clear_level(vcpu, irq_num);
+			if (!vgic_dist_irq_soft_pend(vcpu, irq_num))
+				vgic_dist_irq_clear_pending(vcpu, irq_num);
+		} else {
+			vgic_dist_irq_clear_pending(vcpu, irq_num);
+		}
+	}
 
 	enabled = vgic_irq_is_enabled(vcpu, irq_num);
 
