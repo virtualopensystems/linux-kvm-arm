@@ -49,6 +49,7 @@ struct vfio_platform_device {
 	u32				num_regions;
 	struct vfio_platform_irq	*irq;
 	u32				num_irqs;
+	struct device_node		*of_node;
 };
 
 extern int vfio_platform_irq_init(struct vfio_platform_device *vdev);
@@ -59,4 +60,10 @@ extern int vfio_platform_set_irqs_ioctl(struct vfio_platform_device *vdev,
 			uint32_t flags, unsigned index, unsigned start,
 			unsigned count, void *data);
 
+/* device tree info support in devtree.c */
+extern void vfio_platform_devtree_get(struct vfio_platform_device *vdev);
+extern void vfio_platform_devtree_put(struct vfio_platform_device *vdev);
+extern bool vfio_platform_has_devtree(struct vfio_platform_device *vdev);
+extern long vfio_platform_devtree_ioctl(struct vfio_platform_device *vdev,
+					unsigned long arg);
 #endif /* VFIO_PLATFORM_PRIVATE_H */

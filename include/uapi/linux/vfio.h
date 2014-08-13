@@ -153,13 +153,39 @@ struct vfio_group_status {
 struct vfio_device_info {
 	__u32	argsz;
 	__u32	flags;
-#define VFIO_DEVICE_FLAGS_RESET	(1 << 0)	/* Device supports reset */
-#define VFIO_DEVICE_FLAGS_PCI	(1 << 1)	/* vfio-pci device */
-#define VFIO_DEVICE_FLAGS_PLATFORM (1 << 2)	/* vfio-platform device */
+#define VFIO_DEVICE_FLAGS_RESET		(1 << 0) /* Device supports reset */
+#define VFIO_DEVICE_FLAGS_PCI		(1 << 1) /* vfio-pci device */
+#define VFIO_DEVICE_FLAGS_PLATFORM	(1 << 2) /* vfio-platform device */
+#define VFIO_DEVICE_FLAGS_DEVTREE	(1 << 3) /* device tree metadata */
 	__u32	num_regions;	/* Max region index + 1 */
 	__u32	num_irqs;	/* Max IRQ index + 1 */
 };
 #define VFIO_DEVICE_GET_INFO		_IO(VFIO_TYPE, VFIO_BASE + 7)
+
+/**
+ * VFIO_DEVICE_GET_DEVTREE_INFO - _IOR(VFIO_TYPE, VFIO_BASE + 16,
+ *						struct vfio_devtree_info)
+ *
+ * Retrieve information from the device's device tree, if available.
+ * Caller will initialize data[] with a single string with the requested
+ * devicetree property name, and type depending on whether a array of strings
+ * or an array of u32 values is expected. On success, data[] will be extended
+ * with the requested information, either as an array of u32, or with a list
+ * of strings sepparated by the NULL terminating character.
+ * Return: 0 on success, -errno on failure.
+ */
+struct vfio_devtree_info {
+	__u32	argsz;
+	__u32	type;
+#define VFIO_DEVTREE_PROP_NAMES		0
+#define VFIO_DEVTREE_ARR_TYPE_STRING	1
+#define VFIO_DEVTREE_ARR_TYPE_U8	2
+#define VFIO_DEVTREE_ARR_TYPE_U16	3
+#define VFIO_DEVTREE_ARR_TYPE_U32	4
+	__u32	length;
+	__u8	data[];
+};
+#define VFIO_DEVICE_GET_DEVTREE_INFO	_IO(VFIO_TYPE, VFIO_BASE + 17)
 
 /**
  * VFIO_DEVICE_GET_REGION_INFO - _IOWR(VFIO_TYPE, VFIO_BASE + 8,

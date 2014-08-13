@@ -26,6 +26,7 @@
 #include <linux/vfio.h>
 #include <linux/io.h>
 #include <linux/platform_device.h>
+#include <linux/of.h>
 #include <linux/irq.h>
 
 #include "vfio_platform_private.h"
@@ -66,6 +67,9 @@ static int vfio_platform_regions_init(struct vfio_platform_device *vdev)
 
 	vdev->num_regions = cnt;
 
+	/* get device tree node for info if available */
+	vfio_platform_devtree_get(vdev);
+
 	return 0;
 err:
 	kfree(vdev->region);
@@ -74,6 +78,7 @@ err:
 
 static void vfio_platform_regions_cleanup(struct vfio_platform_device *vdev)
 {
+	vfio_platform_devtree_put(vdev);
 	vdev->num_regions = 0;
 	kfree(vdev->region);
 }
@@ -132,6 +137,9 @@ static long vfio_platform_ioctl(void *device_data,
 			return -EINVAL;
 
 		info.flags = VFIO_DEVICE_FLAGS_PLATFORM;
+		if (vfio_platform_has_devtree(vdev))
+			info.flags |= VFIO_DEVICE_FLAGS_DEVTREE;
+
 		info.num_regions = vdev->num_regions;
 		info.num_irqs = vdev->num_irqs;
 
@@ -209,6 +217,9 @@ static long vfio_platform_ioctl(void *device_data,
 						   (void *)arg+minsz);
 
 		return ret;
+
+	} else if (cmd == VFIO_DEVICE_GET_DEVTREE_INFO) {
+		return vfio_platform_devtree_ioctl(vdev, arg);
 
 	} else if (cmd == VFIO_DEVICE_RESET)
 		return -EINVAL;
