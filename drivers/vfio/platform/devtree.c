@@ -98,6 +98,96 @@ static int devtree_get_full_name(struct device_node *np, void __user *datap,
 	return 0;
 }
 
+static int devtree_get_u32_arr(const struct device_node *np, const char *name,
+			       void __user *datap, unsigned long datasz)
+{
+	int ret;
+	int n;
+	u32 *out;
+
+	n = of_property_count_elems_of_size(np, name, sizeof(u32));
+	if (n < 0)
+		return n;
+
+	if (n * sizeof(u32) > datasz)
+		return -EAGAIN;
+
+	out = kcalloc(n, sizeof(u32), GFP_KERNEL);
+	if (!out)
+		return -EFAULT;
+
+	ret = of_property_read_u32_array(np, name, out, n);
+	if (ret)
+		goto out;
+
+	if (copy_to_user(datap, out, n * sizeof(u32)))
+		ret = -EFAULT;
+
+out:
+	kfree(out);
+	return ret;
+}
+
+static int devtree_get_u16_arr(const struct device_node *np, const char *name,
+			       void __user *datap, unsigned long datasz)
+{
+	int ret;
+	int n;
+	u16 *out;
+
+	n = of_property_count_elems_of_size(np, name, sizeof(u16));
+	if (n < 0)
+		return n;
+
+	if (n * sizeof(u16) > datasz)
+		return -EAGAIN;
+
+	out = kcalloc(n, sizeof(u16), GFP_KERNEL);
+	if (!out)
+		return -EFAULT;
+
+	ret = of_property_read_u16_array(np, name, out, n);
+	if (ret)
+		goto out;
+
+	if (copy_to_user(datap, out, n * sizeof(u16)))
+		ret = -EFAULT;
+
+out:
+	kfree(out);
+	return ret;
+}
+
+static int devtree_get_u8_arr(const struct device_node *np, const char *name,
+			       void __user *datap, unsigned long datasz)
+{
+	int ret;
+	int n;
+	u8 *out;
+
+	n = of_property_count_elems_of_size(np, name, sizeof(u8));
+	if (n < 0)
+		return n;
+
+	if (n * sizeof(u8) > datasz)
+		return -EAGAIN;
+
+	out = kcalloc(n, sizeof(u8), GFP_KERNEL);
+	if (!out)
+		return -EFAULT;
+
+	ret = of_property_read_u8_array(np, name, out, n);
+	if (ret)
+		goto out;
+
+	if (copy_to_user(datap, out, n * sizeof(u8)))
+		ret = -EFAULT;
+
+out:
+	kfree(out);
+	return ret;
+}
+
 long vfio_platform_devtree_ioctl(struct vfio_platform_device *vdev,
 				 unsigned long arg)
 {
@@ -142,6 +232,15 @@ long vfio_platform_devtree_ioctl(struct vfio_platform_device *vdev,
 
 	} else if (info.type == VFIO_DEVTREE_ARR_TYPE_STRING)
 		ret = devtree_get_strings(vdev->of_node, name, datap, datasz);
+
+	else if (info.type == VFIO_DEVTREE_ARR_TYPE_U32)
+		ret = devtree_get_u32_arr(vdev->of_node, name, datap, datasz);
+
+	else if (info.type == VFIO_DEVTREE_ARR_TYPE_U16)
+		ret = devtree_get_u16_arr(vdev->of_node, name, datap, datasz);
+
+	else if (info.type == VFIO_DEVTREE_ARR_TYPE_U8)
+		ret = devtree_get_u8_arr(vdev->of_node, name, datap, datasz);
 
 	kfree(name);
 
