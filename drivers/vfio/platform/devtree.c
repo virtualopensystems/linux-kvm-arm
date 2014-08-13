@@ -61,6 +61,43 @@ static int devtree_get_prop_names(struct device_node *np, void __user *datap,
 	return ret;
 }
 
+static int devtree_get_strings(struct device_node *np, char *name,
+			       void __user *datap, unsigned long datasz)
+{
+	struct property *prop;
+	int len;
+
+	prop = of_find_property(np, name, &len);
+
+	if (!prop)
+		return -EINVAL;
+
+	if (len > datasz)
+		return -EAGAIN;
+
+	if (copy_to_user(datap, prop->value, len))
+		return -EFAULT;
+	else
+		return 0;
+}
+
+static int devtree_get_full_name(struct device_node *np, void __user *datap,
+				 unsigned long datasz, int *lenp)
+{
+	int len = strlen(np->full_name) + 1;
+
+	if (lenp)
+		*lenp = len;
+
+	if (len > datasz)
+		return -EAGAIN;
+
+	if (copy_to_user(datap, np->full_name, len))
+		return -EFAULT;
+
+	return 0;
+}
+
 long vfio_platform_devtree_ioctl(struct vfio_platform_device *vdev,
 				 unsigned long arg)
 {
@@ -68,6 +105,7 @@ long vfio_platform_devtree_ioctl(struct vfio_platform_device *vdev,
 	unsigned long minsz = offsetofend(struct vfio_devtree_info, length);
 	void __user *datap = (void __user *) arg + minsz;
 	unsigned long int datasz;
+	char *name;
 	int ret = -EINVAL;
 
 	if (!vfio_platform_has_devtree(vdev))
@@ -84,8 +122,30 @@ long vfio_platform_devtree_ioctl(struct vfio_platform_device *vdev,
 	if (info.type == VFIO_DEVTREE_PROP_NAMES) {
 		ret = devtree_get_prop_names(vdev->of_node, datap, datasz,
 								&info.length);
+		goto out;
 	}
 
+	name = kzalloc(datasz, GFP_KERNEL);
+	if (!name)
+		return -ENOMEM;
+	if (copy_from_user(name, datap, datasz))
+		return -EFAULT;
+
+	if (!of_find_property(vdev->of_node, name, &info.length)) {
+		/* special case full_name as a property that is not on the fdt,
+		 * but we wish to return to the user as it includes the full
+		 * path of the device */
+		if (!strcmp(name, "full_name") &&
+				(info.type == VFIO_DEVTREE_ARR_TYPE_STRING))
+			ret = devtree_get_full_name(vdev->of_node, datap,
+						    datasz, &info.length);
+
+	} else if (info.type == VFIO_DEVTREE_ARR_TYPE_STRING)
+		ret = devtree_get_strings(vdev->of_node, name, datap, datasz);
+
+	kfree(name);
+
+out:
 	if (copy_to_user((void __user *)arg, &info, minsz))
 		ret = -EFAULT;
 
