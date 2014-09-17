@@ -81,6 +81,26 @@ struct vfio_group {
 };
 
 /*
+ * This function returns true only if _all_ domains support the capability.
+ */
+static int vfio_all_domains_have_iommu_noexec(struct vfio_iommu *iommu)
+{
+	struct vfio_domain *d;
+	int ret = 1;
+
+	mutex_lock(&iommu->lock);
+	list_for_each_entry(d, &iommu->domain_list, next) {
+		if (!iommu_domain_has_cap(d->domain, IOMMU_CAP_NOEXEC)) {
+			ret = 0;
+			break;
+		}
+	}
+	mutex_unlock(&iommu->lock);
+
+	return ret;
+}
+
+/*
  * This code handles mapping and unmapping of user data buffers
  * into DMA'ble space using the IOMMU
  */
@@ -546,6 +566,11 @@ static int vfio_dma_do_map(struct vfio_iommu *iommu,
 		prot |= IOMMU_WRITE;
 	if (map->flags & VFIO_DMA_MAP_FLAG_READ)
 		prot |= IOMMU_READ;
+	if (map->flags & VFIO_DMA_MAP_FLAG_NOEXEC) {
+		if (!vfio_all_domains_have_iommu_noexec(iommu))
+			return -EINVAL;
+		prot |= IOMMU_NOEXEC;
+	}
 
 	if (!prot || !size || (size | iova | vaddr) & mask)
 		return -EINVAL;
@@ -635,6 +660,12 @@ static int vfio_iommu_replay(struct vfio_iommu *iommu,
 
 		dma = rb_entry(n, struct vfio_dma, node);
 		iova = dma->iova;
+
+		/* if any of the mappings to be replayed has the NOEXEC flag
+		 * set, then the new iommu domain must support it */
+		if ((dma->prot | IOMMU_NOEXEC) &&
+		    !iommu_domain_has_cap(domain->domain, IOMMU_CAP_NOEXEC))
+			return -EINVAL;
 
 		while (iova < dma->iova + dma->size) {
 			phys_addr_t phys = iommu_iova_to_phys(d->domain, iova);
@@ -890,6 +921,10 @@ static long vfio_iommu_type1_ioctl(void *iommu_data,
 			if (!iommu)
 				return 0;
 			return vfio_domains_have_iommu_cache(iommu);
+		case VFIO_IOMMU_PROT_NOEXEC:
+			if (!iommu)
+				return 0;
+			return vfio_all_domains_have_iommu_noexec(iommu);
 		default:
 			return 0;
 		}
@@ -913,7 +948,8 @@ static long vfio_iommu_type1_ioctl(void *iommu_data,
 	} else if (cmd == VFIO_IOMMU_MAP_DMA) {
 		struct vfio_iommu_type1_dma_map map;
 		uint32_t mask = VFIO_DMA_MAP_FLAG_READ |
-				VFIO_DMA_MAP_FLAG_WRITE;
+				VFIO_DMA_MAP_FLAG_WRITE |
+				VFIO_DMA_MAP_FLAG_NOEXEC;
 
 		minsz = offsetofend(struct vfio_iommu_type1_dma_map, size);
 
