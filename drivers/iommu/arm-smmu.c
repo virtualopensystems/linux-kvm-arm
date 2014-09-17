@@ -1539,6 +1539,8 @@ static int arm_smmu_domain_has_cap(struct iommu_domain *domain,
 		return features & ARM_SMMU_FEAT_COHERENT_WALK;
 	case IOMMU_CAP_INTR_REMAP:
 		return 1; /* MSIs are just memory writes */
+	case IOMMU_CAP_NOEXEC:
+		return 1;
 	default:
 		return 0;
 	}
