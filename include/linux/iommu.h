@@ -59,6 +59,7 @@ struct iommu_domain {
 
 #define IOMMU_CAP_CACHE_COHERENCY	0x1
 #define IOMMU_CAP_INTR_REMAP		0x2	/* isolates device intrs */
+#define IOMMU_CAP_NOEXEC		0x3	/* IOMMU_NOEXEC flag */
 
 /*
  * Following constraints are specifc to FSL_PAMUV1:
