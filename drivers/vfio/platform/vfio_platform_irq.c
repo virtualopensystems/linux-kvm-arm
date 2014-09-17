@@ -45,11 +45,21 @@ static void vfio_platform_mask(struct vfio_platform_irq *irq_ctx)
 	spin_unlock_irqrestore(&irq_ctx->lock, flags);
 }
 
+static int vfio_platform_mask_handler(void *opaque, void *unused)
+{
+	struct vfio_platform_irq *irq_ctx = opaque;
+
+	vfio_platform_mask(irq_ctx);
+
+	return 0;
+}
+
 static int vfio_platform_set_irq_mask(struct vfio_platform_device *vdev,
 				    unsigned index, unsigned start,
 				    unsigned count, uint32_t flags, void *data)
 {
 	uint8_t irq_bitmap;
+	int32_t fd;
 
 	if (start != 0 || count != 1)
 		return -EINVAL;
@@ -75,7 +85,19 @@ static int vfio_platform_set_irq_mask(struct vfio_platform_device *vdev,
 		vfio_platform_mask(&vdev->irqs[index]);
 		return 0;
 
-	case VFIO_IRQ_SET_DATA_EVENTFD: /* XXX not implemented yet */
+	case VFIO_IRQ_SET_DATA_EVENTFD:
+		if (copy_from_user(&fd, data, sizeof(int32_t)))
+			return -EFAULT;
+
+		if (fd >= 0)
+			return virqfd_enable((void *) &vdev->irqs[index],
+					     vfio_platform_mask_handler,
+					     NULL, NULL,
+					     &vdev->irqs[index].mask, fd);
+
+		virqfd_disable(&vdev->irqs[index].mask);
+		return 0;
+
 	default:
 		return -ENOTTY;
 	}
@@ -97,11 +119,21 @@ static void vfio_platform_unmask(struct vfio_platform_irq *irq_ctx)
 	spin_unlock_irqrestore(&irq_ctx->lock, flags);
 }
 
+static int vfio_platform_unmask_handler(void *opaque, void *unused)
+{
+	struct vfio_platform_irq *irq_ctx = opaque;
+
+	vfio_platform_unmask(irq_ctx);
+
+	return 0;
+}
+
 static int vfio_platform_set_irq_unmask(struct vfio_platform_device *vdev,
 				    unsigned index, unsigned start,
 				    unsigned count, uint32_t flags, void *data)
 {
 	uint8_t irq_bitmap;
+	int32_t fd;
 
 	if (start != 0 || count != 1)
 		return -EINVAL;
@@ -123,7 +155,19 @@ static int vfio_platform_set_irq_unmask(struct vfio_platform_device *vdev,
 		vfio_platform_unmask(&vdev->irqs[index]);
 		return 0;
 
-	case VFIO_IRQ_SET_DATA_EVENTFD: /* XXX not implemented yet */
+	case VFIO_IRQ_SET_DATA_EVENTFD:
+		if (copy_from_user(&fd, data, sizeof(int32_t)))
+			return -EFAULT;
+
+		if (fd >= 0)
+			return virqfd_enable((void *) &vdev->irqs[index],
+					     vfio_platform_unmask_handler,
+					     NULL, NULL,
+					     &vdev->irqs[index].unmask, fd);
+
+		virqfd_disable(&vdev->irqs[index].unmask);
+		return 0;
+
 	default:
 		return -ENOTTY;
 	}
