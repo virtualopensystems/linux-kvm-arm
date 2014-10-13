@@ -99,8 +99,10 @@ static void vfio_platform_release(void *device_data)
 {
 	struct vfio_platform_device *vdev = device_data;
 
-	if (atomic_dec_and_test(&vdev->refcnt))
+	if (atomic_dec_and_test(&vdev->refcnt)) {
 		vfio_platform_regions_cleanup(vdev);
+		vfio_platform_irq_cleanup(vdev);
+	}
 
 	module_put(THIS_MODULE);
 }
@@ -117,10 +119,16 @@ static int vfio_platform_open(void *device_data)
 		ret = vfio_platform_regions_init(vdev);
 		if (ret)
 			goto err_reg;
+
+		ret = vfio_platform_irq_init(vdev);
+		if (ret)
+			goto err_irq;
 	}
 
 	return 0;
 
+err_irq:
+	vfio_platform_regions_cleanup(vdev);
 err_reg:
 	module_put(THIS_MODULE);
 	return ret;
@@ -145,7 +153,7 @@ static long vfio_platform_ioctl(void *device_data,
 
 		info.flags = vdev->flags;
 		info.num_regions = vdev->num_regions;
-		info.num_irqs = 0;
+		info.num_irqs = vdev->num_irqs;
 
 		return copy_to_user((void __user *)arg, &info, minsz);
 
@@ -170,10 +178,26 @@ static long vfio_platform_ioctl(void *device_data,
 
 		return copy_to_user((void __user *)arg, &info, minsz);
 
-	} else if (cmd == VFIO_DEVICE_GET_IRQ_INFO)
-		return -EINVAL;
+	} else if (cmd == VFIO_DEVICE_GET_IRQ_INFO) {
+		struct vfio_irq_info info;
 
-	else if (cmd == VFIO_DEVICE_SET_IRQS)
+		minsz = offsetofend(struct vfio_irq_info, count);
+
+		if (copy_from_user(&info, (void __user *)arg, minsz))
+			return -EFAULT;
+
+		if (info.argsz < minsz)
+			return -EINVAL;
+
+		if (info.index >= vdev->num_irqs)
+			return -EINVAL;
+
+		info.flags = vdev->irqs[info.index].flags;
+		info.count = vdev->irqs[info.index].count;
+
+		return copy_to_user((void __user *)arg, &info, minsz);
+
+	} else if (cmd == VFIO_DEVICE_SET_IRQS)
 		return -EINVAL;
 
 	else if (cmd == VFIO_DEVICE_RESET)
