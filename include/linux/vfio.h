@@ -14,6 +14,8 @@
 
 #include <linux/iommu.h>
 #include <linux/mm.h>
+#include <linux/workqueue.h>
+#include <linux/poll.h>
 #include <uapi/linux/vfio.h>
 
 /**
@@ -121,4 +123,30 @@ static inline long vfio_spapr_iommu_eeh_ioctl(struct iommu_group *group,
 	return -ENOTTY;
 }
 #endif /* CONFIG_EEH */
+
+/*
+ * IRQFD support
+ */
+struct virqfd {
+	struct vfio_pci_device	*vdev;
+	struct eventfd_ctx	*eventfd;
+	int			(*handler)(struct vfio_pci_device *, void *);
+	void			(*thread)(struct vfio_pci_device *, void *);
+	void			*data;
+	struct work_struct	inject;
+	wait_queue_t		wait;
+	poll_table		pt;
+	struct work_struct	shutdown;
+	struct virqfd		**pvirqfd;
+};
+
+extern int vfio_pci_virqfd_init(void);
+extern void vfio_pci_virqfd_exit(void);
+extern int virqfd_enable(struct vfio_pci_device *vdev,
+			 int (*handler)(struct vfio_pci_device *, void *),
+			 void (*thread)(struct vfio_pci_device *, void *),
+			 void *data, struct virqfd **pvirqfd, int fd);
+extern void virqfd_disable(struct vfio_pci_device *vdev,
+			   struct virqfd **pvirqfd);
+
 #endif /* VFIO_H */
