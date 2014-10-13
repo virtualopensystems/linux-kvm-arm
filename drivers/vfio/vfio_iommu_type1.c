@@ -569,6 +569,12 @@ static int vfio_dma_do_map(struct vfio_iommu *iommu,
 	if (map->flags & VFIO_DMA_MAP_FLAG_READ)
 		prot |= IOMMU_READ;
 
+	if (map->flags & VFIO_DMA_MAP_FLAG_NOEXEC) {
+		if (!vfio_domains_have_iommu_cap(iommu, IOMMU_CAP_NOEXEC))
+			return -EINVAL;
+		prot |= IOMMU_NOEXEC;
+	}
+
 	if (!prot || !size || (size | iova | vaddr) & mask)
 		return -EINVAL;
 
@@ -662,6 +668,14 @@ static int vfio_iommu_replay(struct vfio_iommu *iommu,
 		dma = rb_entry(n, struct vfio_dma, node);
 		iova = dma->iova;
 
+		/*
+		 * if any of the mappings to be replayed has the NOEXEC flag
+		 * set, then the new iommu domain must support it
+		 */
+		if ((dma->prot | IOMMU_NOEXEC) &&
+				!(domain->caps & IOMMU_CAP_NOEXEC))
+			return -EINVAL;
+
 		while (iova < dma->iova + dma->size) {
 			phys_addr_t phys = iommu_iova_to_phys(d->domain, iova);
 			size_t size;
@@ -748,6 +762,9 @@ static int vfio_iommu_type1_attach_group(void *iommu_data,
 
 	if (iommu_capable(bus, IOMMU_CAP_CACHE_COHERENCY))
 		domain->caps |= IOMMU_CAP_CACHE_COHERENCY;
+
+	if (iommu_capable(bus, IOMMU_CAP_NOEXEC))
+		domain->caps |= IOMMU_CAP_NOEXEC;
 
 	/*
 	 * Try to match an existing compatible domain.  We don't want to
@@ -900,6 +917,11 @@ static long vfio_iommu_type1_ioctl(void *iommu_data,
 				return 0;
 			return vfio_domains_have_iommu_cap(iommu,
 						  IOMMU_CAP_CACHE_COHERENCY);
+		case VFIO_DMA_NOEXEC_IOMMU:
+			if (!iommu)
+				return 0;
+			return vfio_domains_have_iommu_cap(iommu,
+							   IOMMU_CAP_NOEXEC);
 		default:
 			return 0;
 		}
@@ -923,7 +945,8 @@ static long vfio_iommu_type1_ioctl(void *iommu_data,
 	} else if (cmd == VFIO_IOMMU_MAP_DMA) {
 		struct vfio_iommu_type1_dma_map map;
 		uint32_t mask = VFIO_DMA_MAP_FLAG_READ |
-				VFIO_DMA_MAP_FLAG_WRITE;
+				VFIO_DMA_MAP_FLAG_WRITE |
+				VFIO_DMA_MAP_FLAG_NOEXEC;
 
 		minsz = offsetofend(struct vfio_iommu_type1_dma_map, size);
 
