@@ -140,8 +140,8 @@ struct virqfd {
 	struct virqfd		**pvirqfd;
 };
 
-extern int vfio_pci_virqfd_init(void);
-extern void vfio_pci_virqfd_exit(void);
+extern int vfio_virqfd_init(void);
+extern void vfio_virqfd_exit(void);
 extern int virqfd_enable(void *opaque,
 			 int (*handler)(void *, void *),
 			 void (*thread)(void *, void *),
