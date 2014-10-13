@@ -146,7 +146,6 @@ extern int virqfd_enable(struct vfio_pci_device *vdev,
 			 int (*handler)(struct vfio_pci_device *, void *),
 			 void (*thread)(struct vfio_pci_device *, void *),
 			 void *data, struct virqfd **pvirqfd, int fd);
-extern void virqfd_disable(struct vfio_pci_device *vdev,
-			   struct virqfd **pvirqfd);
+extern void virqfd_disable(struct virqfd **pvirqfd);
 
 #endif /* VFIO_H */
