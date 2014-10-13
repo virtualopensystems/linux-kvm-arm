@@ -64,7 +64,7 @@ struct vfio_domain {
 	struct iommu_domain	*domain;
 	struct list_head	next;
 	struct list_head	group_list;
-	int			prot;		/* IOMMU_CACHE */
+	int			caps;
 };
 
 struct vfio_dma {
@@ -485,7 +485,7 @@ static int map_try_harder(struct vfio_domain *domain, dma_addr_t iova,
 	for (i = 0; i < npage; i++, pfn++, iova += PAGE_SIZE) {
 		ret = iommu_map(domain->domain, iova,
 				(phys_addr_t)pfn << PAGE_SHIFT,
-				PAGE_SIZE, prot | domain->prot);
+				PAGE_SIZE, prot);
 		if (ret)
 			break;
 	}
@@ -503,11 +503,16 @@ static int vfio_iommu_map(struct vfio_iommu *iommu, dma_addr_t iova,
 	int ret;
 
 	list_for_each_entry(d, &iommu->domain_list, next) {
+		int dprot = prot;
+
+		if (d->caps | IOMMU_CAP_CACHE_COHERENCY)
+			dprot |= IOMMU_CACHE;
+
 		ret = iommu_map(d->domain, iova, (phys_addr_t)pfn << PAGE_SHIFT,
-				npage << PAGE_SHIFT, prot | d->prot);
+				npage << PAGE_SHIFT, dprot);
 		if (ret) {
 			if (ret != -EBUSY ||
-			    map_try_harder(d, iova, pfn, npage, prot))
+			    map_try_harder(d, iova, pfn, npage, dprot))
 				goto unwind;
 		}
 	}
@@ -620,6 +625,10 @@ static int vfio_iommu_replay(struct vfio_iommu *iommu,
 	struct vfio_domain *d;
 	struct rb_node *n;
 	int ret;
+	int dprot = 0;
+
+	if (domain->caps | IOMMU_CAP_CACHE_COHERENCY)
+		dprot |= IOMMU_CACHE;
 
 	/* Arbitrarily pick the first domain in the list for lookups */
 	d = list_first_entry(&iommu->domain_list, struct vfio_domain, next);
@@ -653,7 +662,7 @@ static int vfio_iommu_replay(struct vfio_iommu *iommu,
 				size += PAGE_SIZE;
 
 			ret = iommu_map(domain->domain, iova, phys,
-					size, dma->prot | domain->prot);
+					size, dma->prot | dprot);
 			if (ret)
 				return ret;
 
@@ -721,7 +730,7 @@ static int vfio_iommu_type1_attach_group(void *iommu_data,
 	}
 
 	if (iommu_capable(bus, IOMMU_CAP_CACHE_COHERENCY))
-		domain->prot |= IOMMU_CACHE;
+		domain->caps |= IOMMU_CAP_CACHE_COHERENCY;
 
 	/*
 	 * Try to match an existing compatible domain.  We don't want to
@@ -732,7 +741,7 @@ static int vfio_iommu_type1_attach_group(void *iommu_data,
 	 */
 	list_for_each_entry(d, &iommu->domain_list, next) {
 		if (d->domain->ops == domain->domain->ops &&
-		    d->prot == domain->prot) {
+		    d->caps == domain->caps) {
 			iommu_detach_group(domain->domain, iommu_group);
 			if (!iommu_attach_group(d->domain, iommu_group)) {
 				list_add(&group->next, &d->group_list);
@@ -865,7 +874,7 @@ static int vfio_domains_have_iommu_cache(struct vfio_iommu *iommu)
 
 	mutex_lock(&iommu->lock);
 	list_for_each_entry(domain, &iommu->domain_list, next) {
-		if (!(domain->prot & IOMMU_CACHE)) {
+		if (!(domain->caps & IOMMU_CAP_CACHE_COHERENCY)) {
 			ret = 0;
 			break;
 		}
