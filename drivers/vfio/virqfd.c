@@ -101,10 +101,10 @@ static void virqfd_inject(struct work_struct *work)
 		virqfd->thread(virqfd->opaque, virqfd->data);
 }
 
-int virqfd_enable(void *opaque,
-		  int (*handler)(void *, void *),
-		  void (*thread)(void *, void *),
-		  void *data, struct virqfd **pvirqfd, int fd)
+int vfio_virqfd_enable(void *opaque,
+		       int (*handler)(void *, void *),
+		       void (*thread)(void *, void *),
+		       void *data, struct virqfd **pvirqfd, int fd)
 {
 	struct fd irqfd;
 	struct eventfd_ctx *ctx;
@@ -190,9 +190,9 @@ err_fd:
 
 	return ret;
 }
-EXPORT_SYMBOL_GPL(virqfd_enable);
+EXPORT_SYMBOL_GPL(vfio_virqfd_enable);
 
-void virqfd_disable(struct virqfd **pvirqfd)
+void vfio_virqfd_disable(struct virqfd **pvirqfd)
 {
 	unsigned long flags;
 
@@ -212,4 +212,4 @@ void virqfd_disable(struct virqfd **pvirqfd)
 	 */
 	flush_workqueue(vfio_irqfd_cleanup_wq);
 }
-EXPORT_SYMBOL_GPL(virqfd_disable);
+EXPORT_SYMBOL_GPL(vfio_virqfd_disable);
