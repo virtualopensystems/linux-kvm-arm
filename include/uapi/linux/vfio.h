@@ -30,6 +30,7 @@ enum vfio_iommu_cap {
 	VFIO_DMA_CC_IOMMU	= 4, /* IOMMU enforces DMA cache coherence
 					(ex. PCIe NoSnoop stripping) */
 	VFIO_EEH		= 5, /* Check if EEH is supported */
+	VFIO_DMA_NOEXEC_IOMMU	= 6,
 };
 
 /*
@@ -394,12 +395,17 @@ struct vfio_iommu_type1_info {
  *
  * Map process virtual addresses to IO virtual addresses using the
  * provided struct vfio_dma_map. Caller sets argsz. READ &/ WRITE required.
+ *
+ * To use the VFIO_DMA_MAP_FLAG_NOEXEC flag, the container must support the
+ * VFIO_DMA_NOEXEC_IOMMU capability. If mappings are created using this flag,
+ * any groups subsequently added to the container must support this capability.
  */
 struct vfio_iommu_type1_dma_map {
 	__u32	argsz;
 	__u32	flags;
 #define VFIO_DMA_MAP_FLAG_READ (1 << 0)		/* readable from device */
 #define VFIO_DMA_MAP_FLAG_WRITE (1 << 1)	/* writable from device */
+#define VFIO_DMA_MAP_FLAG_NOEXEC (1 << 2)	/* not executable from device */
 	__u64	vaddr;				/* Process virtual address */
 	__u64	iova;				/* IO virtual address */
 	__u64	size;				/* Size of mapping (bytes) */
