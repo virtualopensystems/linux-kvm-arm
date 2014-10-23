@@ -19,19 +19,18 @@
 
 /* Kernel & User level defines for VFIO IOCTLs. */
 
-/* Extensions */
-
-#define VFIO_TYPE1_IOMMU		1
-#define VFIO_SPAPR_TCE_IOMMU		2
-#define VFIO_TYPE1v2_IOMMU		3
 /*
- * IOMMU enforces DMA cache coherence (ex. PCIe NoSnoop stripping).  This
- * capability is subject to change as groups are added or removed.
+ * Capabilities exposed by the VFIO IOMMU driver. Some capabilities are subject
+ * to change as groups are added or removed.
  */
-#define VFIO_DMA_CC_IOMMU		4
-
-/* Check if EEH is supported */
-#define VFIO_EEH			5
+enum vfio_iommu_cap {
+	VFIO_TYPE1_IOMMU	= 1,
+	VFIO_SPAPR_TCE_IOMMU	= 2,
+	VFIO_TYPE1v2_IOMMU	= 3,
+	VFIO_DMA_CC_IOMMU	= 4, /* IOMMU enforces DMA cache coherence
+					(ex. PCIe NoSnoop stripping) */
+	VFIO_EEH		= 5, /* Check if EEH is supported */
+};
 
 /*
  * The IOCTL interface is designed for extensibility by embedding the
