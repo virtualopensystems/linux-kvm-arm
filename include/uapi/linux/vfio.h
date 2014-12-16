@@ -164,10 +164,41 @@ struct vfio_device_info {
 #define VFIO_DEVICE_FLAGS_PCI	(1 << 1)	/* vfio-pci device */
 #define VFIO_DEVICE_FLAGS_PLATFORM (1 << 2)	/* vfio-platform device */
 #define VFIO_DEVICE_FLAGS_AMBA  (1 << 3)	/* vfio-amba device */
+#define VFIO_DEVICE_FLAGS_DEV_PROPERTIES (1 << 4) /* Device properties */
 	__u32	num_regions;	/* Max region index + 1 */
 	__u32	num_irqs;	/* Max IRQ index + 1 */
 };
 #define VFIO_DEVICE_GET_INFO		_IO(VFIO_TYPE, VFIO_BASE + 7)
+
+/**
+ * VFIO_DEVICE_GET_DEV_PROPERTY - _IOR(VFIO_TYPE, VFIO_BASE + 17,
+ *						struct vfio_devtree_info)
+ *
+ * Retrieve a device property, e.g. from a HW description (device tree or ACPI)
+ * if available.
+ * Caller will initialize data[] with a single string with the requested
+ * devicetree property name, and type depending on whether an array of strings
+ * or an array of u32 values is expected. On success, data[] will be filled
+ * with the requested information, either as an array of u32, or with a list
+ * of strings separated by the NULL terminating character.
+ * Return: 0 on success, -errno on failure.
+ * Errors:
+ *   E2BIG: the property is too big to fit in the data[] buffer (the required
+ *          size is then written into length).
+ */
+struct vfio_dev_property {
+	__u32	argsz;
+	__u32	flags;	/* Placeholder for future extension */
+	__u32	type;
+#define VFIO_DEV_PROPERTY_TYPE_STRINGS	0
+#define VFIO_DEV_PROPERTY_TYPE_U8	1
+#define VFIO_DEV_PROPERTY_TYPE_U16	2
+#define VFIO_DEV_PROPERTY_TYPE_U32	3
+#define VFIO_DEV_PROPERTY_TYPE_U64	4
+	__u32	length;	/* Size of data[] */
+	__u8	data[];
+};
+#define VFIO_DEVICE_GET_DEV_PROPERTY	_IO(VFIO_TYPE, VFIO_BASE + 17)
 
 /**
  * VFIO_DEVICE_GET_REGION_INFO - _IOWR(VFIO_TYPE, VFIO_BASE + 8,
