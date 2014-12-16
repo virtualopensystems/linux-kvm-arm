@@ -53,6 +53,7 @@ struct vfio_platform_device {
 	u32				num_irqs;
 	int				refcnt;
 	struct mutex			igate;
+	struct device			*dev;
 
 	/*
 	 * These fields should be filled by the bus specific binder
@@ -78,5 +79,11 @@ extern int vfio_platform_set_irqs_ioctl(struct vfio_platform_device *vdev,
 					uint32_t flags, unsigned index,
 					unsigned start, unsigned count,
 					void *data);
+
+/* device properties support in devtree.c */
+extern int vfio_platform_dev_properties(struct device *dev,
+					uint32_t type, unsigned *lenp,
+					void __user *datap,
+					unsigned long datasz);
 
 #endif /* VFIO_PLATFORM_PRIVATE_H */

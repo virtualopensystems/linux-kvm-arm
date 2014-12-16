@@ -19,6 +19,7 @@
 #include <linux/slab.h>
 #include <linux/types.h>
 #include <linux/vfio.h>
+#include <linux/property.h>
 
 #include "vfio_platform_private.h"
 
@@ -248,6 +249,34 @@ static long vfio_platform_ioctl(void *device_data,
 						   hdr.start, hdr.count, data);
 		mutex_unlock(&vdev->igate);
 		kfree(data);
+
+		return ret;
+
+	} else if (cmd == VFIO_DEVICE_GET_DEV_PROPERTY) {
+		struct vfio_dev_property info;
+		void __user *datap;
+		unsigned long datasz;
+		int ret;
+
+		if (!vdev->dev)
+			return -EINVAL;
+
+		minsz = offsetofend(struct vfio_dev_property, length);
+
+		if (copy_from_user(&info, (void __user *)arg, minsz))
+			return -EFAULT;
+
+		if (info.argsz < minsz)
+			return -EINVAL;
+
+		datap = (void __user *) arg + minsz;
+		datasz = info.argsz - minsz;
+
+		ret = vfio_platform_dev_properties(vdev->dev, info.type,
+						   &info.length, datap, datasz);
+
+		if (copy_to_user((void __user *)arg, &info, minsz))
+			ret = -EFAULT;
 
 		return ret;
 
@@ -499,6 +528,12 @@ int vfio_platform_probe_common(struct vfio_platform_device *vdev,
 	if (ret) {
 		iommu_group_put(group);
 		return ret;
+	}
+
+	/* add device properties flag */
+	if (device_property_present(dev, "name")) {
+		vdev->dev = dev;
+		vdev->flags |= VFIO_DEVICE_FLAGS_DEV_PROPERTIES;
 	}
 
 	mutex_init(&vdev->igate);
