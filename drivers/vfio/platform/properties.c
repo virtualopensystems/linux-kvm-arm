@@ -7,7 +7,48 @@ static int dev_property_get_strings(struct device *dev,
 				    char *name, unsigned *lenp,
 				    void __user *datap, unsigned long datasz)
 {
-	return -EINVAL;
+	const char **val;
+	int n, i, ret;
+
+	*lenp = 0;
+
+	n = device_property_read_string_array(dev, name, NULL, 0);
+	if (n < 0)
+		return n;
+
+	val = kcalloc(n, sizeof(char*), GFP_KERNEL);
+	if (!val)
+		return -ENOMEM;
+
+	ret = device_property_read_string_array(dev, name, val, n);
+	if (ret < 0)
+		goto out;
+
+	ret = 0;
+
+	for (i = 0; i < n; i++) {
+		size_t len = strlen(val[i]) + 1;
+
+		if (datasz < len) {
+			ret = -EOVERFLOW;
+			while (i < n)
+				*lenp += strlen(val[i++]) + 1;
+			goto out;
+		}
+
+		if (copy_to_user(datap, val[i], len)) {
+			ret = -EFAULT;
+			goto out;
+		}
+
+		*lenp += len;
+		datap += len;
+		datasz -= len;
+	}
+
+out:
+	kfree(val);
+	return ret;
 }
 
 static int dev_property_get_uint(struct device *dev, char *name,
